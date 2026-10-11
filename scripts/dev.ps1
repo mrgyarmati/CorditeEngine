@@ -181,6 +181,7 @@ function Get-PerformanceMetrics {
         'asset load (ms)'        = 'milliseconds.assetLoad'
         'scene load (ms)'        = 'milliseconds.sceneLoad'
         'draw calls'             = 'scene.drawCalls'
+        'screen passes'          = 'scene.screenPasses'
         'triangles'              = 'scene.triangles'
         'lights'                 = 'scene.lights.count'
         'light list entries'     = 'scene.lights.listEntries'

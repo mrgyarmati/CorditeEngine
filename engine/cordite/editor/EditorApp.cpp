@@ -257,7 +257,8 @@ Result<Image> EditorApp::captureViewport(UVec2 size) {
     nvrhi::IDevice* device = m_engine->graphics().device();
     const nvrhi::CommandListHandle commandList = device->createCommandList();
     commandList->open();
-    const Status rendered = m_viewport->render(device, commandList, *m_context, size);
+    // A picture of this moment: no time has passed since the viewport was last drawn.
+    const Status rendered = m_viewport->render(device, commandList, *m_context, size, 0.0f, m_engine->timeSeconds());
     commandList->close();
     CORDITE_TRY(rendered);
     device->executeCommandList(commandList);
@@ -408,31 +409,73 @@ Status EditorApp::registerApplicationCommands() {
     }));
 
     CORDITE_TRY(m_commands.add({
-        .name = "viewport.shadowQuality",
-        .description = "Chooses how much the shadows in the viewport may cost: \"off\" draws none; \"low\", "
-                       "\"medium\" and \"high\" give the shadow maps of a view an atlas of 2048, 4096 and "
-                       "8192 texels a side to share. Returns the quality now in use and all there are; "
-                       "without a parameter it changes nothing. A game sets its own quality; this is the "
-                       "editor's view of the scene.",
-        .parameters = {{"quality", Type::String, "The quality to use, by one of the names above.", false}},
+        .name = "viewport.quality",
+        .description = "Chooses how much the picture in the viewport may cost. \"preset\" sets everything by "
+                       "one word (\"low\", \"medium\", \"high\"); \"shadows\" sets the shadows alone (\"off\" "
+                       "draws none; the others give the shadow maps of a view an atlas of 2048, 4096 and 8192 "
+                       "texels a side to share) and \"postProcess\" the finishing of the picture alone (\"off\" "
+                       "shows the light as the renderer worked it out, without exposure, bloom, tone mapping or "
+                       "grading). Returns what is now in use and all there is to choose from; without "
+                       "parameters it changes nothing. A game sets its own quality; this is the editor's view "
+                       "of the scene.",
+        .parameters = {{"preset", Type::String, "Sets shadows and finishing together, by one of the names above.",
+                        false},
+                       {"shadows", Type::String, "The quality of the shadows; applied after the preset.", false},
+                       {"postProcess", Type::String,
+                        "The quality of the finishing of the picture; applied after the preset.", false}},
         .handler = [this](const Json& parameters) -> Result<Json> {
-            if (const auto name = jsonGetOr<std::string>(parameters, "quality", ""); !name.empty()) {
+            // All three are checked before any of them is applied.
+            SceneRenderSettings wanted;
+            wanted.shadowQuality = m_viewport->shadowQuality();
+            wanted.postProcessQuality = m_viewport->postProcessQuality();
+            if (const auto name = jsonGetOr<std::string>(parameters, "preset", ""); !name.empty()) {
+                const std::optional<RenderQuality> preset = renderQualityFromName(name);
+                if (!preset) {
+                    return makeError(ErrorCode::InvalidArgument,
+                                     "'{}' is not a quality preset; viewport.quality without parameters lists them",
+                                     name);
+                }
+                applyRenderQuality(*preset, wanted);
+            }
+            if (const auto name = jsonGetOr<std::string>(parameters, "shadows", ""); !name.empty()) {
                 const std::optional<ShadowQuality> quality = shadowQualityFromName(name);
                 if (!quality) {
                     return makeError(ErrorCode::InvalidArgument,
-                                     "'{}' is not a shadow quality; viewport.shadowQuality without parameters "
+                                     "'{}' is not a shadow quality; viewport.quality without parameters lists them",
+                                     name);
+                }
+                wanted.shadowQuality = *quality;
+            }
+            if (const auto name = jsonGetOr<std::string>(parameters, "postProcess", ""); !name.empty()) {
+                const std::optional<PostProcessQuality> quality = postProcessQualityFromName(name);
+                if (!quality) {
+                    return makeError(ErrorCode::InvalidArgument,
+                                     "'{}' is not a post-process quality; viewport.quality without parameters "
                                      "lists them",
                                      name);
                 }
-                m_viewport->setShadowQuality(*quality);
+                wanted.postProcessQuality = *quality;
             }
-            Json qualities = Json::array();
-            for (const ShadowQuality quality : kShadowQualities) {
-                qualities.push_back(nameOf(quality));
-            }
+            m_viewport->setShadowQuality(wanted.shadowQuality);
+            m_viewport->setPostProcessQuality(wanted.postProcessQuality);
+
             Json result = Json::object();
-            result["quality"] = nameOf(m_viewport->shadowQuality());
-            result["qualities"] = std::move(qualities);
+            const std::optional<RenderQuality> preset = renderQualityOf(wanted);
+            result["preset"] = preset ? Json(nameOf(*preset)) : Json(nullptr);
+            result["shadows"] = nameOf(wanted.shadowQuality);
+            result["postProcess"] = nameOf(wanted.postProcessQuality);
+            result["presets"] = Json::array();
+            for (const RenderQuality quality : kRenderQualities) {
+                result["presets"].push_back(nameOf(quality));
+            }
+            result["shadowQualities"] = Json::array();
+            for (const ShadowQuality quality : kShadowQualities) {
+                result["shadowQualities"].push_back(nameOf(quality));
+            }
+            result["postProcessQualities"] = Json::array();
+            for (const PostProcessQuality quality : kPostProcessQualities) {
+                result["postProcessQualities"].push_back(nameOf(quality));
+            }
             return result;
         },
     }));
@@ -632,12 +675,38 @@ void EditorApp::drawViewMenu() {
         }
         ImGui::EndMenu();
     }
-    if (ImGui::BeginMenu("Shadow quality")) {
-        for (const ShadowQuality quality : kShadowQualities) {
+    // What the picture in the viewport may cost: everything by one word, or piece by piece.
+    if (ImGui::BeginMenu("Quality")) {
+        SceneRenderSettings current;
+        current.shadowQuality = m_viewport->shadowQuality();
+        current.postProcessQuality = m_viewport->postProcessQuality();
+        const std::optional<RenderQuality> preset = renderQualityOf(current);
+        for (const RenderQuality quality : kRenderQualities) {
             const std::string label(displayNameOf(quality));
-            if (ImGui::MenuItem(label.c_str(), nullptr, m_viewport->shadowQuality() == quality)) {
-                m_viewport->setShadowQuality(quality);
+            if (ImGui::MenuItem(label.c_str(), nullptr, preset == quality)) {
+                applyRenderQuality(quality, current);
+                m_viewport->setShadowQuality(current.shadowQuality);
+                m_viewport->setPostProcessQuality(current.postProcessQuality);
             }
+        }
+        ImGui::Separator();
+        if (ImGui::BeginMenu("Shadows")) {
+            for (const ShadowQuality quality : kShadowQualities) {
+                const std::string label(displayNameOf(quality));
+                if (ImGui::MenuItem(label.c_str(), nullptr, m_viewport->shadowQuality() == quality)) {
+                    m_viewport->setShadowQuality(quality);
+                }
+            }
+            ImGui::EndMenu();
+        }
+        if (ImGui::BeginMenu("Post-processing")) {
+            for (const PostProcessQuality quality : kPostProcessQualities) {
+                const std::string label(displayNameOf(quality));
+                if (ImGui::MenuItem(label.c_str(), nullptr, m_viewport->postProcessQuality() == quality)) {
+                    m_viewport->setPostProcessQuality(quality);
+                }
+            }
+            ImGui::EndMenu();
         }
         ImGui::EndMenu();
     }
@@ -692,6 +761,14 @@ void EditorApp::drawEntityMenu() {
             create("Ambient light", std::move(components));
         }
         ImGui::EndMenu();
+    }
+    if (ImGui::MenuItem("Create post-process volume")) {
+        // A box of a few metres in which the picture is finished differently; what
+        // that is to be is set in the inspector.
+        Json components = Json::object();
+        components["PostProcess"]["global"] = false;
+        components["Transform"]["scale"] = toJson(Vec3(4.0f));
+        create("Post-process volume", std::move(components));
     }
     if (ImGui::BeginMenu("Create shape")) {
         // The built-in meshes: enough to block out a scene before models exist.

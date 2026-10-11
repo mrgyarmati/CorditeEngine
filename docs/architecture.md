@@ -124,15 +124,22 @@ solid surfaces ──> depth pre-pass ──> depth
                                                emissive
 G-buffer + depth + clusters + shadow atlas ──> deferred lighting ──> scene color (linear, float)
 translucent surfaces + clusters + shadow atlas ──> forward pass ──> scene color, blended over it
-scene color ──> display encoding ──> display image (sRGB, 8 bit)
-                                      ^ overlays: debug lines, gizmos
+scene color ──> bloom levels, down ──> exposure: how many stops the view adds
+                              └────> bloom levels, up again
+scene color + bloom + exposure + lookup table ──> post-processing ──> display image (sRGB, 8 bit)
+                                                                      ^ overlays: debug lines, gizmos
 ```
 
 The deferred path is what makes many lights affordable: every solid surface is written
 down once, and each light then costs the pixels it reaches, not the geometry. What
 cannot be written down that way - a surface through which another shows - is drawn by
-the forward pass, with the same shading code. The post-processing of the next
-milestones goes between the scene color and the display encoding.
+the forward pass, with the same shading code.
+
+What all of that produces is light: numbers without an upper limit. The last pass
+makes the picture of it that a screen shows - exposed, with a bloom around what is
+brighter than white, tone mapped and graded - as the `PostProcess` components of the
+scene say. A view that is asked not to finish its picture, and every debug view, skips
+that and only encodes the light for a display.
 
 A scene is lit by components: `Light` (directional, point or spot) and `AmbientLight`
 (a sky above and a ground below). For every view, `SceneLights` gathers the enabled
@@ -666,6 +673,101 @@ the sphere is larger than the slice - and buys shadows that hold still.
 Where two cascades meet, the shaders go over from one to the next across the last
 tenth of the nearer one, and each cascade's map starts that much earlier, so that no
 line shows.
+
+### A picture is finished in one pass, after everything is lit
+
+The renderer works out light, which has no upper limit: a lamp is a thousand times as
+bright as the wall beside it. A screen shows colors between black and white. What
+turns the one into the other - exposure, bloom, tone mapping, grading - is done once,
+at the end, by `PostProcessPass`: one pass over the picture for everything that
+happens to a pixel by itself, and before it the few small passes that need the picture
+around a pixel, for the bloom and for measuring how bright the picture is.
+
+The order is that of a camera: what the lens does to the light (aberration, bloom, a
+vignette), how much of it is let in (exposure, white balance), what the film or sensor
+makes of it (the tone mapper), and what is done to the developed picture (saturation,
+contrast, lift, gamma and gain, a lookup table, grain). Everything up to the tone
+mapper is arithmetic on light; everything after it is arithmetic on the colors of a
+display. A setting belongs where a photographer would look for it.
+
+The numbers are a `PostProcessSettings`. A scene sets them with `PostProcess`
+components, which add where they apply: everywhere, in a box, or for the camera they
+are on. A view starts from the settings as they are when nothing is said - a filmic
+curve, a little bloom, nothing else - and lays the components that apply to it over
+that, by priority. Numbers blend; what cannot be blended, such as the tone mapper,
+changes over half way through a blend.
+
+Two tone mappers are offered, and none: J. Hable's filmic curve, which is what gives
+games of the late 2000s their soft contrast and slow highlights and is what a view
+has when nothing is said; the look of ACES in K. Narkowicz's short form, with more
+contrast and more color; and "linear", which cuts off what is brighter than white.
+Both curves are scaled so that a mid-grey of 0.18 stays where it is: changing the curve
+changes what becomes of shadows and highlights, not how bright the picture is.
+
+### Grading is done on the finished colors, and a lookup table is a strip of slices
+
+Saturation, contrast, lift, gamma and gain are applied after the tone mapper, to
+colors between black and white, and so is the lookup table. Grading the light before
+the curve is the more modern way, and the more exact one for large changes; but then a
+lookup table has to be made by a tool that knows the engine's curve. After the curve, a
+table is something any image editor can make: take a screenshot with the neutral table
+pasted into a corner, change the colors until the picture is right, cut the table out
+again. That is how the games this engine takes its look from were graded.
+
+The table is an image of N * N by N pixels: N slices side by side, red running across
+each, green down it, blue from slice to slice (256 by 16 for N = 16). It is read as
+plain numbers - the colors in it are those of a display already - with two reads, one
+in each of the two slices on either side of a color's blue.
+
+### Automatic exposure is measured from the bloom
+
+A view with automatic exposure has to know how bright its picture is, as an eye would
+judge it: by the average of the logarithms, in which a small glaring lamp counts for
+its size and not for its brightness. Measuring that needs the whole picture, reduced to
+one number without skipping pixels - which is what the bloom does anyway on its way
+down. So the levels of the bloom carry, in their alpha, the logarithm of the brightness
+of the picture (of all of it, not only of what blooms), and one pass averages the
+smallest level. Nothing is read back to the CPU: the result is a texture of one texel,
+which the last pass reads.
+
+The exposure moves towards what was measured a part of the way in every frame, faster
+towards a brighter picture than towards a darker one, as eyes do. That makes it the one
+thing in the renderer that lasts from frame to frame, and it lasts where the view
+does: in its `SceneTargets`. A view that is new, or has changed its size, takes what it
+measures at once.
+
+### Bloom is a chain of halvings, and bright pixels are tamed where it starts
+
+The bloom is the picture made smaller five times or so, each time by half and with a
+blur, and then added up again from the smallest, each level spread a little into the
+next larger one (J. Jimenez, 2014). That gives a narrow glow and a wide one at once, at
+the cost of a few passes over very few pixels. `bloomScatter` says how much of each
+smaller level goes into the larger: the result is an average, not a sum, so the bloom
+of an even picture is that picture - which is something a test can state.
+
+Where the chain starts, single pixels can be thousands of times as bright as their
+neighbours: the glint of a highlight on metal. Averaged plainly, such a pixel becomes a
+blot that flickers whenever it moves. The first pass therefore weights each of its
+reads by one over one plus its brightness, within each group of four that it averages:
+a glint among dark pixels adds little, a lamp that fills the group blooms in full.
+
+### Not finishing a picture is a quality
+
+`PostProcessQuality` runs from low to high like the quality of shadows, and like it
+has "off": the light as it was worked out, encoded for a display, with what is brighter
+than white cut off. That is what tests draw when they say what a pixel must be, what
+debug views always are, and what the editor shows when asked to (`viewport.quality`).
+From low to high the look stays the same; what gives is how finely it is worked out -
+where the bloom starts and how far it reaches, and whether the lens adds grain and
+fringes. `RenderQuality` is one word for both qualities, for the options of a game.
+
+### The renderer is told the time
+
+Getting used to light takes time, and film grain changes with it. The renderer does not
+look at a clock for either: how long it has been since a view was last drawn, and what
+time it is, are part of the settings it is drawn with. The engine fills them in from
+its own clock - which runs on a fixed step when it is told to - so a test, a
+screenshot taken by a script and a reference image come out the same on every run.
 
 ### Debug views are part of the renderer
 

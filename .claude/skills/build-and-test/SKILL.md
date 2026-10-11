@@ -144,11 +144,12 @@ of a scenario is `tests/perf/output/<scenario>.json`, and every run adds a line 
 The same suite runs with all the other tests and checks the numbers against
 `tests/perf/budgets.json`:
 
-- **A count or size is over budget** (draw calls, triangles, lights, entries of the
-  light lists, shadow maps, bytes on the GPU): these are the same on every machine, so
-  the change did it. If it is meant - the showcase gained something - raise the budget in the
-  same commit, leaving little room. If not, find what stopped being instanced, culled
-  or shared, or which lights got into lists of clusters they do not reach.
+- **A count or size is over budget** (draw calls, passes over the whole picture,
+  triangles, lights, entries of the light lists, shadow maps, bytes on the GPU): these
+  are the same on every machine, so the change did it. If it is meant - the showcase
+  gained something - raise the budget in the same commit, leaving little room. If not,
+  find what stopped being instanced, culled or shared, or which lights got into lists
+  of clusters they do not reach.
 - **A time is over budget**: the budgets are many times what is normal, so something
   became very slow. Compare the scenario's report with an earlier run to see which
   phase.

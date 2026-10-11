@@ -86,7 +86,11 @@ TEST_CASE("the vignette darkens the corners") {
   scene renderer, `SceneFixture` (`tests/render/SceneTestSupport.h`) makes that
   possible: materials that emit a color or reflect all light evenly, cameras without
   perspective, lights of known brightness. `SceneRendererTests.cpp`,
-  `SceneLightingTests.cpp` and `SceneShadowTests.cpp` are full of examples.
+  `SceneLightingTests.cpp` and `SceneShadowTests.cpp` are full of examples. Such a
+  test draws a picture that is not finished (`SceneFixture::flatSettings()`, which
+  sets `PostProcessQuality::Off`): the light as it was worked out, and nothing done
+  to it. What finishing does - exposure, bloom, the curves, grading - is tested in
+  `PostProcessTests.cpp`, against the functions of `PostProcessSettings.h`.
 - Make sure the test can fail: break the code on purpose once (leave a light out,
   shrink a bound) and see the test notice.
 - Everything that influences the image must be fixed: sizes, times, seeds. Use

@@ -23,6 +23,8 @@ constexpr Vec4 kSelectionColor(1.0f, 0.78f, 0.20f, 1.0f);
 constexpr Vec4 kCameraColor(0.75f, 0.78f, 0.85f, 1.0f);
 /// A light is not seen itself, only what it lights; its lines say where it is.
 constexpr Vec4 kLightColor(1.0f, 0.86f, 0.38f, 1.0f);
+/// The box in which a PostProcess component applies.
+constexpr Vec4 kVolumeColor(0.55f, 0.85f, 0.80f, 1.0f);
 
 /// The ground grid follows the camera and fades out before its edge comes into view.
 /// Its lines are faint: far away they crowd together, and at full strength they would
@@ -191,6 +193,21 @@ void ViewportPanel::collectLines(EditorContext& context, const CameraView& view)
             drawLight(makeSceneLight(*light, placement), selected ? kSelectionColor : kLightColor, m_sceneLines,
                       selected ? &m_selectionLines : nullptr);
         }
+        if (const auto* postProcess = world.tryGet<PostProcessComponent>(entity);
+            postProcess != nullptr && !postProcess->global && world.tryGet<CameraComponent>(entity) == nullptr) {
+            // The box its settings apply in: a cube of one metre, as the entity places
+            // it. Selected, also how far outside it they fade in - in metres of the
+            // world, whatever the box is scaled by.
+            m_sceneLines.box(Aabb::fromCenterExtents(Vec3(0.0f), Vec3(0.5f)), placement,
+                             selected ? kSelectionColor : kVolumeColor);
+            const Vec3 axes(glm::length(Vec3(placement[0])), glm::length(Vec3(placement[1])),
+                            glm::length(Vec3(placement[2])));
+            if (selected && postProcess->blendDistance > 0.0f && axes.x > 0.0f && axes.y > 0.0f && axes.z > 0.0f) {
+                m_selectionLines.box(
+                    Aabb::fromCenterExtents(Vec3(0.0f), Vec3(0.5f) + Vec3(postProcess->blendDistance) / axes),
+                    placement, kVolumeColor);
+            }
+        }
         if (selected) {
             if (mesh != nullptr) {
                 // The box the mesh fills, turned and scaled with the entity.
@@ -205,7 +222,7 @@ void ViewportPanel::collectLines(EditorContext& context, const CameraView& view)
 }
 
 Status ViewportPanel::render(nvrhi::IDevice* device, nvrhi::ICommandList* commandList, EditorContext& context,
-                             UVec2 size) {
+                             UVec2 size, float deltaSeconds, double timeSeconds) {
     if (!m_targets.isValid()) {
         CORDITE_TRY_ASSIGN(m_targets, SceneTargets::create(device, size, "Viewport"));
     } else {
@@ -219,6 +236,9 @@ Status ViewportPanel::render(nvrhi::IDevice* device, nvrhi::ICommandList* comman
     settings.backgroundColor = srgbToLinear(kBackgroundColor);
     settings.debugView = m_debugView;
     settings.shadowQuality = m_shadowQuality;
+    settings.postProcessQuality = m_postProcessQuality;
+    settings.deltaSeconds = deltaSeconds;
+    settings.timeSeconds = timeSeconds;
     // A scene that is being started has no lights yet, and would be black.
     settings.defaultLighting = true;
     m_sceneRenderer->render(commandList, context.world(), m_view, m_targets, settings);
@@ -313,7 +333,8 @@ void ViewportPanel::draw(Engine& engine, EditorContext& context) {
                          static_cast<uint32_t>(std::max(available.y * scale.y, 1.0f)));
 
         if (available.x >= 1.0f && available.y >= 1.0f &&
-            reportIfFailed(render(engine.graphics().device(), engine.commandList(), context, size))) {
+            reportIfFailed(render(engine.graphics().device(), engine.commandList(), context, size,
+                                  engine.deltaSeconds(), engine.timeSeconds()))) {
             const ImVec2 origin = ImGui::GetCursorScreenPos();
             ImGui::Image(UiSystem::textureId(m_targets.display()), available);
             hovered = ImGui::IsItemHovered();

@@ -207,6 +207,7 @@ void runScenario(const std::string& name, bool withShadows) {
     CHECK((statistics.scene.shadowMaps > 0) == withShadows);
 
     checkBudget(budgets, "drawCalls", statistics.scene.meshes.drawCalls);
+    checkBudget(budgets, "screenPasses", statistics.scene.screenPasses);
     checkBudget(budgets, "triangles", static_cast<double>(statistics.scene.meshes.triangles));
     checkBudget(budgets, "lights", statistics.scene.lights);
     checkBudget(budgets, "lightListEntries", statistics.scene.lightListEntries);

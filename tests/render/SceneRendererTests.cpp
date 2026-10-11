@@ -1045,13 +1045,16 @@ TEST_SUITE("SceneRenderer") {
         const Entity ball = scene.add(BuiltinMesh::Sphere, scene.material("loud"), at(Vec3(0.0f), Vec3(1.6f)));
         const CameraView view = scene.perspectiveView(Vec3(1.0f, 1.5f, 2.5f), Vec3(0.0f));
 
-        SceneRenderSettings lightingOnly{.defaultLighting = true};
+        // (Debug views are never finished into a picture, so the picture they are held
+        // against is not either.)
+        SceneRenderSettings lightingOnly{.defaultLighting = true, .postProcessQuality = PostProcessQuality::Off};
         lightingOnly.debugView = RenderDebugView::LightingOnly;
         const Image shown = scene.render(view, lightingOnly);
 
         // The same ball made of grey, in the ordinary view: the same picture.
         scene.world.tryGet<MeshRendererComponent>(ball)->materials = {scene.material("grey")};
-        const Image grey = scene.render(view, SceneRenderSettings{.defaultLighting = true});
+        const Image grey = scene.render(
+            view, SceneRenderSettings{.defaultLighting = true, .postProcessQuality = PostProcessQuality::Off});
         const ImageComparison difference = unwrap(compareImages(shown, grey, {.channelTolerance = 2}));
         CHECK(difference.differingPixels == 0);
         // And grey it is: no trace of the red, of the metal or of the glow.
@@ -1232,8 +1235,9 @@ TEST_SUITE("SceneRenderer") {
                   at(Vec3(0.2f, 1.45f, 0.0f), Vec3(1.0f), glm::angleAxis(0.5f, Vec3(1.0f, 0.0f, 0.0f))));
         scene.add(BuiltinMesh::Cube, scene.material("glass"), at(Vec3(-0.6f, 0.4f, 1.9f), Vec3(0.8f)));
 
-        const Image image = scene.render(scene.perspectiveView(Vec3(0.6f, 2.6f, 6.2f), Vec3(0.1f, 0.5f, 0.0f), 40.0f),
-                                         SceneRenderSettings{.defaultLighting = true});
+        const Image image =
+            scene.render(scene.perspectiveView(Vec3(0.6f, 2.6f, 6.2f), Vec3(0.1f, 0.5f, 0.0f), 40.0f),
+                         SceneRenderSettings{.defaultLighting = true, .postProcessQuality = PostProcessQuality::Off});
         checkAgainstReference(image, "scene-primitives-640x360");
         CHECK(scene.renderer->statistics().meshRenderers == 8);
         checkNoValidationIssues(*scene.context.graphics);

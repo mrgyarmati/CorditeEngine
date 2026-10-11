@@ -24,6 +24,8 @@
 ///     "gpuMilliseconds": 0.24,          // null where the GPU cannot time its work
 ///     "scene": {"views": 1, "meshRenderers": 21, "culled": 1,
 ///               "drawCalls": 115, "instances": 137, "triangles": 17470,   // all passes together
+///               // Passes over the whole picture: the lighting, and what finishes it.
+///               "screenPasses": 12,
 ///               // The lights in view, the entries of the cluster lists they are in, and
 ///               // the lights left out because a view holds only so many.
 ///               "lights": {"count": 4, "listEntries": 1106, "dropped": 0},

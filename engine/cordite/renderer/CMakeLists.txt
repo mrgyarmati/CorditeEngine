@@ -28,6 +28,10 @@ cordite_add_module(renderer
         MeshDrawList.h
         MeshPass.cpp
         MeshPass.h
+        PostProcessPass.cpp
+        PostProcessPass.h
+        PostProcessSettings.cpp
+        PostProcessSettings.h
         RenderComponents.cpp
         RenderComponents.h
         RenderDebugView.cpp
@@ -38,6 +42,8 @@ cordite_add_module(renderer
         RenderTarget.h
         SceneLights.cpp
         SceneLights.h
+        ScenePostProcess.cpp
+        ScenePostProcess.h
         ShadowAtlas.cpp
         ShadowAtlas.h
         ShadowPlan.cpp

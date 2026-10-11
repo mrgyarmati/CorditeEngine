@@ -2,6 +2,7 @@
 
 #include "cordite/core/Assert.h"
 #include "cordite/core/Log.h"
+#include "cordite/core/StringUtils.h"
 #include "cordite/math/Frustum.h"
 #include "cordite/renderer/RenderComponents.h"
 #include "cordite/world/Components.h"
@@ -68,10 +69,73 @@ MeshPassDesc overdrawPassDesc() {
 
 } // namespace
 
+std::string_view nameOf(RenderQuality quality) {
+    switch (quality) {
+        case RenderQuality::Low:
+            return "low";
+        case RenderQuality::Medium:
+            return "medium";
+        case RenderQuality::High:
+            return "high";
+    }
+    return "unknown";
+}
+
+std::string_view displayNameOf(RenderQuality quality) {
+    switch (quality) {
+        case RenderQuality::Low:
+            return "Low";
+        case RenderQuality::Medium:
+            return "Medium";
+        case RenderQuality::High:
+            return "High";
+    }
+    return "Unknown";
+}
+
+std::optional<RenderQuality> renderQualityFromName(std::string_view name) {
+    for (const RenderQuality quality : kRenderQualities) {
+        if (equalsIgnoreCase(name, nameOf(quality))) {
+            return quality;
+        }
+    }
+    return std::nullopt;
+}
+
+void applyRenderQuality(RenderQuality quality, SceneRenderSettings& settings) {
+    switch (quality) {
+        case RenderQuality::Low:
+            settings.shadowQuality = ShadowQuality::Low;
+            settings.postProcessQuality = PostProcessQuality::Low;
+            break;
+        case RenderQuality::Medium:
+            settings.shadowQuality = ShadowQuality::Medium;
+            settings.postProcessQuality = PostProcessQuality::Medium;
+            break;
+        case RenderQuality::High:
+            settings.shadowQuality = ShadowQuality::High;
+            settings.postProcessQuality = PostProcessQuality::High;
+            break;
+    }
+}
+
+std::optional<RenderQuality> renderQualityOf(const SceneRenderSettings& settings) {
+    for (const RenderQuality quality : kRenderQualities) {
+        SceneRenderSettings preset;
+        applyRenderQuality(quality, preset);
+        if (preset.shadowQuality == settings.shadowQuality &&
+            preset.postProcessQuality == settings.postProcessQuality) {
+            return quality;
+        }
+    }
+    return std::nullopt;
+}
+
 SceneRenderStatistics& SceneRenderStatistics::operator+=(const SceneRenderStatistics& other) {
     views += other.views;
     meshRenderers += other.meshRenderers;
     culled += other.culled;
+    screenPasses += other.screenPasses;
     lights += other.lights;
     lightListEntries += other.lightListEntries;
     droppedLights += other.droppedLights;
@@ -117,6 +181,7 @@ Result<std::unique_ptr<SceneRenderer>> SceneRenderer::create(nvrhi::IDevice* dev
     CORDITE_TRY_ASSIGN(DebugViewPass debugView, DebugViewPass::create(device, shaders, viewLayout));
     CORDITE_TRY_ASSIGN(DisplayEncodePass encode, DisplayEncodePass::create(device, shaders));
     CORDITE_TRY_ASSIGN(ShadowAtlas shadows, ShadowAtlas::create(device, shaders, materialLayout));
+    CORDITE_TRY_ASSIGN(PostProcessPass postProcess, PostProcessPass::create(device, shaders));
 
     Passes passes{.depth = std::move(depth),
                   .base = std::move(base),
@@ -126,7 +191,8 @@ Result<std::unique_ptr<SceneRenderer>> SceneRenderer::create(nvrhi::IDevice* dev
                   .lighting = std::move(lighting),
                   .debugView = std::move(debugView),
                   .encode = std::move(encode),
-                  .shadows = std::move(shadows)};
+                  .shadows = std::move(shadows),
+                  .postProcess = std::move(postProcess)};
     return std::unique_ptr<SceneRenderer>(new SceneRenderer(device, std::move(resources), std::move(viewBindings),
                                                             std::move(passes), desc.supportsWireframe));
 }
@@ -239,7 +305,7 @@ void SceneRenderer::drawShadows(nvrhi::ICommandList* commandList, const ShadowSe
 }
 
 void SceneRenderer::render(nvrhi::ICommandList* commandList, const World& world, const CameraView& view,
-                           const SceneTargets& targets, const SceneRenderSettings& settings) {
+                           SceneTargets& targets, const SceneRenderSettings& settings) {
     CORDITE_ASSERT(commandList != nullptr && targets.isValid(), "render needs a command list and valid targets");
     m_statistics = {};
     if (commandList == nullptr || !targets.isValid()) {
@@ -314,12 +380,29 @@ void SceneRenderer::render(nvrhi::ICommandList* commandList, const World& world,
         } else {
             m_passes.lighting.draw(commandList, targets, viewBindings, debugView == RenderDebugView::LightingOnly);
         }
+        ++m_statistics.screenPasses;
         if (debugView == RenderDebugView::None) {
             m_statistics.forwardPass = m_passes.forward.draw(commandList, targets.sceneFramebuffer(),
                                                              m_drawList.blendedBatches(), viewBindings, instances);
         }
     }
-    m_passes.encode.draw(commandList, targets.sceneColor(), targets.displayFramebuffer());
+    if (settings.postProcessQuality != PostProcessQuality::Off && debugView == RenderDebugView::None) {
+        const PostProcessSettings look =
+            settings.postProcess
+                ? *settings.postProcess
+                : resolvePostProcess(world, {.position = view.position, .camera = settings.viewEntity});
+        // A lookup table that is used for the first time goes to the GPU now.
+        nvrhi::ITexture* colorLut = m_resources->dataTexture(look.colorLut);
+        m_resources->flushUploads();
+        m_statistics.screenPasses += m_passes.postProcess.draw(commandList, targets, look,
+                                                               {.quality = settings.postProcessQuality,
+                                                                .deltaSeconds = settings.deltaSeconds,
+                                                                .timeSeconds = settings.timeSeconds,
+                                                                .colorLut = colorLut});
+    } else {
+        m_passes.encode.draw(commandList, targets.sceneColor(), targets.displayFramebuffer());
+        ++m_statistics.screenPasses;
+    }
 
     m_statistics.views = 1;
     m_statistics.shadowAtlasBytes = m_passes.shadows.byteSize();

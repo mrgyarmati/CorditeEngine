@@ -1,6 +1,7 @@
 #include "cordite/engine/Engine.h"
 
 #include "cordite/assets/ImageCompare.h"
+#include "cordite/math/Color.h"
 #include "cordite/math/Transform.h"
 #include "cordite/renderer/RenderComponents.h"
 #include "cordite/world/Components.h"
@@ -9,6 +10,9 @@
 #include "render/RenderTestSupport.h"
 #include "support/MathTestSupport.h"
 
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
 #include <memory>
 
 using namespace cordite;
@@ -131,16 +135,17 @@ TEST_SUITE("Engine") {
             runFrames(*engine, 1);
             // The fullscreen triangle, the test pattern, the blit and the two interface
             // shaders; of the scene renderer the mesh vertex shader, the pixel shaders of
-            // its five mesh passes, the lighting in its two forms, the debug view and
-            // the display encoding.
-            CHECK(engine->shaders().stats().compilations == 15);
+            // its five mesh passes, the lighting in its two forms, the debug view, the
+            // display encoding, and the five that finish the picture: three for the
+            // bloom, one for the exposure and the last pass.
+            CHECK(engine->shaders().stats().compilations == 20);
             CHECK(engine->shaders().stats().diskHits == 0);
         }
 
         const std::unique_ptr<Engine> engine = createEngine(desc);
         runFrames(*engine, 1);
         CHECK(engine->shaders().stats().compilations == 0);
-        CHECK(engine->shaders().stats().diskHits == 15);
+        CHECK(engine->shaders().stats().diskHits == 20);
         checkNoValidationIssues(engine->graphics());
     }
 
@@ -314,9 +319,10 @@ TEST_SUITE("Engine") {
         runFrames(*engine, 1);
         const Image frame = test::unwrap(engine->captureFrame());
         // The background in the corners, the lit default material in the middle.
+        // (The same in opposite corners, but for the dithering of a finished picture.)
         const Vec4 corner = frame.pixel(2, 2);
         const Vec4 middle = frame.pixel(80, 45);
-        CHECK(frame.pixel(157, 87) == corner);
+        CHECK_NEAR(frame.pixel(157, 87), corner, 2.5f / 255.0f);
         CHECK(corner.r < 0.2f);
         CHECK(middle.r > corner.r + 0.3f);
         CHECK(engine->sceneRenderer().statistics().meshRenderers == 1);
@@ -342,8 +348,11 @@ TEST_SUITE("Engine") {
         world.transform(sun).rotation = lookRotation(Vec3(-0.3f, -1.0f, -0.2f));
         world.add<LightComponent>(sun) = {.type = LightType::Directional, .castsShadows = true};
 
-        // As it comes: shadows of medium quality, one map for each cascade of the sun.
+        // As it comes: shadows of medium quality, one map for each cascade of the sun,
+        // and a picture that is finished at medium quality.
         CHECK(engine->renderSettings().shadowQuality == ShadowQuality::Medium);
+        CHECK(engine->renderSettings().postProcessQuality == PostProcessQuality::Medium);
+        CHECK(renderQualityOf(engine->renderSettings()) == RenderQuality::Medium);
         runFrames(*engine, 1);
         CHECK(engine->statistics().scene.shadowMaps == 4);
         CHECK(engine->statistics().scene.shadowPass.drawCalls == 4);
@@ -357,10 +366,83 @@ TEST_SUITE("Engine") {
         // The floor is lit as before: nothing stands in the sun.
         CHECK_NEAR(test::unwrap(engine->captureFrame()).pixel(80, 80), lit, 2.0f / 255.0f);
 
-        // The background is one of the settings too.
+        // One word sets everything a view may cost.
+        applyRenderQuality(RenderQuality::High, engine->renderSettings());
+        CHECK(engine->renderSettings().shadowQuality == ShadowQuality::High);
+        CHECK(engine->renderSettings().postProcessQuality == PostProcessQuality::High);
+        runFrames(*engine, 1);
+        CHECK(engine->statistics().scene.shadowMaps == 4);
+        CHECK(engine->statistics().scene.shadowAtlasBytes == uint64_t{8192} * 8192 * 4);
+
+        // The background is one of the settings too. A finished picture shows it through
+        // the tone mapper: a red that is as bright as white is not at the top of what a
+        // screen can show ...
         engine->renderSettings().backgroundColor = Vec3(1.0f, 0.0f, 0.0f);
         runFrames(*engine, 1);
+        const Vec4 finished = test::unwrap(engine->captureFrame()).pixel(80, 3);
+        CHECK(finished.r > 0.7f);
+        CHECK(finished.r < 0.9f);
+        CHECK(finished.g < 0.1f);
+        // ... and one that is not finished shows it as it is.
+        engine->renderSettings().postProcessQuality = PostProcessQuality::Off;
+        runFrames(*engine, 1);
         CHECK_NEAR(test::unwrap(engine->captureFrame()).pixel(80, 3), Vec4(1.0f, 0.0f, 0.0f, 1.0f), 2.0f / 255.0f);
+        checkNoValidationIssues(engine->graphics());
+    }
+
+    TEST_CASE("the engine finishes the picture as the world says, for the camera it is seen through, over time") {
+        EngineDesc desc = headlessDesc(UVec2(64, 64));
+        // A tenth of a second a frame, whatever the clock says.
+        desc.fixedTimeStep = 0.1;
+        const std::unique_ptr<Engine> engine = createEngine(desc);
+        World& world = engine->world();
+        engine->renderSettings().backgroundColor = Vec3(0.5f);
+
+        // A camera that looks at nothing but the background, with a look of its own.
+        const Entity camera = world.createEntity("Camera");
+        world.add<CameraComponent>(camera);
+        PostProcessComponent& own = world.add<PostProcessComponent>(camera);
+        own.toneMapper = ToneMapper::Linear;
+        own.bloomIntensity = 0.0f;
+        own.exposure = -1.0f;
+        // And one that the scene sets for every view.
+        const Entity scene = world.createEntity("Look");
+        {
+            PostProcessComponent& look = world.add<PostProcessComponent>(scene);
+            look.toneMapper = ToneMapper::Linear;
+            look.bloomIntensity = 0.0f;
+            look.exposure = 1.0f;
+            look.saturation = 0.0f;
+        }
+
+        const auto brightness = [&] { return srgbToLinear(test::unwrap(engine->captureFrame()).pixel(32, 32).g); };
+        // The camera's own settings have the last word: a stop down, not a stop up.
+        runFrames(*engine, 1);
+        CHECK(brightness() == doctest::Approx(0.25f).epsilon(0.03));
+        // Without them, what the scene says.
+        world.remove<PostProcessComponent>(camera);
+        runFrames(*engine, 1);
+        CHECK(brightness() == doctest::Approx(1.0f).epsilon(0.03));
+
+        // Automatic exposure gets used to the picture frame by frame, by the engine's
+        // clock: here from the stop it starts at ...
+        PostProcessComponent& look = *world.tryGet<PostProcessComponent>(scene);
+        look.exposure = 0.0f;
+        look.exposureMode = ExposureMode::Automatic;
+        look.adaptationSpeedUp = 2.0f;
+        look.adaptationSpeedDown = 2.0f;
+        look.autoExposureMinimum = -8.0f;
+        look.autoExposureMaximum = 8.0f;
+        runFrames(*engine, 1);
+        CHECK(brightness() == doctest::Approx(0.18f).epsilon(0.03));
+        // ... towards four times the light, a tenth of a second at a time.
+        engine->renderSettings().backgroundColor = Vec3(2.0f);
+        float stops = std::log2(0.18f / 0.5f);
+        for (int frame = 0; frame < 3; ++frame) {
+            runFrames(*engine, 1);
+            stops += (std::log2(0.18f / 2.0f) - stops) * (1.0f - std::exp(-0.1f * 2.0f));
+            CHECK(brightness() == doctest::Approx(std::min(2.0f * std::exp2(stops), 1.0f)).epsilon(0.03));
+        }
         checkNoValidationIssues(engine->graphics());
     }
 

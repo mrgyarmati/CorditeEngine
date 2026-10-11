@@ -390,15 +390,18 @@ private:
     std::vector<PropertyInfo> m_properties;
 };
 
-/// Builds the TypeInfo of a struct T.
+/// Builds the TypeInfo of a struct T. The members described may be T's own or those of
+/// a struct it derives from: a struct that adds a few fields to another is described
+/// as one type, with the properties of both.
 template <typename T>
 class TypeBuilder {
 public:
     explicit TypeBuilder(std::string name) { m_type.m_name = std::move(name); }
 
     /// Describes a data member whose type has a PropertyCodec.
-    template <ReflectableValue Member>
-    TypeBuilder& property(std::string name, Member T::* member, PropertyAttributes attributes = {}) {
+    template <ReflectableValue Member, typename Owner>
+        requires std::derived_from<T, Owner>
+    TypeBuilder& property(std::string name, Member Owner::* member, PropertyAttributes attributes = {}) {
         PropertyInfo& info = add(std::move(name), PropertyCodec<Member>::kType, std::move(attributes));
         if constexpr (requires { PropertyCodec<Member>::kElementType; }) {
             info.m_elementType = PropertyCodec<Member>::kElementType;
@@ -418,9 +421,9 @@ public:
 
     /// Describes an enum member. `options` maps each enumerator to the name it has in
     /// files and tools; a value without a name cannot be stored.
-    template <typename Enum>
-        requires std::is_enum_v<Enum>
-    TypeBuilder& enumProperty(std::string name, Enum T::* member, std::vector<std::pair<Enum, std::string>> options,
+    template <typename Enum, typename Owner>
+        requires std::is_enum_v<Enum> && std::derived_from<T, Owner>
+    TypeBuilder& enumProperty(std::string name, Enum Owner::* member, std::vector<std::pair<Enum, std::string>> options,
                               PropertyAttributes attributes = {}) {
         PropertyInfo& info = add(std::move(name), PropertyType::Enum, std::move(attributes));
         for (auto& [value, optionName] : options) {
@@ -442,8 +445,9 @@ public:
 
     /// Describes a member that is itself a reflected struct. `type` must outlive the
     /// TypeInfo being built.
-    template <typename Member>
-    TypeBuilder& objectProperty(std::string name, Member T::* member, const TypeInfo& type,
+    template <typename Member, typename Owner>
+        requires std::derived_from<T, Owner>
+    TypeBuilder& objectProperty(std::string name, Member Owner::* member, const TypeInfo& type,
                                 PropertyAttributes attributes = {}) {
         PropertyInfo& info = add(std::move(name), PropertyType::Object, std::move(attributes));
         info.m_objectType = &type;

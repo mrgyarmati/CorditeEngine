@@ -148,6 +148,8 @@ public:
     /// Draws the world into the frame target as its primary camera sees it (the first
     /// enabled camera with `primary` set; see findPrimaryCamera). A world without one
     /// shows the test pattern. Only during a frame, with the world transforms up to date.
+    /// Whose view it is and the time are filled in here, whatever `settings` say for
+    /// viewEntity, deltaSeconds and timeSeconds.
     [[nodiscard]] Status drawWorld(const SceneRenderSettings& settings = {});
 
     /// Runs a whole frame for a program that draws nothing itself: beginFrame(), world
@@ -156,7 +158,8 @@ public:
     [[nodiscard]] Result<bool> runFrame();
 
     /// What runFrame() draws the world with: the background, the quality of the
-    /// shadows. A game changes them when its player changes the graphics options.
+    /// shadows and of the finishing of the picture. A game changes them when its player
+    /// changes the graphics options (applyRenderQuality() sets them by one word).
     [[nodiscard]] SceneRenderSettings& renderSettings();
     [[nodiscard]] const SceneRenderSettings& renderSettings() const;
 

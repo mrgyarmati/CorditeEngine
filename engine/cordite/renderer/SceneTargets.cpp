@@ -2,6 +2,8 @@
 
 #include "cordite/core/Assert.h"
 
+#include <algorithm>
+#include <atomic>
 #include <utility>
 
 namespace cordite {
@@ -107,7 +109,50 @@ Result<SceneTargets> SceneTargets::create(nvrhi::IDevice* device, UVec2 size, st
         !targets.m_sceneFramebuffer || !targets.m_displayFramebuffer || !targets.m_overlayFramebuffer) {
         return makeError(ErrorCode::DeviceError, "cannot create the framebuffers of '{}'", name);
     }
+
+    // The bloom chain: halves, down to one texel.
+    UVec2 levelSize = size;
+    do {
+        levelSize = glm::max(levelSize / 2u, UVec2(1));
+        const uint32_t level = targets.m_bloomLevelCount++;
+        targets.m_bloom[level] =
+            createTexture(device, levelSize, nvrhi::Format::RGBA16_FLOAT, fmt::format("{} bloom {}", name, level),
+                          nvrhi::ResourceStates::ShaderResource);
+        if (targets.m_bloom[level]) {
+            targets.m_bloomFramebuffers[level] =
+                device->createFramebuffer(nvrhi::FramebufferDesc().addColorAttachment(targets.m_bloom[level]));
+        }
+        if (!targets.m_bloomFramebuffers[level]) {
+            return makeError(ErrorCode::DeviceError, "cannot create the bloom levels of '{}'", name);
+        }
+    } while ((levelSize.x > 1 || levelSize.y > 1) && targets.m_bloomLevelCount < kMaxBloomLevels);
+
+    for (size_t index = 0; index < targets.m_exposure.size(); ++index) {
+        targets.m_exposure[index] =
+            createTexture(device, UVec2(1), nvrhi::Format::R16_FLOAT, fmt::format("{} exposure {}", name, index),
+                          nvrhi::ResourceStates::ShaderResource);
+        if (targets.m_exposure[index]) {
+            targets.m_exposureFramebuffers[index] =
+                device->createFramebuffer(nvrhi::FramebufferDesc().addColorAttachment(targets.m_exposure[index]));
+        }
+        if (!targets.m_exposureFramebuffers[index]) {
+            return makeError(ErrorCode::DeviceError, "cannot create the exposure of '{}'", name);
+        }
+    }
+
+    static std::atomic<uint64_t> nextSerial{1};
+    targets.m_serial = nextSerial.fetch_add(1);
     return targets;
+}
+
+nvrhi::ITexture* SceneTargets::bloomLevel(uint32_t level) const {
+    CORDITE_ASSERT(level < m_bloomLevelCount, "there is no bloom level {}", level);
+    return level < m_bloomLevelCount ? m_bloom[level].Get() : nullptr;
+}
+
+nvrhi::IFramebuffer* SceneTargets::bloomFramebuffer(uint32_t level) const {
+    CORDITE_ASSERT(level < m_bloomLevelCount, "there is no bloom level {}", level);
+    return level < m_bloomLevelCount ? m_bloomFramebuffers[level].Get() : nullptr;
 }
 
 void SceneTargets::clear(nvrhi::ICommandList* commandList, const Vec3& background) const {

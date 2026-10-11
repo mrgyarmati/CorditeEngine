@@ -131,6 +131,19 @@ keeps them as long as the order of its meshes and materials stays the same.
   scene that refers to it: do not change `kBuiltinNamespace`, `kPathNamespace`, the
   sub-path scheme or `Uuid::fromName`.
 
+## Make a color lookup table
+
+`PostProcess.colorLut` takes an image of N * N by N pixels - 256 by 16 is usual - that
+says what becomes of each color of the finished picture: N slices side by side, red
+running across each, green down it, blue from slice to slice. The table that changes
+nothing has at every place the color the place stands for.
+
+To make one by eye: paste the neutral table into a screenshot, change the colors of
+the whole image in an image editor until the picture is right, cut the table out
+again, save it as PNG in the project. To make one from a formula, see `gradeColor` in
+`tools/sample-assets/Main.cpp`, which makes the showcase's. A table of another shape
+is left out, and the renderer says so once.
+
 ## Regenerate the showcase's textures and models
 
 They are made by `tools/sample-assets/Main.cpp`, from formulas:

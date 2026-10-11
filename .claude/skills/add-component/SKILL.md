@@ -100,6 +100,10 @@ TypeInfo describeLight() {
   `Quat` (include `cordite/math/MathReflection.h`), enums (`enumProperty`), nested
   reflected structs (`objectProperty`), and `std::vector` of the plain ones. A new kind
   of value needs a `PropertyCodec` specialization (see `core/Reflection.h`).
+- A component that is "settings, and where they apply" can be built on the struct of
+  the settings (`struct PostProcessComponent : PostProcessSettings`): the builder
+  takes members of the base like the component's own, and code that only needs the
+  settings takes the base.
 
 ## 3. Register it
 

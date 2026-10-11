@@ -118,11 +118,11 @@ Look at the screenshot. Then run `./scripts/dev.ps1 verify` before committing.
 
 ```
 shadow maps -> depth pre-pass -> base pass (G-buffer) -> deferred lighting -> forward pass
-            -> display encoding
+            -> post-processing (or, for a picture that is not finished, display encoding)
 ```
 
 Decide where a new pass belongs before writing it: does it draw meshes, read the
-G-buffer, or work on the lit picture?
+G-buffer, work on the light of the scene, or finish the picture?
 
 ### A pass that draws meshes
 
@@ -244,6 +244,35 @@ for (uint entry = 0; entry < range.count; ++entry) { ... lights[lightIndices[ran
   each of the six sides of a point light.
 - Measure: the `shadows` scenario of `./scripts/dev.ps1 perf` draws more than fifty
   shadow maps a frame.
+
+### Something about the finished picture
+
+`PostProcessPass` turns the light of the scene into what a screen shows; the order of
+what it does, and every number, is in `PostProcessSettings.h`.
+
+- **Something that happens to a pixel by itself** - a curve, a tint, a change of
+  contrast - is a few lines in `passes/PostProcess.slang`, at the place in the order
+  where a photographer would look for it: before the tone mapper it is arithmetic on
+  light, after it on the colors of a display.
+- **Write the arithmetic twice:** in the shader (`common/ToneMapping.slang` for what
+  is shared) and as a function in `PostProcessSettings.cpp`. `PostProcessTests` draws
+  fields of known light and holds every pixel against the function; a test of the
+  function alone pins numbers worked out by hand.
+- **A new setting** goes into `PostProcessSettings` with its range in `sanitized()`,
+  into `blend()`, into `PostProcessConstants` on both sides (`PostProcessPass.cpp`,
+  `common/PostProcess.slang`; mind the packing rules), into the description of the
+  `PostProcess` component (`RenderComponents.cpp`) and into the showcase's scene.
+- **Something that needs the picture around a pixel** is a pass of its own before the
+  last one, as the bloom is: small targets in `SceneTargets`, a `FullscreenPass`, and
+  binding sets kept per view (`PostProcessPass::ViewCache`), because a view is
+  drawn every frame with the same textures.
+- **Something that lasts from frame to frame** - the exposure a view has got used to -
+  is kept in the `SceneTargets` of the view, and is told how much time has passed
+  (`PostProcessFrame::deltaSeconds`). The renderer never looks at a clock.
+- **Quality** (`postProcessSettingsFor`) changes how finely something is worked out,
+  never whether the look is there.
+- Count it: `PostProcessPass::draw` returns its passes, which are budgeted as
+  `screenPasses` in `tests/perf/budgets.json`.
 
 ### A debug view
 

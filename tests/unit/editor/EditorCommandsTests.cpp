@@ -157,7 +157,7 @@ TEST_SUITE("EditorCommands") {
     TEST_CASE("component.types describes what can be edited") {
         CommandFixture fixture;
         const Json types = fixture.run("component.types");
-        REQUIRE(types.size() == 6);
+        REQUIRE(types.size() == 7);
 
         CHECK(types[0]["name"] == "Transform");
         CHECK(types[0]["optional"] == false);
@@ -192,8 +192,19 @@ TEST_SUITE("EditorCommands") {
         CHECK(types[3]["properties"][3]["unit"] == "m");
         CHECK(types[4]["name"] == "AmbientLight");
 
-        CHECK(types[5]["name"] == "Label");
-        CHECK(types[5]["properties"][1]["readOnly"] == true);
+        // The settings a component takes over from a struct it is built on are its own
+        // properties like any other.
+        CHECK(types[5]["name"] == "PostProcess");
+        CHECK(types[5]["properties"][0]["name"] == "global");
+        CHECK(types[5]["properties"][4]["name"] == "exposureMode");
+        CHECK(types[5]["properties"][4]["options"] == json(R"(["manual", "automatic"])"));
+        CHECK(types[5]["properties"][10]["name"] == "toneMapper");
+        CHECK(types[5]["properties"][10]["options"] == json(R"(["filmic", "aces", "linear"])"));
+        CHECK(types[5]["properties"][21]["name"] == "colorLut");
+        CHECK(types[5]["properties"][21]["assetType"] == "Texture");
+
+        CHECK(types[6]["name"] == "Label");
+        CHECK(types[6]["properties"][1]["readOnly"] == true);
     }
 
     TEST_CASE("a scene is lit by commands: lights are made, changed and taken back like everything else") {

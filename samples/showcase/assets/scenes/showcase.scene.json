@@ -495,6 +495,38 @@
                     "nearPlane": 0.5,
                     "farPlane": 50.0,
                     "primary": false
+                },
+                // A PostProcess component on a camera is that camera's own: it applies to
+                // what is seen through it, after everything the scene says (see "Look"
+                // below), and to no other view. A map is no photograph: no curve
+                // ("linear" cuts off what is brighter than white), no bloom, no grade.
+                "PostProcess": {
+                    "global": true,
+                    "priority": 0,
+                    "blendDistance": 1.0,
+                    "weight": 1.0,
+                    "exposureMode": "manual",
+                    "exposure": 0.0,
+                    "autoExposureMinimum": -3.0,
+                    "autoExposureMaximum": 3.0,
+                    "adaptationSpeedUp": 3.0,
+                    "adaptationSpeedDown": 1.0,
+                    "toneMapper": "linear",
+                    "bloomIntensity": 0.0,
+                    "bloomThreshold": 1.0,
+                    "bloomScatter": 0.65,
+                    "temperature": 0.0,
+                    "tint": 0.0,
+                    "contrast": 1.0,
+                    "saturation": 1.0,
+                    "lift": [0.0, 0.0, 0.0],
+                    "gamma": [1.0, 1.0, 1.0],
+                    "gain": [1.0, 1.0, 1.0],
+                    "colorLut": "00000000-0000-0000-0000-000000000000",
+                    "colorLutIntensity": 1.0,
+                    "vignette": 0.0,
+                    "chromaticAberration": 0.0,
+                    "filmGrain": 0.0
                 }
             }
         },
@@ -559,6 +591,108 @@
             "components": {
                 "Transform": { "position": [0.0, 8.0, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [1.0, 1.0, 1.0] },
                 "AmbientLight": { "skyColor": [0.13, 0.17, 0.25], "groundColor": [0.06, 0.05, 0.045], "intensity": 1.0 }
+            }
+        },
+        {
+            // The renderer works out light, without an upper limit; a screen shows colors
+            // between black and white. What happens in between - exposure, bloom, tone
+            // mapping, grading - is set by PostProcess components.
+            "id": "10000000-0000-4000-8000-000000000024",
+            "name": "Look",
+            "enabled": true,
+            "parent": null,
+            "components": {
+                "Transform": { "position": [0.0, 0.0, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [1.0, 1.0, 1.0] }
+            }
+        },
+        {
+            // The look of the scene: "global" applies it wherever the camera is.
+            //
+            // Exposure is automatic: the view sets itself so that the picture is mid-grey on
+            // average, within the stops it is allowed, and "exposure" is added to that -
+            // here a little, for a picture brighter than the average. The "filmic" curve
+            // then brings the light into the range of a screen, with soft highlights.
+            // What is brighter than white - the wall light, the glints on the metal -
+            // blooms. The lookup table (textures/grade_lut.png, made by
+            // tools/sample-assets) mutes the colors and tints shadows and highlights; the
+            // rest is what a lens adds: darker corners, a fringe of color, grain.
+            "id": "10000000-0000-4000-8000-000000000025",
+            "name": "Grade",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-000000000024",
+            "components": {
+                "Transform": { "position": [0.0, 0.0, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [1.0, 1.0, 1.0] },
+                "PostProcess": {
+                    "global": true,
+                    "priority": 0,
+                    "blendDistance": 1.0,
+                    "weight": 1.0,
+                    "exposureMode": "automatic",
+                    "exposure": -0.7,
+                    "autoExposureMinimum": -1.0,
+                    "autoExposureMaximum": 2.0,
+                    "adaptationSpeedUp": 3.0,
+                    "adaptationSpeedDown": 1.0,
+                    "toneMapper": "filmic",
+                    "bloomIntensity": 0.2,
+                    "bloomThreshold": 1.0,
+                    "bloomScatter": 0.65,
+                    "temperature": 0.0,
+                    "tint": 0.0,
+                    "contrast": 1.15,
+                    "saturation": 1.0,
+                    "lift": [0.0, 0.0, 0.0],
+                    "gamma": [1.0, 1.0, 1.0],
+                    "gain": [1.0, 1.0, 1.0],
+                    "colorLut": "774e36ac-b463-84b2-a580-6061deca9830",
+                    "colorLutIntensity": 0.8,
+                    "vignette": 0.35,
+                    "chromaticAberration": 0.15,
+                    "filmGrain": 0.15
+                }
+            }
+        },
+        {
+            // A look for one place: without "global", the settings apply where the camera is
+            // inside the box that the transform makes of a cube of one metre - here four
+            // metres a side, under the street lamp - and fade in over "blendDistance"
+            // outside it. A higher priority puts it on top of the scene's look. Under the
+            // lamp the picture is warmer and harder ("aces" has more contrast than
+            // "filmic"), and the exposure is set by hand.
+            "id": "10000000-0000-4000-8000-000000000026",
+            "name": "Under the lamp",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-000000000024",
+            "components": {
+                "Transform": { "position": [-4.0, 2.0, 2.2], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [4.0, 4.0, 4.0] },
+                "PostProcess": {
+                    "global": false,
+                    "priority": 10,
+                    "blendDistance": 2.0,
+                    "weight": 1.0,
+                    "exposureMode": "manual",
+                    "exposure": 0.25,
+                    "autoExposureMinimum": -3.0,
+                    "autoExposureMaximum": 3.0,
+                    "adaptationSpeedUp": 3.0,
+                    "adaptationSpeedDown": 1.0,
+                    "toneMapper": "aces",
+                    "bloomIntensity": 0.3,
+                    "bloomThreshold": 0.8,
+                    "bloomScatter": 0.7,
+                    "temperature": 0.35,
+                    "tint": 0.05,
+                    "contrast": 1.1,
+                    "saturation": 0.9,
+                    "lift": [0.01, 0.005, 0.0],
+                    "gamma": [1.05, 1.0, 0.95],
+                    "gain": [1.05, 1.0, 0.92],
+                    "colorLut": "774e36ac-b463-84b2-a580-6061deca9830",
+                    "colorLutIntensity": 0.5,
+                    "vignette": 0.5,
+                    "chromaticAberration": 0.3,
+                    "filmGrain": 0.25
+                }
             }
         }
     ]

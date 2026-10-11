@@ -86,6 +86,46 @@ Json snapshot(const TypeInfo& type, const Sample& sample) {
 } // namespace
 
 TEST_SUITE("Reflection") {
+    TEST_CASE("a struct that derives from another is described with the members of both") {
+        // What a component is that adds where to something that says what.
+        struct Placed : Inner {
+            float radius = 2.0f;
+            Quality quality = Quality::Low;
+            Inner nested;
+        };
+
+        const TypeInfo type =
+            TypeBuilder<Placed>("Placed")
+                .property("count", &Placed::count, {.minimum = 0.0, .maximum = 10.0})
+                .property("label", &Inner::label)
+                .property("radius", &Placed::radius)
+                .enumProperty("quality", &Placed::quality, {{Quality::Low, "low"}, {Quality::High, "high"}})
+                .objectProperty("nested", &Placed::nested, innerType())
+                .build();
+        REQUIRE(type.properties().size() == 5);
+
+        Placed placed;
+        placed.count = 4;
+        placed.label = "base";
+        const Json saved = type.toJson(&placed);
+        CHECK(saved["count"] == 4);
+        CHECK(saved["label"] == "base");
+        CHECK(saved["radius"] == 2.0);
+        CHECK(saved["quality"] == "low");
+
+        // Members of the base are read, checked and written like the struct's own.
+        REQUIRE(type.fromJson(&placed, json(R"({"count": 7, "label": "changed", "radius": 3.5, "quality": "high",
+                                                "nested": {"count": 2}})"))
+                    .has_value());
+        CHECK(placed.count == 7);
+        CHECK(placed.label == "changed");
+        CHECK(placed.radius == 3.5f);
+        CHECK(placed.quality == Quality::High);
+        CHECK(placed.nested.count == 2);
+        CHECK_FALSE(type.fromJson(&placed, json(R"({"count": 11})")).has_value());
+        CHECK(placed.count == 7);
+    }
+
     TEST_CASE("a type lists its properties in declaration order with their types") {
         const TypeInfo type = makeSampleType();
         CHECK(type.name() == "Sample");

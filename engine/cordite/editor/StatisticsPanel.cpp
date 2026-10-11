@@ -43,6 +43,7 @@ Json describeFrameStatistics(const FrameStatistics& statistics) {
     scene["views"] = statistics.scene.views;
     scene["meshRenderers"] = statistics.scene.meshRenderers;
     scene["culled"] = statistics.scene.culled;
+    scene["screenPasses"] = statistics.scene.screenPasses;
     Json lights = Json::object();
     lights["count"] = statistics.scene.lights;
     lights["listEntries"] = statistics.scene.lightListEntries;
@@ -92,6 +93,7 @@ void StatisticsPanel::draw(const FrameStatistics& statistics, bool& open) {
         row("Draw calls", fmt::format("{} ({} shadow, {} depth, {} base, {} forward)", scene.meshes.drawCalls,
                                       scene.shadowPass.drawCalls, scene.depthPass.drawCalls, scene.basePass.drawCalls,
                                       scene.forwardPass.drawCalls));
+        row("Screen passes", fmt::format("{}", scene.screenPasses));
         row("Instances", fmt::format("{}", scene.meshes.instances));
         row("Triangles", fmt::format("{}", scene.meshes.triangles));
         row("Mesh renderers", fmt::format("{} ({} out of view)", scene.meshRenderers, scene.culled));

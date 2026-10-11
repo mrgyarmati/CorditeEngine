@@ -20,7 +20,7 @@ Cordite is under active development. Milestones follow the brief:
 | 5 | Deferred G-buffer: depth pre-pass, base pass, deferred lighting, forward translucency, debug views | Done |
 | 6 | Lighting: directional, point and spot lights, ambient light, clustered light culling, lighting channels | Done |
 | 7 | Shadows: shadow maps in an atlas for directional, point and spot lights, cascades for the sun, soft filtered edges | Done |
-| 8 | HDR and post-processing | Planned |
+| 8 | HDR and post-processing: exposure by hand or automatic, bloom, filmic and ACES tone mapping, color grading with lookup tables, vignette, grain, quality presets | Done |
 | 9 | Screen-space effects | Planned |
 | 10 | Physics and gameplay | Planned |
 | 11 | Editor maturity | Planned |
@@ -105,6 +105,22 @@ cascades that reach as far as its shadow distance, a spot light through one shad
 a point light through six. All of them share one atlas, whose size - and with it how
 sharp the shadows are - is the shadow quality of the view: off, low, medium or high.
 Meshes throw shadows unless told not to; what lets light through throws none.
+
+## The finished picture
+
+The renderer works out light, which has no upper limit; what a screen shows of it is
+set by `PostProcess` components. One says how the picture is exposed (by a fixed number
+of stops, or automatically, the way an eye gets used to light), how much of what is
+brighter than white blooms, which curve brings the light into the range of a screen
+(`filmic`, `aces` or none), and how the result is graded: white balance, contrast,
+saturation, lift / gamma / gain, a lookup table made in any image editor, a vignette,
+chromatic aberration and film grain.
+
+A component applies everywhere, or in and around a box - walk into a cave and the
+picture changes with it - or, on a camera, to what is seen through that camera.
+Several are laid over one another by priority. A scene that has none gets a filmic
+curve and a little bloom. How finely all of it is worked out is a quality like that of
+the shadows, and one word - low, medium, high - sets both.
 
 ## Automation
 

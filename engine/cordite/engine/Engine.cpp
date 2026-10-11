@@ -331,7 +331,12 @@ Status Engine::drawWorld(const SceneRenderSettings& settings) {
 
     const CameraView view = makeCameraView(impl.world.worldMatrix(camera), *impl.world.tryGet<CameraComponent>(camera),
                                            static_cast<float>(size.x) / static_cast<float>(size.y));
-    impl.sceneRenderer->render(impl.commandList, impl.world, view, impl.worldTargets, settings);
+    // Whose view it is and what time it is are the engine's to say.
+    SceneRenderSettings drawn = settings;
+    drawn.viewEntity = impl.world.id(camera);
+    drawn.deltaSeconds = static_cast<float>(impl.deltaSeconds);
+    drawn.timeSeconds = impl.timeSeconds;
+    impl.sceneRenderer->render(impl.commandList, impl.world, view, impl.worldTargets, drawn);
     impl.blit->draw(impl.commandList, impl.worldTargets.display(), impl.frameTarget.framebuffer());
     return {};
 }

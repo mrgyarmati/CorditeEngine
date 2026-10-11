@@ -542,6 +542,9 @@ TEST_SUITE("EditorApp") {
         // Three cascades for the sun, one map for the lamp, six for the wall light.
         CHECK(scene["shadows"]["maps"] == 10);
         CHECK(scene["shadows"]["lightsWithout"] == 0);
+        // Passes over the whole picture: the lighting, and what finishes the picture as
+        // the showcase says - five levels of bloom down and up, the exposure, the last.
+        CHECK(scene["screenPasses"] == 12);
         // The atlas of the medium quality: 4096 texels a side, four bytes each.
         CHECK(scene["shadows"]["atlasBytes"] == 67108864);
         CHECK(scene["passes"]["shadow"]["drawCalls"].get<uint32_t>() > 10);
@@ -607,46 +610,75 @@ TEST_SUITE("EditorApp") {
         checkNoValidationIssues(editor->engine().graphics());
     }
 
-    TEST_CASE("the viewport draws shadows at the quality it is told to") {
+    TEST_CASE("the viewport draws its picture at the quality it is told to") {
         EditorAppDesc desc = headlessDesc(UVec2(640, 360));
         desc.project = showcaseProject();
         const std::unique_ptr<EditorApp> editor = createEditor(desc);
 
         // Asking changes nothing, and lists what there is.
-        Json answer = run(*editor, "viewport.shadowQuality");
-        CHECK(answer["quality"] == "medium");
-        CHECK(answer["qualities"] == json(R"(["off", "low", "medium", "high"])"));
+        Json answer = run(*editor, "viewport.quality");
+        CHECK(answer["preset"] == "medium");
+        CHECK(answer["shadows"] == "medium");
+        CHECK(answer["postProcess"] == "medium");
+        CHECK(answer["presets"] == json(R"(["low", "medium", "high"])"));
+        CHECK(answer["shadowQualities"] == json(R"(["off", "low", "medium", "high"])"));
+        CHECK(answer["postProcessQualities"] == json(R"(["off", "low", "medium", "high"])"));
         CHECK(editor->viewport().shadowQuality() == ShadowQuality::Medium);
+        CHECK(editor->viewport().postProcessQuality() == PostProcessQuality::Medium);
         const Image medium = unwrap(editor->captureViewport(UVec2(320, 180)));
 
         // Without shadows the picture is another one: the showcase has three lights
-        // that cast them.
-        answer = run(*editor, "viewport.shadowQuality", R"({"quality": "off"})");
-        CHECK(answer["quality"] == "off");
+        // that cast them. Shadows alone were set, so no preset names what is in use.
+        answer = run(*editor, "viewport.quality", R"({"shadows": "off"})");
+        CHECK(answer["shadows"] == "off");
+        CHECK(answer["postProcess"] == "medium");
+        CHECK(answer["preset"].is_null());
         CHECK(editor->viewport().shadowQuality() == ShadowQuality::Off);
         const Image without = unwrap(editor->captureViewport(UVec2(320, 180)));
         CHECK(unwrap(compareImages(medium, without)).differingPixels > 500);
 
-        // Every quality draws without complaint; with shadows, the picture is nearly the
-        // same at each: the same shadows, with softer or sharper edges.
-        for (const char* quality : {"low", "high", "medium"}) {
-            CAPTURE(quality);
-            answer = run(*editor, "viewport.shadowQuality", fmt::format(R"({{"quality": "{}"}})", quality));
-            CHECK(answer["quality"] == std::string(quality));
+        // Every preset draws without complaint, and the picture is nearly the same at
+        // each: the same shadows with softer or sharper edges, the same look worked out
+        // more or less finely.
+        for (const char* preset : {"low", "high", "medium"}) {
+            CAPTURE(preset);
+            answer = run(*editor, "viewport.quality", fmt::format(R"({{"preset": "{}"}})", preset));
+            CHECK(answer["preset"] == std::string(preset));
+            CHECK(answer["shadows"] == std::string(preset));
+            CHECK(answer["postProcess"] == std::string(preset));
             const Image shown = unwrap(editor->captureViewport(UVec2(320, 180)));
             const ImageComparison difference =
-                unwrap(compareImages(medium, shown, {.channelTolerance = 16, .maxDifferingRatio = 0.03}));
+                unwrap(compareImages(medium, shown, {.channelTolerance = 24, .maxDifferingRatio = 0.03}));
             CHECK(difference.matches);
         }
 
-        // Names are not case-sensitive; an unknown one is refused and changes nothing.
-        CHECK(run(*editor, "viewport.shadowQuality", R"({"quality": "LOW"})")["quality"] == "low");
-        const Result<Json> unknown =
-            editor->commands().execute("viewport.shadowQuality", json(R"({"quality": "ultra"})"));
-        REQUIRE_FALSE(unknown.has_value());
-        CHECK(unknown.error().code == ErrorCode::InvalidArgument);
-        CHECK(unknown.error().message.find("ultra") != std::string::npos);
-        CHECK(editor->viewport().shadowQuality() == ShadowQuality::Low);
+        // A picture that is not finished is the light as the renderer worked it out: no
+        // exposure, no curve, no grade - a different picture altogether.
+        answer = run(*editor, "viewport.quality", R"({"postProcess": "off"})");
+        CHECK(answer["postProcess"] == "off");
+        CHECK(answer["shadows"] == "medium");
+        CHECK(editor->viewport().postProcessQuality() == PostProcessQuality::Off);
+        const Image unfinished = unwrap(editor->captureViewport(UVec2(320, 180)));
+        CHECK(unwrap(compareImages(medium, unfinished, {.channelTolerance = 16})).differingPixels > 5000);
+
+        // A preset and single settings in one call: the preset first, then the rest.
+        answer = run(*editor, "viewport.quality", R"({"preset": "high", "shadows": "LOW"})");
+        CHECK(answer["shadows"] == "low");
+        CHECK(answer["postProcess"] == "high");
+        CHECK(answer["preset"].is_null());
+
+        // An unknown name is refused, and then nothing of the call is applied.
+        for (const char* parameters :
+             {R"({"preset": "ultra"})", R"({"shadows": "ultra"})", R"({"postProcess": "ultra"})",
+              R"({"preset": "medium", "postProcess": "ultra"})", R"({"shadows": "off", "postProcess": "ultra"})"}) {
+            CAPTURE(std::string(parameters));
+            const Result<Json> unknown = editor->commands().execute("viewport.quality", json(parameters));
+            REQUIRE_FALSE(unknown.has_value());
+            CHECK(unknown.error().code == ErrorCode::InvalidArgument);
+            CHECK(unknown.error().message.find("ultra") != std::string::npos);
+            CHECK(editor->viewport().shadowQuality() == ShadowQuality::Low);
+            CHECK(editor->viewport().postProcessQuality() == PostProcessQuality::High);
+        }
         checkNoValidationIssues(editor->engine().graphics());
     }
 

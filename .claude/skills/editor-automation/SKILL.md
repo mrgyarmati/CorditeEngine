@@ -39,6 +39,9 @@ A script is a JSON array of steps:
   standard error.
 - `--frames N` renders N more frames after the script; `--screenshot <file>` saves the
   last one.
+- `--fixed-time-step 0.0166667` makes every frame take a sixtieth of a second, whatever
+  the clock says. Use it when a screenshot is to be compared with another: automatic
+  exposure and film grain depend on the time.
 
 Exit status: `0` success, `1` the editor could not run, `2` the validation layers
 reported something, `3` a script step failed.
@@ -153,9 +156,18 @@ scene black. Lights are components like any other:
   4) that share its `shadowDistance`. Stripes on lit surfaces: raise `shadowBias` or
   `shadowNormalOffset` a little. Shadows that start away from what casts them: lower
   them.
-- `viewport.shadowQuality {"quality": "low"}` sets how much the shadows of the viewport
-  may cost (`off`, `low`, `medium`, `high`); it is the editor's view, not a setting of
-  the scene.
+- `viewport.quality {"preset": "low"}` sets how much the picture in the viewport may
+  cost, by one word (`low`, `medium`, `high`); `{"shadows": "off"}` and
+  `{"postProcess": "off"}` set the shadows and the finishing of the picture alone
+  (`off`, `low`, `medium`, `high`). It is the editor's view, not a setting of the
+  scene. With `postProcess` off the viewport shows the light as the renderer worked it
+  out - no exposure, no bloom, no curve, no grade - which is the picture to judge
+  materials and lights by.
+- How the picture is finished is a component, `PostProcess`: on any entity it applies
+  everywhere (`"global": true`) or in the box the entity's transform makes of a cube
+  of one metre; on a camera it applies to that camera's views. `component.types` lists
+  its settings with their ranges. To make a scene brighter, raise `exposure` (stops:
+  +1 doubles the light); to let a view set its own, `"exposureMode": "automatic"`.
 - `viewport.debugView {"view": "lightCount"}` shows how many point and spot lights
   each pixel has to ask, `{"view": "shadowCascades"}` which cascade of the sun's shadow
   each pixel is looked up in, and `editor.statistics` how many lights are in view, how

@@ -27,6 +27,7 @@
 #include "cordite/engine/Engine.h"
 #include "cordite/renderer/DebugDraw.h"
 #include "cordite/renderer/DebugLinePass.h"
+#include "cordite/renderer/PostProcessSettings.h"
 #include "cordite/renderer/RenderDebugView.h"
 #include "cordite/renderer/SceneRenderer.h"
 #include "cordite/renderer/SceneTargets.h"
@@ -48,9 +49,11 @@ public:
     /// Renders the scene into targets() at the given size in pixels, without any
     /// interface around it. The command list must be open, and the world transforms up
     /// to date. The targets are replaced when the size differs from the last call, so
-    /// nothing that still refers to their textures may be pending.
+    /// nothing that still refers to their textures may be pending. `deltaSeconds` is
+    /// how long ago the viewport was last drawn - nothing, for a second picture of the
+    /// same moment - and `timeSeconds` the time: see SceneRenderSettings.
     [[nodiscard]] Status render(nvrhi::IDevice* device, nvrhi::ICommandList* commandList, EditorContext& context,
-                                UVec2 size);
+                                UVec2 size, float deltaSeconds = 0.0f, double timeSeconds = 0.0);
 
     /// What render() drew into. The display image holds the finished picture.
     [[nodiscard]] const SceneTargets& targets() const { return m_targets; }
@@ -65,6 +68,12 @@ public:
     [[nodiscard]] ShadowQuality shadowQuality() const { return m_shadowQuality; }
 
     void setShadowQuality(ShadowQuality quality) { m_shadowQuality = quality; }
+
+    /// How much finishing the picture the viewport shows may cost; Off shows the light
+    /// as the renderer worked it out.
+    [[nodiscard]] PostProcessQuality postProcessQuality() const { return m_postProcessQuality; }
+
+    void setPostProcessQuality(PostProcessQuality quality) { m_postProcessQuality = quality; }
 
     [[nodiscard]] EditorCamera& camera() { return m_camera; }
 
@@ -86,6 +95,7 @@ private:
     EditorCamera m_camera;
     RenderDebugView m_debugView = RenderDebugView::None;
     ShadowQuality m_shadowQuality = ShadowQuality::Medium;
+    PostProcessQuality m_postProcessQuality = PostProcessQuality::Medium;
     /// The view render() last used, for pick().
     CameraView m_view;
     /// Rebuilt every frame; members so that their memory is reused. Grid and scene

@@ -39,10 +39,11 @@ struct Components {
 TEST_SUITE("RenderComponents") {
     TEST_CASE("the renderer registers its components under the names scene files use") {
         const Components components;
-        REQUIRE(components.registry.components().size() == 3);
+        REQUIRE(components.registry.components().size() == 4);
         CHECK(components.registry.components()[0]->type.name() == "MeshRenderer");
         CHECK(components.registry.components()[1]->type.name() == "Light");
         CHECK(components.registry.components()[2]->type.name() == "AmbientLight");
+        CHECK(components.registry.components()[3]->type.name() == "PostProcess");
         for (const ComponentDescriptor* descriptor : components.registry.components()) {
             CAPTURE(descriptor->type.name());
             CHECK(descriptor->traits.optional);
@@ -273,5 +274,137 @@ TEST_SUITE("RenderComponents") {
         CHECK_FALSE(type.fromJson(&loaded, json(R"({"skyColor": [0.0, -0.1, 0.0]})")).has_value());
         CHECK_FALSE(type.fromJson(&loaded, json(R"({"horizonColor": [0.0, 0.0, 0.0]})")).has_value());
         CHECK(loaded.intensity == 1.5f);
+    }
+
+    TEST_CASE("a new post-process component applies everywhere and changes little") {
+        const PostProcessComponent component;
+        CHECK(component.global);
+        CHECK(component.priority == 0);
+        CHECK(component.blendDistance == 1.0f);
+        CHECK(component.weight == 1.0f);
+        // Its settings are those a view has when nothing is said.
+        const PostProcessSettings settings;
+        CHECK(component.exposureMode == ExposureMode::Manual);
+        CHECK(component.exposure == 0.0f);
+        CHECK(component.toneMapper == ToneMapper::Filmic);
+        CHECK(component.bloomIntensity == settings.bloomIntensity);
+        CHECK(component.bloomThreshold == 1.0f);
+        CHECK(component.contrast == 1.0f);
+        CHECK(component.saturation == 1.0f);
+        CHECK(component.lift == Vec3(0.0f));
+        CHECK(component.gamma == Vec3(1.0f));
+        CHECK(component.gain == Vec3(1.0f));
+        CHECK(component.colorLut.isNil());
+        CHECK(component.vignette == 0.0f);
+        CHECK(component.chromaticAberration == 0.0f);
+        CHECK(component.filmGrain == 0.0f);
+    }
+
+    TEST_CASE("a post-process component is saved with every property and read back the same") {
+        const Components components;
+        const TypeInfo& type = components.type("PostProcess");
+
+        PostProcessComponent component;
+        component.global = false;
+        component.priority = 3;
+        component.blendDistance = 2.5f;
+        component.weight = 0.75f;
+        component.exposureMode = ExposureMode::Automatic;
+        component.exposure = -0.5f;
+        component.autoExposureMinimum = -2.0f;
+        component.autoExposureMaximum = 4.0f;
+        component.adaptationSpeedUp = 5.0f;
+        component.adaptationSpeedDown = 0.5f;
+        component.toneMapper = ToneMapper::Aces;
+        component.bloomIntensity = 0.25f;
+        component.bloomThreshold = 1.5f;
+        component.bloomScatter = 0.5f;
+        component.temperature = 0.25f;
+        component.tint = -0.125f;
+        component.contrast = 1.25f;
+        component.saturation = 0.75f;
+        component.lift = Vec3(0.0f, 0.125f, 0.25f);
+        component.gamma = Vec3(0.5f, 1.0f, 2.0f);
+        component.gain = Vec3(1.5f, 1.0f, 0.5f);
+        component.colorLut = *Uuid::parse("11111111-2222-4333-8444-555555555555");
+        component.colorLutIntensity = 0.5f;
+        component.vignette = 0.375f;
+        component.chromaticAberration = 0.25f;
+        component.filmGrain = 0.125f;
+
+        const Json saved = type.toJson(&component);
+        CHECK(saved == json(R"({
+            "global": false, "priority": 3, "blendDistance": 2.5, "weight": 0.75,
+            "exposureMode": "automatic", "exposure": -0.5,
+            "autoExposureMinimum": -2.0, "autoExposureMaximum": 4.0,
+            "adaptationSpeedUp": 5.0, "adaptationSpeedDown": 0.5,
+            "toneMapper": "aces",
+            "bloomIntensity": 0.25, "bloomThreshold": 1.5, "bloomScatter": 0.5,
+            "temperature": 0.25, "tint": -0.125, "contrast": 1.25, "saturation": 0.75,
+            "lift": [0.0, 0.125, 0.25], "gamma": [0.5, 1.0, 2.0], "gain": [1.5, 1.0, 0.5],
+            "colorLut": "11111111-2222-4333-8444-555555555555", "colorLutIntensity": 0.5,
+            "vignette": 0.375, "chromaticAberration": 0.25, "filmGrain": 0.125
+        })"));
+
+        PostProcessComponent loaded;
+        REQUIRE(type.fromJson(&loaded, saved).has_value());
+        CHECK(type.toJson(&loaded) == saved);
+        CHECK(loaded.exposureMode == ExposureMode::Automatic);
+        CHECK(loaded.toneMapper == ToneMapper::Aces);
+        CHECK(loaded.gamma == Vec3(0.5f, 1.0f, 2.0f));
+        CHECK(loaded.colorLut == component.colorLut);
+
+        // Every tone mapper and both exposure modes go by their names.
+        for (const ToneMapper toneMapper : kToneMappers) {
+            component.toneMapper = toneMapper;
+            CHECK(type.toJson(&component)["toneMapper"] == std::string(nameOf(toneMapper)));
+        }
+        REQUIRE(type.fromJson(&loaded, json(R"({"toneMapper": "linear", "exposureMode": "manual"})")).has_value());
+        CHECK(loaded.toneMapper == ToneMapper::Linear);
+        CHECK(loaded.exposureMode == ExposureMode::Manual);
+
+        // The lookup table is a reference to a texture.
+        const PropertyInfo* lut = type.findProperty("colorLut");
+        REQUIRE(lut != nullptr);
+        CHECK(lut->attributes().semantic == PropertySemantic::AssetReference);
+        CHECK(lut->attributes().referenceType == "Texture");
+    }
+
+    TEST_CASE("values a post-process component cannot have are refused, and leave it as it was") {
+        const Components components;
+        const TypeInfo& type = components.type("PostProcess");
+        PostProcessComponent component;
+        component.exposure = 1.0f;
+
+        for (const char* text : {
+                 R"({"weight": 1.5})",
+                 R"({"weight": -0.1})",
+                 R"({"blendDistance": -1.0})",
+                 R"({"priority": 5000})",
+                 R"({"exposure": 17.0})",
+                 R"({"autoExposureMinimum": -20.0})",
+                 R"({"adaptationSpeedUp": -1.0})",
+                 R"({"toneMapper": "reinhard"})",
+                 R"({"exposureMode": "aperture"})",
+                 R"({"bloomIntensity": -0.5})",
+                 R"({"bloomScatter": 1.5})",
+                 R"({"temperature": 2.0})",
+                 R"({"contrast": 0.1})",
+                 R"({"saturation": 3.0})",
+                 R"({"lift": [0.0, 2.0, 0.0]})",
+                 R"({"gamma": [1.0, 0.0, 1.0]})",
+                 R"({"gain": [5.0, 1.0, 1.0]})",
+                 R"({"colorLut": "not an id"})",
+                 R"({"colorLutIntensity": 2.0})",
+                 R"({"vignette": 1.5})",
+                 R"({"chromaticAberration": -0.5})",
+                 R"({"filmGrain": 2.0})",
+                 R"({"sharpen": 1.0})",
+                 R"({"exposure": 0.5, "vignette": 9.0})",
+             }) {
+            CAPTURE(std::string(text));
+            CHECK_FALSE(type.fromJson(&component, json(text)).has_value());
+            CHECK(component.exposure == 1.0f);
+        }
     }
 }

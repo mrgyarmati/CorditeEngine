@@ -7,7 +7,8 @@
 ///
 ///     cordite-sample-assets samples/showcase/assets
 ///
-/// It writes `textures/*.png` and `models/*`. The materials and the scene of the showcase
+/// It writes `textures/*.png` - the textures of the materials, and the lookup table that
+/// grades the picture - and `models/*`. The materials and the scene of the showcase
 /// are written by hand and refer to these files by the ids in their `.meta` files, which
 /// the editor creates and which stay the same when the files are regenerated.
 
@@ -502,6 +503,46 @@ Result<GltfDocument> makeBarrel(const TextureSet& textures) {
     return document;
 }
 
+// --- The color lookup table --------------------------------------------------------------
+
+/// The lookup table has this many slices, each as many pixels wide and high.
+constexpr uint32_t kLutSize = 16;
+
+/// The grade of the showcase: what becomes of a color of the finished picture, as a
+/// display has it. Muted - every color a little nearer to grey - with shadows towards
+/// blue-green and highlights towards amber, and a shade more contrast: the look of a
+/// console game of the late 2000s, where the engine's default look comes from.
+Vec3 gradeColor(const Vec3& color) {
+    const float brightness = luminance(color);
+    Vec3 graded = glm::mix(Vec3(brightness), color, 0.85f);
+    const Vec3 shadowTint(0.93f, 1.0f, 1.05f);
+    const Vec3 highlightTint(1.04f, 1.0f, 0.94f);
+    graded *= glm::mix(shadowTint, highlightTint, glm::smoothstep(0.0f, 1.0f, brightness));
+    // A quarter of the way to a curve that is steeper in the middle and flatter at the ends.
+    graded = glm::clamp(graded, Vec3(0.0f), Vec3(1.0f));
+    graded = glm::mix(graded, graded * graded * (Vec3(3.0f) - 2.0f * graded), 0.25f);
+    return graded;
+}
+
+/// The grade as a lookup table: slices side by side, red across each, green down it,
+/// blue from slice to slice. A PostProcess component takes it as `colorLut`.
+Image makeGradeLut() {
+    Result<Image> created = Image::create(kLutSize * kLutSize, kLutSize, ImageFormat::Rgba8);
+    CORDITE_VERIFY(created.has_value(), "cannot allocate the lookup table");
+    Image image = std::move(*created);
+    const auto last = static_cast<float>(kLutSize - 1);
+    for (uint32_t y = 0; y < kLutSize; ++y) {
+        for (uint32_t x = 0; x < kLutSize * kLutSize; ++x) {
+            // Red across a slice, green down it, blue from slice to slice.
+            const uint32_t slice = x / kLutSize;
+            const Vec3 color(static_cast<float>(x % kLutSize) / last, static_cast<float>(y) / last,
+                             static_cast<float>(slice) / last);
+            image.setPixel(x, y, Vec4(gradeColor(color), 1.0f));
+        }
+    }
+    return image;
+}
+
 // --- Output ------------------------------------------------------------------------------
 
 Status writeTextures(const std::filesystem::path& directory, std::string_view name, const TextureSet& textures,
@@ -530,6 +571,7 @@ Status generate(const std::filesystem::path& assetDirectory) {
     CORDITE_TRY(writeTextures(textureDirectory, "hazard", bake(hazardPaint), false));
     CORDITE_TRY(writeTextures(textureDirectory, "grating", bake(grating), false));
     CORDITE_TRY(writeTextures(textureDirectory, "lamp", bake(lampPanel), true));
+    CORDITE_TRY(makeGradeLut().savePng(textureDirectory / "grade_lut.png"));
 
     CORDITE_TRY(exportGltf(makeCrate(), modelDirectory / "crate.gltf"));
     CORDITE_TRY(exportGltf(makeLampPost(), modelDirectory / "lamp_post.gltf"));

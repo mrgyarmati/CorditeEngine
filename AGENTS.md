@@ -129,7 +129,7 @@ by accident.
 | `rhi` | `core`, `math`, `platform` | Vulkan device, swapchain and texture readback over NVRHI |
 | `shaders` | `core` | Shader requests and permutation keys, disk cache, `ShaderLibrary` |
 | `shader_compiler` | `core`, `shaders` | Slang to SPIR-V compiler (not linked into exported games) |
-| `renderer` | `core`, `math`, `assets`, `world`, `rhi`, `shaders` | The scene renderer and what it is made of: GPU copies of assets, the mesh passes, the G-buffer and its lighting, the lights of a world and the clusters they are sorted into, their shadow maps and the atlas those share, the debug views, scene targets, the `MeshRenderer`, `Light` and `AmbientLight` components; camera views, debug lines, GPU timing, GPU shader management |
+| `renderer` | `core`, `math`, `assets`, `world`, `rhi`, `shaders` | The scene renderer and what it is made of: GPU copies of assets, the mesh passes, the G-buffer and its lighting, the lights of a world and the clusters they are sorted into, their shadow maps and the atlas those share, what finishes the picture (exposure, bloom, tone mapping, grading), the debug views, scene targets, the `MeshRenderer`, `Light`, `AmbientLight` and `PostProcess` components; camera views, debug lines, GPU timing, GPU shader management |
 | `ui` | `core`, `math`, `platform`, `rhi`, `shaders`, `renderer` | The immediate-mode interface: the Dear ImGui context and its NVRHI renderer |
 | `engine` | all of the above | `Engine`: owns the subsystems, the assets, the world and the interface, and runs the frame loop; projects; placing models; checking the assets a scene uses |
 | `editor` | `engine` and below | The editor: the scene document, undoable actions, scene and asset commands, panels, `EditorApp` (not linked into exported games) |
@@ -267,7 +267,7 @@ Vulkan directly. Step-by-step guide for adding a pass:
   texture before the widget that shows it, never after.
 - **Meshes are drawn by `SceneRenderer`**, into a `SceneTargets` per view, in this
   order: shadow maps, depth pre-pass, base pass (fills the G-buffer), deferred lighting,
-  forward pass, display encoding. Solid surfaces - opaque and masked - go through the
+  forward pass, post-processing. Solid surfaces - opaque and masked - go through the
   G-buffer; only translucent ones are drawn forward. Front faces wind counter-clockwise;
   depth is reversed. Draws that share mesh, submesh and material are instanced, and sorted by
   the serial numbers of their GPU resources, never by address, so that two runs issue
@@ -296,9 +296,11 @@ Vulkan directly. Step-by-step guide for adding a pass:
   `AmbientLight` (`RenderComponents.h`). A light shines from where its entity is, along
   the entity's -Z axis. An intensity of 1 lights a white, matte surface that faces the
   light to white - at any distance for a directional light, one metre away for the
-  others. `SceneLights` turns that into what shaders compute with (times pi); nothing
-  else converts brightness. A world without light components is black, as a game
-  shows it; only an editor view asks for stand-ins (`SceneRenderSettings::defaultLighting`).
+  others. ("White" is a brightness of one in the scene; what a screen shows of it
+  is for the tone mapper to say.) `SceneLights` turns that into what shaders compute
+  with (times pi); nothing else converts brightness. A world without light components
+  is black, as a game shows it; only an editor view asks for stand-ins
+  (`SceneRenderSettings::defaultLighting`).
 - **Point and spot lights are found through clusters** (`LightClusters.h`,
   `common/Lights.slang`): a grid of 16 x 9 x 24 boxes over what the camera sees, each
   with the list of the lights that touch it, built on the CPU for every view. The size
@@ -351,6 +353,28 @@ Vulkan directly. Step-by-step guide for adding a pass:
   when changing `cascadeView`; a test moves the camera about and checks them.
 - **A pass that samples the depth buffer cannot draw into a framebuffer that has it
   attached.** Use `SceneTargets::lightingFramebuffer()`, which has color only.
+- **The renderer works out light; `PostProcessPass` makes a picture of it.** Scene
+  color has no upper limit. The last pass exposes it, adds the bloom, tone maps and
+  grades it, in the order `PostProcessSettings.h` lists. The curves and the arithmetic
+  are written down twice - in `PostProcessSettings.cpp` and in
+  `common/ToneMapping.slang` - and `PostProcessTests` holds the pictures of the one
+  against the numbers of the other: change both. A scene sets the numbers with
+  `PostProcess` components (`ScenePostProcess.h`): global ones, boxes, and a camera's
+  own, laid over one another by priority.
+- **A test that says what a pixel must be draws a picture that is not finished**
+  (`PostProcessQuality::Off`, which `SceneFixture::flatSettings()` asks for): the light
+  as it was worked out, encoded and nothing else. Debug views are never finished
+  either. What finishing does is tested on its own, on flat fields of known light.
+- **What lasts from one frame to the next belongs to the view**, which is its
+  `SceneTargets`: the exposure a view has got used to is kept there, and is gone when
+  the view changes its size. What a pass keeps for a view - `PostProcessPass` its
+  binding sets - goes by `SceneTargets::serial()`, and is dropped when that has not
+  been drawn for a while.
+- **The renderer has no clock.** What takes time (exposure getting used to light) or
+  changes with it (film grain) is told how much has passed and what time it is, in
+  `SceneRenderSettings`. `Engine::drawWorld` fills that in; with a fixed time step
+  (`EngineDesc::fixedTimeStep`, `cordite-editor --fixed-time-step`) every run draws
+  the same frames, which is what tests and reference images rely on.
 - **Every renderer feature gets a debug view** (`RenderDebugView`) when there is
   something to look at: a channel, a mask, a count. A view of the G-buffer is a `case`
   in `passes/DebugView.slang`; the editor's menu and `viewport.debugView` list them all
@@ -379,7 +403,9 @@ Vulkan directly. Step-by-step guide for adding a pass:
   `tests/unit/shader_compiler/EngineShadersTests.cpp`, which compiles them all without
   a GPU.
 - **Swapchain back buffers** are 8-bit UNORM; the final pass writes display-encoded
-  (sRGB) values itself. Do not render linear values straight to the back buffer.
+  (sRGB) values itself. Do not render linear values straight to the back buffer. A
+  finished picture is dithered by a level at the most, so that slow gradients show no
+  bands; the dither dies away towards black and white, which stay what they are.
 - **Texture states:** create render targets with `keepInitialState = true` and a
   sensible `initialState`, and NVRHI inserts every barrier. Do not transition swapchain
   images yourself; they may only change layout while acquired.
@@ -397,6 +423,9 @@ Step-by-step guide for adding a component: [add-component](.claude/skills/add-co
   `registerEngineComponents` calls. That one description drives scene files, the editor
   inspector, undo and the automation API. A field that is not described cannot be saved
   or edited; describe every field, with a `description` and, for numbers, a range.
+  A component that is "some settings, and where they apply" can be a struct built on
+  the struct of the settings (`PostProcessComponent : PostProcessSettings`): the
+  builder describes inherited members like the struct's own.
 - **JSON never reaches an object unchecked.** `TypeInfo::parse` (saved data) and
   `TypeInfo::parseEdit` (a change by a person, a script or an agent) validate first and
   return a `PropertyPatch`; applying a patch cannot fail. Code that changes several
@@ -409,7 +438,8 @@ Step-by-step guide for adding a component: [add-component](.claude/skills/add-co
   the automation schema.
 - **Refer to entities by `Uuid`** across frames, saves and undo. `Entity` handles die
   with their entity, and references to components are invalidated when any entity is
-  destroyed. Hold the `Entity`, fetch the component again.
+  destroyed or any component of that type is added or removed. Hold the `Entity`,
+  fetch the component again.
 - **Change the hierarchy only through `World`** (`createEntity`, `destroyEntity`,
   `setParent`); iterate components through `world.registry()`.
 - **Include EnTT only through `cordite/world/Entt.h`**, which configures it identically
@@ -439,7 +469,10 @@ Step-by-step guide: [work-with-assets](.claude/skills/work-with-assets/SKILL.md)
   because the ids of the assets in a file follow from them. What cannot be imported
   stays in place, empty, and is reported in `warnings`.
 - **The slot decides the color space, not the texture.** Base color and emissive are
-  sRGB, everything else is data. There is no per-texture setting to get wrong.
+  sRGB, everything else is data. There is no per-texture setting to get wrong. A
+  color lookup table (`PostProcess.colorLut`) is data too: an image of N * N by N
+  pixels - N slices side by side, red across each, green down it, blue from slice to
+  slice - that holds the colors of a display as an image editor has them.
 - **Sampling belongs to the material:** wrap modes, filter, tiling. A texture is pixels.
   All textures of a material share one layout (`uvChannel`, `uvScale`, `uvOffset`); the
   occlusion texture is the one exception, and only when `occlusionUvChannel` gives it
@@ -485,7 +518,8 @@ panels, EditorApp    the interface, built on the three layers above
 - **Batch mode is the test and agent entry point:** `cordite-editor --headless --project
   P --exec script.json --frames N --screenshot out.png`. Exit status: 0 success, 1
   could not run, 2 GPU validation issues, 3 a script step failed. The script's outcome
-  goes to standard output as JSON, logs to standard error.
+  goes to standard output as JSON, logs to standard error. With `--fixed-time-step
+  0.0166667` two runs give the same picture, down to the film grain.
 - **The interface is Dear ImGui**, reached through the `ui` module. It runs without a
   window too, with the pointer fed from `Engine::input()`, so interface code is covered
   by headless tests.
@@ -504,7 +538,8 @@ with CTest under the module name. See the skills
 - Rendering is tested with numbers before pictures. A test that can state what a pixel
   must be does so: `SceneRendererTests` with flat emissive materials, an orthographic
   camera and no light; `SceneLightingTests` with a white, matte wall and lights whose
-  brightness on it follows from the documented model. Both use the fixture in
+  brightness on it follows from the documented model; `PostProcessTests` with fields
+  of known light and the functions of `PostProcessSettings.h`. All use the fixture in
   `tests/render/SceneTestSupport.h`. Reference images are for what only an eye can
   judge.
 - glTF files for tests are built in the test (`GltfTestSupport.h`) or written by the
@@ -640,6 +675,14 @@ body explaining what changed and why. One logical change per commit.
   looks, not with the distance to the light. Measured by the distance, the offsets and
   the filter come out eleven times too wide at the edge of a wide spot light, which
   no test of lights that shine straight at a surface shows.
+- A weighted average only tames an outlier among what it averages. Weighting the five
+  boxes of the bloom's first pass by their brightness did nothing for a single
+  glaring pixel in the middle: it was in all five. The weights go on the four reads
+  inside each box. A test with one pixel ten thousand times white found it.
+- A loop that submits command lists without ever waiting for the GPU - a test that
+  draws two hundred frames and reads none back - runs out of versions of every
+  volatile constant buffer, which NVRHI reports as an error. Wait
+  (`GraphicsDevice::waitIdle`) every frame or so, as a frame loop does.
 - A test that says "the first light" must say first by what: entity ids are random,
   and lights come in their order. A rule that depends on it passes or fails by the
   run.

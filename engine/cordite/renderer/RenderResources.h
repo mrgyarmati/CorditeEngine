@@ -106,6 +106,12 @@ public:
     /// material cannot be loaded. The reference is valid until the next beginFrame().
     [[nodiscard]] const GpuMaterial& material(const Uuid& id);
 
+    /// The texture of an image asset as the numbers it holds, with no color space
+    /// undone: for what is not a material's, such as a lookup table of colors. Null
+    /// when the id is nil or the image cannot be loaded, which is reported once. The
+    /// pointer is valid until the next beginFrame().
+    [[nodiscard]] nvrhi::ITexture* dataTexture(const Uuid& id) { return texture(id, ColorSpace::Linear, nullptr); }
+
     /// Sends everything created since the last call to the GPU. Must happen before a
     /// command list that draws with it is executed.
     void flushUploads();

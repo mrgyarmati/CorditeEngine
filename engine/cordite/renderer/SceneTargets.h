@@ -29,9 +29,14 @@
 /// | G-buffer 3      | R11G11B10F    | Emissive light                                      |
 /// | depth           | D32           | Reversed depth: 1 at the near plane, 0 far away     |
 /// | scene color     | RGBA16_FLOAT  | Linear light, not limited to the range of a display |
+/// | bloom levels    | RGBA16_FLOAT  | rgb: what blooms, blurred; a: log of the brightness |
+/// | exposure, twice | R16_FLOAT     | One texel: the stops automatic exposure adds        |
 /// | display         | RGBA8_UNORM   | sRGB-encoded color, as a screen expects it          |
 ///
-/// The shader side of the G-buffer is shaders/common/GBuffer.slang.
+/// The shader side of the G-buffer is shaders/common/GBuffer.slang. The bloom levels and
+/// the exposure are what PostProcessPass works with. The exposure is the one thing here
+/// that lasts from frame to frame: a view gets used to light slowly, so each frame
+/// starts from the exposure of the one before.
 
 #include "cordite/core/Result.h"
 #include "cordite/math/Math.h"
@@ -62,6 +67,10 @@ enum class GBufferTarget : uint8_t {
 
 inline constexpr size_t kGBufferTargetCount = 4;
 
+/// The most levels the bloom chain of a view has. Each is half the size of the one
+/// before; the first is half the size of the view.
+inline constexpr uint32_t kMaxBloomLevels = 8;
+
 std::string_view nameOf(GBufferTarget target);
 
 /// The format of a G-buffer target.
@@ -90,6 +99,45 @@ public:
     [[nodiscard]] nvrhi::ITexture* depth() const { return m_depth; }
 
     [[nodiscard]] nvrhi::ITexture* display() const { return m_display; }
+
+    /// How many levels the bloom chain has: as many as it takes to get from half the
+    /// size of the view down to one texel, and kMaxBloomLevels at the most.
+    [[nodiscard]] uint32_t bloomLevelCount() const { return m_bloomLevelCount; }
+
+    /// A level of the bloom chain, 0 being the largest, and the framebuffer that draws
+    /// into it. `level` must be less than bloomLevelCount().
+    [[nodiscard]] nvrhi::ITexture* bloomLevel(uint32_t level) const;
+    [[nodiscard]] nvrhi::IFramebuffer* bloomFramebuffer(uint32_t level) const;
+
+    /// The stops automatic exposure adds to the view, in a texture of one texel: what
+    /// the last frame that measured them left. Means something when hasExposure().
+    [[nodiscard]] nvrhi::ITexture* exposure() const { return m_exposure[m_exposureIndex]; }
+
+    /// Which of the two exposure textures exposure() is: 0 or 1.
+    [[nodiscard]] uint32_t exposureIndex() const { return m_exposureIndex; }
+
+    /// Where a frame writes the exposure it arrives at, while exposure() is still that
+    /// of the frame before. advanceExposure() then makes it exposure().
+    [[nodiscard]] nvrhi::ITexture* nextExposure() const { return m_exposure[1 - m_exposureIndex]; }
+
+    [[nodiscard]] nvrhi::IFramebuffer* nextExposureFramebuffer() const {
+        return m_exposureFramebuffers[1 - m_exposureIndex];
+    }
+
+    void advanceExposure() {
+        m_exposureIndex = 1 - m_exposureIndex;
+        m_hasExposure = true;
+    }
+
+    /// False until a frame has measured an exposure, and again after forgetExposure():
+    /// the next one measured is then taken as it is, with no getting used to it.
+    [[nodiscard]] bool hasExposure() const { return m_hasExposure; }
+
+    void forgetExposure() { m_hasExposure = false; }
+
+    /// A number no other set of textures has had: create() and resize() give a new
+    /// one. What is kept for a set of targets elsewhere is told apart by it.
+    [[nodiscard]] uint64_t serial() const { return m_serial; }
 
     /// Depth alone: what the depth pre-pass draws into.
     [[nodiscard]] nvrhi::IFramebuffer* depthFramebuffer() const { return m_depthFramebuffer; }
@@ -127,6 +175,15 @@ private:
     nvrhi::TextureHandle m_sceneColor;
     nvrhi::TextureHandle m_depth;
     nvrhi::TextureHandle m_display;
+    std::array<nvrhi::TextureHandle, kMaxBloomLevels> m_bloom;
+    std::array<nvrhi::FramebufferHandle, kMaxBloomLevels> m_bloomFramebuffers;
+    uint32_t m_bloomLevelCount = 0;
+    std::array<nvrhi::TextureHandle, 2> m_exposure;
+    std::array<nvrhi::FramebufferHandle, 2> m_exposureFramebuffers;
+    /// Which of the two holds the exposure of the last frame that measured one.
+    uint32_t m_exposureIndex = 0;
+    bool m_hasExposure = false;
+    uint64_t m_serial = 0;
     nvrhi::FramebufferHandle m_depthFramebuffer;
     nvrhi::FramebufferHandle m_gbufferFramebuffer;
     nvrhi::FramebufferHandle m_lightingFramebuffer;

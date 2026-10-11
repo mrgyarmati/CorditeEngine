@@ -120,6 +120,145 @@ TypeInfo describeAmbientLight() {
         .build();
 }
 
+TypeInfo describePostProcess() {
+    using Component = PostProcessComponent;
+    return TypeBuilder<Component>("PostProcess")
+        .property("global", &Component::global,
+                  {.description = "Applies wherever the camera is; without it, only in and around the box the "
+                                  "entity's transform makes of a cube of one metre. On a camera: applies to that "
+                                  "camera's views alone, whatever this says"})
+        .property("priority", &Component::priority,
+                  {.description = "Several are applied from the lowest priority to the highest, each over what "
+                                  "the ones before left",
+                   .minimum = -1000.0,
+                   .maximum = 1000.0})
+        .property("blendDistance", &Component::blendDistance,
+                  {.description = "How far outside its box the settings fade in",
+                   .minimum = 0.0,
+                   .maximum = 1000.0,
+                   .unit = "m"})
+        .property("weight", &Component::weight,
+                  {.description = "How much of the settings is applied: 0 none, 1 all",
+                   .minimum = 0.0,
+                   .maximum = 1.0,
+                   .step = 0.01})
+        .enumProperty("exposureMode", &Component::exposureMode,
+                      {{ExposureMode::Manual, std::string(nameOf(ExposureMode::Manual))},
+                       {ExposureMode::Automatic, std::string(nameOf(ExposureMode::Automatic))}},
+                      {.description = "Manual: the exposure is what `exposure` says. Automatic: the view sets "
+                                      "itself so that the picture is mid-grey on average, and `exposure` is added"})
+        .property("exposure", &Component::exposure,
+                  {.description = "Exposure in stops: each one doubles the light, each negative one halves it",
+                   .minimum = -16.0,
+                   .maximum = 16.0,
+                   .step = 0.05})
+        .property("autoExposureMinimum", &Component::autoExposureMinimum,
+                  {.description = "Automatic exposure: the fewest stops the view may choose",
+                   .minimum = -16.0,
+                   .maximum = 16.0,
+                   .step = 0.05})
+        .property("autoExposureMaximum", &Component::autoExposureMaximum,
+                  {.description = "Automatic exposure: the most stops the view may choose",
+                   .minimum = -16.0,
+                   .maximum = 16.0,
+                   .step = 0.05})
+        .property("adaptationSpeedUp", &Component::adaptationSpeedUp,
+                  {.description = "Automatic exposure: how fast the view gets used to a brighter picture; what is "
+                                  "left of the way shrinks to a third in one second divided by this",
+                   .minimum = 0.0,
+                   .maximum = 100.0,
+                   .step = 0.05})
+        .property("adaptationSpeedDown", &Component::adaptationSpeedDown,
+                  {.description = "Automatic exposure: how fast the view gets used to a darker picture",
+                   .minimum = 0.0,
+                   .maximum = 100.0,
+                   .step = 0.05})
+        .enumProperty("toneMapper", &Component::toneMapper,
+                      {{ToneMapper::Filmic, std::string(nameOf(ToneMapper::Filmic))},
+                       {ToneMapper::Aces, std::string(nameOf(ToneMapper::Aces))},
+                       {ToneMapper::Linear, std::string(nameOf(ToneMapper::Linear))}},
+                      {.description = "How light without an upper limit becomes the colors of a display. Filmic: "
+                                      "soft contrast, slow highlights. Aces: more contrast and color. Linear: no "
+                                      "curve; what is brighter than white is cut off"})
+        .property("bloomIntensity", &Component::bloomIntensity,
+                  {.description = "How much of the bloom is added to the picture; 0 for none",
+                   .minimum = 0.0,
+                   .maximum = 4.0,
+                   .step = 0.01})
+        .property("bloomThreshold", &Component::bloomThreshold,
+                  {.description = "Light brighter than this blooms; 1 is white, 0 lets everything bloom a little",
+                   .minimum = 0.0,
+                   .maximum = 64.0,
+                   .step = 0.05})
+        .property("bloomScatter", &Component::bloomScatter,
+                  {.description = "How far the bloom spreads: 0 tight around what is bright, 1 over much of the "
+                                  "picture",
+                   .minimum = 0.0,
+                   .maximum = 1.0,
+                   .step = 0.01})
+        .property("temperature", &Component::temperature,
+                  {.description = "White balance: positive is warmer (more red, less blue), negative cooler",
+                   .minimum = -1.0,
+                   .maximum = 1.0,
+                   .step = 0.01})
+        .property("tint", &Component::tint,
+                  {.description = "White balance: positive towards magenta, negative towards green",
+                   .minimum = -1.0,
+                   .maximum = 1.0,
+                   .step = 0.01})
+        .property("contrast", &Component::contrast,
+                  {.description = "1 leaves the picture as it is; less is flatter, more is harder; mid-grey stays",
+                   .minimum = 0.5,
+                   .maximum = 2.0,
+                   .step = 0.01})
+        .property("saturation", &Component::saturation,
+                  {.description = "1 leaves the picture as it is; 0 is black and white",
+                   .minimum = 0.0,
+                   .maximum = 2.0,
+                   .step = 0.01})
+        .property("lift", &Component::lift,
+                  {.description = "Raises the shadows, per color; 0 leaves them",
+                   .minimum = -1.0,
+                   .maximum = 1.0,
+                   .step = 0.005})
+        .property("gamma", &Component::gamma,
+                  {.description = "Bends the mid-tones, per color; 1 leaves them, more is brighter",
+                   .minimum = 0.2,
+                   .maximum = 5.0,
+                   .step = 0.01})
+        .property("gain", &Component::gain,
+                  {.description = "Scales the highlights, per color; 1 leaves them",
+                   .minimum = 0.0,
+                   .maximum = 4.0,
+                   .step = 0.01})
+        .property("colorLut", &Component::colorLut,
+                  {.description = "A lookup table for the colors of the finished picture: an image of N * N by N "
+                                  "pixels, such as 256 by 16",
+                   .semantic = PropertySemantic::AssetReference,
+                   .referenceType = "Texture"})
+        .property("colorLutIntensity", &Component::colorLutIntensity,
+                  {.description = "How much of the lookup table's colors is taken: 0 none, 1 all",
+                   .minimum = 0.0,
+                   .maximum = 1.0,
+                   .step = 0.01})
+        .property("vignette", &Component::vignette,
+                  {.description = "How dark the corners of the picture get: 0 not at all, 1 black",
+                   .minimum = 0.0,
+                   .maximum = 1.0,
+                   .step = 0.01})
+        .property("chromaticAberration", &Component::chromaticAberration,
+                  {.description = "How far red and blue part in the corners, in hundredths of the picture's size",
+                   .minimum = 0.0,
+                   .maximum = 1.0,
+                   .step = 0.01})
+        .property("filmGrain", &Component::filmGrain,
+                  {.description = "How much film grain is laid over the picture: 0 none, 1 a lot",
+                   .minimum = 0.0,
+                   .maximum = 1.0,
+                   .step = 0.01})
+        .build();
+}
+
 } // namespace
 
 std::string_view nameOf(LightType type) {
@@ -154,6 +293,10 @@ Status registerRendererComponents(ComponentRegistry& registry) {
     CORDITE_TRY(registry.add<AmbientLightComponent>(
         describeAmbientLight(),
         {.description = "Light from all around, from a sky above and a ground below. Several add up."}));
+    CORDITE_TRY(registry.add<PostProcessComponent>(
+        describePostProcess(),
+        {.description = "How the picture is finished - exposure, bloom, tone mapping, grading - everywhere, in a "
+                        "box, or for the camera it is on."}));
     return {};
 }
 

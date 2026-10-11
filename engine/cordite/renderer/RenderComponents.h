@@ -1,7 +1,8 @@
 #pragma once
 
 /// @file
-/// The components that make an entity visible, and the ones that light it.
+/// The components that make an entity visible, the ones that light it, and the one
+/// that says how the picture is finished.
 ///
 /// @code
 /// const Entity crate = world.createEntity("Crate");
@@ -23,7 +24,9 @@
 ///     "materials": ["5d0b6c1e-9c3f-4f0e-8a54-0d6f3c1b2a79"]
 /// },
 /// "Light": {"type": "spot", "color": [1, 0.8, 0.6], "intensity": 5, "range": 8,
-///           "innerConeDegrees": 20, "outerConeDegrees": 30, "castsShadows": true}
+///           "innerConeDegrees": 20, "outerConeDegrees": 30, "castsShadows": true},
+/// "PostProcess": {"global": true, "toneMapper": "filmic", "exposure": 0.5, "saturation": 0.85,
+///                 "vignette": 0.3}
 /// @endcode
 ///
 /// Lighting channels: every mesh renderer and every light belongs to some of eight
@@ -34,6 +37,7 @@
 #include "cordite/core/Result.h"
 #include "cordite/core/Uuid.h"
 #include "cordite/math/Math.h"
+#include "cordite/renderer/PostProcessSettings.h"
 #include "cordite/world/ComponentRegistry.h"
 
 #include <cstdint>
@@ -91,7 +95,9 @@ struct LightComponent {
     Vec3 color{1.0f};
     /// Brightness. 1 lights a white, matte surface that faces the light to white: at
     /// any distance for a directional light, and one metre away for a point or a spot
-    /// light, whose light thins out with the square of the distance.
+    /// light, whose light thins out with the square of the distance. (White is a
+    /// brightness of one in the scene. What a screen shows of it is up to the exposure
+    /// and the tone mapper of the view: see PostProcessComponent.)
     float intensity = 1.0f;
     /// Point and spot: the distance at which the light has faded to nothing, in metres.
     /// A light costs what it can reach; keep the range as small as the look allows.
@@ -146,7 +152,30 @@ struct AmbientLightComponent {
     float intensity = 1.0f;
 };
 
-/// Registers the renderer's components: "MeshRenderer", "Light" and "AmbientLight".
+/// How the picture is finished - exposure, bloom, tone mapping, grading and the rest of
+/// PostProcessSettings - and where.
+///
+/// Where: everywhere (`global`), or where the camera is inside the box that the
+/// entity's transform makes of a cube of one metre, fading in over `blendDistance`
+/// outside it. Several are laid over one another from the lowest priority to the
+/// highest (ScenePostProcess.h). On an entity that is a camera the component is that
+/// camera's own: it applies to what is seen through it and to nothing else, whatever
+/// `global` says, and after all the others.
+struct PostProcessComponent : PostProcessSettings {
+    /// Applies wherever the camera is. Without it, the entity's box says where.
+    bool global = true;
+    /// Those with a lower priority are applied first, and so are overridden by the
+    /// ones with a higher.
+    int32_t priority = 0;
+    /// How far outside the box the settings fade in, in metres. Nothing makes the box
+    /// end sharply.
+    float blendDistance = 1.0f;
+    /// How much of the settings is applied where they apply in full: 0 none, 1 all.
+    float weight = 1.0f;
+};
+
+/// Registers the renderer's components: "MeshRenderer", "Light", "AmbientLight" and
+/// "PostProcess".
 [[nodiscard]] Status registerRendererComponents(ComponentRegistry& registry);
 
 } // namespace cordite

@@ -28,9 +28,13 @@
 /// | Base pass         | The same, where they are the nearest     | the G-buffer         |
 /// | Deferred lighting | One triangle over the whole target       | scene color          |
 /// | Forward pass      | Translucent surfaces, far to near        | scene color, over it |
-/// | Display encoding  | One triangle                             | the display image    |
+/// | Post-processing   | A few triangles (PostProcessPass.h)      | the display image    |
 ///
-/// A debug view (RenderDebugView) replaces the lighting, or the passes altogether, by a
+/// Scene color is light, without an upper limit; post-processing makes the picture of
+/// it that a screen shows, as the PostProcess components of the world say
+/// (ScenePostProcess.h, PostProcessSettings.h). A view that is not to be finished
+/// (PostProcessQuality::Off) is only encoded for a display, and so is every debug view
+/// (RenderDebugView), which replaces the lighting, or the passes altogether, by a
 /// picture of something the renderer works with.
 ///
 /// One scene renderer serves any number of views; give each view its own SceneTargets.
@@ -50,9 +54,12 @@
 #include "cordite/renderer/LightClusters.h"
 #include "cordite/renderer/MeshDrawList.h"
 #include "cordite/renderer/MeshPass.h"
+#include "cordite/renderer/PostProcessPass.h"
+#include "cordite/renderer/PostProcessSettings.h"
 #include "cordite/renderer/RenderDebugView.h"
 #include "cordite/renderer/RenderResources.h"
 #include "cordite/renderer/SceneLights.h"
+#include "cordite/renderer/ScenePostProcess.h"
 #include "cordite/renderer/SceneTargets.h"
 #include "cordite/renderer/ShaderManager.h"
 #include "cordite/renderer/ShadowAtlas.h"
@@ -62,8 +69,11 @@
 
 #include <nvrhi/nvrhi.h>
 
+#include <array>
 #include <cstdint>
 #include <memory>
+#include <optional>
+#include <string_view>
 #include <vector>
 
 namespace cordite {
@@ -95,7 +105,55 @@ struct SceneRenderSettings {
 
     /// What to show instead of the finished picture; None shows the picture.
     RenderDebugView debugView = RenderDebugView::None;
+
+    /// How much finishing the picture - exposing, tone mapping, grading it and the rest
+    /// of PostProcessSettings.h - may cost. Off shows the light as it was worked out,
+    /// with whatever is brighter than white cut off. Debug views are never finished:
+    /// they show numbers.
+    PostProcessQuality postProcessQuality = PostProcessQuality::Medium;
+    /// What the picture is finished with. Left empty, the PostProcess components of the
+    /// world say (ScenePostProcess.h). A tool or a test that wants one look whatever
+    /// the scene says sets it here.
+    std::optional<PostProcessSettings> postProcess;
+    /// The entity whose camera the view is seen through, if it is one: a PostProcess
+    /// component on a camera is for the views through that camera alone.
+    Uuid viewEntity;
+    /// How long ago the view was last drawn, in seconds, and the time: for what takes
+    /// time - automatic exposure getting used to the light - or changes with it, as
+    /// film grain does. A view that is drawn once leaves them alone.
+    float deltaSeconds = 1.0f / 60.0f;
+    double timeSeconds = 0.0;
 };
+
+/// One word for everything a view may cost: what a player picks in the options of a
+/// game. The look is the same at every quality; what changes is how finely it is
+/// worked out.
+enum class RenderQuality : uint8_t {
+    Low,
+    Medium,
+    High,
+};
+
+inline constexpr std::array<RenderQuality, 3> kRenderQualities = {RenderQuality::Low, RenderQuality::Medium,
+                                                                  RenderQuality::High};
+
+/// The name used in files and by tools: "low", "medium", "high".
+std::string_view nameOf(RenderQuality quality);
+
+/// The name shown to people: "Low", "Medium", "High".
+std::string_view displayNameOf(RenderQuality quality);
+
+/// The quality with the given nameOf(), or nothing. Upper and lower case are not told
+/// apart.
+[[nodiscard]] std::optional<RenderQuality> renderQualityFromName(std::string_view name);
+
+/// Sets what `quality` stands for - the quality of the shadows and of the finishing of
+/// the picture - and leaves everything else in `settings` as it is.
+void applyRenderQuality(RenderQuality quality, SceneRenderSettings& settings);
+
+/// The quality `settings` are at, or nothing when shadows and finishing were set one by
+/// one to what no single quality has.
+[[nodiscard]] std::optional<RenderQuality> renderQualityOf(const SceneRenderSettings& settings);
 
 /// What SceneRenderer::render() did: in its last call, or in all the calls of a frame.
 struct SceneRenderStatistics {
@@ -105,6 +163,10 @@ struct SceneRenderStatistics {
     uint32_t meshRenderers = 0;
     /// Of those, the ones outside the view, which were not drawn.
     uint32_t culled = 0;
+    /// Passes that draw over the whole picture, or over a smaller copy of it, rather
+    /// than meshes: the lighting or the debug view, and what finishes the picture -
+    /// the levels of the bloom down and up, the exposure, the last pass.
+    uint32_t screenPasses = 0;
 
     /// The lights that reach something in view: directional ones, and point and spot
     /// lights that touch at least one cluster.
@@ -150,13 +212,14 @@ public:
     /// Draws `world` as seen through `view` into `targets`: the G-buffer and depth, from
     /// those the scene color, and from that the display image. The command list must be
     /// open, the world transforms up to date (World::updateWorldTransforms), and `view`
-    /// made for the aspect ratio of `targets`.
+    /// made for the aspect ratio of `targets`. The targets are the view's memory: the
+    /// exposure it has got used to is read from them and left there for its next frame.
     ///
     /// Assets seen for the first time are loaded and sent to the GPU here, which makes
     /// the first frame of a scene slower than the ones that follow. One that cannot be
     /// loaded is reported in the log and left out; rendering itself does not fail for it.
-    void render(nvrhi::ICommandList* commandList, const World& world, const CameraView& view,
-                const SceneTargets& targets, const SceneRenderSettings& settings = {});
+    void render(nvrhi::ICommandList* commandList, const World& world, const CameraView& view, SceneTargets& targets,
+                const SceneRenderSettings& settings = {});
 
     /// What the last call to render() did.
     [[nodiscard]] const SceneRenderStatistics& statistics() const { return m_statistics; }
@@ -181,6 +244,7 @@ private:
         DebugViewPass debugView;
         DisplayEncodePass encode;
         ShadowAtlas shadows;
+        PostProcessPass postProcess;
     };
 
     /// A mesh renderer of the world: where it is, and which of m_sceneDraws draw it.
