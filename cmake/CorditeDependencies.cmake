@@ -96,11 +96,149 @@ cordite_dependency_option(GLM_BUILD_LIBRARY OFF)
 cordite_dependency_option(GLM_BUILD_TESTS OFF)
 cordite_dependency_option(GLM_BUILD_INSTALL OFF)
 
-FetchContent_MakeAvailable(fmt spdlog nlohmann_json tl_expected enkits xxhash glm)
+# --- GLFW: windows and input ------------------------------------------------------------
+cordite_declare_dependency(glfw
+    URL https://github.com/glfw/glfw/releases/download/3.5.1/glfw-3.5.1.zip
+    SHA256 ea79bc5feffc254c87291980c2d0bce9acebb68c4983b79f961dcd2cb8a611a0)
+cordite_dependency_option(GLFW_BUILD_EXAMPLES OFF)
+cordite_dependency_option(GLFW_BUILD_TESTS OFF)
+cordite_dependency_option(GLFW_BUILD_DOCS OFF)
+cordite_dependency_option(GLFW_INSTALL OFF)
+# Match the static C runtime the rest of the build uses.
+cordite_dependency_option(USE_MSVC_RUNTIME_LIBRARY_DLL OFF)
+
+# --- Vulkan-Headers: the Vulkan API and its C++ bindings --------------------------------
+# Must stay at the version NVRHI is developed against (NVRHI_VULKAN_HEADERS_GIT_TAG in
+# its CMakeLists.txt). Declared before NVRHI so that it uses this copy.
+cordite_declare_dependency(vulkan_headers
+    URL https://github.com/KhronosGroup/Vulkan-Headers/archive/refs/tags/v1.4.352.tar.gz
+    SHA256 4850909d22a8a9767c27daea2b972e49d7c298560573d5b6221ee50db9bf49db)
+
+# --- NVRHI: rendering hardware interface over Vulkan ------------------------------------
+# NVRHI has no releases; this is a commit of its main branch (2026-10-05).
+cordite_declare_dependency(nvrhi
+    URL https://github.com/NVIDIA-RTX/NVRHI/archive/6b96fb03e07539f08327aea76c56d55f1de9d906.tar.gz
+    SHA256 f46c733ccc555fc457aaa3df510ee7df0ca089f5d1129d92903029e4fb67c560)
+cordite_dependency_option(NVRHI_WITH_VULKAN ON)
+cordite_dependency_option(NVRHI_WITH_DX11 OFF)
+cordite_dependency_option(NVRHI_WITH_DX12 OFF)
+cordite_dependency_option(NVRHI_WITH_VALIDATION ON)
+cordite_dependency_option(NVRHI_FETCH_VULKAN_HEADERS OFF)
+cordite_dependency_option(NVRHI_BUILD_SHARED OFF)
+cordite_dependency_option(NVRHI_INSTALL OFF)
+
+# --- stb: image decoding and encoding (single headers, compiled inside cordite_assets) --
+# stb has no releases; this is a commit of its master branch.
+cordite_declare_dependency(stb
+    URL https://github.com/nothings/stb/archive/2c980bb59875b0d32144a71867fbdebb2f77cd20.tar.gz
+    SHA256 9a955b1b49a4410088a2e0ee2a9c057c3c907d0c1d75454144cb980aca0ba515
+    SOURCES_ONLY)
+
+# --- CLI11: command-line parsing for the executables ------------------------------------
+cordite_declare_dependency(cli11
+    URL https://github.com/CLIUtils/CLI11/archive/refs/tags/v2.7.2.tar.gz
+    SHA256 46eef3101da70852ec7af026e09d485ccee81813331c8c6052d39344443b83da)
+cordite_dependency_option(CLI11_BUILD_TESTS OFF)
+cordite_dependency_option(CLI11_BUILD_EXAMPLES OFF)
+cordite_dependency_option(CLI11_BUILD_DOCS OFF)
+cordite_dependency_option(CLI11_INSTALL OFF)
+cordite_dependency_option(CLI11_PRECOMPILED OFF)
+
+FetchContent_MakeAvailable(
+    fmt spdlog nlohmann_json tl_expected enkits xxhash glm
+    glfw vulkan_headers nvrhi stb cli11)
 
 add_library(cordite_xxhash INTERFACE)
 add_library(cordite::xxhash ALIAS cordite_xxhash)
 target_include_directories(cordite_xxhash SYSTEM INTERFACE "${xxhash_SOURCE_DIR}")
+
+add_library(cordite_stb INTERFACE)
+add_library(cordite::stb ALIAS cordite_stb)
+target_include_directories(cordite_stb SYSTEM INTERFACE "${stb_SOURCE_DIR}")
+
+# --- Slang: shader compiler -------------------------------------------------------------
+# Used as the official prebuilt release: building Slang from source takes far longer than
+# the rest of the engine and needs tools the build otherwise avoids. Only the editor and
+# development tools link it; exported games load precompiled shaders and do not need it.
+set(CORDITE_SLANG_VERSION 2026.19)
+set(cordite_slang_base_url
+    "https://github.com/shader-slang/slang/releases/download/v${CORDITE_SLANG_VERSION}/slang-${CORDITE_SLANG_VERSION}")
+
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(arm64|aarch64|ARM64)$")
+    set(cordite_slang_arch aarch64)
+else()
+    set(cordite_slang_arch x86_64)
+endif()
+
+if(WIN32)
+    if(NOT cordite_slang_arch STREQUAL "x86_64")
+        message(FATAL_ERROR "Cordite supports only x86-64 on Windows.")
+    endif()
+    set(cordite_slang_package windows-x86_64.zip)
+    set(cordite_slang_sha256 fc922f214b5d115f663932e59e80e0f6b6cc6fae140979cf307da6459b6f8f33)
+elseif(APPLE)
+    if(cordite_slang_arch STREQUAL "aarch64")
+        set(cordite_slang_package macos-aarch64.zip)
+        set(cordite_slang_sha256 f77d89b91ec63698a7a8e5aa4316ce08b70d3211a236640ee4551f55be85d9ed)
+    else()
+        set(cordite_slang_package macos-x86_64.zip)
+        set(cordite_slang_sha256 c5e18233c0b90cc651c792ec4c4e4a467a9a101ffb6301643aab89c016b48e42)
+    endif()
+else()
+    if(cordite_slang_arch STREQUAL "aarch64")
+        set(cordite_slang_package linux-aarch64.tar.gz)
+        set(cordite_slang_sha256 eeefa4e52ca322cf3c037ee0d273b0ee68f4161fa422eda1bb704126073b69b4)
+    else()
+        set(cordite_slang_package linux-x86_64.tar.gz)
+        set(cordite_slang_sha256 bd6cfc47b7353b2cffa36a866b1584749f76f4b2dbebf6dda26bc3fb40dc3c0e)
+    endif()
+endif()
+
+cordite_declare_dependency(slang
+    URL "${cordite_slang_base_url}-${cordite_slang_package}"
+    SHA256 ${cordite_slang_sha256}
+    SOURCES_ONLY)
+FetchContent_MakeAvailable(slang)
+
+# The release also ships a CMake package, but it only describes a Release configuration
+# and exposes far more than we use, so the one library is imported directly.
+add_library(cordite_slang SHARED IMPORTED GLOBAL)
+add_library(cordite::slang ALIAS cordite_slang)
+target_include_directories(cordite_slang SYSTEM INTERFACE "${slang_SOURCE_DIR}/include")
+
+# CORDITE_SLANG_RUNTIME_FILES lists what must sit next to an executable that compiles
+# shaders. On Linux and macOS the build RPATH points at the unpacked release instead.
+set(CORDITE_SLANG_RUNTIME_FILES "")
+if(WIN32)
+    set_target_properties(cordite_slang PROPERTIES
+        IMPORTED_LOCATION "${slang_SOURCE_DIR}/bin/slang.dll"
+        IMPORTED_IMPLIB "${slang_SOURCE_DIR}/lib/slang.lib")
+    foreach(library slang slang-compiler slang-glslang)
+        list(APPEND CORDITE_SLANG_RUNTIME_FILES "${slang_SOURCE_DIR}/bin/${library}.dll")
+    endforeach()
+elseif(APPLE)
+    set(cordite_slang_library "libslang-compiler.0.${CORDITE_SLANG_VERSION}.dylib")
+    set_target_properties(cordite_slang PROPERTIES
+        IMPORTED_LOCATION "${slang_SOURCE_DIR}/lib/${cordite_slang_library}"
+        IMPORTED_SONAME "@rpath/${cordite_slang_library}")
+else()
+    set(cordite_slang_library "libslang-compiler.so.0.${CORDITE_SLANG_VERSION}")
+    set_target_properties(cordite_slang PROPERTIES
+        IMPORTED_LOCATION "${slang_SOURCE_DIR}/lib/${cordite_slang_library}"
+        IMPORTED_SONAME "${cordite_slang_library}")
+endif()
+
+# Copies the shader compiler's runtime libraries next to the built executables.
+if(CORDITE_SLANG_RUNTIME_FILES)
+    add_custom_target(cordite_slang_runtime ALL
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/bin/$<CONFIG>"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CORDITE_SLANG_RUNTIME_FILES}
+            "${CMAKE_BINARY_DIR}/bin/$<CONFIG>"
+        COMMENT "Copying the Slang runtime libraries"
+        VERBATIM)
+    set_target_properties(cordite_slang_runtime PROPERTIES FOLDER "Cordite/Build")
+endif()
 
 # --- doctest: unit test framework -------------------------------------------------------
 if(CORDITE_BUILD_TESTS)

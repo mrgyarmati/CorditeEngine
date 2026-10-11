@@ -1,0 +1,11 @@
+cordite_add_module(shaders
+    SOURCES
+        ShaderCache.cpp
+        ShaderCache.h
+        ShaderCompiler.h
+        ShaderLibrary.cpp
+        ShaderLibrary.h
+        ShaderTypes.cpp
+        ShaderTypes.h
+    DEPENDS
+        core)

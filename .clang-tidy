@@ -86,6 +86,7 @@ CheckOptions:
   - { key: readability-identifier-naming.ConstexprVariablePrefix, value: k }
   - { key: readability-identifier-naming.MacroDefinitionCase, value: UPPER_CASE }
   - { key: readability-simplify-boolean-expr.IgnoreMacros, value: 'true' }
+  - { key: readability-implicit-bool-conversion.AllowPointerConditions, value: 'true' }
   - { key: readability-function-cognitive-complexity.Threshold, value: '40' }
   - { key: readability-function-cognitive-complexity.IgnoreMacros, value: 'true' }
   - { key: cppcoreguidelines-special-member-functions.AllowSoleDefaultDtor, value: 'true' }

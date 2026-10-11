@@ -30,9 +30,31 @@ of slowly turning the code base into a ball of mud.
 |--------|-----------|----------------|
 | `core` | -         | Services every other module needs: logging, assertions, error handling, hashing, UUIDs, JSON and binary serialization, file I/O, configuration, the job system, memory allocators, timing, platform queries. |
 | `math` | `core`    | glm type aliases and conventions; `Transform`, bounding volumes, rays and intersection tests, frustum culling, projection matrices, color conversions, keyframed curves, deterministic random numbers. |
+| `platform` | `core`, `math` | The window system and windows (GLFW), and per-window keyboard, mouse and gamepad state with an injection API for tests and automation. |
+| `assets` | `core`, `math` | CPU-side asset data. Currently images: decoding, PNG encoding, pixel access and tolerance-based comparison. |
+| `rhi` | `core`, `math`, `platform` | The GPU: Vulkan instance and device creation, the NVRHI device the renderer programs against, the swapchain, and texture readback. The only module that calls Vulkan. |
+| `shaders` | `core` | What a shader *is* to the engine: requests and their permutation keys, compiled binaries, the on-disk cache, and the `ShaderLibrary` that resolves a request from memory, disk or a compiler. |
+| `shader_compiler` | `core`, `shaders` | The Slang-based implementation of `IShaderCompiler`. Kept separate so exported games do not link a compiler. |
+| `renderer` | `core`, `math`, `rhi`, `shaders` | Render passes and the `ShaderManager` that turns shader binaries into GPU shader objects. |
+| `engine` | all of the above | `Engine`: creates and owns the subsystems and runs the frame loop. |
 
-Further modules (platform, rendering, assets, world, physics, audio, scripting, editor)
-are added by the later milestones and will be listed here as they land.
+Further modules (world, physics, audio, scripting) are added by the later milestones and
+will be listed here as they land.
+
+### A frame
+
+`Engine::runFrame()` does the same thing with and without a window:
+
+1. Poll the window system, which starts a new input frame and delivers events.
+2. Acquire the swapchain back buffer (windowed mode only). A minimized window yields no
+   back buffer and the frame is skipped.
+3. Render into the engine's own offscreen frame target.
+4. Copy the frame target to the back buffer and present (windowed mode only).
+5. Release GPU resources whose last use has finished.
+
+Rendering to an offscreen target first is what makes the engine testable and
+automatable: the headless path is not a special case, it is the main path minus step 4.
+Screenshots, reference-image tests and editor automation all read the frame target.
 
 ## Conventions
 
@@ -119,6 +141,84 @@ readable: fields appear in the order the engine writes them rather than alphabet
 produce different values on each standard library. Gameplay, procedural content and
 image-comparison tests need the same sequence on every platform. The implementation is
 verified against the reference generator's published output.
+
+### Vulkan 1.3 is required
+
+NVRHI's Vulkan backend uses dynamic rendering, synchronization2 and timeline semaphores.
+All three are core in Vulkan 1.3, which every current desktop driver, MoltenVK and the
+lavapipe software rasterizer support. Adapters that lack them are rejected with a
+message saying what is missing.
+
+### The application owns the Vulkan device, NVRHI wraps it
+
+NVRHI does not create instances, devices or swapchains; `GraphicsDevice` and `Swapchain`
+do, and hand the handles to NVRHI. NVRHI is built with the dynamic Vulkan-Hpp dispatcher
+and, as a static library, expects the application to provide and initialize it.
+
+### One GraphicsDevice, one Engine per process
+
+That dispatcher is a single global table of Vulkan entry points, shared by NVRHI and the
+`rhi` module. It holds the functions of one instance and one device: extension functions
+are only present when that instance or device enabled the extension. Two devices with
+different configurations (say, a windowed one and a headless one) would overwrite each
+other's entries and crash on the first call that the other did not enable. So
+`GraphicsDevice::create` refuses to create a second device while one exists, which also
+lets the dispatcher resolve device functions straight to the driver.
+
+GLFW is likewise a process-global library, so `WindowSystem`, and with it `Engine`,
+exists at most once at a time. Devices and engines can be created one after another.
+
+### Validation is part of the test contract
+
+Devices created with `validation = true` enable the Khronos validation layer (when
+installed) and NVRHI's own validation layer. Everything either reports is recorded on
+the `GraphicsDevice`, and every GPU test asserts that the record is empty. A dedicated
+test triggers a deliberate error to prove the mechanism detects one. The validation
+layers come from a Vulkan SDK that `scripts/bootstrap.ps1 -WithVulkanSdk` installs
+inside the repository in copy-only mode, so no system-wide install is needed.
+
+### The swapchain is 8-bit UNORM, not sRGB
+
+The final pass writes display-encoded values itself, and user interface is blended in
+display space, as every UI toolkit expects. An sRGB swapchain format would apply the
+encoding a second time. Linear HDR rendering happens in offscreen targets.
+
+### Swapchain image layouts are left to NVRHI
+
+A swapchain image may only change layout while it is acquired, and starts out undefined.
+NVRHI's state tracker already treats a texture with `keepInitialState` as undefined
+until its first use, so the swapchain declares its images with `initialState = Present`
+and does nothing else. `present()` additionally requests the Present state, which is free
+when the frame rendered into the image and makes an untouched image presentable.
+
+### Shaders are written in Slang and compiled with the official prebuilt compiler
+
+Slang is the shading language the NVRHI ecosystem is built around, compiles HLSL-style
+source to SPIR-V on all three platforms, and reports dependencies, which the cache needs.
+It is consumed as the official release binaries, pinned by hash: building it from source
+would dominate the engine's build time. glslang was rejected because its build needs
+Python. The compiler lives in its own module (`shader_compiler`) behind the
+`IShaderCompiler` interface so that an exported game links none of it.
+
+Compiler options are passed in `slangc` command-line syntax and parsed by Slang's own
+`parseCommandLineArguments`, which avoids depending on the numeric option identifiers of
+one particular Slang release.
+
+### Shader bindings use HLSL registers with NVRHI's default offsets
+
+A shader declares `register(t0)`, `register(s0)`, `register(b0)`; the compiler shifts
+them to Vulkan bindings 0, 128 and 256 (and 384 for `u`), which is what NVRHI's binding
+layouts assume by default. C++ and shader therefore use the same small slot numbers per
+resource kind, and the code would carry over to a Direct3D backend unchanged.
+
+### Shader permutations are identified by a content-independent key
+
+A `ShaderRequest` (path, entry point, stage, sorted defines) hashes to a 128-bit key that
+names its cache file. The key deliberately excludes file contents and the compiler
+version: those are stored *in* the entry and checked on load. One permutation therefore
+has exactly one cache file, which is replaced when it goes stale, instead of leaving an
+orphan behind for every edit. A test pins the key of a known request, because changing
+the key function would silently invalidate every cache.
 
 ### Enum names use `nameOf`, not `toString`
 

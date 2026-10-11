@@ -1,0 +1,11 @@
+cordite_add_module(assets
+    SOURCES
+        Image.cpp
+        Image.h
+        ImageCompare.cpp
+        ImageCompare.h
+    DEPENDS
+        core
+        math
+    PRIVATE_LIBRARIES
+        cordite::stb)

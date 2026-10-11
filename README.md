@@ -14,7 +14,7 @@ Cordite is under active development. Milestones follow the brief:
 | # | Milestone | State |
 |---|-----------|-------|
 | 1 | Engine foundation: build system, core, math, tests, tooling | Done |
-| 2 | Window and renderer skeleton | Planned |
+| 2 | Window and renderer skeleton: GLFW, Vulkan via NVRHI, swapchain, Slang shaders | Done |
 | 3 | Scene and ECS | Planned |
 | 4 | Static mesh rendering | Planned |
 | 5 | Deferred G-buffer | Planned |
@@ -41,7 +41,7 @@ Requires Visual Studio 2022 with the "Desktop development with C++" workload.
 ### Linux (Ubuntu 24.04+) and macOS
 
 ```bash
-# Ubuntu: sudo apt install build-essential cmake ninja-build
+# Ubuntu: sudo apt install build-essential cmake ninja-build xorg-dev libwayland-dev libxkbcommon-dev
 # macOS:  brew install cmake ninja
 cmake --preset linux        # or: macos
 cmake --build --preset linux-dev
@@ -50,6 +50,18 @@ ctest --preset linux-dev
 
 All third-party code is downloaded at configure time from archives pinned by SHA-256;
 see [docs/third-party.md](docs/third-party.md).
+
+## Running
+
+A Vulkan 1.3 capable GPU and driver are required.
+
+```powershell
+./scripts/dev.ps1 run -Target cordite-editor
+./scripts/dev.ps1 run -Target cordite-editor -- --headless --frames 10 --screenshot frame.png
+```
+
+The second form renders without a window and saves the last frame, which is how the
+automated tests and AI agents drive the engine. `--help` lists every option.
 
 ## Documentation
 

@@ -75,6 +75,16 @@ function(cordite_add_test_suite name)
         COMMAND ${target}
         WORKING_DIRECTORY "${arg_WORKING_DIRECTORY}")
     set_tests_properties(${name} PROPERTIES LABELS "${arg_LABELS}" TIMEOUT 300)
+    cordite_configure_gpu_test(${name} "${arg_LABELS}")
+endfunction()
+
+# Points tests labelled 'gpu' at the locally bootstrapped Vulkan validation layers,
+# when present, so they run with full validation without a system-wide SDK install.
+function(cordite_configure_gpu_test name labels)
+    if("gpu" IN_LIST labels AND CORDITE_VULKAN_LAYER_PATH)
+        set_tests_properties(${name} PROPERTIES
+            ENVIRONMENT "VK_ADD_LAYER_PATH=${CORDITE_VULKAN_LAYER_PATH}")
+    endif()
 endfunction()
 
 # Registers the module_layering test. Call after every module has been declared.

@@ -12,6 +12,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace cordite::test {
@@ -29,6 +30,15 @@ public:
 /// Installs the throwing assertion handler and silences console logging. Called once by
 /// the test entry point.
 void installTestEnvironment();
+
+/// Returns the value of a Result, failing the current test with the error when there is
+/// none. Use it instead of `*result`, which is undefined behavior for an error and turns
+/// a clean failure into a crash.
+template <typename T>
+T unwrap(Result<T> result) {
+    REQUIRE_MESSAGE(result.has_value(), result.error().describe());
+    return std::move(*result);
+}
 
 /// Absolute path of the repository root, for tests that read checked-in data.
 std::filesystem::path sourceDirectory();

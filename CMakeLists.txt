@@ -15,6 +15,16 @@ option(CORDITE_BUILD_TESTS "Build the unit and integration tests" ON)
 option(CORDITE_WARNINGS_AS_ERRORS "Treat warnings in Cordite targets as errors" OFF)
 option(CORDITE_ENABLE_SANITIZERS "Build with AddressSanitizer and UndefinedBehaviorSanitizer (GCC/Clang)" OFF)
 
+# Directory containing the Khronos validation layer manifest, used by GPU tests. Defaults
+# to the copy installed by scripts/bootstrap.ps1 -WithVulkanSdk; empty relies on a
+# system-wide Vulkan SDK or runs with NVRHI validation only.
+set(cordite_default_layer_path "")
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/.tools/vulkan-sdk/Bin/VkLayer_khronos_validation.json")
+    set(cordite_default_layer_path "${CMAKE_CURRENT_SOURCE_DIR}/.tools/vulkan-sdk/Bin")
+endif()
+set(CORDITE_VULKAN_LAYER_PATH "${cordite_default_layer_path}" CACHE PATH
+    "Directory with the Vulkan validation layer, added to VK_ADD_LAYER_PATH for GPU tests")
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -39,6 +49,17 @@ if(CORDITE_BUILD_TESTS)
 endif()
 
 add_subdirectory(engine)
+add_subdirectory(editor)
+
+# The engine's shader sources travel with the executables, so that a build tree (or an
+# installed editor) is self-contained. Development builds still read the repository copy.
+add_custom_target(cordite_engine_shaders ALL
+    COMMAND ${CMAKE_COMMAND} -E copy_directory_if_different
+        "${PROJECT_SOURCE_DIR}/shaders"
+        "${CMAKE_BINARY_DIR}/bin/$<CONFIG>/shaders"
+    COMMENT "Copying engine shaders"
+    VERBATIM)
+set_target_properties(cordite_engine_shaders PROPERTIES FOLDER "Cordite/Build")
 
 if(CORDITE_BUILD_TESTS)
     add_subdirectory(tests)

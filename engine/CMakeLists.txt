@@ -6,3 +6,10 @@ configure_file(
 # Modules are listed in dependency order: a module may only depend on modules above it.
 add_subdirectory(cordite/core)
 add_subdirectory(cordite/math)
+add_subdirectory(cordite/platform)
+add_subdirectory(cordite/assets)
+add_subdirectory(cordite/rhi)
+add_subdirectory(cordite/shaders)
+add_subdirectory(cordite/shader_compiler)
+add_subdirectory(cordite/renderer)
+add_subdirectory(cordite/engine)

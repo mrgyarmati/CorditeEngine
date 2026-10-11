@@ -111,6 +111,13 @@ function Import-BuildEnvironment {
         throw 'cmake was not found. Run scripts/bootstrap.ps1 first.'
     }
 
+    # Let executables started through this script find the bootstrapped Vulkan validation
+    # layers. CTest sets the same variable for GPU tests on its own.
+    $layerPath = Join-Path $toolsDir 'vulkan-sdk\Bin'
+    if (-not $env:VK_ADD_LAYER_PATH -and (Test-Path (Join-Path $layerPath 'VkLayer_khronos_validation.json'))) {
+        $env:VK_ADD_LAYER_PATH = $layerPath
+    }
+
     # Already inside a Visual Studio developer prompt.
     if ($env:VSCMD_VER) {
         return

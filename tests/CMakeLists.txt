@@ -48,4 +48,61 @@ cordite_add_test_suite(math
     LIBRARIES
         cordite::math)
 
+cordite_add_test_suite(platform
+    SOURCES
+        unit/platform/InputTests.cpp
+        unit/platform/KeyCodesTests.cpp
+        unit/platform/WindowTests.cpp
+    LIBRARIES
+        cordite::platform)
+
+cordite_add_test_suite(assets
+    SOURCES
+        unit/assets/ImageCompareTests.cpp
+        unit/assets/ImageTests.cpp
+    LIBRARIES
+        cordite::assets)
+
+cordite_add_test_suite(shaders
+    SOURCES
+        unit/shaders/ShaderCacheTests.cpp
+        unit/shaders/ShaderLibraryTests.cpp
+        unit/shaders/ShaderTestSupport.h
+        unit/shaders/ShaderTypesTests.cpp
+    LIBRARIES
+        cordite::shaders)
+
+# Compiles real shaders with Slang; needs no GPU.
+cordite_add_test_suite(shader_compiler
+    SOURCES
+        unit/shader_compiler/EngineShadersTests.cpp
+        unit/shader_compiler/SlangShaderCompilerTests.cpp
+    LIBRARIES
+        cordite::shader_compiler)
+
+# Everything below renders on a real Vulkan device.
+cordite_add_test_suite(render
+    SOURCES
+        render/EngineTests.cpp
+        render/GraphicsDeviceTests.cpp
+        render/RenderPassTests.cpp
+        render/RenderTestSupport.cpp
+        render/RenderTestSupport.h
+        render/SwapchainTests.cpp
+    LIBRARIES
+        cordite::engine
+    LABELS
+        gpu)
+
+# Runs the real editor executable in batch mode. It exits with a non-zero status when
+# anything fails or when the GPU validation layers report a problem.
+add_test(NAME editor_smoke
+    COMMAND cordite-editor
+        --headless --validation --frames 5 --fixed-time-step 0.1
+        --width 320 --height 180
+        --screenshot "${PROJECT_BINARY_DIR}/test-tmp/editor-smoke.png"
+    WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}")
+set_tests_properties(editor_smoke PROPERTIES LABELS "gpu" TIMEOUT 120)
+cordite_configure_gpu_test(editor_smoke "gpu")
+
 cordite_add_layering_test()

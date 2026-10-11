@@ -15,6 +15,20 @@ pinned in [cmake/CorditeDependencies.cmake](../cmake/CorditeDependencies.cmake) 
 | [enkiTS](https://github.com/dougbinks/enkiTS) | 1.12 | zlib | Task scheduler behind `JobSystem` |
 | [xxHash](https://github.com/Cyan4973/xxHash) | 0.8.4 | BSD-2-Clause | Content hashing |
 | [glm](https://github.com/g-truc/glm) | 1.0.3 | MIT | Vector, matrix and quaternion math |
+| [GLFW](https://github.com/glfw/glfw) | 3.5.1 | zlib | Windows and input |
+| [NVRHI](https://github.com/NVIDIA-RTX/NVRHI) | commit `6b96fb0` (2026-10-05) | MIT | Rendering hardware interface over Vulkan |
+| [Vulkan-Headers](https://github.com/KhronosGroup/Vulkan-Headers) | 1.4.352 | Apache-2.0 OR MIT | Vulkan API declarations (headers only) |
+| [stb](https://github.com/nothings/stb) | commit `2c980bb` | MIT OR public domain | Image decoding (`stb_image`) and PNG encoding (`stb_image_write`) |
+| [CLI11](https://github.com/CLIUtils/CLI11) | 2.7.2 | BSD-3-Clause | Command-line parsing in the executables |
+
+## Linked into the editor and tools, not into exported games
+
+| Library | Version | License | Used for |
+|---------|---------|---------|----------|
+| [Slang](https://github.com/shader-slang/slang) | 2026.19 (official prebuilt binaries) | Apache-2.0 WITH LLVM-exception | Shader compilation to SPIR-V |
+
+Slang is a shared library. On Windows its DLLs are copied next to the executables at
+build time; on Linux and macOS the executables find it through their build RPATH.
 
 ## Tests only
 

@@ -46,6 +46,9 @@ Read this file before changing anything. Task-specific walkthroughs live in
 ./scripts/dev.ps1 tidy -Filter math      # only files whose path matches the regex
 ./scripts/dev.ps1 verify                 # the whole pre-commit gate, one PASS/FAIL line per step
 ./scripts/dev.ps1 verify -Filter quick   # format-check plus the default build and tests
+
+./scripts/dev.ps1 run -Target cordite-editor       # open the editor
+./scripts/dev.ps1 run -Target cordite-editor -- --headless --validation --frames 10 --screenshot out.png
 ```
 
 `dev.ps1` loads the MSVC environment itself, so it works from any shell. It requires
@@ -61,11 +64,12 @@ build/windows/bin/RelWithDebInfo/cordite_core_tests.exe -ts="Config"      # a wh
 ### Linux and macOS
 
 ```bash
-# Ubuntu 24.04: sudo apt install build-essential cmake ninja-build
-# macOS:        brew install cmake ninja
+# Ubuntu 24.04: sudo apt install build-essential cmake ninja-build xorg-dev libwayland-dev libxkbcommon-dev
+#               (to run: a Vulkan 1.3 driver, e.g. mesa-vulkan-drivers; optional: vulkan-validationlayers)
+# macOS:        brew install cmake ninja   (to run: the Vulkan SDK, which provides MoltenVK)
 cmake --preset linux            # or: macos
 cmake --build --preset linux-dev
-ctest --preset linux-dev
+ctest --preset linux-dev        # add -LE gpu on a machine without a Vulkan device
 ```
 
 ### Build configurations
@@ -85,8 +89,11 @@ in that configuration.
 ```
 cmake/                 Build helpers: dependencies, compiler options, module/test macros
 engine/cordite/<mod>/  Engine modules (static libraries), one directory each
+editor/                The cordite-editor executable
+shaders/               Engine shader sources (Slang): common/ is shared code, passes/ one file per pass
 tests/support/         Test entry point and fixtures
 tests/unit/<mod>/      Unit tests, mirroring engine/cordite/<mod>
+tests/render/          Tests that need a GPU, and their reference images
 scripts/               Developer tooling (bootstrap, dev, hash-url)
 docs/                  Architecture notes and the third-party list
 .claude/skills/        Step-by-step guides for recurring tasks
@@ -108,6 +115,16 @@ by accident.
 |--------|-----------|----------|
 | `core` | -         | Logging, assertions, `Result`, hashing, UUIDs, JSON, binary streams, file I/O, config, job system, allocators, timing |
 | `math` | `core`    | glm aliases, `Transform`, bounds, rays, frustum, projections, color, curves, random |
+| `platform` | `core`, `math` | Windows (GLFW), keyboard / mouse / gamepad input |
+| `assets` | `core`, `math` | CPU-side asset data: images, image comparison |
+| `rhi` | `core`, `math`, `platform` | Vulkan device, swapchain and texture readback over NVRHI |
+| `shaders` | `core` | Shader requests and permutation keys, disk cache, `ShaderLibrary` |
+| `shader_compiler` | `core`, `shaders` | Slang to SPIR-V compiler (not linked into exported games) |
+| `renderer` | `core`, `math`, `rhi`, `shaders` | Render passes and GPU shader management |
+| `engine` | all of the above | `Engine`: owns the subsystems and runs the frame loop |
+
+`cordite-editor` (in `editor/`) is a thin executable around `Engine`. Run it headless
+for automation: `cordite-editor --headless --frames 10 --screenshot out.png`.
 
 Rules that keep the architecture honest:
 
@@ -212,11 +229,41 @@ Radians in code, degrees in user-facing data. Direct3D-style clip space with rev
 depth for scene rendering. Colors are linear unless a name says sRGB. Quaternions are
 serialized as `[x, y, z, w]`. Details are in `engine/cordite/math/Math.h`.
 
+## Rendering and shaders
+
+NVRHI is the rendering interface; engine code outside the `rhi` module never calls
+Vulkan directly. Step-by-step guide for adding a pass:
+[add-render-pass](.claude/skills/add-render-pass/SKILL.md).
+
+- **Every GPU code path must be reachable headless.** A feature that only works with a
+  window cannot be tested automatically or driven by an agent. Render to an offscreen
+  target first; the swapchain only ever receives a copy.
+- **Validation must stay silent.** Tests create devices with `validation = true` and end
+  with `checkNoValidationIssues`. A validation message is a bug, not noise; fix the
+  cause. Never filter a message out to make a test pass.
+- **Shaders are Slang**, in `shaders/`. Matrices are column-major (`mul(matrix, vector)`
+  matches glm's `matrix * vector`). Resources use HLSL registers with NVRHI's default
+  Vulkan offsets: `tN` -> N, `sN` -> 128 + N, `bN` -> 256 + N, `uN` -> 384 + N.
+- **A C++ struct that mirrors a shader constant buffer** uses only 16-byte-aligned
+  groups (`Vec4`, or `Vec2` + two floats, ...), is named after the `cbuffer`, and has a
+  `static_assert` on its size.
+- **Shader permutations** are `ShaderRequest`s: path, entry point, stage and sorted
+  defines. Their key is deterministic and pinned by a test; changing how it is computed
+  orphans every shader cache. Every engine shader entry point is listed in
+  `tests/unit/shader_compiler/EngineShadersTests.cpp`, which compiles them all without
+  a GPU.
+- **Swapchain back buffers** are 8-bit UNORM; the final pass writes display-encoded
+  (sRGB) values itself. Do not render linear values straight to the back buffer.
+- **Texture states:** create render targets with `keepInitialState = true` and a
+  sensible `initialState`, and NVRHI inserts every barrier. Do not transition swapchain
+  images yourself; they may only change layout while acquired.
+
 ## Testing
 
 Framework: doctest. One executable per module (`cordite_<module>_tests`), registered
-with CTest under the module name. See the skill
-[build-and-test](.claude/skills/build-and-test/SKILL.md).
+with CTest under the module name. See the skills
+[build-and-test](.claude/skills/build-and-test/SKILL.md) and
+[render-tests](.claude/skills/render-tests/SKILL.md).
 
 - Test files are named `<Thing>Tests.cpp` and live in `tests/unit/<module>/`.
 - Test case names are sentences describing behavior: `"an exhausted arena returns
@@ -231,7 +278,18 @@ with CTest under the module name. See the skill
 - Assertion-failure paths are tested with `CHECK_THROWS_AS(expr, AssertionFailure)`
   inside `#if defined(CORDITE_ENABLE_ASSERTS)`.
 - Use `LogCapture` to assert that a warning or error was (or was not) logged.
-- Suites that need a GPU carry the CTest label `gpu`.
+- Suites that need a GPU carry the CTest label `gpu` and live in `tests/render/`. They
+  run with the Vulkan validation layers when `scripts/bootstrap.ps1 -WithVulkanSdk` has
+  been run (or a system-wide Vulkan SDK is installed).
+- Rendered frames are compared with reference images in `tests/render/references/`
+  within a small tolerance. A new or changed reference image is reviewed by looking at
+  it before it is committed; never approve one unseen.
+- Windows opened by tests are hidden (`visible = false`) or use the headless window
+  system, so the suite never disturbs the desktop and runs on machines without one.
+- Only one `Engine`, one `WindowSystem` and one `GraphicsDevice` can exist at a time;
+  tests create them one after another, never side by side.
+- Get the value of a `Result` in a test with `test::unwrap(...)`, never with `*result`:
+  dereferencing an error is undefined behavior and turns a clean failure into a crash.
 
 ## Dependencies
 
@@ -273,3 +331,12 @@ body explaining what changed and why. One logical change per commit.
 - The default MSVC toolset on a machine may be older than the newest one installed.
   `dev.ps1` uses whatever `vcvars64.bat` selects; do not rely on features newer than
   MSVC 19.38.
+- clang-format reflows comments, which mangles a `@code` example whose lines exceed 120
+  columns. Keep example lines short.
+- A range-for over a braced list of integer literals (`for (uint8_t v : {1, 2})`)
+  iterates `int`s and warns about narrowing; write `std::initializer_list<uint8_t>{...}`.
+- In a function returning `Result<bool>`, `return {};` returns `false`, not success.
+  Return the value explicitly, and prefer an enum to `bool` when the meaning of the
+  two values is not obvious at the call site.
+- Shell working directories persist between commands in agent sessions. Use absolute
+  paths, or `cd` to the repository root at the start of every command.

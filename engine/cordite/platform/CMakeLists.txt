@@ -1,0 +1,14 @@
+cordite_add_module(platform
+    SOURCES
+        Input.cpp
+        Input.h
+        KeyCodes.cpp
+        KeyCodes.h
+        Window.cpp
+        Window.h
+    DEPENDS
+        core
+        math
+    PRIVATE_LIBRARIES
+        glfw
+        Vulkan::Headers)

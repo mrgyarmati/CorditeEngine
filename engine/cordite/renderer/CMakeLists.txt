@@ -1,0 +1,15 @@
+cordite_add_module(renderer
+    SOURCES
+        BlitPass.cpp
+        BlitPass.h
+        FullscreenPass.cpp
+        FullscreenPass.h
+        ShaderManager.cpp
+        ShaderManager.h
+        TestPatternPass.cpp
+        TestPatternPass.h
+    DEPENDS
+        core
+        math
+        rhi
+        shaders)

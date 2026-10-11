@@ -31,7 +31,7 @@ jobs:
 
       - name: Check formatting
         run: |
-          find engine tests -type f \( -name '*.h' -o -name '*.cpp' -o -name '*.inl' \) -print0 \
+          find engine editor tests -type f \( -name '*.h' -o -name '*.cpp' -o -name '*.inl' \) -print0 \
             | xargs -0 clang-format --dry-run --Werror --style=file
 
   linux:
@@ -44,13 +44,22 @@ jobs:
         include:
           - preset: linux
             build: linux-dev
+            test_arguments: ""
           - preset: linux-sanitize
             build: linux-sanitize
+            test_arguments: "-LE gpu"
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install build tools
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ninja-build
+      # xorg-dev, libwayland-dev and libxkbcommon-dev are what GLFW builds against.
+      # mesa-vulkan-drivers provides lavapipe, a CPU implementation of Vulkan, so the
+      # rendering tests run on runners without a GPU; xvfb gives them a display.
+      - name: Install build tools and a software Vulkan driver
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build xorg-dev libwayland-dev libxkbcommon-dev \
+            mesa-vulkan-drivers vulkan-validationlayers xvfb
 
       - name: Cache dependencies
         uses: actions/cache@v4
@@ -64,9 +73,10 @@ jobs:
       - name: Build
         run: cmake --build --preset ${{ matrix.build }}
 
-      # Hosted runners have no GPU; suites that need a Vulkan device carry the 'gpu' label.
+      # The sanitizer job skips the GPU suites: the software driver's own allocations
+      # would drown the report in findings that are not ours.
       - name: Test
-        run: ctest --preset ${{ matrix.build }} -LE gpu
+        run: xvfb-run -a ctest --preset ${{ matrix.build }} ${{ matrix.test_arguments }}
 
   windows:
     name: Windows (MSVC)
@@ -81,6 +91,7 @@ jobs:
           key: deps-${{ runner.os }}-windows-${{ hashFiles('cmake/CorditeDependencies.cmake') }}
 
       # The runner image ships CMake and Ninja; dev.ps1 loads the MSVC environment.
+      # Hosted Windows runners have no Vulkan device, so the GPU suites are skipped.
       - name: Build (RelWithDebInfo)
         shell: pwsh
         run: ./scripts/dev.ps1 build
