@@ -159,9 +159,32 @@ cordite_declare_dependency(imgui
     SHA256 90ded916bd57db2e0e171b6b098940a47c6f5042725dcdc67fb19940ca8bfdcc
     SOURCES_ONLY)
 
+# --- cgltf: glTF 2.0 parsing (single header, compiled inside cordite_assets) -------------
+cordite_declare_dependency(cgltf
+    URL https://github.com/jkuhlmann/cgltf/archive/refs/tags/v1.15.tar.gz
+    SHA256 84e352092e5cd6aab7f66de62ddb66beb5e6f18d412ca9d12950d7a55bfef25a
+    SOURCES_ONLY)
+
+# --- meshoptimizer: vertex welding and cache/fetch optimization of imported meshes ------
+cordite_declare_dependency(meshoptimizer
+    URL https://github.com/zeux/meshoptimizer/archive/refs/tags/v1.3.tar.gz
+    SHA256 ca4f47d451201593904b9e3067fa54b65db94bc34ab5173864950862b748a145)
+cordite_dependency_option(MESHOPT_BUILD_DEMO OFF)
+cordite_dependency_option(MESHOPT_BUILD_GLTFPACK OFF)
+cordite_dependency_option(MESHOPT_BUILD_SHARED_LIBS OFF)
+cordite_dependency_option(MESHOPT_INSTALL OFF)
+
+# --- MikkTSpace: the tangent basis every normal-map baker assumes ------------------------
+# Has no releases and no CMake project; the cordite_mikktspace target below compiles it.
+cordite_declare_dependency(mikktspace
+    URL https://github.com/mmikk/MikkTSpace/archive/3e895b49d05ea07e4c2133156cfa94369e19e409.tar.gz
+    SHA256 aeba65ddee85a679133d510d71d00b108f603752f90b15b9ecf7777033f6e351
+    SOURCES_ONLY)
+
 FetchContent_MakeAvailable(
     fmt spdlog nlohmann_json tl_expected enkits xxhash glm
-    glfw vulkan_headers nvrhi stb cli11 entt imgui)
+    glfw vulkan_headers nvrhi stb cli11 entt imgui
+    cgltf meshoptimizer mikktspace)
 
 add_library(cordite_xxhash INTERFACE)
 add_library(cordite::xxhash ALIAS cordite_xxhash)
@@ -170,6 +193,15 @@ target_include_directories(cordite_xxhash SYSTEM INTERFACE "${xxhash_SOURCE_DIR}
 add_library(cordite_stb INTERFACE)
 add_library(cordite::stb ALIAS cordite_stb)
 target_include_directories(cordite_stb SYSTEM INTERFACE "${stb_SOURCE_DIR}")
+
+add_library(cordite_cgltf INTERFACE)
+add_library(cordite::cgltf ALIAS cordite_cgltf)
+target_include_directories(cordite_cgltf SYSTEM INTERFACE "${cgltf_SOURCE_DIR}")
+
+add_library(cordite_mikktspace STATIC "${mikktspace_SOURCE_DIR}/mikktspace.c")
+add_library(cordite::mikktspace ALIAS cordite_mikktspace)
+target_include_directories(cordite_mikktspace SYSTEM PUBLIC "${mikktspace_SOURCE_DIR}")
+set_target_properties(cordite_mikktspace PROPERTIES FOLDER "ThirdParty")
 
 # Dear ImGui is configured through engine/cordite/ui/ImGuiConfig.h, which every file that
 # includes imgui.h picks up through IMGUI_USER_CONFIG - ImGui's own sources included.

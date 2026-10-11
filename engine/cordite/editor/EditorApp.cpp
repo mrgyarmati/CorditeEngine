@@ -25,6 +25,8 @@ using Type = CommandParameterType;
 
 constexpr const char* kEditorName = "Cordite Editor";
 constexpr const char* kFileDialogId = "Scene file";
+/// Where the arrangement of the windows is remembered, inside a .cordite directory.
+constexpr const char* kLayoutFileName = "editor-layout.ini";
 
 /// Frames rendered before a screenshot of the whole editor, so that windows that were
 /// just opened or resized have settled into their layout.
@@ -103,6 +105,24 @@ Result<std::unique_ptr<EditorApp>> EditorApp::create(const EditorAppDesc& desc) 
     std::unique_ptr<EditorApp> app(new EditorApp());
 
     EngineDesc engineDesc = desc.engine;
+    std::filesystem::path scene = desc.scene;
+    // What a person leaves behind lives in the .cordite directory of the project, or of
+    // the working directory when there is no project.
+    std::filesystem::path stateDirectory = ".cordite";
+    if (!desc.project.empty()) {
+        CORDITE_TRY_ASSIGN(Project project, loadProject(desc.project));
+        engineDesc.assetDirectory = project.assetDirectory();
+        stateDirectory = project.cacheDirectory();
+        if (scene.empty()) {
+            scene = project.startScenePath();
+        }
+        app->m_project = std::move(project);
+    }
+    if (desc.rememberLayout && engineDesc.uiSettingsFile.empty()) {
+        engineDesc.uiSettingsFile = stateDirectory / kLayoutFileName;
+    }
+    // An editor is where assets get their ids.
+    engineDesc.writeAssetMetaFiles = true;
     if (engineDesc.applicationName == EngineDesc().applicationName) {
         engineDesc.applicationName = kEditorName;
     }
@@ -111,13 +131,14 @@ Result<std::unique_ptr<EditorApp>> EditorApp::create(const EditorAppDesc& desc) 
     }
     CORDITE_TRY_ASSIGN(app->m_engine, Engine::create(engineDesc));
 
-    app->m_context = std::make_unique<EditorContext>(app->m_engine->world(), app->m_engine->components());
+    app->m_context =
+        std::make_unique<EditorContext>(app->m_engine->world(), app->m_engine->components(), app->m_engine->assets());
     CORDITE_TRY(registerEditorCommands(app->m_commands, *app->m_context));
     CORDITE_TRY(app->registerApplicationCommands());
     CORDITE_TRY_ASSIGN(app->m_viewport, ViewportPanel::create(*app->m_engine));
 
-    if (!desc.scene.empty()) {
-        CORDITE_TRY(app->m_context->openScene(desc.scene));
+    if (!scene.empty()) {
+        CORDITE_TRY(app->m_context->openScene(scene));
     }
     return app;
 }
@@ -238,7 +259,7 @@ Result<Image> EditorApp::captureViewport(UVec2 size) {
     CORDITE_TRY(rendered);
     device->executeCommandList(commandList);
 
-    CORDITE_TRY_ASSIGN(TexturePixels pixels, readTexture(m_engine->graphics(), m_viewport->target().color()));
+    CORDITE_TRY_ASSIGN(TexturePixels pixels, readTexture(m_engine->graphics(), m_viewport->targets().display()));
     return Image::fromPixels(pixels.width, pixels.height, ImageFormat::Rgba8, std::move(pixels.data));
 }
 
@@ -470,24 +491,8 @@ void EditorApp::drawMainMenu() {
         ImGui::EndMenu();
     }
 
-    if (ImGui::BeginMenu("Entity")) {
-        const auto create = [&](const char* name, Json components) {
-            const Result<Entity> created = actions.createEntity(
-                {.name = name, .parent = m_context->primarySelection(), .components = std::move(components)});
-            if (reportIfFailed(created)) {
-                m_context->setSelection(std::span(&*created, 1));
-            }
-        };
-        if (ImGui::MenuItem("Create empty")) {
-            create("Entity", Json::object());
-        }
-        if (ImGui::MenuItem("Create camera")) {
-            Json components = Json::object();
-            components["Camera"] = Json::object();
-            create("Camera", std::move(components));
-        }
-        ImGui::EndMenu();
-    }
+    drawEntityMenu();
+    drawAssetMenu();
 
     if (ImGui::BeginMenu("Help")) {
         // Every widget ImGui has, with its source: the reference for writing panels.
@@ -504,6 +509,83 @@ void EditorApp::drawMainMenu() {
         ImGui::TextDisabled("%s", status.c_str());
     }
     ImGui::EndMainMenuBar();
+}
+
+void EditorApp::drawEntityMenu() {
+    if (!ImGui::BeginMenu("Entity")) {
+        return;
+    }
+    EditorActions actions(*m_context);
+    const auto create = [&](const char* name, Json components) {
+        const Result<Entity> created = actions.createEntity(
+            {.name = name, .parent = m_context->primarySelection(), .components = std::move(components)});
+        if (reportIfFailed(created)) {
+            m_context->setSelection(std::span(&*created, 1));
+        }
+    };
+
+    if (ImGui::MenuItem("Create empty")) {
+        create("Entity", Json::object());
+    }
+    if (ImGui::MenuItem("Create camera")) {
+        Json components = Json::object();
+        components["Camera"] = Json::object();
+        create("Camera", std::move(components));
+    }
+    if (ImGui::BeginMenu("Create shape")) {
+        // The built-in meshes: enough to block out a scene before models exist.
+        for (const BuiltinMesh mesh : kBuiltinMeshes) {
+            const AssetInfo* asset = m_context->assets().database().find(builtinMeshId(mesh));
+            if (asset != nullptr && ImGui::MenuItem(asset->name.c_str())) {
+                Json components = Json::object();
+                components["MeshRenderer"]["mesh"] = asset->id.toString();
+                create(asset->name.c_str(), std::move(components));
+            }
+        }
+        ImGui::EndMenu();
+    }
+    ImGui::EndMenu();
+}
+
+void EditorApp::drawAssetMenu() {
+    if (!ImGui::BeginMenu("Assets")) {
+        return;
+    }
+    if (ImGui::MenuItem("Refresh")) {
+        reportIfFailed(m_context->assets().refresh());
+    }
+    if (ImGui::BeginMenu("Place model")) {
+        // Collected first: placing a model must not happen while the list is walked.
+        Uuid chosen;
+        bool any = false;
+        for (const AssetInfo& asset : m_context->assets().database().assets()) {
+            if (asset.type != AssetType::Model) {
+                continue;
+            }
+            any = true;
+            ImGui::PushID(asset.path.c_str());
+            if (ImGui::MenuItem(asset.name.c_str(), asset.path.c_str())) {
+                chosen = asset.id;
+            }
+            ImGui::PopID();
+        }
+        if (!any) {
+            ImGui::TextDisabled("The project has no models.");
+        }
+        if (!chosen.isNil()) {
+            reportIfFailed(
+                EditorActions(*m_context).instantiateModel(chosen, {.parent = m_context->primarySelection()}));
+        }
+        ImGui::EndMenu();
+    }
+
+    // What is wrong with the asset directory, where it will be seen.
+    const std::span<const std::string> problems = m_context->assets().database().problems();
+    if (!problems.empty()) {
+        ImGui::Separator();
+        ImGui::TextDisabled("%zu problem(s); see asset.list in the console", problems.size());
+    }
+    ImGui::EndMenu();
 }
 
 void EditorApp::drawFileDialog() {
@@ -554,7 +636,8 @@ void EditorApp::updateWindowTitle() {
     const std::filesystem::path& scenePath = m_context->scenePath();
     const std::string sceneLabel =
         scenePath.empty() ? m_context->world().sceneName() : pathToUtf8(scenePath.filename());
-    std::string title = fmt::format("{}{} - {}", sceneLabel, m_context->hasUnsavedChanges() ? " *" : "", kEditorName);
+    std::string title = fmt::format("{}{} - {}{}", sceneLabel, m_context->hasUnsavedChanges() ? " *" : "",
+                                    m_project ? m_project->settings.name + " - " : std::string(), kEditorName);
     if (title != m_shownTitle) {
         window->setTitle(title);
         m_shownTitle = std::move(title);

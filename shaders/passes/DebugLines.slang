@@ -11,10 +11,11 @@ cbuffer DebugLineConstants : register(b0)
     float3 fadeOrigin;
     float fadeStart;
     float fadeEnd;
-    // Scalars, not a float3: a vector would be aligned differently by different layout rules.
+    // Brings the lines nearer by this fraction of their depth.
+    float depthBias;
+    // Scalars, not a float2: a vector would be aligned differently by different layout rules.
     float padding0;
     float padding1;
-    float padding2;
 };
 
 // Matches DebugVertex. The order of the members is the order of the vertex attributes.
@@ -36,6 +37,9 @@ DebugLineVaryings debugLineVertex(DebugLineVertex input)
 {
     DebugLineVaryings output;
     output.position = mul(viewProjection, float4(input.position, 1.0));
+    // Depth is reversed, so larger is nearer. A line lying on a surface would otherwise
+    // be hidden by it in places, as rounding decides which of the two is in front.
+    output.position.z *= 1.0 + depthBias;
     output.color = input.color;
     output.worldPosition = input.position;
     return output;

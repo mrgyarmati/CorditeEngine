@@ -1,0 +1,12 @@
+// Riveted steel plates with rust creeping in from their edges.
+{
+    "format": "cordite.material",
+    "version": 1,
+    "baseColorTexture": "1f804f6a-bce0-87c1-845b-878a41c831ab",
+    "normalTexture": "3c53f298-3827-8c13-bc40-53e50eee789b",
+    "metallicRoughnessTexture": "78cc51ce-4b8a-8d5c-9941-161e5f841c84",
+    "occlusionTexture": "78cc51ce-4b8a-8d5c-9941-161e5f841c84",
+    "metallic": 1,
+    "roughness": 1,
+    "normalScale": 1.5
+}

@@ -6,7 +6,7 @@
 /// without a window, save what the last one looked like, and report the outcome through
 /// its exit status:
 ///
-///     cordite-editor --headless --scene depot.scene.json --exec edits.json --frames 3 --screenshot out.png
+///     cordite-editor --headless --project samples/showcase --exec edits.json --frames 3 --screenshot out.png
 ///
 /// The outcome of a script is written to standard output as JSON (or to the file given
 /// with --exec-output); everything else the editor has to say goes to standard error.
@@ -35,10 +35,6 @@ constexpr int kExitFailure = 1;
 constexpr int kExitValidationIssues = 2;
 constexpr int kExitScriptFailed = 3;
 
-/// Where an interactive editor remembers its window layout, relative to the working
-/// directory. The .cordite directory holds per-user state and is not version-controlled.
-constexpr const char* kLayoutFile = ".cordite/editor-layout.ini";
-
 struct Options {
     bool headless = false;
     bool validation = false;
@@ -48,6 +44,7 @@ struct Options {
     /// Zero runs until the window is closed.
     uint64_t frames = 0;
     double fixedTimeStep = 0.0;
+    std::string project;
     std::string scene;
     std::string script;
     std::string scriptOutput;
@@ -112,11 +109,10 @@ int run(const Options& options) {
     desc.engine.renderSize = UVec2(options.width, options.height);
     desc.engine.window.width = options.width;
     desc.engine.window.height = options.height;
-    if (!options.headless) {
-        // A batch run starts from the default layout every time, so that its output
-        // does not depend on what a person did to the windows earlier.
-        desc.engine.uiSettingsFile = pathFromUtf8(kLayoutFile);
-    }
+    // A batch run starts from the default layout every time, so that its output does not
+    // depend on what a person did to the windows earlier.
+    desc.rememberLayout = !options.headless;
+    desc.project = pathFromUtf8(options.project);
     desc.scene = pathFromUtf8(options.scene);
 
     Result<std::unique_ptr<EditorApp>> editor = EditorApp::create(desc);
@@ -178,7 +174,9 @@ int parseAndRun(int argc, char** argv) {
     argv = app.ensure_utf8(argv);
     app.set_version_flag("--version", cordite::kEngineVersion);
 
-    app.add_option("--scene", options.scene, "Scene file to open at start");
+    app.add_option("--project", options.project,
+                   "Project directory to work on (the one holding cordite.project.json); its start scene is opened");
+    app.add_option("--scene", options.scene, "Scene file to open at start, instead of the project's start scene");
     app.add_option("--exec", options.script,
                    "Run the editor commands in this JSON script before rendering; exits with status 3 if a step "
                    "fails");

@@ -7,8 +7,10 @@
 /// CORDITE_TRY_ASSIGN(DebugLinePass linePass, DebugLinePass::create(device, shaders));
 ///
 /// linePass.draw(commandList, target.framebuffer(), lines.vertices(),
-///               {.viewProjection = view.viewProjection, .fadeOrigin = view.position, .fadeStart = 30.0f, .fadeEnd
-///               = 60.0f});
+///               {.viewProjection = view.viewProjection,
+///                .fadeOrigin = view.position,
+///                .fadeStart = 30.0f,
+///                .fadeEnd = 60.0f});
 /// @endcode
 ///
 /// Lines are one pixel wide and alpha-blended. When the framebuffer has a depth buffer
@@ -32,6 +34,11 @@ struct DebugLineParameters {
     Mat4 viewProjection{1.0f};
     /// Test against the framebuffer's depth buffer, if it has one.
     bool depthTest = true;
+    /// Brings the lines nearer to the viewer by this fraction of their distance when
+    /// they are tested against the depth buffer: 0.001 is a centimetre at ten metres.
+    /// Lines drawn onto a surface (a grid on a floor) need a little of it, or the
+    /// surface hides them in places.
+    float depthBias = 0.0f;
     /// Lines fade out between `fadeStart` and `fadeEnd` metres from `fadeOrigin`. The
     /// defaults are far beyond any scene, so nothing fades.
     Vec3 fadeOrigin{0.0f};

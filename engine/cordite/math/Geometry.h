@@ -97,7 +97,9 @@ struct Ray {
 [[nodiscard]] std::optional<float> intersect(const Ray& ray, const Plane& plane);
 
 /// Ray against the triangle (a, b, c). With `cullBackFaces`, hits on the side where the
-/// triangle appears clockwise are ignored.
+/// triangle appears clockwise are ignored. The edges belong to the triangle, so a ray
+/// through an edge that two triangles share hits at least one of them; a triangle
+/// without area is never hit.
 [[nodiscard]] std::optional<float> intersectTriangle(const Ray& ray, const Vec3& a, const Vec3& b, const Vec3& c,
                                                      bool cullBackFaces = false);
 

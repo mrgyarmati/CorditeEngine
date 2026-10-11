@@ -18,7 +18,8 @@ struct DebugLineConstants {
     Vec3 fadeOrigin;
     float fadeStart;
     float fadeEnd;
-    std::array<float, 3> padding;
+    float depthBias;
+    std::array<float, 2> padding;
 };
 
 static_assert(sizeof(DebugLineConstants) == 96, "must match the cbuffer layout in DebugLines.slang");
@@ -149,6 +150,7 @@ void DebugLinePass::draw(nvrhi::ICommandList* commandList, nvrhi::IFramebuffer* 
     constants.fadeStart = parameters.fadeStart;
     // smoothstep is undefined when its edges coincide; keep the end beyond the start.
     constants.fadeEnd = std::max(parameters.fadeEnd, parameters.fadeStart * 1.0001f + 1.0e-4f);
+    constants.depthBias = std::max(parameters.depthBias, 0.0f);
     commandList->writeBuffer(m_constantBuffer, &constants, sizeof(constants));
     commandList->writeBuffer(m_vertexBuffer, vertices.data(), vertexCount * sizeof(DebugVertex));
 

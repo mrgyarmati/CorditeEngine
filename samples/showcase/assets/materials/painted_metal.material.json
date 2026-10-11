@@ -1,0 +1,10 @@
+// Painted sheet metal, without textures. Other materials name this one as their parent
+// and change only the color: see painted_metal_red.material.json.
+{
+    "format": "cordite.material",
+    "version": 1,
+    "baseColor": [0.11, 0.16, 0.13, 1],
+    "metallic": 0,
+    "roughness": 0.42,
+    "specular": 0.5
+}

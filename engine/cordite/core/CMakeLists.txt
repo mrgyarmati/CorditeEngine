@@ -9,6 +9,8 @@ cordite_add_module(core
         BinaryStream.h
         Config.cpp
         Config.h
+        Document.cpp
+        Document.h
         ExternalAssert.h
         FileSystem.cpp
         FileSystem.h

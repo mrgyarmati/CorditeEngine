@@ -35,7 +35,8 @@ CameraView makeCameraView(const Mat4& cameraToWorld, const CameraComponent& came
     view.forward = -Vec3(placement[2]);
     view.view = glm::inverse(placement);
 
-    if (camera.projection == CameraProjection::Orthographic) {
+    view.orthographic = camera.projection == CameraProjection::Orthographic;
+    if (view.orthographic) {
         const float halfHeight = 0.5f * std::max(camera.orthographicHeight, kMinimumNearPlane);
         const float halfWidth = halfHeight * aspect;
         view.projection =

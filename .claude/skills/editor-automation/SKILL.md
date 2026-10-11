@@ -14,9 +14,10 @@ A script is a JSON array of steps:
 
 ```json
 [
-    {"command": "scene.open", "params": {"path": "samples/showcase/showcase.scene.json"}},
+    {"command": "scene.open", "params": {"path": "scenes/showcase.scene.json"}},
     {"command": "entity.create", "params": {"name": "Probe", "parent": "Stage",
                                             "components": {"Transform": {"position": [0, 1, 2]}}}},
+    {"command": "asset.instantiate", "params": {"asset": "models/crate.gltf", "parent": "Probe"}},
     {"command": "selection.set", "params": {"entities": ["Probe"]}},
     {"command": "viewport.frame", "params": {"entity": "Probe", "radius": 3}},
     {"command": "editor.screenshot", "params": {"path": "build/shots/probe.png"}}
@@ -25,12 +26,15 @@ A script is a JSON array of steps:
 
 ```powershell
 ./scripts/dev.ps1 run -Target cordite-editor -- --headless --width 1280 --height 720 `
-    --exec script.json --exec-output build/outcome.json
+    --project samples/showcase --exec script.json --exec-output build/outcome.json
 ```
 
 - `--headless` needs no desktop. Add `--validation` to have the GPU validation layers
   check the run.
-- `--scene <file>` opens a scene before the script runs.
+- `--project <directory>` gives the editor a project: its assets, and its start scene,
+  which is opened before the script runs. Without a project only the built-in assets
+  exist.
+- `--scene <file>` opens that scene instead of the project's start scene.
 - Without `--exec-output` the outcome is written to standard output; logs always go to
   standard error.
 - `--frames N` renders N more frames after the script; `--screenshot <file>` saves the
@@ -46,8 +50,8 @@ The outcome lists every step that ran:
     "ok": false,
     "results": [
         {"command": "scene.open", "ok": true,
-         "result": {"name": "Showcase", "path": "samples/showcase/showcase.scene.json",
-                    "unsavedChanges": false, "entityCount": 9}},
+         "result": {"name": "Showcase", "path": "samples/showcase/assets/scenes/showcase.scene.json",
+                    "unsavedChanges": false, "entityCount": 29}},
         {"command": "entity.create", "ok": false,
          "error": {"code": "NotFound", "message": "entity.create: no entity is named 'Stag'"}}
     ]
@@ -67,6 +71,9 @@ Do not guess command or property names; ask the editor.
 | `scene.describe` | The hierarchy: ids, paths, enabled state, component names |
 | `entity.get` | Everything about one entity, including all property values |
 | `editor.state` | Scene file, unsaved changes, what undo and redo would do, the selection |
+| `asset.list` | Every asset with its id, type, name and path; optionally of one type |
+| `asset.get` | One asset: dependencies, import warnings, and its content (size, properties, nodes) |
+| `scene.validate` | References to assets that are missing or of the wrong kind |
 
 ## Refer to entities
 
@@ -79,6 +86,34 @@ Wherever a command takes an entity, it accepts:
 A name or path that matches several entities is an error that lists the candidates with
 their ids. Commands that create or change an entity return its `id` and `path`; keep the
 id when the entity will be referred to again.
+
+## Use assets
+
+Components refer to assets by id. Get the id from `asset.list` (or `asset.get`), then
+set it like any other property:
+
+```json
+[
+    {"command": "asset.list", "params": {"type": "mesh"}},
+    {"command": "entity.create", "params": {"name": "Block", "components": {
+        "MeshRenderer": {"mesh": "0a56c2f1-21e0-819d-8bac-567d1e1c4345",
+                         "materials": ["9e35de7e-da93-8003-824c-d50e66fb2ad4"]}}}},
+    {"command": "scene.validate"}
+]
+```
+
+- Commands that take an *asset* (`asset.get`, `asset.instantiate`) accept its id or its
+  path as `asset.list` shows it: `"models/crate.gltf"`, `"models/crate.gltf#mesh/0"`,
+  `"builtin#mesh/cube"`. Properties of components take ids only.
+- `asset.instantiate` places a whole model: an entity per part, under one new root that
+  it returns. Move that root to place the model.
+- The built-in meshes (cube, sphere, plane, cylinder, cone, capsule, torus) have the
+  same ids in every project. `materials` takes one entry per submesh (`asset.get` tells
+  how many a mesh has); a missing or null entry is drawn with the default material.
+- A new material is a `.material.json` file written into the project's `assets`
+  directory, followed by `asset.refresh` (skill: `work-with-assets`).
+- Run `scene.validate` after editing references; a reference to nothing draws nothing
+  and says so only in the log.
 
 ## See the result
 
@@ -161,7 +196,8 @@ CORDITE_TRY(commands.add({
 ```
 
 - Names are `group.verb` in dotted lowercase words. Group by what the command acts on:
-  `scene`, `entity`, `component`, `selection`, `viewport`, `editor`.
+  `scene`, `entity`, `component`, `asset`, `selection`, `viewport`, `editor`. Commands
+  about assets are in `AssetCommands.cpp`.
 - Declare every parameter with its type, a description and whether it is required. The
   registry checks them before the handler runs, so the handler may assume declared
   types.

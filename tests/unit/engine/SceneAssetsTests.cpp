@@ -1,0 +1,178 @@
+#include "cordite/engine/SceneAssets.h"
+
+#include "cordite/core/Reflection.h"
+#include "cordite/engine/EngineComponents.h"
+#include "cordite/renderer/RenderComponents.h"
+
+#include "support/TestSupport.h"
+
+#include <string>
+#include <utility>
+#include <vector>
+
+using namespace cordite;
+
+namespace {
+
+const Uuid kMissing = *Uuid::parse("11111111-1111-4111-8111-111111111111");
+
+/// A component with asset references in every shape the reflection allows: plain,
+/// nested in an object, and without a stated kind.
+struct Decal {
+    Uuid texture;
+    Uuid anything;
+};
+
+struct Emitter {
+    Uuid sprite;
+    Decal decal;
+    std::string note;
+};
+
+TypeInfo describeDecal() {
+    return TypeBuilder<Decal>("Decal")
+        .property("texture", &Decal::texture,
+                  {.semantic = PropertySemantic::AssetReference, .referenceType = "Texture"})
+        .property("anything", &Decal::anything, {.semantic = PropertySemantic::AssetReference})
+        .build();
+}
+
+/// A world with the engine's components, and a database that knows the built-in assets.
+struct Fixture {
+    ComponentRegistry components;
+    World world;
+    AssetDatabase assets;
+    TypeInfo decalType = describeDecal();
+
+    Fixture() {
+        REQUIRE(registerEngineComponents(components).has_value());
+        REQUIRE(
+            components
+                .add<Emitter>(TypeBuilder<Emitter>("Emitter")
+                                  .property("sprite", &Emitter::sprite,
+                                            {.semantic = PropertySemantic::AssetReference, .referenceType = "Texture"})
+                                  .objectProperty("decal", &Emitter::decal, decalType)
+                                  .property("note", &Emitter::note)
+                                  .build())
+                .has_value());
+    }
+
+    Entity addRenderer(const std::string& name, const Uuid& mesh, std::vector<Uuid> materials = {}) {
+        const Entity entity = world.createEntity(name);
+        MeshRendererComponent& renderer = world.add<MeshRendererComponent>(entity);
+        renderer.mesh = mesh;
+        renderer.materials = std::move(materials);
+        return entity;
+    }
+};
+
+} // namespace
+
+TEST_SUITE("SceneAssets") {
+    TEST_CASE("a world without components that name assets uses none") {
+        Fixture fixture;
+        fixture.world.createEntity("Empty");
+        CHECK(collectAssetReferences(fixture.world, fixture.components).empty());
+        CHECK(findSceneProblems(fixture.world, fixture.components, fixture.assets).empty());
+    }
+
+    TEST_CASE("every reference is found, with the property it is in") {
+        Fixture fixture;
+        const Uuid cube = builtinMeshId(BuiltinMesh::Cube);
+        const Uuid sphere = builtinMeshId(BuiltinMesh::Sphere);
+        const Uuid paint = defaultMaterialId();
+
+        const Entity room = fixture.world.createEntity("Room");
+        const Entity crate = fixture.addRenderer("Crate", cube, {paint, Uuid(), kMissing});
+        const Entity ball = fixture.addRenderer("Ball", sphere);
+        REQUIRE(fixture.world.setParent(ball, room).has_value());
+        // Nothing assigned: not a use of anything.
+        fixture.addRenderer("Unset", Uuid());
+
+        const std::vector<AssetReferenceUse> uses = collectAssetReferences(fixture.world, fixture.components);
+        // In hierarchy order: Room's child first, then the roots that follow.
+        REQUIRE(uses.size() == 4);
+        CHECK(uses[0].entity == ball);
+        CHECK(uses[0].component == "MeshRenderer");
+        CHECK(uses[0].property == "mesh");
+        CHECK(uses[0].asset == sphere);
+        CHECK(uses[0].expectedType == "Mesh");
+
+        CHECK(uses[1].entity == crate);
+        CHECK(uses[1].property == "mesh");
+        CHECK(uses[1].asset == cube);
+        // Entries of a list carry their index; empty entries are skipped but still counted.
+        CHECK(uses[2].property == "materials[0]");
+        CHECK(uses[2].asset == paint);
+        CHECK(uses[2].expectedType == "Material");
+        CHECK(uses[3].property == "materials[2]");
+        CHECK(uses[3].asset == kMissing);
+    }
+
+    TEST_CASE("references inside nested objects are found, and other properties are left alone") {
+        Fixture fixture;
+        const Entity entity = fixture.world.createEntity("Sparks");
+        Emitter& emitter = fixture.world.add<Emitter>(entity);
+        emitter.sprite = kMissing;
+        emitter.decal.texture = defaultMaterialId();
+        emitter.decal.anything = builtinMeshId(BuiltinMesh::Cube);
+        // Looks like an id, but is text.
+        emitter.note = kMissing.toString();
+
+        const std::vector<AssetReferenceUse> uses = collectAssetReferences(fixture.world, fixture.components);
+        REQUIRE(uses.size() == 3);
+        CHECK(uses[0].component == "Emitter");
+        CHECK(uses[0].property == "sprite");
+        CHECK(uses[1].property == "decal.texture");
+        CHECK(uses[1].expectedType == "Texture");
+        CHECK(uses[2].property == "decal.anything");
+        CHECK(uses[2].expectedType.empty());
+    }
+
+    TEST_CASE("a scene whose references all lead to the right kind of asset has no problems") {
+        Fixture fixture;
+        fixture.addRenderer("Crate", builtinMeshId(BuiltinMesh::Cube), {defaultMaterialId(), Uuid()});
+        CHECK(findSceneProblems(fixture.world, fixture.components, fixture.assets).empty());
+    }
+
+    TEST_CASE("missing assets and assets of the wrong kind are reported") {
+        Fixture fixture;
+        const Entity ghost = fixture.addRenderer("Ghost", kMissing);
+        const Entity mixed =
+            fixture.addRenderer("Mixed", defaultMaterialId(), {builtinMeshId(BuiltinMesh::Cube), kMissing});
+
+        const std::vector<SceneProblem> problems = findSceneProblems(fixture.world, fixture.components, fixture.assets);
+        REQUIRE(problems.size() == 4);
+        CHECK(problems[0].entity == ghost);
+        CHECK(problems[0].message ==
+              "MeshRenderer.mesh refers to the asset 11111111-1111-4111-8111-111111111111, which does not exist");
+        CHECK(problems[1].entity == mixed);
+        CHECK(problems[1].message ==
+              "MeshRenderer.mesh refers to builtin#material/default, which is a material, not a mesh");
+        CHECK(problems[2].message ==
+              "MeshRenderer.materials[0] refers to builtin#mesh/cube, which is a mesh, not a material");
+        CHECK(problems[3].message == "MeshRenderer.materials[1] refers to the asset "
+                                     "11111111-1111-4111-8111-111111111111, which does not exist");
+    }
+
+    TEST_CASE("a property that takes any asset is only checked for the asset being there") {
+        Fixture fixture;
+        const Entity entity = fixture.world.createEntity("Sparks");
+        Emitter& emitter = fixture.world.add<Emitter>(entity);
+        emitter.decal.anything = builtinMeshId(BuiltinMesh::Cube);
+        CHECK(findSceneProblems(fixture.world, fixture.components, fixture.assets).empty());
+
+        emitter.decal.anything = kMissing;
+        const std::vector<SceneProblem> problems = findSceneProblems(fixture.world, fixture.components, fixture.assets);
+        REQUIRE(problems.size() == 1);
+        CHECK(problems[0].message.find("Emitter.decal.anything") != std::string::npos);
+    }
+
+    TEST_CASE("disabled entities are checked like any other") {
+        // They are still in the scene file, and enabling one must not reveal a problem.
+        Fixture fixture;
+        const Entity ghost = fixture.addRenderer("Ghost", kMissing);
+        fixture.world.setEnabled(ghost, false);
+        CHECK(findSceneProblems(fixture.world, fixture.components, fixture.assets).size() == 1);
+    }
+}

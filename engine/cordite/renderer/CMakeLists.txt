@@ -8,10 +8,22 @@ cordite_add_module(renderer
         DebugDraw.h
         DebugLinePass.cpp
         DebugLinePass.h
+        DisplayEncodePass.cpp
+        DisplayEncodePass.h
         FullscreenPass.cpp
         FullscreenPass.h
+        MeshForwardPass.cpp
+        MeshForwardPass.h
+        RenderComponents.cpp
+        RenderComponents.h
+        RenderResources.cpp
+        RenderResources.h
         RenderTarget.cpp
         RenderTarget.h
+        SceneRenderer.cpp
+        SceneRenderer.h
+        SceneTargets.cpp
+        SceneTargets.h
         ShaderManager.cpp
         ShaderManager.h
         TestPatternPass.cpp
@@ -19,6 +31,7 @@ cordite_add_module(renderer
     DEPENDS
         core
         math
+        assets
         world
         rhi
         shaders)

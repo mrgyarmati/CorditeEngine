@@ -10,8 +10,9 @@
 ///
 /// @code
 /// EditorActions actions(context);
-/// CORDITE_TRY_ASSIGN(const Entity eye, actions.createEntity({.name = "Eye", .components = {{"Camera",
-/// Json::object()}}})); CORDITE_TRY(actions.setComponentProperties(eye, "Transform", {{"position", {0.0, 1.7, 4.0}}}));
+/// CORDITE_TRY_ASSIGN(const Entity eye,
+///                    actions.createEntity({.name = "Eye", .components = {{"Camera", Json::object()}}}));
+/// CORDITE_TRY(actions.setComponentProperties(eye, "Transform", {{"position", {0.0, 1.7, 4.0}}}));
 /// CORDITE_TRY(context.history().undo());      // the camera is back at the origin
 /// @endcode
 ///
@@ -21,6 +22,7 @@
 #include "cordite/core/Json.h"
 #include "cordite/core/Result.h"
 #include "cordite/editor/EditorContext.h"
+#include "cordite/engine/ModelInstance.h"
 #include "cordite/world/Entity.h"
 
 #include <cstddef>
@@ -57,6 +59,13 @@ public:
     /// copies get new ids, and references among them point at the copies. Returns the
     /// copies of the listed entities and selects them.
     [[nodiscard]] Result<std::vector<Entity>> duplicateEntities(std::span<const Entity> entities);
+
+    /// Places a model in the scene: an entity for each of its nodes, under one new root
+    /// (see instantiateModel in cordite/engine/ModelInstance.h). Returns that root and
+    /// selects it. Fails with NotFound when `model` names no asset, with InvalidArgument
+    /// when it names something other than a model, and with the importer's error when
+    /// the model cannot be loaded.
+    [[nodiscard]] Result<Entity> instantiateModel(const Uuid& model, const ModelInstanceOptions& options = {});
 
     /// Fails with InvalidArgument for an empty name or one containing '/', which
     /// separates the names in entity paths.

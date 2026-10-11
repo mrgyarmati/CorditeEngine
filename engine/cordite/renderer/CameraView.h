@@ -35,6 +35,8 @@ struct CameraView {
     /// The camera's position and viewing direction in world space.
     Vec3 position{0.0f};
     Vec3 forward = kWorldForward;
+    /// Without perspective: everything is seen along `forward`, wherever it is.
+    bool orthographic = false;
     float nearPlane = 0.1f;
     float farPlane = 1000.0f;
 };

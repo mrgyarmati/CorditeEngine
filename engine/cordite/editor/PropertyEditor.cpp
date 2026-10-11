@@ -18,6 +18,10 @@ namespace {
 constexpr float kDefaultDragSpeed = 0.01f;
 constexpr float kRotationDragSpeed = 0.5f;
 
+/// The heading of a nested object or a list: it takes the whole row, label included,
+/// rather than being cut off at the width of the column of names.
+constexpr ImGuiTreeNodeFlags kHeaderFlags = ImGuiTreeNodeFlags_SpanAllColumns | ImGuiTreeNodeFlags_LabelSpanAllColumns;
+
 /// More than any panel shows at once; beyond it the remembered angles are stale anyway.
 constexpr size_t kMaxRememberedRotations = 512;
 
@@ -293,7 +297,9 @@ bool PropertyEditor::drawRotation(Json& value) {
     // The angles are recomputed only when the rotation was changed by something else.
     if (std::abs(std::abs(glm::dot(state.rotation, rotation)) - 1.0f) > kSameRotationTolerance) {
         state.rotation = rotation;
-        state.eulerDegrees = eulerDegreesFromQuat(rotation);
+        // Adding zero turns a negative zero into a plain one, which would otherwise be
+        // shown as "-0.0".
+        state.eulerDegrees = eulerDegreesFromQuat(rotation) + Vec3(0.0f);
     }
 
     if (!ImGui::DragFloat3("##value", &state.eulerDegrees.x, kRotationDragSpeed, 0.0f, 0.0f, "%.1f")) {
@@ -306,29 +312,14 @@ bool PropertyEditor::drawRotation(Json& value) {
 }
 
 bool PropertyEditor::drawReference(const PropertyInfo& property, Json& value) {
-    const bool isEntity = property.attributes().semantic == PropertySemantic::EntityReference;
     const std::optional<Uuid> id = value.is_string() ? Uuid::parse(value.get<std::string>()) : std::nullopt;
 
-    std::string text = "(none)";
-    if (id) {
-        text = isEntity && m_entityName ? m_entityName(*id) : id->toString();
-    }
-
+    // The field leaves room for the button that clears it.
     const float clearButtonWidth = ImGui::GetFrameHeight();
     ImGui::SetNextItemWidth(-(clearButtonWidth + ImGui::GetStyle().ItemInnerSpacing.x));
-    ImGui::InputText("##value", &text, ImGuiInputTextFlags_ReadOnly);
-
-    bool changed = false;
-    if (isEntity && ImGui::BeginDragDropTarget()) {
-        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kEntityPayload);
-            payload != nullptr && payload->DataSize == static_cast<int>(sizeof(Uuid))) {
-            Uuid dropped;
-            std::memcpy(&dropped, payload->Data, sizeof(Uuid));
-            value = dropped.toString();
-            changed = true;
-        }
-        ImGui::EndDragDropTarget();
-    }
+    bool changed = property.attributes().semantic == PropertySemantic::AssetReference
+                       ? drawAssetReference(property, id, value)
+                       : drawEntityReference(id, value);
 
     ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
     ImGui::BeginDisabled(!id.has_value());
@@ -340,11 +331,63 @@ bool PropertyEditor::drawReference(const PropertyInfo& property, Json& value) {
     return changed;
 }
 
+bool PropertyEditor::drawEntityReference(const std::optional<Uuid>& id, Json& value) {
+    std::string text = "(none)";
+    if (id) {
+        text = m_entityName ? m_entityName(*id) : id->toString();
+    }
+    ImGui::InputText("##value", &text, ImGuiInputTextFlags_ReadOnly);
+
+    // An entity is assigned by dragging it here from the hierarchy.
+    bool changed = false;
+    if (ImGui::BeginDragDropTarget()) {
+        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(kEntityPayload);
+            payload != nullptr && payload->DataSize == static_cast<int>(sizeof(Uuid))) {
+            Uuid dropped;
+            std::memcpy(&dropped, payload->Data, sizeof(Uuid));
+            value = dropped.toString();
+            changed = true;
+        }
+        ImGui::EndDragDropTarget();
+    }
+    return changed;
+}
+
+bool PropertyEditor::drawAssetReference(const PropertyInfo& property, const std::optional<Uuid>& id, Json& value) {
+    std::string text = "(none)";
+    if (id) {
+        text = m_assetName ? m_assetName(*id) : id->toString();
+    }
+    if (!ImGui::BeginCombo("##value", text.c_str(), ImGuiComboFlags_HeightLarge)) {
+        return false;
+    }
+
+    // The list is only asked for while it is open.
+    bool changed = false;
+    if (m_assetChoices) {
+        for (const AssetChoice& choice : m_assetChoices(property.attributes().referenceType)) {
+            const bool isSelected = id && choice.id == *id;
+            // Two assets may share a label; their ids keep the entries apart.
+            ImGui::PushID(choice.id.toString().c_str());
+            if (ImGui::Selectable(choice.label.c_str(), isSelected) && !isSelected) {
+                value = choice.id.toString();
+                changed = true;
+            }
+            ImGui::PopID();
+            if (isSelected) {
+                ImGui::SetItemDefaultFocus();
+            }
+        }
+    }
+    ImGui::EndCombo();
+    return changed;
+}
+
 bool PropertyEditor::drawObject(const PropertyInfo& property, Json& value) {
     ImGui::TableNextRow();
     ImGui::TableNextColumn();
-    const bool open = ImGui::TreeNodeEx("##object", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAllColumns,
-                                        "%s", property.name().c_str());
+    const bool open =
+        ImGui::TreeNodeEx("##object", ImGuiTreeNodeFlags_DefaultOpen | kHeaderFlags, "%s", property.name().c_str());
     ImGui::TableNextColumn();
     if (!open) {
         return false;
@@ -367,8 +410,7 @@ bool PropertyEditor::drawList(const PropertyInfo& property, Json& value) {
     ImGui::TableNextRow();
     ImGui::TableNextColumn();
     const size_t count = value.is_array() ? value.size() : 0;
-    const bool open =
-        ImGui::TreeNodeEx("##list", ImGuiTreeNodeFlags_SpanAllColumns, "%s (%zu)", property.name().c_str(), count);
+    const bool open = ImGui::TreeNodeEx("##list", kHeaderFlags, "%s (%zu)", property.name().c_str(), count);
     ImGui::TableNextColumn();
     if (!open) {
         return false;

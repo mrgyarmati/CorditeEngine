@@ -1,0 +1,15 @@
+// A walkway grating. The holes are cut out by the opacity of the base color texture,
+// and both sides are drawn because the grating has no thickness.
+{
+    "format": "cordite.material",
+    "version": 1,
+    "baseColorTexture": "6b3eaed7-857f-87bb-8ae5-60e57cd5144d",
+    "normalTexture": "1aaec016-1b74-80e1-a2a4-f53c22b63c7c",
+    "metallicRoughnessTexture": "803823e0-9b3c-8d24-a53d-bd02ce62f75c",
+    "metallic": 1,
+    "roughness": 1,
+    "alphaMode": "masked",
+    "alphaCutoff": 0.5,
+    "doubleSided": true,
+    "uvScale": [2, 2]
+}

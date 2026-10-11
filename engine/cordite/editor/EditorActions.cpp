@@ -3,6 +3,7 @@
 #include "cordite/world/SceneSerializer.h"
 
 #include <algorithm>
+#include <memory>
 #include <unordered_set>
 #include <utility>
 
@@ -269,6 +270,34 @@ Result<std::vector<Entity>> EditorActions::duplicateEntities(std::span<const Ent
 
     m_context.setSelection(copies);
     return copies;
+}
+
+Result<Entity> EditorActions::instantiateModel(const Uuid& model, const ModelInstanceOptions& options) {
+    World& world = m_context.world();
+    if (!options.parent.isNull()) {
+        CORDITE_TRY(requireValid(m_context, options.parent));
+    }
+    CORDITE_TRY_ASSIGN(const std::shared_ptr<const ModelData> data, m_context.assets().loadModel(model));
+
+    const Entity instance = cordite::instantiateModel(world, *data, options);
+
+    // Redoing must bring back these very entities, ids included, so that later history
+    // entries still find them.
+    const std::vector<Entity> roots = {instance};
+    Json snapshot = serializeEntities(world, roots, m_context.components());
+    std::vector<Placement> placements = placementsOf(world, roots);
+    std::vector<Uuid> ids = idsOf(world, roots);
+
+    EditorContext* context = &m_context;
+    m_context.history().push({
+        .label = fmt::format("Place '{}'", world.name(instance)),
+        .undo = [context, ids = std::move(ids)] { return destroyEntities(*context, ids); },
+        .redo = [context, snapshot = std::move(snapshot),
+                 placements = std::move(placements)] { return restoreEntities(*context, snapshot, placements); },
+    });
+
+    m_context.setSelection(roots);
+    return instance;
 }
 
 Status EditorActions::renameEntity(Entity entity, std::string_view name) {

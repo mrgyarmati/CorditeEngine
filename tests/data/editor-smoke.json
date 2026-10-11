@@ -1,13 +1,19 @@
 [
     {"command": "scene.describe"},
+    {"command": "asset.list", "params": {"type": "model"}},
+    {"command": "scene.validate"},
     {"command": "entity.create", "params": {"name": "Smoke probe", "parent": "Stage", "components": {"Transform": {"position": [0, 1, 2]}}}},
     {"command": "component.add", "params": {"entity": "Smoke probe", "component": "Camera", "properties": {"primary": false}}},
     {"command": "component.set", "params": {"entity": "Smoke probe", "component": "Camera", "properties": {"verticalFovDegrees": 35}}},
     {"command": "entity.duplicate", "params": {"entities": ["Stage/Crate"]}},
+    {"command": "asset.instantiate", "params": {"asset": "models/lamp_post.gltf", "parent": "Stage", "name": "Second lamp"}},
+    {"command": "component.set", "params": {"entity": "Stage/Second lamp", "component": "Transform", "properties": {"position": [3.5, 0, -3]}}},
+    {"command": "asset.get", "params": {"asset": "models/crate.gltf#mesh/0"}},
     {"command": "selection.set", "params": {"entities": ["Smoke probe"]}},
     {"command": "editor.runFrames", "params": {"count": 2}},
     {"command": "editor.undo"},
     {"command": "editor.redo"},
     {"command": "viewport.frame", "params": {"entity": "Smoke probe", "radius": 4}},
+    {"command": "scene.validate"},
     {"command": "editor.state"}
 ]

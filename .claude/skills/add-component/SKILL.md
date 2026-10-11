@@ -40,7 +40,11 @@ Rules:
 - State that exists only while the game runs (a physics body handle, a cached matrix)
   either lives in a separate, unregistered component that the system manages, or is a
   property marked `transient`.
-- Refer to other entities and to assets by `Uuid`, with the matching `semantic`.
+- Refer to other entities and to assets by `Uuid` (or a `std::vector<Uuid>`), with the
+  matching `semantic`; for an asset also say which kind with `referenceType` ("Mesh",
+  "Material", "Texture", "Model", "Scene"). The inspector then offers the assets of
+  that kind, and `scene.validate` checks the reference. `MeshRendererComponent` in
+  `renderer/RenderComponents.cpp` is the example.
 
 ## 2. Describe it
 
@@ -96,7 +100,8 @@ Pass `.optional = false` only for components every entity has from creation.
 ## 4. Show it in the showcase scene
 
 Add an entity that uses the component, with every enum option appearing at least once,
-to `samples/showcase/showcase.scene.json`. The `samples` test fails until this is done.
+to `samples/showcase/assets/scenes/showcase.scene.json`. The `samples` test fails until
+this is done.
 Give the entity a fixed, readable id in the style already used there.
 
 ## 5. Test it
@@ -113,7 +118,7 @@ Give the entity a fixed, readable id in the style already used there.
 ```powershell
 ./scripts/dev.ps1 build
 ./scripts/dev.ps1 test -Filter "world|samples|editor"
-./scripts/dev.ps1 run -Target cordite-editor -- --scene samples/showcase/showcase.scene.json
+./scripts/dev.ps1 run -Target cordite-editor -- --project samples/showcase
 ```
 
 In the editor, select the showcase entity and look at the inspector: every property is

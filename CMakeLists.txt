@@ -50,6 +50,7 @@ endif()
 
 add_subdirectory(engine)
 add_subdirectory(editor)
+add_subdirectory(tools)
 
 # The engine's shader sources travel with the executables, so that a build tree (or an
 # installed editor) is self-contained. Development builds still read the repository copy.

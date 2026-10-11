@@ -31,7 +31,7 @@ jobs:
 
       - name: Check formatting
         run: |
-          find engine editor tests -type f \( -name '*.h' -o -name '*.cpp' -o -name '*.inl' \) -print0 \
+          find engine editor tests tools -type f \( -name '*.h' -o -name '*.cpp' -o -name '*.inl' \) -print0 \
             | xargs -0 clang-format --dry-run --Werror --style=file
 
   linux:

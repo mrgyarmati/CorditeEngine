@@ -49,6 +49,9 @@ KeepEmptyLines:
   AtStartOfFile: false
   AtEndOfFile: false
 FixNamespaceComments: true
+# Comments are wrapped by hand. Reflowing treats a code example in a comment as prose
+# and joins its lines.
+ReflowComments: false
 InsertNewlineAtEOF: true
 
 # The header matching the source file comes first, then engine headers, then

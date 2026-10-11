@@ -182,20 +182,28 @@ std::optional<float> intersectTriangle(const Ray& ray, const Vec3& a, const Vec3
     const Vec3 p = glm::cross(ray.direction, edge2);
     const float determinant = glm::dot(edge1, p);
 
-    if (cullBackFaces ? determinant < kEpsilon : std::abs(determinant) < kEpsilon) {
+    // The determinant is the triangle's area, seen along the ray, times two. "Too
+    // small" is judged against the size of the triangle, so that a small triangle
+    // seen head-on is hit and a large one seen edge-on is not. Written so that a
+    // triangle without area, whose determinant is zero or not a number, is rejected.
+    const float threshold = kEpsilon * glm::length(edge1) * glm::length(edge2);
+    if (!(cullBackFaces ? determinant > threshold : std::abs(determinant) > threshold)) {
         return std::nullopt;
     }
 
+    // The edges count as part of the triangle, with a little to spare: a ray aimed at
+    // the edge two triangles share must not slip between them.
+    constexpr float kEdgeTolerance = 1.0e-5f;
     const float inverseDeterminant = 1.0f / determinant;
     const Vec3 toOrigin = ray.origin - a;
     const float u = glm::dot(toOrigin, p) * inverseDeterminant;
-    if (u < 0.0f || u > 1.0f) {
+    if (u < -kEdgeTolerance || u > 1.0f + kEdgeTolerance) {
         return std::nullopt;
     }
 
     const Vec3 q = glm::cross(toOrigin, edge1);
     const float v = glm::dot(ray.direction, q) * inverseDeterminant;
-    if (v < 0.0f || u + v > 1.0f) {
+    if (v < -kEdgeTolerance || u + v > 1.0f + kEdgeTolerance) {
         return std::nullopt;
     }
 

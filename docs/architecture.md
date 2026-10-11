@@ -32,14 +32,14 @@ of slowly turning the code base into a ball of mud.
 | `core` | -         | Services every other module needs: logging, assertions, error handling, hashing, UUIDs, JSON and binary serialization, file I/O, configuration, the job system, memory allocators, timing, platform queries. |
 | `math` | `core`    | glm type aliases and conventions; `Transform`, bounding volumes, rays and intersection tests, frustum culling, projection matrices, color conversions, keyframed curves, deterministic random numbers. |
 | `platform` | `core`, `math` | The window system and windows (GLFW), and per-window keyboard, mouse and gamepad state with an injection API for tests and automation. |
-| `assets` | `core`, `math` | CPU-side asset data. Currently images: decoding, PNG encoding, pixel access and tolerance-based comparison. |
+| `assets` | `core`, `math` | Assets as data, and where they come from: images and mipmaps; meshes, primitives and mesh processing; materials; glTF import and export; the asset database, which knows what exists and under which id; the asset manager, which loads by id. Knows nothing of the GPU. |
 | `world` | `core`, `math` | The scene: entities, their components and their parent/child hierarchy, stored with EnTT; the registry of component types known by name; scene files. |
 | `rhi` | `core`, `math`, `platform` | The GPU: Vulkan instance and device creation, the NVRHI device the renderer programs against, the swapchain, and texture readback. The only module that calls Vulkan. |
 | `shaders` | `core` | What a shader *is* to the engine: requests and their permutation keys, compiled binaries, the on-disk cache, and the `ShaderLibrary` that resolves a request from memory, disk or a compiler. |
 | `shader_compiler` | `core`, `shaders` | The Slang-based implementation of `IShaderCompiler`. Kept separate so exported games do not link a compiler. |
-| `renderer` | `core`, `math`, `world`, `rhi`, `shaders` | Render passes, render targets, the view a camera gives, debug line drawing, and the `ShaderManager` that turns shader binaries into GPU shader objects. |
+| `renderer` | `core`, `math`, `assets`, `world`, `rhi`, `shaders` | Drawing: the scene renderer, the GPU copies of assets it draws with, the mesh pass, the targets of a view, the component that makes an entity visible; the view a camera gives, debug line drawing, and the `ShaderManager` that turns shader binaries into GPU shader objects. |
 | `ui` | `core`, `math`, `platform`, `rhi`, `shaders`, `renderer` | The immediate-mode user interface: the Dear ImGui context, its input, and the renderer that draws it with NVRHI. |
-| `engine` | all of the above | `Engine`: creates and owns the subsystems, the world and the interface, and runs the frame loop. |
+| `engine` | all of the above | `Engine`: creates and owns the subsystems, the assets, the world and the interface, and runs the frame loop. Also what needs several of the modules below at once: projects, placing a model in a world, checking the assets a scene refers to. |
 | `editor` | `engine` and below | The editor: the scene document, undoable actions, the command registry, the panels, and `EditorApp`. Not part of exported games. |
 
 Further modules (physics, audio, scripting) are added by the later milestones and will be
@@ -57,8 +57,9 @@ with and without a window:
 3. It opens the frame's command list, clears the engine's offscreen frame target and
    starts the interface frame.
 4. The program does its work: it updates the world, records render passes into the
-   command list, and describes its interface with ImGui calls. The editor renders the
-   scene into the viewport panel's own target here; a game renders into the frame target.
+   command list, and describes its interface with ImGui calls. A game calls
+   `Engine::drawWorld()`, which renders the world through its primary camera; the
+   editor renders it from the viewport's own camera into the viewport panel instead.
 5. `endFrame` draws the interface over the frame target, copies the frame target to the
    back buffer and presents (windowed mode only), and releases GPU resources whose last
    use has finished.
@@ -83,6 +84,45 @@ Each component type is described once through reflection (`TypeBuilder` in
 description is what saves and loads scenes, fills the editor inspector, makes edits
 undoable and tells an AI agent what it can set. Component types are registered by name
 in a `ComponentRegistry`, which is an ordinary object owned by the engine, not a global.
+
+### Assets
+
+A project keeps its assets as ordinary files in an `assets` directory: models (glTF),
+textures, materials and scenes. Two classes stand between those files and the rest of
+the engine. The `AssetDatabase` knows *what exists*: it lists every asset with its id,
+type, name and dependencies, without loading anything but the structure of model
+files. The `AssetManager` *loads*: given an id it returns the mesh, material, image or
+model, shared with everyone else who asked.
+
+```
+assets/models/crate.gltf        -> model     4fe72146-...   (id from crate.gltf.meta)
+                                   mesh      ebd09deb-...   (derived: model id + "mesh/0")
+                                   material  7cde9ddc-...   (derived: model id + "material/0")
+assets/textures/planks_normal.png -> texture e4a3a2af-...   (id from its own .meta)
+```
+
+A model file is one asset that contains others. Its images are assets inside it when
+they are embedded, and the assets of their own files when they are not, so a texture
+shared by two models exists once.
+
+### Rendering a scene
+
+`SceneRenderer` draws a world as a camera sees it. It walks the entities that have a
+`MeshRenderer`, asks `RenderResources` for the GPU copy of each mesh and material
+(created on first use from what the asset manager loads), leaves out what is outside
+the view, and hands the rest to the mesh pass, which groups equal draws into instanced
+draw calls. The picture is built in a `SceneTargets`, one per view:
+
+```
+meshes -> scene color (linear, float) + depth -> display encoding -> display image (sRGB, 8 bit)
+                                                                      ^ overlays: debug lines, gizmos
+```
+
+Today the mesh pass shades every surface in one go, with a fixed key light and ambient
+light. The stages around it are the permanent ones: the deferred G-buffer, lights,
+shadows and post-processing of the next milestones slot in between "meshes" and
+"display encoding", and the forward pass stays for what deferred shading cannot do
+(blended surfaces).
 
 ### The editor
 
@@ -346,6 +386,73 @@ original ids, which keeps every later entry valid.
 Interactive edits (dragging a value in the inspector) are applied to the component
 directly while the control is held and become a single history entry when it is
 released.
+
+### An asset's id lives next to the asset, in a `.meta` file
+
+References must survive renaming and moving a file, so they cannot be paths. The id is
+stored in a sidecar file (`crate.gltf.meta`) rather than inside the asset, because most
+asset files are in formats the engine does not own, and one rule for every file is
+simpler than two. The sidecar moves with the file in any file manager or version
+control system that moves both.
+
+A file that has no `.meta` yet gets an id *derived from its path*, not a random one. The
+same files therefore get the same ids on every machine, which lets a generated project
+(and the tests) know its ids in advance; once written, the `.meta` keeps the id
+whatever happens to the path. Only if the derived id is taken - by a file that used to
+live at that path - is a random one used. A copy that brought its `.meta` along is
+given a new id by the editor and ignored by everything else.
+
+### Assets inside a file get ids derived from the file's
+
+The meshes and materials of a glTF file have no files of their own to put a `.meta`
+next to. Their ids are a hash of the model's id and their position in the file
+(`mesh/2`), which is stable across re-imports and needs no storage. The price is that
+reordering meshes inside a model file changes their ids; exporters do not do that
+between saves, and names - the alternative - are neither unique nor required in glTF.
+
+### The texture slot decides the color space
+
+Whether a texture holds color (sRGB) or data (linear) is not stored with the texture.
+The material slot it is used in decides: base color and emissive are color, normal,
+roughness, metallic and occlusion are data. A normal map "imported as color" - the
+classic mistake - cannot happen, there is nothing to set. If one image is ever used
+both ways, the GPU holds it twice; that is a strange thing to do and cheap to allow.
+For the same reason, wrap modes and filtering belong to the material, not the texture.
+
+### glTF is imported with cgltf, MikkTSpace and meshoptimizer
+
+cgltf parses; the engine converts into its own types at once and keeps nothing of
+cgltf's. Tangents that a file lacks are computed with MikkTSpace, because that is the
+basis normal maps are baked in - any other tangent basis lights a baked normal map
+subtly wrong. meshoptimizer welds the vertices MikkTSpace split and orders triangles
+and vertices for the GPU. Before any of that, every number in the file is checked
+against the data that is really there, with arithmetic that cannot overflow.
+
+### Assets are loaded when first needed, on the calling thread
+
+The first frame that shows an asset loads it, decodes it and sends it to the GPU.
+That keeps every caller simple and every run deterministic, at the price of a slow
+first frame for a large scene. It is a known limitation, not the final design: the
+interfaces (`RenderResources::mesh` may return null, materials fall back to a default)
+already allow an asset to be "not there yet", which is what loading in the
+background needs. Imported data is not cached on disk yet either; a model is parsed
+again on every start.
+
+### Uploads use a command list of their own
+
+Data for new GPU resources is recorded on a separate, short-lived command list and
+executed before the frame's. NVRHI keeps the staging memory of everything a command
+list has ever uploaded for as long as the list lives; uploading a scene's textures
+through the frame's list would pin that much memory for the whole session.
+
+### Instances are a vertex stream
+
+The mesh pass passes each instance's transform to the vertex shader as per-instance
+vertex attributes, three rows of a 3x4 matrix, from one buffer written once per view.
+Drawing a range of that buffer is an ordinary instanced draw call with a start
+instance. The alternative, a structured buffer indexed by the instance id, depends on
+whether the shading language adds the start instance to that id - which differs between
+Direct3D and Vulkan conventions and between compilers.
 
 ### Enum names use `nameOf`, not `toString`
 

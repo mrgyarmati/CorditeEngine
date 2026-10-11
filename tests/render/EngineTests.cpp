@@ -1,6 +1,9 @@
 #include "cordite/engine/Engine.h"
 
 #include "cordite/assets/ImageCompare.h"
+#include "cordite/renderer/RenderComponents.h"
+#include "cordite/world/Components.h"
+#include "cordite/world/SceneSerializer.h"
 
 #include "render/RenderTestSupport.h"
 
@@ -124,15 +127,16 @@ TEST_SUITE("Engine") {
         {
             const std::unique_ptr<Engine> engine = createEngine(desc);
             runFrames(*engine, 1);
-            // The fullscreen triangle, the test pattern, the blit and the two interface shaders.
-            CHECK(engine->shaders().stats().compilations == 5);
+            // The fullscreen triangle, the test pattern, the blit, the two interface
+            // shaders, the three mesh shaders and the display encoding.
+            CHECK(engine->shaders().stats().compilations == 9);
             CHECK(engine->shaders().stats().diskHits == 0);
         }
 
         const std::unique_ptr<Engine> engine = createEngine(desc);
         runFrames(*engine, 1);
         CHECK(engine->shaders().stats().compilations == 0);
-        CHECK(engine->shaders().stats().diskHits == 5);
+        CHECK(engine->shaders().stats().diskHits == 9);
         checkNoValidationIssues(engine->graphics());
     }
 
@@ -258,6 +262,97 @@ TEST_SUITE("Engine") {
         runFrames(*engine, 1);
         CHECK(engine->world().isValid(child));
         CHECK(Vec3(engine->world().worldMatrix(child)[3]) == Vec3(1.0f, 2.0f, 3.0f));
+    }
+
+    TEST_CASE("the engine has the built-in assets, and those of an asset directory when given one") {
+        {
+            const std::unique_ptr<Engine> engine = createEngine(headlessDesc());
+            CHECK(engine->assets().database().find(builtinMeshId(BuiltinMesh::Cube)) != nullptr);
+            CHECK(engine->assets().database().rootDirectory().empty());
+            CHECK(engine->components().find("MeshRenderer") != nullptr);
+        }
+
+        EngineDesc desc = headlessDesc();
+        desc.assetDirectory = test::sourceDirectory() / "samples" / "showcase" / "assets";
+        const std::unique_ptr<Engine> engine = createEngine(desc);
+        CHECK(engine->assets().database().findByReference("models/crate.gltf") != nullptr);
+        CHECK(engine->assets().database().problems().empty());
+    }
+
+    TEST_CASE("an asset directory that does not exist is an error") {
+        EngineDesc desc = headlessDesc();
+        desc.assetDirectory = test::sourceDirectory() / "no-such-directory";
+        const Result<std::unique_ptr<Engine>> engine = Engine::create(desc);
+        REQUIRE_FALSE(engine.has_value());
+        CHECK(engine.error().code == ErrorCode::NotFound);
+    }
+
+    TEST_CASE("the world is drawn through its primary camera, and the test pattern without one") {
+        const std::unique_ptr<Engine> engine = createEngine(headlessDesc(UVec2(160, 90)));
+        World& world = engine->world();
+
+        // Nothing to look through: the test pattern, which is never a single color.
+        runFrames(*engine, 1);
+        const Image pattern = test::unwrap(engine->captureFrame());
+        CHECK(pattern.pixel(10, 10) != pattern.pixel(150, 80));
+
+        // A camera looking at a cube that fills the middle of its view.
+        const Entity camera = world.createEntity("Camera");
+        world.transform(camera).position = Vec3(0.0f, 0.0f, 3.0f);
+        world.add<CameraComponent>(camera);
+        const Entity cube = world.createEntity("Cube");
+        world.add<MeshRendererComponent>(cube).mesh = builtinMeshId(BuiltinMesh::Cube);
+
+        runFrames(*engine, 1);
+        const Image frame = test::unwrap(engine->captureFrame());
+        // The background in the corners, the lit default material in the middle.
+        const Vec4 corner = frame.pixel(2, 2);
+        const Vec4 middle = frame.pixel(80, 45);
+        CHECK(frame.pixel(157, 87) == corner);
+        CHECK(corner.r < 0.2f);
+        CHECK(middle.r > corner.r + 0.3f);
+        CHECK(engine->sceneRenderer().statistics().meshRenderers == 1);
+        CHECK(engine->sceneRenderer().statistics().meshes.triangles == 12);
+
+        // A camera that is switched off is no camera.
+        world.setEnabled(camera, false);
+        runFrames(*engine, 1);
+        CHECK(test::unwrap(engine->captureFrame()).pixel(10, 10) == pattern.pixel(10, 10));
+        checkNoValidationIssues(engine->graphics());
+    }
+
+    TEST_CASE("drawWorld belongs between beginFrame and endFrame") {
+        const std::unique_ptr<Engine> engine = createEngine(headlessDesc());
+#if defined(CORDITE_ENABLE_ASSERTS)
+        CHECK_THROWS_AS((void)engine->drawWorld(), test::AssertionFailure);
+#else
+        const Status outside = engine->drawWorld();
+        REQUIRE_FALSE(outside.has_value());
+        CHECK(outside.error().code == ErrorCode::InvalidState);
+#endif
+
+        REQUIRE(test::unwrap(engine->beginFrame()));
+        CHECK(engine->drawWorld().has_value());
+        REQUIRE(engine->endFrame().has_value());
+        checkNoValidationIssues(engine->graphics());
+    }
+
+    TEST_CASE("the showcase as a game shows it matches the reference image") {
+        EngineDesc desc = headlessDesc(UVec2(960, 540));
+        desc.assetDirectory = test::sourceDirectory() / "samples" / "showcase" / "assets";
+        const std::unique_ptr<Engine> engine = createEngine(desc);
+        REQUIRE(loadScene(desc.assetDirectory / "scenes" / "showcase.scene.json", engine->world(), engine->components())
+                    .has_value());
+
+        runFrames(*engine, 2);
+        test::checkAgainstReference(test::unwrap(engine->captureFrame()), "showcase-game-960x540");
+
+        // Everything in the scene that is enabled was found; none of it failed to load.
+        const SceneRenderStatistics& statistics = engine->sceneRenderer().statistics();
+        CHECK(statistics.meshRenderers == 21);
+        // The four wall panels, the two beams and the two barrels are drawn as groups.
+        CHECK(statistics.meshes.drawCalls < statistics.meshes.instances);
+        checkNoValidationIssues(engine->graphics());
     }
 
     TEST_CASE("frames must be begun and ended in pairs") {

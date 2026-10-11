@@ -86,7 +86,8 @@ remember writing. For each file, check:
 - Tests cover the normal path, the boundaries and every documented failure.
 - Tests pin real expected values. A test that cannot fail is worse than no test.
 - A new component, property option or other engine feature is used in
-  `samples/showcase/showcase.scene.json`; a new editor feature exists as a command, not
+  the showcase project (`samples/showcase`: a new asset is used by its scene and
+  committed with its `.meta` file); a new editor feature exists as a command, not
   only as a control in a panel.
 - `AGENTS.md`, `docs/architecture.md`, `docs/third-party.md`, `README.md` and the skills
   are updated if the change makes any of them stale.

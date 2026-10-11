@@ -235,6 +235,58 @@ TEST_SUITE("Ray") {
         CHECK_FALSE(intersectTriangle(Ray{Vec3(0.0f, 0.0f, 5.0f), kWorldRight}, a, b, c).has_value());
     }
 
+    TEST_CASE("a ray through an edge or a corner that triangles share hits one of them") {
+        // A square of two triangles, and a fan of four around its centre.
+        const Vec3 a(-1.0f, -1.0f, 0.0f);
+        const Vec3 b(1.0f, -1.0f, 0.0f);
+        const Vec3 c(1.0f, 1.0f, 0.0f);
+        const Vec3 d(-1.0f, 1.0f, 0.0f);
+        const Vec3 centre(0.0f);
+
+        // Along the diagonal the two triangles share, from several directions.
+        for (const float along : {-0.9f, -0.3f, 0.0f, 0.123456f, 0.7f}) {
+            for (const Vec3& from : {Vec3(0.0f, 0.0f, 5.0f), Vec3(3.0f, -2.0f, 4.0f), Vec3(-0.3f, 7.0f, 1.5f)}) {
+                const Vec3 target(along, along, 0.0f);
+                const Ray ray{from, glm::normalize(target - from)};
+                CAPTURE(along);
+                CHECK((intersectTriangle(ray, a, b, c).has_value() || intersectTriangle(ray, a, c, d).has_value()));
+            }
+        }
+
+        // Straight at the corner four triangles meet in.
+        for (const Vec3& from : {Vec3(0.0f, 0.0f, 5.0f), Vec3(2.0f, 1.0f, 3.0f), Vec3(-4.0f, 0.5f, 0.25f)}) {
+            const Ray ray{from, glm::normalize(centre - from)};
+            const bool hit =
+                intersectTriangle(ray, centre, a, b).has_value() || intersectTriangle(ray, centre, b, c).has_value() ||
+                intersectTriangle(ray, centre, c, d).has_value() || intersectTriangle(ray, centre, d, a).has_value();
+            CHECK(hit);
+        }
+
+        // Clearly beside the square is still a miss.
+        CHECK_FALSE(intersectTriangle(Ray{Vec3(1.01f, 0.0f, 5.0f), kWorldForward}, a, b, c).has_value());
+    }
+
+    TEST_CASE("small triangles are hit, large ones seen edge-on are not, and ones without area never") {
+        // A triangle a millimetre across.
+        const float tiny = 0.001f;
+        const Ray down{Vec3(0.0002f, 0.0002f, 1.0f), kWorldForward};
+        const std::optional<float> hit =
+            intersectTriangle(down, Vec3(0.0f), Vec3(tiny, 0.0f, 0.0f), Vec3(0.0f, tiny, 0.0f));
+        REQUIRE(hit.has_value());
+        CHECK(*hit == doctest::Approx(1.0f));
+
+        // A kilometre across, and the ray runs within its plane.
+        const float huge = 1000.0f;
+        const Ray along{Vec3(-5.0f, 1.0f, 0.0f), kWorldRight};
+        CHECK_FALSE(intersectTriangle(along, Vec3(0.0f), Vec3(huge, 0.0f, 0.0f), Vec3(0.0f, huge, 0.0f)).has_value());
+
+        // Three points on a line, and three points in one place.
+        const Ray front{Vec3(0.5f, 0.0f, 5.0f), kWorldForward};
+        CHECK_FALSE(intersectTriangle(front, Vec3(0.0f), Vec3(1.0f, 0.0f, 0.0f), Vec3(2.0f, 0.0f, 0.0f)).has_value());
+        CHECK_FALSE(intersectTriangle(front, Vec3(0.5f, 0.0f, 0.0f), Vec3(0.5f, 0.0f, 0.0f), Vec3(0.5f, 0.0f, 0.0f))
+                        .has_value());
+    }
+
     TEST_CASE("Ray::at walks along the direction") {
         const Ray ray{Vec3(1.0f, 2.0f, 3.0f), kWorldRight};
         CHECK_NEAR(ray.at(4.0f), Vec3(5.0f, 2.0f, 3.0f), 1e-6f);

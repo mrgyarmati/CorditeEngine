@@ -1,11 +1,34 @@
 cordite_add_module(assets
     SOURCES
+        AssetDatabase.cpp
+        AssetDatabase.h
+        AssetManager.cpp
+        AssetManager.h
+        GltfDocument.h
+        GltfExporter.cpp
+        GltfExporter.h
+        GltfImporter.cpp
+        GltfImporter.h
         Image.cpp
         Image.h
         ImageCompare.cpp
         ImageCompare.h
+        Material.cpp
+        Material.h
+        Mesh.cpp
+        Mesh.h
+        MeshProcessing.cpp
+        MeshProcessing.h
+        Mipmaps.cpp
+        Mipmaps.h
+        Model.h
+        Primitives.cpp
+        Primitives.h
     DEPENDS
         core
         math
     PRIVATE_LIBRARIES
-        cordite::stb)
+        cordite::stb
+        cordite::cgltf
+        cordite::mikktspace
+        meshoptimizer)

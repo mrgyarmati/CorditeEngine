@@ -26,6 +26,7 @@
 /// Changes that should be undoable go through EditorActions, which records them in
 /// history(); only those count as unsaved changes.
 
+#include "cordite/assets/AssetManager.h"
 #include "cordite/core/Base.h"
 #include "cordite/core/Result.h"
 #include "cordite/core/Uuid.h"
@@ -44,8 +45,8 @@ namespace cordite {
 
 class EditorContext {
 public:
-    /// Both must outlive the context.
-    EditorContext(World& world, const ComponentRegistry& components);
+    /// All three must outlive the context.
+    EditorContext(World& world, const ComponentRegistry& components, AssetManager& assets);
     ~EditorContext() = default;
     CORDITE_NON_MOVABLE(EditorContext);
 
@@ -54,6 +55,11 @@ public:
     [[nodiscard]] const World& world() const { return m_world; }
 
     [[nodiscard]] const ComponentRegistry& components() const { return m_components; }
+
+    /// The assets the scene can use.
+    [[nodiscard]] AssetManager& assets() { return m_assets; }
+
+    [[nodiscard]] const AssetManager& assets() const { return m_assets; }
 
     [[nodiscard]] UndoStack& history() { return m_history; }
 
@@ -87,6 +93,13 @@ public:
     /// The path of names leading to an entity: "Room/Table/Lamp". The entity must be valid.
     [[nodiscard]] std::string entityPath(Entity entity) const;
 
+    /// Finds an asset from the text a person or an agent uses to refer to it: its id, or
+    /// its reference - the path of its file within the asset directory, followed by `#`
+    /// and its place in the file for an asset inside another, as in
+    /// "models/crate.gltf#mesh/0" (see AssetInfo::reference). Fails with NotFound when
+    /// nothing matches.
+    [[nodiscard]] Result<const AssetInfo*> resolveAsset(std::string_view reference) const;
+
     /// The file the scene was loaded from or last saved to; empty for a new scene.
     [[nodiscard]] const std::filesystem::path& scenePath() const { return m_scenePath; }
 
@@ -108,6 +121,7 @@ private:
 
     World& m_world;
     const ComponentRegistry& m_components;
+    AssetManager& m_assets;
     UndoStack m_history;
     /// By id, so that the selection survives entities being destroyed and restored.
     std::vector<Uuid> m_selection;

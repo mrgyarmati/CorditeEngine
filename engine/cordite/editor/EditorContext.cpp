@@ -38,8 +38,8 @@ std::vector<Entity> withName(const World& world, std::span<const Entity> candida
 
 } // namespace
 
-EditorContext::EditorContext(World& world, const ComponentRegistry& components)
-    : m_world(world), m_components(components), m_savedStateId(m_history.stateId()) {}
+EditorContext::EditorContext(World& world, const ComponentRegistry& components, AssetManager& assets)
+    : m_world(world), m_components(components), m_assets(assets), m_savedStateId(m_history.stateId()) {}
 
 std::vector<Entity> EditorContext::selection() const {
     std::vector<Entity> entities;
@@ -82,6 +82,26 @@ void EditorContext::toggleSelection(Entity entity) {
     if (std::erase(m_selection, id) == 0) {
         m_selection.push_back(id);
     }
+}
+
+Result<const AssetInfo*> EditorContext::resolveAsset(std::string_view reference) const {
+    const std::string_view trimmed = trim(reference);
+    if (trimmed.empty()) {
+        return makeError(ErrorCode::InvalidArgument, "an asset reference must not be empty");
+    }
+
+    const AssetDatabase& database = m_assets.database();
+    if (const std::optional<Uuid> id = Uuid::parse(trimmed)) {
+        if (const AssetInfo* asset = database.find(*id)) {
+            return asset;
+        }
+        return makeError(ErrorCode::NotFound, "no asset has the id {}", id->toString());
+    }
+    if (const AssetInfo* asset = database.findByReference(trimmed)) {
+        return asset;
+    }
+    return makeError(ErrorCode::NotFound,
+                     "there is no asset '{}'; asset.list shows the ones that exist and how to refer to them", trimmed);
 }
 
 Result<Entity> EditorContext::resolveEntity(std::string_view reference) const {

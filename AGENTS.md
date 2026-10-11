@@ -47,9 +47,10 @@ Read this file before changing anything. Task-specific walkthroughs live in
 ./scripts/dev.ps1 verify                 # the whole pre-commit gate, one PASS/FAIL line per step
 ./scripts/dev.ps1 verify -Filter quick   # format-check plus the default build and tests
 
-./scripts/dev.ps1 run -Target cordite-editor       # open the editor
-./scripts/dev.ps1 run -Target cordite-editor -- --scene samples/showcase/showcase.scene.json
-./scripts/dev.ps1 run -Target cordite-editor -- --headless --validation --scene samples/showcase/showcase.scene.json --exec tests/data/editor-smoke.json --frames 3 --screenshot out.png
+./scripts/dev.ps1 run -Target cordite-editor       # open the editor without a project
+./scripts/dev.ps1 run -Target cordite-editor -- --project samples/showcase
+./scripts/dev.ps1 run -Target cordite-editor -- --headless --validation --project samples/showcase --exec tests/data/editor-smoke.json --frames 3 --screenshot out.png
+./scripts/dev.ps1 run -Target cordite-sample-assets -- samples/showcase/assets   # regenerate the showcase's textures and models
 ```
 
 `dev.ps1` loads the MSVC environment itself, so it works from any shell. It requires
@@ -91,8 +92,10 @@ in that configuration.
 cmake/                 Build helpers: dependencies, compiler options, module/test macros
 engine/cordite/<mod>/  Engine modules (static libraries), one directory each
 editor/                The cordite-editor executable (a thin main around the editor module)
-shaders/               Engine shader sources (Slang): common/ is shared code, passes/ one file per pass, ui/ the interface
-samples/showcase/      The scene that uses every feature of the engine; tests keep it complete
+tools/                 Development tools, such as the generator of the showcase's textures and models
+shaders/               Engine shader sources (Slang): common/ is shared code, materials/ what a surface is,
+                       passes/ one file per pass, ui/ the interface
+samples/showcase/      The project that uses every feature of the engine; tests keep it complete
 tests/support/         Test entry point and fixtures
 tests/unit/<mod>/      Unit tests, mirroring engine/cordite/<mod>
 tests/render/          Tests that need a GPU, and their reference images
@@ -119,15 +122,15 @@ by accident.
 | `core` | -         | Logging, assertions, `Result`, hashing, UUIDs, JSON, reflection, binary streams, file I/O, config, job system, allocators, timing |
 | `math` | `core`    | glm aliases, `Transform`, bounds, rays, frustum, projections, color, curves, random, reflection of math types |
 | `platform` | `core`, `math` | Windows (GLFW), keyboard / mouse / gamepad input |
-| `assets` | `core`, `math` | CPU-side asset data: images, image comparison |
+| `assets` | `core`, `math` | Assets as data: images and mipmaps, meshes and what prepares them, materials, glTF import and export, the asset database (ids, `.meta` files) and the asset manager (loading by id) |
 | `world` | `core`, `math` | Entities, components and their hierarchy (EnTT), the component registry, scene files |
 | `rhi` | `core`, `math`, `platform` | Vulkan device, swapchain and texture readback over NVRHI |
 | `shaders` | `core` | Shader requests and permutation keys, disk cache, `ShaderLibrary` |
 | `shader_compiler` | `core`, `shaders` | Slang to SPIR-V compiler (not linked into exported games) |
-| `renderer` | `core`, `math`, `world`, `rhi`, `shaders` | Render passes, render targets, camera views, debug line drawing, GPU shader management |
+| `renderer` | `core`, `math`, `assets`, `world`, `rhi`, `shaders` | The scene renderer and what it is made of: GPU copies of assets, the mesh pass, scene targets, the `MeshRenderer` component; camera views, debug lines, GPU shader management |
 | `ui` | `core`, `math`, `platform`, `rhi`, `shaders`, `renderer` | The immediate-mode interface: the Dear ImGui context and its NVRHI renderer |
-| `engine` | all of the above | `Engine`: owns the subsystems, the world and the interface, and runs the frame loop |
-| `editor` | `engine` and below | The editor: the scene document, undoable actions, commands, panels, `EditorApp` (not linked into exported games) |
+| `engine` | all of the above | `Engine`: owns the subsystems, the assets, the world and the interface, and runs the frame loop; projects; placing models; checking the assets a scene uses |
+| `editor` | `engine` and below | The editor: the scene document, undoable actions, scene and asset commands, panels, `EditorApp` (not linked into exported games) |
 
 `cordite-editor` (in `editor/`) is a thin `main` around `EditorApp`. Everything else,
 including what tests need to drive the editor, is in the `editor` module.
@@ -260,6 +263,28 @@ Vulkan directly. Step-by-step guide for adding a pass:
 - **A texture shown in the interface** (`ImGui::Image`) must stay alive until the
   frame's interface has been rendered: ImGui only remembers a pointer. Replace such a
   texture before the widget that shows it, never after.
+- **Meshes are drawn by `SceneRenderer`**, into a `SceneTargets` per view: linear scene
+  color and depth first, then the display image. Front faces wind counter-clockwise;
+  depth is reversed. Draws that share mesh, submesh and material are instanced, and
+  sorted by the serial numbers of their GPU resources, never by address, so that two
+  runs issue the same draw calls in the same order.
+- **Binding sets of a mesh pass:** register space 0 is the view's, space 1 the
+  material's (`shaders/materials/Material.slang`). A new mesh pass includes that file
+  and calls `evaluateSurface`, so every pass sees a material the same way.
+- **Uploads go through `RenderResources`.** It records them on a command list of its
+  own, created with `setEnableImmediateExecution(false)` - NVRHI allows only one
+  immediate command list to be open at a time, and the frame's is. That list is dropped
+  after every flush, which is what returns its staging memory.
+- **Tangent space is MikkTSpace**, with glTF's convention: the bitangent is
+  `cross(normal, tangent.xyz) * tangent.w`, normal maps have +Y up, texture coordinates
+  start at the top-left. `SceneRendererTests` pins all of it with pixel values.
+- **No pixel may become "not a number".** One such pixel spreads through every pass
+  that blurs. Shaders use `normalizeOr` (`shaders/common/Math.slang`) for anything
+  interpolated or computed that can have no length, and C++ makes values finite
+  before they are sorted or sent to the GPU.
+- **A view is perspective or orthographic** (`CameraView::orthographic`). Whatever
+  needs the direction to the viewer must ask: with perspective it points at the
+  camera's position, without it is the opposite of the camera's direction, everywhere.
 - **Shader permutations** are `ShaderRequest`s: path, entry point, stage and sorted
   defines. Their key is deterministic and pinned by a test; changing how it is computed
   orphans every shader cache. Every engine shader entry point is listed in
@@ -302,9 +327,42 @@ Step-by-step guide for adding a component: [add-component](.claude/skills/add-co
   Floats written to a file go through `jsonFromFloat`; nothing is "improved" on load.
 - **Scene loading is strict.** An unknown component, property or member is an error
   that names the entity, not something to skip.
-- **The showcase scene uses everything.** `samples/showcase/showcase.scene.json` must
-  contain every component type and every named option; the `samples` test fails
-  otherwise. Adding a feature includes showing it there.
+- **The showcase uses everything.** The scene of `samples/showcase` must contain every
+  component type and every named option, and use every asset and every material option
+  of the project; the `samples` test fails otherwise. Adding a feature includes showing
+  it there.
+
+## Assets
+
+Step-by-step guide: [work-with-assets](.claude/skills/work-with-assets/SKILL.md).
+
+- **An asset is its id.** Scenes, materials and code refer to assets by `Uuid`, never
+  by path. The id of a file is in the `.meta` file next to it; the id of something
+  inside a file (a mesh of a glTF model) is derived from the file's id and its place
+  in the file (`subAssetId`). `.meta` files are committed with their assets and moved
+  with them.
+- **A new file's id is derived from its path**, so a freshly generated project has the
+  same ids on every machine. Only an editor writes `.meta` files
+  (`AssetDatabaseDesc::writeMetaFiles`); games and tests read.
+- **Indices are identity.** Entries of a `GltfDocument` are never dropped or reordered,
+  because the ids of the assets in a file follow from them. What cannot be imported
+  stays in place, empty, and is reported in `warnings`.
+- **The slot decides the color space, not the texture.** Base color and emissive are
+  sRGB, everything else is data. There is no per-texture setting to get wrong.
+- **Sampling belongs to the material:** wrap modes, filter, tiling. A texture is pixels.
+- **Files are untrusted.** Every count and offset of a glTF file is checked before use,
+  with arithmetic that cannot overflow, before cgltf's own validation runs (which
+  can be made to overflow). A mesh is limited by `kMaxMeshVertices` and
+  `kMaxMeshIndices`, and so is a file as a whole (`GltfImportOptions`): any number of
+  meshes and images may point at the same few bytes, so every use is counted, before
+  it is read. Numbers are made finite on the way in (`1e999` is valid JSON). Files a
+  glTF refers to are read only from inside the asset directory.
+- **A broken asset never stops a scene.** The database lists problems
+  (`AssetDatabase::problems`), loading returns an error, and the renderer reports once
+  and draws the rest. `scene.validate` and `findSceneProblems` find dangling references.
+- **The showcase's textures and models are generated**, by `tools/sample-assets`.
+  Change the generator, run it, look at the result, commit both. Its materials and its
+  scene are written by hand, with comments: they are the reference for the file formats.
 
 ## Editor and automation
 
@@ -330,8 +388,8 @@ panels, EditorApp    the interface, built on the three layers above
   pointers or references into the world.
 - **Commands run between frames.** A command may render frames itself (screenshots);
   lines typed in the console are queued and run before the next frame for that reason.
-- **Batch mode is the test and agent entry point:** `cordite-editor --headless --scene
-  S --exec script.json --frames N --screenshot out.png`. Exit status: 0 success, 1
+- **Batch mode is the test and agent entry point:** `cordite-editor --headless --project
+  P --exec script.json --frames N --screenshot out.png`. Exit status: 0 success, 1
   could not run, 2 GPU validation issues, 3 a script step failed. The script's outcome
   goes to standard output as JSON, logs to standard error.
 - **The interface is Dear ImGui**, reached through the `ui` module. It runs without a
@@ -346,9 +404,14 @@ with CTest under the module name. See the skills
 [render-tests](.claude/skills/render-tests/SKILL.md).
 
 - Test files are named `<Thing>Tests.cpp` and live in `tests/unit/<module>/`.
-- Three suites are not tied to one module: `samples` keeps the showcase scene loading
+- Three suites are not tied to one module: `samples` keeps the showcase project loading
   and complete, `editor_smoke` runs the real editor executable with a command script,
   and `module_layering` checks the include rules.
+- Rendering is tested with numbers before pictures. A test that can state what a pixel
+  must be (`SceneRendererTests`: flat emissive materials, an orthographic camera, no
+  light) does so; reference images are for what only an eye can judge.
+- glTF files for tests are built in the test (`GltfTestSupport.h`) or written by the
+  exporter, never checked in as binaries.
 - Test case names are sentences describing behavior: `"an exhausted arena returns
   nullptr and stays usable"`.
 - Cover the normal path, the boundaries, and each documented failure. For parsers and
@@ -414,8 +477,10 @@ body explaining what changed and why. One logical change per commit.
 - The default MSVC toolset on a machine may be older than the newest one installed.
   `dev.ps1` uses whatever `vcvars64.bat` selects; do not rely on features newer than
   MSVC 19.38.
-- clang-format reflows comments, which mangles a `@code` example whose lines exceed 120
-  columns. Keep example lines short.
+- clang-format does not touch comments (`ReflowComments` is off: reflowing joined the
+  lines of `@code` examples into nonsense, three times, unnoticed). Wrap comments by
+  hand at about 90 columns, and check that an example calls the functions the way they
+  are declared: an example with the wrong arguments is worse than none.
 - A range-for over a braced list of integer literals (`for (uint8_t v : {1, 2})`)
   iterates `int`s and warns about narrowing; write `std::initializer_list<uint8_t>{...}`.
 - In a function returning `Result<bool>`, `return {};` returns `false`, not success.
@@ -432,3 +497,16 @@ body explaining what changed and why. One logical change per commit.
   the default layout that shows machine-specific text.
 - Agent tools that run shell commands can mangle a here-document that contains an odd
   number of apostrophes. Write files with the file-writing tool instead of `cat <<EOF`.
+- NVRHI's validation layer rejects a second *immediate* command list opened while
+  another is open. Anything that records while a frame is being recorded needs
+  `CommandListParameters().setEnableImmediateExecution(false)`.
+- cgltf leaves the `scale` of a texture slot at zero when the material has no such
+  texture; only its texture-view parser sets the default of one. Read optional glTF
+  values only when the thing they belong to is present.
+- An exact `u >= 0` test makes a ray aimed at the edge two triangles share miss both.
+  `intersectTriangle` counts edges as inside, with a tolerance, and judges "parallel"
+  relative to the triangle's size.
+- The sine of a float two pi is not zero. Geometry that closes on itself (`Primitives`)
+  computes its last column from index zero instead, or the seam is a crack.
+- `-0.0f` and `0.0f` compare equal but differ in their bits; code that compares
+  vertices by bytes (`meshopt_generateVertexRemap`) must normalize it first.

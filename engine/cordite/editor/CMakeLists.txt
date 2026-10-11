@@ -1,5 +1,7 @@
 cordite_add_module(editor
     SOURCES
+        AssetCommands.cpp
+        AssetCommands.h
         CommandRegistry.cpp
         CommandRegistry.h
         ConsolePanel.cpp

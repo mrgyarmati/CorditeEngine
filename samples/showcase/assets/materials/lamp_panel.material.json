@@ -1,0 +1,18 @@
+// A light fitting: a dark panel whose strips glow. Light that a surface gives off is
+// its emissive texture times this color and intensity.
+{
+    "format": "cordite.material",
+    "version": 1,
+    "baseColorTexture": "7c892f11-7163-8a66-8e2d-941e389b25da",
+    "normalTexture": "ab333e43-237e-8a78-8792-c9cfc1f4ea58",
+    "metallicRoughnessTexture": "160e323e-f27a-83ce-9719-e16535ccecd1",
+    "roughness": 1,
+    "emissiveTexture": "6c27ca27-eb05-8e23-bbd2-07058b48a6a9",
+    "emissiveColor": [1, 0.72, 0.42],
+    "emissiveIntensity": 4,
+    // Hard-edged texels: the strips keep crisp ends however close the camera gets.
+    "filter": "nearest",
+    // Shown once, not repeated: beyond its edges the texture continues as its last texel.
+    "wrapU": "clamp",
+    "wrapV": "clamp"
+}

@@ -16,7 +16,7 @@ Cordite is under active development. Milestones follow the brief:
 | 1 | Engine foundation: build system, core, math, tests, tooling | Done |
 | 2 | Window and renderer skeleton: GLFW, Vulkan via NVRHI, swapchain, Slang shaders | Done |
 | 3 | Scene and ECS: entities, components, hierarchy, scene files, editor with viewport and command automation | Done |
-| 4 | Static mesh rendering | Planned |
+| 4 | Static mesh rendering: projects and asset ids, glTF import, textures, materials, instanced forward pass | Done |
 | 5 | Deferred G-buffer | Planned |
 | 6 | Lighting | Planned |
 | 7 | Shadows | Planned |
@@ -56,17 +56,34 @@ see [docs/third-party.md](docs/third-party.md).
 A Vulkan 1.3 capable GPU and driver are required.
 
 ```powershell
-./scripts/dev.ps1 run -Target cordite-editor -- --scene samples/showcase/showcase.scene.json
+./scripts/dev.ps1 run -Target cordite-editor -- --project samples/showcase
 ```
 
 ![The editor showing the showcase scene](tests/render/references/editor-showcase-1280x720.png)
 
-The picture is one of the reference images the rendering tests compare against. Until
-the engine draws meshes (milestone 4), the viewport shows the grid, a marker for every
-entity and the view volumes of cameras.
+The picture is one of the reference images the rendering tests compare against. It
+shows the showcase project, [samples/showcase](samples/showcase), which uses every
+feature the engine has so far. The scene is lit by a fixed key light until the engine
+has lights and shadows of its own (milestones 6 and 7).
 
 In the viewport, hold the right mouse button to look around and fly with W A S D, Q and
 E; hold the middle button to slide; turn the wheel to move forwards and backwards.
+
+## Projects and assets
+
+A game is a project: a directory with a `cordite.project.json` and an `assets`
+directory holding models (glTF 2.0: `.gltf`, `.glb`), textures (PNG, JPEG, TGA, BMP,
+HDR), materials (`.material.json`) and scenes (`.scene.json`). Every asset has an id
+that survives renaming and moving - it is kept in a `.meta` file next to the asset -
+and scenes refer to assets by id only. Meshes for blocking out a scene (cube, sphere,
+plane, cylinder, cone, capsule, torus) are built in.
+
+The showcase's own textures and models are generated from code by a small tool, so the
+repository contains no third-party artwork:
+
+```powershell
+./scripts/dev.ps1 run -Target cordite-sample-assets -- samples/showcase/assets
+```
 
 ## Automation
 
@@ -78,19 +95,20 @@ editor runs without a window. A script is a list of commands:
     {"command": "entity.create", "params": {"name": "Eye", "components": {"Camera": {}}}},
     {"command": "component.set", "params": {"entity": "Eye", "component": "Transform",
                                             "properties": {"position": [0, 1.7, 4]}}},
+    {"command": "asset.instantiate", "params": {"asset": "models/crate.gltf"}},
     {"command": "editor.screenshot", "params": {"path": "out/eye.png"}},
     {"command": "scene.save", "params": {"path": "out/eye.scene.json"}}
 ]
 ```
 
 ```powershell
-./scripts/dev.ps1 run -Target cordite-editor -- --headless --exec script.json
+./scripts/dev.ps1 run -Target cordite-editor -- --headless --project samples/showcase --exec script.json
 ```
 
 The outcome of every step is written to standard output as JSON, and the exit status
 says whether the script ran to the end. `editor.commands` lists every command with its
-parameters, and `component.types` describes every component and property; that is what
-an AI agent reads to find out what it can do. The same commands can be typed into the
+parameters, `component.types` describes every component and property, and `asset.list`
+shows every asset; that is what an AI agent reads to find out what it can do. The same commands can be typed into the
 console panel of the interactive editor. `--help` lists every command-line option.
 
 ## Documentation
@@ -102,6 +120,7 @@ console panel of the interactive editor. `--help` lists every command-line optio
 - [docs/third-party.md](docs/third-party.md) - every library the engine uses, with
   versions and licenses.
 - [.claude/skills](.claude/skills) - step-by-step guides for recurring tasks: building
-  and testing, adding a component, a render pass, a dependency or an editor command.
+  and testing, adding a component, a render pass, a dependency or an editor command,
+  and working with assets.
 - Public APIs are documented in their headers under `engine/cordite/`, each with a
   usage example.

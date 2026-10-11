@@ -1,6 +1,7 @@
 #include "cordite/editor/EditorCommands.h"
 
 #include "cordite/core/FileSystem.h"
+#include "cordite/editor/AssetCommands.h"
 #include "cordite/editor/EditorActions.h"
 #include "cordite/world/SceneSerializer.h"
 
@@ -120,9 +121,16 @@ Status registerSceneCommands(CommandRegistry& commands, EditorContext& context) 
     CORDITE_TRY(commands.add({
         .name = "scene.open",
         .description = "Loads a scene file, replacing the current scene. Nothing changes if the file is invalid.",
-        .parameters = {{"path", Type::String, "The scene file to load."}},
+        .parameters = {{"path", Type::String,
+                        "The scene to load: a scene asset as asset.list names it (\"scenes/main.scene.json\"), or "
+                        "the path of a file."}},
         .handler = [&context](const Json& parameters) -> Result<Json> {
-            CORDITE_TRY(context.openScene(pathFromUtf8(parameters.at("path").get<std::string>())));
+            const std::string path = parameters.at("path").get<std::string>();
+            // A scene of the project is found wherever the editor was started from.
+            const AssetDatabase& database = context.assets().database();
+            const AssetInfo* asset = database.findByReference(path);
+            const bool isSceneAsset = asset != nullptr && asset->type == AssetType::Scene;
+            CORDITE_TRY(context.openScene(isSceneAsset ? database.sourceFile(*asset) : pathFromUtf8(path)));
             return describeScene(context);
         },
     }));
@@ -452,7 +460,8 @@ Status registerEditorCommands(CommandRegistry& commands, EditorContext& context)
     CORDITE_TRY(registerSessionCommands(commands, context));
     CORDITE_TRY(registerSceneCommands(commands, context));
     CORDITE_TRY(registerEntityCommands(commands, context));
-    return registerComponentCommands(commands, context);
+    CORDITE_TRY(registerComponentCommands(commands, context));
+    return registerAssetCommands(commands, context);
 }
 
 } // namespace cordite

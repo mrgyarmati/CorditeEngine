@@ -1,5 +1,6 @@
 #include "cordite/world/SceneSerializer.h"
 
+#include "cordite/core/Document.h"
 #include "cordite/core/FileSystem.h"
 #include "cordite/core/Json.h"
 
@@ -14,7 +15,7 @@
 namespace cordite {
 namespace {
 
-constexpr std::string_view kSceneFormat = "cordite.scene";
+constexpr DocumentFormat kSceneFormat{.name = "cordite.scene", .version = kSceneFormatVersion, .kind = "scene"};
 constexpr std::array<std::string_view, 4> kSceneMembers = {"format", "version", "name", "entities"};
 constexpr std::array<std::string_view, 5> kEntityMembers = {"id", "name", "enabled", "parent", "components"};
 
@@ -38,17 +39,6 @@ Json serializeEntity(const World& world, Entity entity, const ComponentRegistry&
     }
     json["components"] = std::move(componentsJson);
     return json;
-}
-
-/// Fails when `object` has a member whose name is not in `allowed`. A misspelled member
-/// would otherwise be dropped without a word, and its data with it.
-Status rejectUnknownMembers(const Json& object, std::span<const std::string_view> allowed) {
-    for (const auto& [key, value] : object.items()) {
-        if (std::ranges::find(allowed, std::string_view(key)) == allowed.end()) {
-            return makeError(ErrorCode::ParseError, "unknown member '{}'", key);
-        }
-    }
-    return {};
 }
 
 void remapEntityReference(Json& value, const IdMap& idMap) {
@@ -324,9 +314,7 @@ Result<std::vector<Entity>> createPlanned(World& world, std::span<const EntityPl
 } // namespace
 
 Json serializeScene(const World& world, const ComponentRegistry& components) {
-    Json document = Json::object();
-    document["format"] = kSceneFormat;
-    document["version"] = kSceneFormatVersion;
+    Json document = makeDocument(kSceneFormat);
     document["name"] = world.sceneName();
 
     Json entities = Json::array();
@@ -337,29 +325,7 @@ Json serializeScene(const World& world, const ComponentRegistry& components) {
 }
 
 Status deserializeScene(World& world, const Json& document, const ComponentRegistry& components) {
-    if (!document.is_object()) {
-        return makeError(ErrorCode::ParseError, "a scene must be a JSON object, found {}", jsonTypeName(document));
-    }
-
-    CORDITE_TRY_ASSIGN(const std::optional<std::string> format, jsonGetOptional<std::string>(document, "format"));
-    if (!format || *format != kSceneFormat) {
-        return makeError(ErrorCode::ParseError, "not a Cordite scene: 'format' must be \"{}\"", kSceneFormat);
-    }
-
-    const auto versionMember = document.find("version");
-    if (versionMember == document.end()) {
-        return makeError(ErrorCode::ParseError, "the scene has no 'version'");
-    }
-    uint32_t version = 0;
-    if (const Status status = PropertyCodec<uint32_t>::fromJson(*versionMember, version); !status) {
-        return makeError(ErrorCode::ParseError, "'version': {}", status.error().message);
-    }
-    if (version == 0 || version > kSceneFormatVersion) {
-        return makeError(ErrorCode::VersionMismatch,
-                         "the scene has format version {}, but this engine reads versions 1 to {}", version,
-                         kSceneFormatVersion);
-    }
-
+    CORDITE_TRY(readDocumentHeader(document, kSceneFormat));
     CORDITE_TRY(rejectUnknownMembers(document, kSceneMembers));
     CORDITE_TRY_ASSIGN(const std::optional<std::string> name, jsonGetOptional<std::string>(document, "name"));
 

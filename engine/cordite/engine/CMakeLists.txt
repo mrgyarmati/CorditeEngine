@@ -4,6 +4,12 @@ cordite_add_module(engine
         Engine.h
         EngineComponents.cpp
         EngineComponents.h
+        ModelInstance.cpp
+        ModelInstance.h
+        Project.cpp
+        Project.h
+        SceneAssets.cpp
+        SceneAssets.h
     DEPENDS
         core
         math

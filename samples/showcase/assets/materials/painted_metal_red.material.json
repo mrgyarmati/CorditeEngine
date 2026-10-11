@@ -1,0 +1,7 @@
+// An instance of painted_metal: everything it does not state comes from its parent.
+{
+    "format": "cordite.material",
+    "version": 1,
+    "parent": "8733a23e-9efb-81d0-8529-eb712ff4332a",
+    "baseColor": [0.42, 0.05, 0.04, 1]
+}

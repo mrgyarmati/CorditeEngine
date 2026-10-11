@@ -10,7 +10,7 @@
 /// @code
 /// EditorAppDesc desc;
 /// desc.engine.headless = true;
-/// desc.scene = "samples/showcase/showcase.scene.json";
+/// desc.project = "samples/showcase";          // its assets, and its start scene
 /// CORDITE_TRY_ASSIGN(auto editor, EditorApp::create(desc));
 ///
 /// // Interactive: run until the window is closed.
@@ -35,8 +35,8 @@
 /// ]
 /// @endcode
 ///
-/// Besides the scene-editing commands (see EditorCommands.h) the application adds the
-/// ones that need a running editor: `editor.screenshot`, `editor.runFrames`,
+/// Besides the scene-editing and asset commands (see EditorCommands.h) the application
+/// adds the ones that need a running editor: `editor.screenshot`, `editor.runFrames`,
 /// `editor.exit`, `viewport.lookAt`, `viewport.frame` and `viewport.camera`.
 
 #include "cordite/assets/Image.h"
@@ -51,12 +51,14 @@
 #include "cordite/editor/InspectorPanel.h"
 #include "cordite/editor/ViewportPanel.h"
 #include "cordite/engine/Engine.h"
+#include "cordite/engine/Project.h"
 
 #include <imgui.h>
 
 #include <cstdint>
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -68,13 +70,26 @@ struct EditorAppDesc {
     /// the editor's when left at the engine's defaults.
     EngineDesc engine;
 
-    /// A scene file to open at start. Empty starts with a new, empty scene.
+    /// The project to work on: a directory with a cordite.project.json (see Project.h).
+    /// Its asset directory becomes the engine's. Empty works without a project, with
+    /// the built-in assets only.
+    std::filesystem::path project;
+
+    /// A scene file to open at start. Empty opens the project's start scene, or, without
+    /// one, starts with a new, empty scene.
     std::filesystem::path scene;
+
+    /// Keep the arrangement of the windows from one session to the next, in the
+    /// `.cordite` directory of the project - or of the working directory, when there is
+    /// no project. Left off, every session starts from the default layout, which is
+    /// what automation wants. Ignored when `engine.uiSettingsFile` already names a file.
+    bool rememberLayout = false;
 };
 
 class EditorApp {
 public:
-    /// Starts the engine and opens the scene. Fails when either cannot be done.
+    /// Loads the project, starts the engine and opens the scene. Fails when any of
+    /// that cannot be done.
     [[nodiscard]] static Result<std::unique_ptr<EditorApp>> create(const EditorAppDesc& desc);
     ~EditorApp();
     CORDITE_NON_MOVABLE(EditorApp);
@@ -110,12 +125,17 @@ public:
 
     [[nodiscard]] ViewportPanel& viewport() { return *m_viewport; }
 
+    /// The project being worked on, if the editor was started with one.
+    [[nodiscard]] const std::optional<Project>& project() const { return m_project; }
+
 private:
     EditorApp() = default;
 
     [[nodiscard]] Status registerApplicationCommands();
     void drawInterface();
     void drawMainMenu();
+    void drawEntityMenu();
+    void drawAssetMenu();
     void drawFileDialog();
     void handleShortcuts();
     void updateWindowTitle();
@@ -127,6 +147,7 @@ private:
         SaveAs,
     };
 
+    std::optional<Project> m_project;
     // The engine comes first: everything else refers to it and goes before it.
     std::unique_ptr<Engine> m_engine;
     std::unique_ptr<EditorContext> m_context;

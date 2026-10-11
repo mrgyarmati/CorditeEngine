@@ -20,6 +20,7 @@ cordite_add_test_suite(core
         unit/core/AssertTests.cpp
         unit/core/BinaryStreamTests.cpp
         unit/core/ConfigTests.cpp
+        unit/core/DocumentTests.cpp
         unit/core/FileSystemTests.cpp
         unit/core/HashTests.cpp
         unit/core/JobSystemTests.cpp
@@ -68,8 +69,19 @@ cordite_add_test_suite(platform
 
 cordite_add_test_suite(assets
     SOURCES
+        unit/assets/AssetDatabaseTests.cpp
+        unit/assets/AssetManagerTests.cpp
+        unit/assets/AssetTestSupport.h
+        unit/assets/GltfExporterTests.cpp
+        unit/assets/GltfImporterTests.cpp
+        unit/assets/GltfTestSupport.h
         unit/assets/ImageCompareTests.cpp
         unit/assets/ImageTests.cpp
+        unit/assets/MaterialTests.cpp
+        unit/assets/MeshProcessingTests.cpp
+        unit/assets/MeshTests.cpp
+        unit/assets/MipmapsTests.cpp
+        unit/assets/PrimitivesTests.cpp
     LIBRARIES
         cordite::assets)
 
@@ -93,6 +105,7 @@ cordite_add_test_suite(renderer
 # The editor without its user interface: commands, undo, the document and the camera.
 cordite_add_test_suite(editor
     SOURCES
+        unit/editor/AssetCommandsTests.cpp
         unit/editor/CommandRegistryTests.cpp
         unit/editor/EditorActionsTests.cpp
         unit/editor/EditorCameraTests.cpp
@@ -103,7 +116,17 @@ cordite_add_test_suite(editor
     LIBRARIES
         cordite::editor)
 
-# Keeps the showcase scene loading and complete. Needs no GPU.
+# What the engine module adds on top of the others, as far as it needs no GPU: projects,
+# placing models, and checking the assets a scene uses.
+cordite_add_test_suite(engine
+    SOURCES
+        unit/engine/ModelInstanceTests.cpp
+        unit/engine/ProjectTests.cpp
+        unit/engine/SceneAssetsTests.cpp
+    LIBRARIES
+        cordite::engine)
+
+# Keeps the showcase project loading and complete. Needs no GPU.
 cordite_add_test_suite(samples
     SOURCES
         unit/samples/ShowcaseSceneTests.cpp
@@ -129,6 +152,7 @@ cordite_add_test_suite(render
         render/RenderTargetTests.cpp
         render/RenderTestSupport.cpp
         render/RenderTestSupport.h
+        render/SceneRendererTests.cpp
         render/SwapchainTests.cpp
         render/UiTests.cpp
     LIBRARIES
@@ -136,7 +160,7 @@ cordite_add_test_suite(render
     LABELS
         gpu)
 
-# Runs the real editor executable in batch mode: it opens the showcase scene, runs a
+# Runs the real editor executable in batch mode: it opens the showcase project, runs a
 # script of commands on it, renders and saves a picture. It exits with a non-zero status
 # when anything fails, when a script step fails, or when the GPU validation layers report
 # a problem.
@@ -144,7 +168,7 @@ add_test(NAME editor_smoke
     COMMAND cordite-editor
         --headless --validation --frames 5 --fixed-time-step 0.1
         --width 960 --height 540
-        --scene samples/showcase/showcase.scene.json
+        --project samples/showcase
         --exec tests/data/editor-smoke.json
         --exec-output "${PROJECT_BINARY_DIR}/test-tmp/editor-smoke.json"
         --screenshot "${PROJECT_BINARY_DIR}/test-tmp/editor-smoke.png"

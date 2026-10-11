@@ -19,7 +19,7 @@
 ///     }
 ///     updateGame(engine->world(), engine->deltaSeconds());
 ///     engine->world().updateWorldTransforms();
-///     engine->drawTestPattern();                        // or any passes on engine->commandList()
+///     CORDITE_TRY(engine->drawWorld());                 // or any passes on engine->commandList()
 ///     ImGui::Text("frame %llu", engine->frameIndex());  // the interface is drawn on top
 ///     CORDITE_TRY(engine->endFrame());
 /// }
@@ -33,6 +33,7 @@
 /// frame target and takes its input from what is injected into input(), so it behaves
 /// identically otherwise; the rendering tests and the editor's automation mode rely on it.
 
+#include "cordite/assets/AssetManager.h"
 #include "cordite/assets/Image.h"
 #include "cordite/core/Base.h"
 #include "cordite/core/Result.h"
@@ -40,6 +41,7 @@
 #include "cordite/platform/Input.h"
 #include "cordite/platform/Window.h"
 #include "cordite/renderer/RenderTarget.h"
+#include "cordite/renderer/SceneRenderer.h"
 #include "cordite/renderer/ShaderManager.h"
 #include "cordite/rhi/GraphicsDevice.h"
 #include "cordite/shaders/ShaderLibrary.h"
@@ -82,6 +84,14 @@ struct EngineDesc {
     /// Directory for derived data such as the shader cache. Empty keeps it in memory.
     std::filesystem::path cacheDirectory;
 
+    /// Directory holding the assets of the game: models, textures, materials, scenes.
+    /// Empty leaves only the engine's built-in assets. See AssetDatabaseDesc.
+    std::filesystem::path assetDirectory;
+
+    /// Give every asset file that has none a `.meta` file with its id. Editors do; a
+    /// running game only reads. See AssetDatabaseDesc::writeMetaFiles.
+    bool writeAssetMetaFiles = false;
+
     /// File in which the user interface remembers its layout. See
     /// UiSystemDesc::settingsFile.
     std::filesystem::path uiSettingsFile;
@@ -115,8 +125,13 @@ public:
     /// is what the engine shows while it has nothing else to draw.
     void drawTestPattern();
 
+    /// Draws the world into the frame target as its primary camera sees it (the first
+    /// enabled camera with `primary` set; see findPrimaryCamera). A world without one
+    /// shows the test pattern. Only during a frame, with the world transforms up to date.
+    [[nodiscard]] Status drawWorld(const SceneRenderSettings& settings = {});
+
     /// Runs a whole frame for a program that draws nothing itself: beginFrame(), world
-    /// transform update, the test pattern, endFrame(). Returns what beginFrame() returned.
+    /// transform update, drawWorld(), endFrame(). Returns what beginFrame() returned.
     [[nodiscard]] Result<bool> runFrame();
 
     /// Makes the next beginFrame() return false.
@@ -157,6 +172,12 @@ public:
     /// The scene, and the component types that scene files and tools know by name.
     [[nodiscard]] World& world();
     [[nodiscard]] ComponentRegistry& components();
+
+    /// The assets of the game, and of the engine itself.
+    [[nodiscard]] AssetManager& assets();
+
+    /// Draws worlds. The editor uses it for its viewports as the game does for its view.
+    [[nodiscard]] SceneRenderer& sceneRenderer();
 
     [[nodiscard]] GraphicsDevice& graphics();
     [[nodiscard]] ShaderLibrary& shaders();

@@ -44,6 +44,9 @@ Conventions:
   `uN` unordered access views. `spaceN` is binding set N.
 - Fill constant buffers in multiples of 16 bytes and add explicit padding members.
 - Optional features are `#if defined(FEATURE)` blocks, selected with shader defines.
+- Never `normalize()` what can be zero (an interpolated normal, the difference of two
+  points): use `normalizeOr` from `common/Math.slang`. Guard divisions and `pow` of
+  negative numbers the same way. A single "not a number" pixel ruins every blur.
 - Comment what the shader computes and why, not the syntax.
 
 ## 2. Register it for compile testing
@@ -107,3 +110,30 @@ Look at the screenshot. Then run `./scripts/dev.ps1 verify` before committing.
 - **A changed shader is not picked up:** development builds read `shaders/` from the
   repository; a Release build reads the copy beside the executable, refreshed on build.
   The shader cache is keyed by content, so it never serves a stale shader.
+
+## A pass that draws meshes
+
+`MeshForwardPass` (`engine/cordite/renderer/MeshForwardPass.*` with
+`shaders/passes/MeshForward.slang`) is the template for a geometry pass: a depth
+pre-pass, a G-buffer pass and a shadow pass all take the same input.
+
+- **Input:** a list of `MeshDraw` (GPU mesh, submesh, GPU material, placement), which
+  `SceneRenderer` collects once per view. A new pass is another consumer of that list,
+  called from `SceneRenderer::render`; it does not walk the world itself.
+- **Vertex layout:** buffer 0 holds `MeshVertex` (position, normal, tangent, two sets of
+  texture coordinates), buffer 1 the per-instance placement as three rows of a 3x4
+  matrix. Copy the attribute list and the `MeshVertexInput` struct together: their order
+  is what connects them.
+- **Bindings:** two binding sets. Space 0 is the pass's own (view constants); space 1
+  is the material's and comes from `GpuMaterial::bindings`. Both layouts set
+  `registerSpaceIsDescriptorSet`. In the shader, `#include "materials/Material.slang"`
+  and call `evaluateSurface` to get the surface at a pixel; never sample material
+  textures directly.
+- **Pipelines:** one per combination that changes raster or blend state - masked,
+  blended, double-sided, mirrored instance - created on first use, like the variants in
+  `MeshForwardPass::pipelineFor`. Front faces wind counter-clockwise; a mirrored
+  instance needs the opposite winding.
+- **Order:** sort and batch by `GpuMesh::serial` and `GpuMaterial::serial`, not by
+  pointer, so that runs are repeatable.
+- **Test** it in `tests/render/SceneRendererTests.cpp` with `SceneFixture`: flat
+  emissive materials and an orthographic camera make pixel values exact.

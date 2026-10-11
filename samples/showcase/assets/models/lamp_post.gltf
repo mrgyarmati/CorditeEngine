@@ -1,0 +1,378 @@
+{
+    "asset": {
+        "version": "2.0",
+        "generator": "Cordite 0.1.0"
+    },
+    "scene": 0,
+    "scenes": [
+        {
+            "nodes": [
+                0
+            ]
+        }
+    ],
+    "nodes": [
+        {
+            "name": "Lamp post",
+            "translation": [
+                0.0,
+                1.6,
+                0.0
+            ],
+            "children": [
+                1
+            ],
+            "mesh": 0
+        },
+        {
+            "name": "Arm",
+            "translation": [
+                0.42,
+                1.5500001,
+                0.0
+            ],
+            "children": [
+                2
+            ],
+            "mesh": 1
+        },
+        {
+            "name": "Head",
+            "translation": [
+                0.5,
+                -0.06,
+                0.0
+            ],
+            "rotation": [
+                -0.0,
+                -0.0,
+                -0.104528464,
+                0.9945219
+            ],
+            "mesh": 2
+        }
+    ],
+    "meshes": [
+        {
+            "name": "Pole",
+            "primitives": [
+                {
+                    "attributes": {
+                        "POSITION": 0,
+                        "NORMAL": 1,
+                        "TANGENT": 2,
+                        "TEXCOORD_0": 3,
+                        "TEXCOORD_1": 4
+                    },
+                    "indices": 5,
+                    "material": 0
+                }
+            ]
+        },
+        {
+            "name": "Arm",
+            "primitives": [
+                {
+                    "attributes": {
+                        "POSITION": 6,
+                        "NORMAL": 7,
+                        "TANGENT": 8,
+                        "TEXCOORD_0": 9,
+                        "TEXCOORD_1": 10
+                    },
+                    "indices": 11,
+                    "material": 0
+                }
+            ]
+        },
+        {
+            "name": "Head",
+            "primitives": [
+                {
+                    "attributes": {
+                        "POSITION": 12,
+                        "NORMAL": 13,
+                        "TANGENT": 14,
+                        "TEXCOORD_0": 15,
+                        "TEXCOORD_1": 16
+                    },
+                    "indices": 17,
+                    "material": 0
+                },
+                {
+                    "attributes": {
+                        "POSITION": 12,
+                        "NORMAL": 13,
+                        "TANGENT": 14,
+                        "TEXCOORD_0": 15,
+                        "TEXCOORD_1": 16
+                    },
+                    "indices": 18,
+                    "material": 1
+                }
+            ]
+        }
+    ],
+    "materials": [
+        {
+            "name": "Post paint",
+            "pbrMetallicRoughness": {
+                "baseColorFactor": [
+                    0.05,
+                    0.07,
+                    0.06,
+                    1.0
+                ],
+                "metallicFactor": 0.0,
+                "roughnessFactor": 0.45
+            },
+            "emissiveFactor": [
+                0.0,
+                0.0,
+                0.0
+            ],
+            "alphaMode": "OPAQUE",
+            "doubleSided": false
+        },
+        {
+            "name": "Lamp glow",
+            "pbrMetallicRoughness": {
+                "baseColorFactor": [
+                    0.9,
+                    0.9,
+                    0.9,
+                    1.0
+                ],
+                "metallicFactor": 0.0,
+                "roughnessFactor": 0.3
+            },
+            "emissiveFactor": [
+                1.0,
+                0.62,
+                0.28
+            ],
+            "extensions": {
+                "KHR_materials_emissive_strength": {
+                    "emissiveStrength": 6.0
+                }
+            },
+            "alphaMode": "OPAQUE",
+            "doubleSided": false
+        }
+    ],
+    "accessors": [
+        {
+            "bufferView": 0,
+            "byteOffset": 0,
+            "componentType": 5126,
+            "count": 68,
+            "type": "VEC3",
+            "min": [
+                -0.06,
+                -1.6,
+                -0.06
+            ],
+            "max": [
+                0.06,
+                1.6,
+                0.06
+            ]
+        },
+        {
+            "bufferView": 0,
+            "byteOffset": 12,
+            "componentType": 5126,
+            "count": 68,
+            "type": "VEC3"
+        },
+        {
+            "bufferView": 0,
+            "byteOffset": 24,
+            "componentType": 5126,
+            "count": 68,
+            "type": "VEC4"
+        },
+        {
+            "bufferView": 0,
+            "byteOffset": 40,
+            "componentType": 5126,
+            "count": 68,
+            "type": "VEC2"
+        },
+        {
+            "bufferView": 0,
+            "byteOffset": 48,
+            "componentType": 5126,
+            "count": 68,
+            "type": "VEC2"
+        },
+        {
+            "bufferView": 1,
+            "byteOffset": 0,
+            "componentType": 5123,
+            "count": 192,
+            "type": "SCALAR"
+        },
+        {
+            "bufferView": 2,
+            "byteOffset": 0,
+            "componentType": 5126,
+            "count": 24,
+            "type": "VEC3",
+            "min": [
+                -0.45,
+                -0.03,
+                -0.03
+            ],
+            "max": [
+                0.45,
+                0.03,
+                0.03
+            ]
+        },
+        {
+            "bufferView": 2,
+            "byteOffset": 12,
+            "componentType": 5126,
+            "count": 24,
+            "type": "VEC3"
+        },
+        {
+            "bufferView": 2,
+            "byteOffset": 24,
+            "componentType": 5126,
+            "count": 24,
+            "type": "VEC4"
+        },
+        {
+            "bufferView": 2,
+            "byteOffset": 40,
+            "componentType": 5126,
+            "count": 24,
+            "type": "VEC2"
+        },
+        {
+            "bufferView": 2,
+            "byteOffset": 48,
+            "componentType": 5126,
+            "count": 24,
+            "type": "VEC2"
+        },
+        {
+            "bufferView": 3,
+            "byteOffset": 0,
+            "componentType": 5123,
+            "count": 36,
+            "type": "SCALAR"
+        },
+        {
+            "bufferView": 4,
+            "byteOffset": 0,
+            "componentType": 5126,
+            "count": 48,
+            "type": "VEC3",
+            "min": [
+                -0.17,
+                -0.065,
+                -0.1
+            ],
+            "max": [
+                0.17,
+                0.05,
+                0.1
+            ]
+        },
+        {
+            "bufferView": 4,
+            "byteOffset": 12,
+            "componentType": 5126,
+            "count": 48,
+            "type": "VEC3"
+        },
+        {
+            "bufferView": 4,
+            "byteOffset": 24,
+            "componentType": 5126,
+            "count": 48,
+            "type": "VEC4"
+        },
+        {
+            "bufferView": 4,
+            "byteOffset": 40,
+            "componentType": 5126,
+            "count": 48,
+            "type": "VEC2"
+        },
+        {
+            "bufferView": 4,
+            "byteOffset": 48,
+            "componentType": 5126,
+            "count": 48,
+            "type": "VEC2"
+        },
+        {
+            "bufferView": 5,
+            "byteOffset": 0,
+            "componentType": 5123,
+            "count": 36,
+            "type": "SCALAR"
+        },
+        {
+            "bufferView": 5,
+            "byteOffset": 72,
+            "componentType": 5123,
+            "count": 36,
+            "type": "SCALAR"
+        }
+    ],
+    "bufferViews": [
+        {
+            "buffer": 0,
+            "byteOffset": 0,
+            "byteLength": 3808,
+            "byteStride": 56,
+            "target": 34962
+        },
+        {
+            "buffer": 0,
+            "byteOffset": 3808,
+            "byteLength": 384,
+            "target": 34963
+        },
+        {
+            "buffer": 0,
+            "byteOffset": 4192,
+            "byteLength": 1344,
+            "byteStride": 56,
+            "target": 34962
+        },
+        {
+            "buffer": 0,
+            "byteOffset": 5536,
+            "byteLength": 72,
+            "target": 34963
+        },
+        {
+            "buffer": 0,
+            "byteOffset": 5608,
+            "byteLength": 2688,
+            "byteStride": 56,
+            "target": 34962
+        },
+        {
+            "buffer": 0,
+            "byteOffset": 8296,
+            "byteLength": 144,
+            "target": 34963
+        }
+    ],
+    "extensionsUsed": [
+        "KHR_materials_emissive_strength"
+    ],
+    "buffers": [
+        {
+            "uri": "lamp_post.bin",
+            "byteLength": 8440
+        }
+    ]
+}

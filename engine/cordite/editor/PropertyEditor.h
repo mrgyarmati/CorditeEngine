@@ -29,9 +29,11 @@
 #include <imgui.h>
 
 #include <functional>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <vector>
 
 namespace cordite {
 
@@ -42,6 +44,24 @@ public:
     using EntityNameLookup = std::function<std::string(const Uuid& id)>;
 
     void setEntityNameLookup(EntityNameLookup lookup) { m_entityName = std::move(lookup); }
+
+    /// One of the assets offered for an asset reference.
+    struct AssetChoice {
+        Uuid id;
+        std::string label;
+    };
+
+    /// Turns the id of an asset into the text to show for it, and lists the assets of a
+    /// kind (PropertyAttributes::referenceType, such as "Mesh"; empty for any kind) for
+    /// the user to choose from. Without them, asset references are shown as ids and can
+    /// only be cleared.
+    using AssetNameLookup = std::function<std::string(const Uuid& id)>;
+    using AssetChoices = std::function<std::vector<AssetChoice>(std::string_view referenceType)>;
+
+    void setAssetLookup(AssetNameLookup name, AssetChoices choices) {
+        m_assetName = std::move(name);
+        m_assetChoices = std::move(choices);
+    }
 
     /// Draws a label and a widget for `property` on the current line of a two-column
     /// table and returns true when the user changed `value` this frame. `value` must be
@@ -56,6 +76,8 @@ private:
     bool drawValue(PropertyType type, const PropertyInfo& property, Json& value);
     bool drawRotation(Json& value);
     bool drawReference(const PropertyInfo& property, Json& value);
+    bool drawEntityReference(const std::optional<Uuid>& id, Json& value);
+    bool drawAssetReference(const PropertyInfo& property, const std::optional<Uuid>& id, Json& value);
     bool drawObject(const PropertyInfo& property, Json& value);
     bool drawList(const PropertyInfo& property, Json& value);
 
@@ -66,6 +88,8 @@ private:
     };
 
     EntityNameLookup m_entityName;
+    AssetNameLookup m_assetName;
+    AssetChoices m_assetChoices;
     /// Per widget. Angles are remembered rather than recomputed from the quaternion every
     /// frame, because that conversion jumps between equivalent sets of angles and would
     /// make a field fight the user who is dragging it.

@@ -6,8 +6,10 @@
 #include "support/MathTestSupport.h"
 
 #include <algorithm>
+#include <filesystem>
 #include <memory>
 #include <string>
+#include <system_error>
 #include <vector>
 
 using namespace cordite;
@@ -18,8 +20,8 @@ using cordite::test::unwrap;
 
 namespace {
 
-std::filesystem::path showcaseScene() {
-    return test::sourceDirectory() / "samples" / "showcase" / "showcase.scene.json";
+std::filesystem::path showcaseProject() {
+    return test::sourceDirectory() / "samples" / "showcase";
 }
 
 EditorAppDesc headlessDesc(UVec2 size = UVec2(1280, 720)) {
@@ -60,7 +62,7 @@ std::string quoted(const std::filesystem::path& path) {
 TEST_SUITE("EditorApp") {
     TEST_CASE("the editor showing the showcase scene matches the reference image") {
         EditorAppDesc desc = headlessDesc();
-        desc.scene = showcaseScene();
+        desc.project = showcaseProject();
         const std::unique_ptr<EditorApp> editor = createEditor(desc);
         run(*editor, "selection.set", R"({"entities": ["Cameras/Main camera"]})");
 
@@ -74,10 +76,10 @@ TEST_SUITE("EditorApp") {
 
     TEST_CASE("the viewport alone matches its reference image") {
         EditorAppDesc desc = headlessDesc();
-        desc.scene = showcaseScene();
+        desc.project = showcaseProject();
         const std::unique_ptr<EditorApp> editor = createEditor(desc);
-        run(*editor, "selection.set", R"({"entities": ["Crate"]})");
-        run(*editor, "viewport.lookAt", R"({"position": [7, 5, 9], "target": [0, 0.5, -1]})");
+        run(*editor, "selection.set", R"({"entities": ["Stage/Crate"]})");
+        run(*editor, "viewport.lookAt", R"({"position": [-5.5, 3.2, 6.5], "target": [0.5, 0.8, -1.5]})");
 
         // No frame of the editor is needed for it.
         const Image image = unwrap(editor->captureViewport(UVec2(640, 360)));
@@ -321,6 +323,164 @@ TEST_SUITE("EditorApp") {
         CHECK(brightest > std::max(background.r, std::max(background.g, background.b)) + 0.2f);
     }
 
+    TEST_CASE("the editor opens a project: its assets, and its start scene") {
+        EditorAppDesc desc = headlessDesc(UVec2(640, 360));
+        desc.project = showcaseProject();
+        const std::unique_ptr<EditorApp> editor = createEditor(desc);
+
+        REQUIRE(editor->project().has_value());
+        CHECK(editor->project()->settings.name == "Showcase");
+        CHECK(editor->context().scenePath() == showcaseProject() / "assets" / "scenes" / "showcase.scene.json");
+        CHECK(editor->context().world().sceneName() == "Showcase");
+        CHECK(run(*editor, "asset.list", R"({"type": "model"})")["assets"].size() == 3);
+        CHECK(run(*editor, "scene.validate")["valid"] == true);
+    }
+
+    TEST_CASE("a project that is not one is reported, and a scene of choice replaces the start scene") {
+        {
+            EditorAppDesc missing = headlessDesc(UVec2(640, 360));
+            missing.project = test::sourceDirectory() / "samples";
+            const Result<std::unique_ptr<EditorApp>> editor = EditorApp::create(missing);
+            REQUIRE_FALSE(editor.has_value());
+            CHECK(editor.error().code == ErrorCode::NotFound);
+            CHECK(editor.error().message.find("cordite.project.json") != std::string::npos);
+        }
+
+        const TempDirectory directory;
+        const std::filesystem::path other = directory.path() / "other.scene.json";
+        REQUIRE(writeTextFile(other, R"({"format": "cordite.scene", "version": 1, "name": "Other", "entities": []})")
+                    .has_value());
+        EditorAppDesc desc = headlessDesc(UVec2(640, 360));
+        desc.project = showcaseProject();
+        desc.scene = other;
+        const std::unique_ptr<EditorApp> editor = createEditor(desc);
+        CHECK(editor->context().world().sceneName() == "Other");
+        // The project's assets are there all the same.
+        CHECK(run(*editor, "asset.get", R"({"asset": "models/crate.gltf#mesh/0"})")["name"] == "Crate");
+    }
+
+    TEST_CASE("an editor asked to remember its layout keeps it in the project") {
+        const TempDirectory directory;
+        const Project project = unwrap(createProject(directory.path() / "game", "Game"));
+        const std::filesystem::path layout = project.cacheDirectory() / "editor-layout.ini";
+
+        const auto forget = [&project] {
+            std::error_code error;
+            std::filesystem::remove_all(project.cacheDirectory(), error);
+            REQUIRE_FALSE(error);
+        };
+
+        // The project may be named by its directory or by its file.
+        for (const std::filesystem::path& named : {project.directory, project.file()}) {
+            forget();
+            {
+                EditorAppDesc desc = headlessDesc(UVec2(640, 360));
+                desc.project = named;
+                desc.rememberLayout = true;
+                const std::unique_ptr<EditorApp> editor = createEditor(desc);
+                REQUIRE(editor->runFrames(2).has_value());
+            }
+            // Written when the editor closes.
+            CHECK(fileExists(layout));
+        }
+
+        // Not asked, it leaves nothing behind.
+        forget();
+        {
+            EditorAppDesc desc = headlessDesc(UVec2(640, 360));
+            desc.project = project.directory;
+            const std::unique_ptr<EditorApp> editor = createEditor(desc);
+            REQUIRE(editor->runFrames(2).has_value());
+        }
+        CHECK_FALSE(directoryExists(project.cacheDirectory()));
+    }
+
+    TEST_CASE("meshes in the viewport are picked by what the pointer is really over") {
+        const std::unique_ptr<EditorApp> editor = createEditor(headlessDesc(UVec2(640, 360)));
+        const std::string cube = builtinMeshId(BuiltinMesh::Cube).toString();
+        const std::string sphere = builtinMeshId(BuiltinMesh::Sphere).toString();
+        const auto create = [&](std::string_view name, std::string_view mesh, std::string_view transform) {
+            run(*editor, "entity.create",
+                fmt::format(R"({{"name": "{}", "components": {{"Transform": {}, "MeshRenderer": {{"mesh": "{}"}}}}}})",
+                            name, transform, mesh));
+        };
+        create("Near", cube, R"({"position": [0, 0, 0]})");
+        create("Far", cube, R"({"position": [0, 0, -6], "scale": [4, 4, 1]})");
+        create("Ball", sphere, R"({"position": [3, 0, 0], "scale": [2, 2, 2]})");
+        // Turned by 45 degrees: seen head-on, a diamond.
+        create("Diamond", cube, R"({"position": [-3, 0, 0], "rotation": [0, 0, 0.38268343, 0.9238795]})");
+        create("Hidden", cube, R"({"position": [0, 3, 0]})");
+        run(*editor, "entity.setEnabled", R"({"entity": "Hidden", "enabled": false})");
+        // A marker behind the far wall, and one in front of everything.
+        run(*editor, "entity.create",
+            R"({"name": "Behind", "components": {"Transform": {"position": [1.5, 1.5, -9]}}})");
+        run(*editor, "entity.create",
+            R"({"name": "In front", "components": {"Transform": {"position": [0.2, 0.2, 3]}}})");
+        run(*editor, "viewport.lookAt", R"({"position": [0, 0, 10], "target": [0, 0, 0]})");
+
+        const Vec2 size(640.0f, 360.0f);
+        const Image image = unwrap(editor->captureViewport(UVec2(size)));
+        const World& world = editor->context().world();
+        const ViewportPanel& viewport = editor->viewport();
+        const CameraView view = editor->camera().view(size.x / size.y);
+        const auto pixelOf = [&](const Vec3& point) { return worldToScreen(view, point, size).value(); };
+        const auto picked = [&](const Vec3& point) {
+            const Entity entity = viewport.pick(editor->context(), pixelOf(point));
+            return entity.isNull() ? std::string("(nothing)") : world.name(entity);
+        };
+
+        // The near cube hides the far wall behind it; next to it, the wall is hit.
+        CHECK(picked(Vec3(0.3f, -0.3f, 0.5f)) == "Near");
+        CHECK(picked(Vec3(1.2f, -1.2f, -5.5f)) == "Far");
+        // Triangles, not bounding boxes: the corner of the box around the ball is empty,
+        // and so are the corners of the box around the diamond.
+        CHECK(picked(Vec3(3.0f, 0.0f, 1.0f)) == "Ball");
+        CHECK(picked(Vec3(3.9f, 0.9f, 0.0f)) == "(nothing)");
+        CHECK(picked(Vec3(-3.0f, 0.6f, 0.5f)) == "Diamond");
+        CHECK(picked(Vec3(-3.45f, 0.45f, 0.5f)) == "(nothing)");
+        // Disabled entities are not there.
+        CHECK(picked(Vec3(0.0f, 3.0f, 0.5f)) == "(nothing)");
+        // A marker can be clicked where it is seen, and not through a mesh in front of it.
+        CHECK(picked(Vec3(0.2f, 0.2f, 3.0f)) == "In front");
+        CHECK(picked(Vec3(1.5f, 1.5f, -9.0f)) == "Far");
+        // Beside everything.
+        CHECK(picked(Vec3(-6.5f, 3.0f, 0.0f)) == "(nothing)");
+
+        // What was picked is what was drawn there: the near cube's pixel is lit, the
+        // empty corner beside the diamond is background.
+        const Vec4 background = image.pixel(3, 3);
+        const Vec2 onCube = pixelOf(Vec3(0.3f, -0.3f, 0.5f));
+        const Vec2 besideDiamond = pixelOf(Vec3(-3.45f, 0.45f, 0.5f));
+        CHECK(image.pixel(static_cast<uint32_t>(onCube.x), static_cast<uint32_t>(onCube.y)).r > background.r + 0.2f);
+        CHECK(image.pixel(static_cast<uint32_t>(besideDiamond.x), static_cast<uint32_t>(besideDiamond.y)).r ==
+              doctest::Approx(background.r).epsilon(0.05));
+        checkNoValidationIssues(editor->engine().graphics());
+    }
+
+    TEST_CASE("a model is placed by command, drawn, and taken back") {
+        EditorAppDesc desc = headlessDesc(UVec2(640, 360));
+        desc.project = showcaseProject();
+        const std::unique_ptr<EditorApp> editor = createEditor(desc);
+        run(*editor, "scene.new");
+        run(*editor, "viewport.lookAt", R"({"position": [3, 2.5, 6], "target": [0, 1.2, 0]})");
+        const Image empty = unwrap(editor->captureViewport(UVec2(640, 360)));
+
+        const Json placed = run(*editor, "asset.instantiate", R"({"asset": "models/lamp_post.gltf"})");
+        CHECK(placed["entityCount"] == 4);
+        const EditorContext& context = editor->context();
+        CHECK(context.entityPath(context.world().findByName("Head")) == "lamp_post/Lamp post/Arm/Head");
+        REQUIRE(editor->runFrames(2).has_value());
+        const Image withLamp = unwrap(editor->captureViewport(UVec2(640, 360)));
+        CHECK_FALSE(
+            unwrap(compareImages(empty, withLamp, {.channelTolerance = 8, .maxDifferingRatio = 0.002})).matches);
+
+        // Undone, the viewport shows exactly what it showed before.
+        run(*editor, "editor.undo");
+        const Image undone = unwrap(editor->captureViewport(UVec2(640, 360)));
+        CHECK(unwrap(compareImages(empty, undone, {.channelTolerance = 0, .maxDifferingRatio = 0.0})).matches);
+        checkNoValidationIssues(editor->engine().graphics());
+    }
+
     TEST_CASE("the editor runs frames on request and closes on request") {
         const std::unique_ptr<EditorApp> editor = createEditor(headlessDesc(UVec2(640, 360)));
 
@@ -353,8 +513,9 @@ TEST_SUITE("EditorApp") {
 
     TEST_CASE("editing through the interface thread keeps rendering valid") {
         EditorAppDesc desc = headlessDesc(UVec2(960, 540));
-        desc.scene = showcaseScene();
+        desc.project = showcaseProject();
         const std::unique_ptr<EditorApp> editor = createEditor(desc);
+        const size_t entityCount = editor->context().world().entityCount();
 
         // A burst of edits with frames in between, as when an agent works on a scene:
         // entities come and go, the selection and the camera move, the history rewinds.
@@ -369,7 +530,7 @@ TEST_SUITE("EditorApp") {
             run(*editor, "entity.delete", fmt::format(R"({{"entities": ["Probe {}"]}})", round));
             REQUIRE(editor->runFrames(1).has_value());
         }
-        CHECK(editor->context().world().entityCount() == 9);
+        CHECK(editor->context().world().entityCount() == entityCount);
         checkNoValidationIssues(editor->engine().graphics());
     }
 

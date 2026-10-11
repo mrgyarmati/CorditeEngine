@@ -7,10 +7,12 @@
 #include "cordite/core/Time.h"
 #include "cordite/engine/EngineComponents.h"
 #include "cordite/renderer/BlitPass.h"
+#include "cordite/renderer/CameraView.h"
 #include "cordite/renderer/TestPatternPass.h"
 #include "cordite/rhi/Swapchain.h"
 #include "cordite/rhi/TextureReadback.h"
 #include "cordite/shader_compiler/SlangShaderCompiler.h"
+#include "cordite/world/Components.h"
 
 #include <algorithm>
 #include <chrono>
@@ -78,6 +80,12 @@ struct Engine::Impl {
     RenderTarget frameTarget;
     std::unique_ptr<UiSystem> ui;
 
+    // The asset manager outlives the scene renderer, which holds GPU copies of assets.
+    std::unique_ptr<AssetManager> assets;
+    std::unique_ptr<SceneRenderer> sceneRenderer;
+    /// What drawWorld() renders through; created when it is first needed.
+    SceneTargets worldTargets;
+
     /// Stands in for the window's input when there is no window.
     Input headlessInput;
 
@@ -140,6 +148,10 @@ Status Engine::Impl::initialize() {
         RenderTarget::create(device, {.size = swapchain ? swapchain->size() : desc.renderSize, .debugName = "Frame"}));
     CORDITE_TRY_ASSIGN(
         ui, UiSystem::create(device, *shaderManager, {.window = window.get(), .settingsFile = desc.uiSettingsFile}));
+
+    CORDITE_TRY_ASSIGN(assets, AssetManager::create(
+                                   {.rootDirectory = desc.assetDirectory, .writeMetaFiles = desc.writeAssetMetaFiles}));
+    CORDITE_TRY_ASSIGN(sceneRenderer, SceneRenderer::create(device, *shaderManager, *assets));
 
     CORDITE_TRY(registerEngineComponents(components));
     frameClock.restart();
@@ -265,14 +277,44 @@ void Engine::drawTestPattern() {
                            {.timeSeconds = static_cast<float>(impl.timeSeconds)});
 }
 
+Status Engine::drawWorld(const SceneRenderSettings& settings) {
+    Impl& impl = *m_impl;
+    CORDITE_ASSERT(impl.frameOpen, "drawWorld() needs a frame started by beginFrame()");
+    if (!impl.frameOpen) {
+        return makeError(ErrorCode::InvalidState, "no frame has been started");
+    }
+
+    const Entity camera = findPrimaryCamera(impl.world);
+    if (camera.isNull()) {
+        drawTestPattern();
+        return {};
+    }
+
+    const UVec2 size = impl.frameTarget.size();
+    if (!impl.worldTargets.isValid()) {
+        CORDITE_TRY_ASSIGN(impl.worldTargets, SceneTargets::create(impl.graphics->device(), size, "World"));
+    } else {
+        CORDITE_TRY(impl.worldTargets.resize(impl.graphics->device(), size));
+    }
+
+    const CameraView view = makeCameraView(impl.world.worldMatrix(camera), *impl.world.tryGet<CameraComponent>(camera),
+                                           static_cast<float>(size.x) / static_cast<float>(size.y));
+    impl.sceneRenderer->render(impl.commandList, impl.world, view, impl.worldTargets, settings);
+    impl.blit->draw(impl.commandList, impl.worldTargets.display(), impl.frameTarget.framebuffer());
+    return {};
+}
+
 Result<bool> Engine::runFrame() {
     CORDITE_TRY_ASSIGN(const bool keepRunning, beginFrame());
     if (!keepRunning) {
         return false;
     }
     m_impl->world.updateWorldTransforms();
-    drawTestPattern();
+    // A frame that was begun is always ended, so that the engine stays usable after
+    // a failure in between.
+    const Status drawn = drawWorld();
     CORDITE_TRY(endFrame());
+    CORDITE_TRY(drawn);
     return true;
 }
 
@@ -326,6 +368,14 @@ World& Engine::world() {
 
 ComponentRegistry& Engine::components() {
     return m_impl->components;
+}
+
+AssetManager& Engine::assets() {
+    return *m_impl->assets;
+}
+
+SceneRenderer& Engine::sceneRenderer() {
+    return *m_impl->sceneRenderer;
 }
 
 GraphicsDevice& Engine::graphics() {

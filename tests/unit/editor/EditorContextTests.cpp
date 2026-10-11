@@ -5,6 +5,7 @@
 
 #include "unit/editor/EditorTestSupport.h"
 
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -16,7 +17,8 @@ TEST_SUITE("EditorContext") {
     TEST_CASE("a new document has no file, no selection and no unsaved changes") {
         World world;
         ComponentRegistry components;
-        const EditorContext context(world, components);
+        const std::unique_ptr<AssetManager> assets = unwrap(AssetManager::create());
+        const EditorContext context(world, components, *assets);
 
         CHECK(context.scenePath().empty());
         CHECK(context.selection().empty());
@@ -151,7 +153,8 @@ TEST_SUITE("EditorContext") {
     TEST_CASE("long lists of matches are shortened") {
         World world;
         ComponentRegistry components;
-        const EditorContext context(world, components);
+        const std::unique_ptr<AssetManager> assets = unwrap(AssetManager::create());
+        const EditorContext context(world, components, *assets);
         for (int index = 0; index < 10; ++index) {
             world.createEntity("Crate");
         }

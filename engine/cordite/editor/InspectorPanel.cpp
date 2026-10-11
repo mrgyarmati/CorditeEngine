@@ -1,5 +1,6 @@
 #include "cordite/editor/InspectorPanel.h"
 
+#include "cordite/core/StringUtils.h"
 #include "cordite/editor/EditorActions.h"
 #include "cordite/editor/EditorFeedback.h"
 
@@ -8,6 +9,7 @@
 
 #include <algorithm>
 #include <limits>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -28,6 +30,11 @@ float labelColumnWidth(const TypeInfo& type) {
     return std::min(padded, ImGui::GetContentRegionAvail().x * kMaxLabelColumnShare);
 }
 
+/// How an asset is shown in a field: its name, and where it is found.
+std::string assetLabel(const AssetInfo& asset) {
+    return fmt::format("{}  ({})", asset.name, asset.reference());
+}
+
 } // namespace
 
 void InspectorPanel::draw(EditorContext& context) {
@@ -36,6 +43,20 @@ void InspectorPanel::draw(EditorContext& context) {
             const Entity entity = context.world().findById(id);
             return entity.isNull() ? fmt::format("(missing {})", id.toString()) : context.entityPath(entity);
         });
+        m_properties.setAssetLookup(
+            [&context](const Uuid& id) {
+                const AssetInfo* asset = context.assets().database().find(id);
+                return asset != nullptr ? assetLabel(*asset) : fmt::format("(missing {})", id.toString());
+            },
+            [&context](std::string_view referenceType) {
+                std::vector<PropertyEditor::AssetChoice> choices;
+                for (const AssetInfo& asset : context.assets().database().assets()) {
+                    if (referenceType.empty() || equalsIgnoreCase(referenceType, nameOf(asset.type))) {
+                        choices.push_back({asset.id, assetLabel(asset)});
+                    }
+                }
+                return choices;
+            });
 
         const std::vector<Entity> selection = context.selection();
         if (selection.empty()) {

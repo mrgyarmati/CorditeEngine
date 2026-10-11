@@ -34,7 +34,7 @@
     ./scripts/dev.ps1 build
     ./scripts/dev.ps1 test -Filter math
     ./scripts/dev.ps1 tidy -Filter core
-    ./scripts/dev.ps1 run -Target cordite-editor -- --project projects/showcase
+    ./scripts/dev.ps1 run -Target cordite-editor -- --project samples/showcase
 #>
 [CmdletBinding()]
 param(

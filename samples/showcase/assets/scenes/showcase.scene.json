@@ -1,0 +1,424 @@
+{
+    // The engine's showcase: one scene that uses every component and every kind of
+    // setting the engine has. It is opened by the tests and by the editor's smoke test,
+    // and it is the place to look for an example of how something is written in a scene
+    // file. When a component is added to the engine, it is added here too; a test fails
+    // until it is (tests/unit/samples/ShowcaseSceneTests.cpp).
+    //
+    // Assets are referred to by id. `asset.list` in the editor's console shows the id of
+    // every asset; the ids of the built-in meshes are the same in every project.
+    "format": "cordite.scene",
+    "version": 1,
+    "name": "Showcase",
+    "entities": [
+        {
+            "id": "10000000-0000-4000-8000-000000000001",
+            "name": "Stage",
+            "enabled": true,
+            "parent": null,
+            "components": {
+                "Transform": { "position": [0.0, 0.0, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [1.0, 1.0, 1.0] }
+            }
+        },
+        {
+            // The built-in plane is one metre square; scaled, it is the floor. Its material
+            // repeats its textures ten times each way.
+            "id": "10000000-0000-4000-8000-00000000000a",
+            "name": "Floor",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-000000000001",
+            "components": {
+                "Transform": { "position": [0.0, 0.0, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [20.0, 1.0, 20.0] },
+                "MeshRenderer": {
+                    "mesh": "8db36b6b-2606-8b2d-b7f0-6bd7af0a9d8c",
+                    "materials": ["b0c85c3e-486e-830d-96b7-7d0ad6399db6"]
+                }
+            }
+        },
+        {
+            "id": "10000000-0000-4000-8000-00000000000b",
+            "name": "Wall",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-000000000001",
+            "components": {
+                "Transform": { "position": [0.0, 1.5, -5.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [1.0, 1.0, 1.0] }
+            }
+        },
+        {
+            // Four panels with the same mesh and material: the renderer draws them in one call.
+            "id": "10000000-0000-4000-8000-00000000000c",
+            "name": "Panel 1",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-00000000000b",
+            "components": {
+                "Transform": { "position": [-4.5, 0.0, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [3.0, 3.0, 0.3] },
+                "MeshRenderer": {
+                    "mesh": "0a56c2f1-21e0-819d-8bac-567d1e1c4345",
+                    "materials": ["9e35de7e-da93-8003-824c-d50e66fb2ad4"]
+                }
+            }
+        },
+        {
+            "id": "10000000-0000-4000-8000-00000000000d",
+            "name": "Panel 2",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-00000000000b",
+            "components": {
+                "Transform": { "position": [-1.5, 0.0, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [3.0, 3.0, 0.3] },
+                "MeshRenderer": {
+                    "mesh": "0a56c2f1-21e0-819d-8bac-567d1e1c4345",
+                    "materials": ["9e35de7e-da93-8003-824c-d50e66fb2ad4"]
+                }
+            }
+        },
+        {
+            "id": "10000000-0000-4000-8000-00000000000e",
+            "name": "Panel 3",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-00000000000b",
+            "components": {
+                "Transform": { "position": [1.5, 0.0, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [3.0, 3.0, 0.3] },
+                "MeshRenderer": {
+                    "mesh": "0a56c2f1-21e0-819d-8bac-567d1e1c4345",
+                    "materials": ["9e35de7e-da93-8003-824c-d50e66fb2ad4"]
+                }
+            }
+        },
+        {
+            // Mirrored: a negative scale along one axis. The rust is on the other side.
+            "id": "10000000-0000-4000-8000-00000000000f",
+            "name": "Panel 4",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-00000000000b",
+            "components": {
+                "Transform": { "position": [4.5, 0.0, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [-3.0, 3.0, 0.3] },
+                "MeshRenderer": {
+                    "mesh": "0a56c2f1-21e0-819d-8bac-567d1e1c4345",
+                    "materials": ["9e35de7e-da93-8003-824c-d50e66fb2ad4"]
+                }
+            }
+        },
+        {
+            // A light fitting on the wall: its material gives off light.
+            "id": "10000000-0000-4000-8000-000000000010",
+            "name": "Wall light",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-00000000000b",
+            "components": {
+                "Transform": { "position": [1.5, 0.9, 0.2], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [1.4, 0.5, 0.08] },
+                "MeshRenderer": {
+                    "mesh": "0a56c2f1-21e0-819d-8bac-567d1e1c4345",
+                    "materials": ["e28e9b08-11cd-8b2a-996d-73b6e1c43746"]
+                }
+            }
+        },
+        {
+            // A mesh from a model file (models/crate.gltf). It has two submeshes, the wood
+            // and the steel strips, and so two materials. Turned 30 degrees about the
+            // vertical axis.
+            "id": "10000000-0000-4000-8000-000000000002",
+            "name": "Crate",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-000000000001",
+            "components": {
+                "Transform": {
+                    "position": [2.0, 0.5, -1.0],
+                    "rotation": [0.0, 0.25881904, 0.0, 0.9659258],
+                    "scale": [1.0, 1.0, 1.0]
+                },
+                "MeshRenderer": {
+                    "mesh": "ebd09deb-748e-82c7-9dcd-3ddac4a52316",
+                    "materials": ["7cde9ddc-faf9-89ce-810c-b0ed1b1226a0", "dfe6fed0-c45a-88fe-b544-dc69debd984a"]
+                }
+            }
+        },
+        {
+            // A child inherits the placement of its parent: the lid turns with the crate.
+            "id": "10000000-0000-4000-8000-000000000003",
+            "name": "Lid",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-000000000002",
+            "components": {
+                "Transform": { "position": [0.0, 0.55, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [1.1, 0.1, 1.1] },
+                "MeshRenderer": {
+                    "mesh": "0a56c2f1-21e0-819d-8bac-567d1e1c4345",
+                    "materials": ["c40ceb3a-92fb-8ca6-8c0c-a72bda94bf24"]
+                }
+            }
+        },
+        {
+            "id": "10000000-0000-4000-8000-000000000004",
+            "name": "Pillar",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-000000000001",
+            "components": {
+                "Transform": { "position": [-3.0, 1.5, -2.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [0.5, 3.0, 0.5] },
+                "MeshRenderer": {
+                    "mesh": "2c51a473-c570-8ef1-a45b-3b3ba054e8e5",
+                    "materials": ["8733a23e-9efb-81d0-8529-eb712ff4332a"]
+                }
+            }
+        },
+        {
+            // A model whose textures are stored inside its file (models/barrel.glb).
+            "id": "10000000-0000-4000-8000-000000000011",
+            "name": "Barrel",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-000000000001",
+            "components": {
+                "Transform": { "position": [-1.2, 0.45, -0.4], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [1.0, 1.0, 1.0] },
+                "MeshRenderer": {
+                    "mesh": "a5666847-8761-8114-8630-d4dc8f686f5a",
+                    "materials": ["ff5563c6-273e-802e-8ce8-6b3d0fa35656"]
+                }
+            }
+        },
+        {
+            // The same barrel, tipped over: a quarter turn about Z, then about Y.
+            "id": "10000000-0000-4000-8000-000000000012",
+            "name": "Fallen barrel",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-000000000001",
+            "components": {
+                "Transform": {
+                    "position": [-2.1, 0.3, 0.9],
+                    "rotation": [-0.27059805, 0.27059805, 0.65328148, 0.65328148],
+                    "scale": [1.0, 1.0, 1.0]
+                },
+                "MeshRenderer": {
+                    "mesh": "a5666847-8761-8114-8630-d4dc8f686f5a",
+                    "materials": ["ff5563c6-273e-802e-8ce8-6b3d0fa35656"]
+                }
+            }
+        },
+        {
+            // A model made of several parts (models/lamp_post.gltf), as placing it with
+            // asset.instantiate lays it out: one entity per part, each under its parent.
+            "id": "10000000-0000-4000-8000-000000000013",
+            "name": "Lamp post",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-000000000001",
+            "components": {
+                "Transform": { "position": [-4.6, 1.6, 1.2], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [1.0, 1.0, 1.0] },
+                "MeshRenderer": {
+                    "mesh": "cc0f76db-ca8f-843d-beb7-2b181d8f0be5",
+                    "materials": ["56fbbbc8-bf07-899e-9f24-437d651f7d94"]
+                }
+            }
+        },
+        {
+            "id": "10000000-0000-4000-8000-000000000014",
+            "name": "Arm",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-000000000013",
+            "components": {
+                "Transform": { "position": [0.42, 1.55, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [1.0, 1.0, 1.0] },
+                "MeshRenderer": {
+                    "mesh": "82145e36-5d15-87af-bf95-1e1debebf1ae",
+                    "materials": ["56fbbbc8-bf07-899e-9f24-437d651f7d94"]
+                }
+            }
+        },
+        {
+            // Two submeshes: the housing, and the pane in its underside that glows.
+            "id": "10000000-0000-4000-8000-000000000015",
+            "name": "Head",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-000000000014",
+            "components": {
+                "Transform": {
+                    "position": [0.5, -0.06, 0.0],
+                    "rotation": [0.0, 0.0, -0.10452846, 0.9945219],
+                    "scale": [1.0, 1.0, 1.0]
+                },
+                "MeshRenderer": {
+                    "mesh": "fa9df97d-9a27-8ad1-9563-9dea950126bf",
+                    "materials": ["56fbbbc8-bf07-899e-9f24-437d651f7d94", "ba028e98-9e91-86bf-af55-c8963a15ad16"]
+                }
+            }
+        },
+        {
+            "id": "10000000-0000-4000-8000-000000000016",
+            "name": "Walkway",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-000000000001",
+            "components": {
+                "Transform": { "position": [4.6, 0.0, 1.6], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [1.0, 1.0, 1.0] }
+            }
+        },
+        {
+            // A grating: its material cuts holes into it and is drawn from both sides.
+            "id": "10000000-0000-4000-8000-000000000017",
+            "name": "Grating",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-000000000016",
+            "components": {
+                "Transform": { "position": [0.0, 0.45, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [2.4, 1.0, 2.4] },
+                "MeshRenderer": {
+                    "mesh": "8db36b6b-2606-8b2d-b7f0-6bd7af0a9d8c",
+                    "materials": ["fc5b8263-6b52-8fc7-aaef-d7e3a67c2eea"]
+                }
+            }
+        },
+        {
+            // The beams it rests on use a material that only changes the color of its parent.
+            "id": "10000000-0000-4000-8000-000000000018",
+            "name": "Beam left",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-000000000016",
+            "components": {
+                "Transform": { "position": [-1.1, 0.22, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [0.12, 0.44, 2.4] },
+                "MeshRenderer": {
+                    "mesh": "0a56c2f1-21e0-819d-8bac-567d1e1c4345",
+                    "materials": ["63f57b0d-f370-8781-a32a-57a1be8dd15a"]
+                }
+            }
+        },
+        {
+            "id": "10000000-0000-4000-8000-000000000019",
+            "name": "Beam right",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-000000000016",
+            "components": {
+                "Transform": { "position": [1.1, 0.22, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [0.12, 0.44, 2.4] },
+                "MeshRenderer": {
+                    "mesh": "0a56c2f1-21e0-819d-8bac-567d1e1c4345",
+                    "materials": ["63f57b0d-f370-8781-a32a-57a1be8dd15a"]
+                }
+            }
+        },
+        {
+            // Glass: what is behind it shows through. Blended surfaces are drawn last,
+            // the farthest first.
+            "id": "10000000-0000-4000-8000-00000000001a",
+            "name": "Glass pane",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-000000000001",
+            "components": {
+                "Transform": { "position": [0.3, 0.9, 1.4], "rotation": [0.0, 0.17364818, 0.0, 0.98480775], "scale": [1.8, 1.8, 0.04] },
+                "MeshRenderer": {
+                    "mesh": "0a56c2f1-21e0-819d-8bac-567d1e1c4345",
+                    "materials": ["5abd036c-dc9d-8e4f-b002-e5d5b27e010c"]
+                }
+            }
+        },
+        {
+            // No material at all: a submesh without one is drawn with the default material.
+            "id": "10000000-0000-4000-8000-00000000001b",
+            "name": "Ball",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-000000000001",
+            "components": {
+                "Transform": { "position": [0.9, 0.3, 0.2], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [0.6, 0.6, 0.6] },
+                "MeshRenderer": { "mesh": "aa35bb57-6b9a-8ecb-9eda-83a2a1be3014", "materials": [] }
+            }
+        },
+        {
+            "id": "10000000-0000-4000-8000-00000000001c",
+            "name": "Cone",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-000000000001",
+            "components": {
+                "Transform": { "position": [3.2, 0.35, 0.6], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [0.5, 0.7, 0.5] },
+                "MeshRenderer": {
+                    "mesh": "da2fbb43-a0e2-821e-af4c-1593d5470916",
+                    "materials": ["c40ceb3a-92fb-8ca6-8c0c-a72bda94bf24"]
+                }
+            }
+        },
+        {
+            // A gas cylinder lying on its side.
+            "id": "10000000-0000-4000-8000-00000000001d",
+            "name": "Gas cylinder",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-000000000001",
+            "components": {
+                "Transform": {
+                    "position": [0.4, 0.15, -2.6],
+                    "rotation": [0.0, 0.0, 0.70710677, 0.70710677],
+                    "scale": [0.3, 0.6, 0.3]
+                },
+                "MeshRenderer": {
+                    "mesh": "6bb53bca-6ca5-84c3-8341-8ac61212f240",
+                    "materials": ["63f57b0d-f370-8781-a32a-57a1be8dd15a"]
+                }
+            }
+        },
+        {
+            // Disabled entities stay in the scene but are ignored, with everything below them.
+            "id": "10000000-0000-4000-8000-000000000005",
+            "name": "Spare parts",
+            "enabled": false,
+            "parent": "10000000-0000-4000-8000-000000000001",
+            "components": {
+                "Transform": { "position": [0.0, 0.0, -4.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [1.0, 1.0, 1.0] }
+            }
+        },
+        {
+            "id": "10000000-0000-4000-8000-000000000006",
+            "name": "Spare wheel",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-000000000005",
+            "components": {
+                "Transform": { "position": [1.0, 0.3, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [0.6, 0.6, 0.6] },
+                "MeshRenderer": {
+                    "mesh": "db82bc76-e6a3-8825-9377-4d3b4224e8e2",
+                    "materials": ["8733a23e-9efb-81d0-8529-eb712ff4332a"]
+                }
+            }
+        },
+        {
+            "id": "10000000-0000-4000-8000-000000000007",
+            "name": "Cameras",
+            "enabled": true,
+            "parent": null,
+            "components": {
+                "Transform": { "position": [0.0, 0.0, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [1.0, 1.0, 1.0] }
+            }
+        },
+        {
+            // The camera the game renders from: up and to the side, looking at the stage.
+            "id": "10000000-0000-4000-8000-000000000008",
+            "name": "Main camera",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-000000000007",
+            "components": {
+                "Transform": {
+                    "position": [4.0, 2.5, 6.0],
+                    "rotation": [-0.15895, 0.28576, 0.048127, 0.9438],
+                    "scale": [1.0, 1.0, 1.0]
+                },
+                "Camera": {
+                    "projection": "perspective",
+                    "verticalFovDegrees": 55.0,
+                    "orthographicHeight": 10.0,
+                    "nearPlane": 0.1,
+                    "farPlane": 500.0,
+                    "primary": true
+                }
+            }
+        },
+        {
+            // A second camera, looking straight down without perspective, as for a map.
+            "id": "10000000-0000-4000-8000-000000000009",
+            "name": "Map camera",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-000000000007",
+            "components": {
+                "Transform": {
+                    "position": [0.0, 12.0, 0.0],
+                    "rotation": [-0.70710677, 0.0, 0.0, 0.70710677],
+                    "scale": [1.0, 1.0, 1.0]
+                },
+                "Camera": {
+                    "projection": "orthographic",
+                    "verticalFovDegrees": 60.0,
+                    "orthographicHeight": 14.0,
+                    "nearPlane": 0.5,
+                    "farPlane": 50.0,
+                    "primary": false
+                }
+            }
+        }
+    ]
+}

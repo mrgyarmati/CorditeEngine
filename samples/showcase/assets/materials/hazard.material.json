@@ -1,0 +1,14 @@
+// Warning stripes, chipped down to the metal in places.
+{
+    "format": "cordite.material",
+    "version": 1,
+    "baseColorTexture": "81d3c263-70f2-8e41-a408-e8dfb64e1d08",
+    "normalTexture": "b3bc94a2-a126-8ef0-a537-a990385ad29e",
+    "metallicRoughnessTexture": "ef0c5123-4bbe-862a-98c5-9642270957d0",
+    "occlusionTexture": "ef0c5123-4bbe-862a-98c5-9642270957d0",
+    "metallic": 1,
+    "roughness": 1,
+    // Mirrored at every repeat, so the stripes meet in chevrons.
+    "wrapU": "mirroredRepeat",
+    "uvScale": [2, 1]
+}

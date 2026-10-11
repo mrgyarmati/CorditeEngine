@@ -6,11 +6,13 @@
 #include "cordite/core/Json.h"
 #include "cordite/core/Reflection.h"
 #include "cordite/editor/EditorContext.h"
+#include "cordite/renderer/RenderComponents.h"
 #include "cordite/world/Components.h"
 #include "cordite/world/SceneSerializer.h"
 
 #include "support/TestSupport.h"
 
+#include <memory>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -40,6 +42,8 @@ inline TypeInfo describeLabel() {
 struct EditorFixture {
     World world;
     ComponentRegistry components;
+    /// Only the built-in assets. Tests that need files make a manager of their own.
+    std::unique_ptr<AssetManager> assets = unwrap(AssetManager::create());
     EditorContext context;
 
     Entity room;
@@ -48,8 +52,9 @@ struct EditorFixture {
     Entity chair;
     Entity eye;
 
-    EditorFixture() : context(world, components) {
+    EditorFixture() : context(world, components, *assets) {
         REQUIRE(registerWorldComponents(components).has_value());
+        REQUIRE(registerRendererComponents(components).has_value());
         REQUIRE(components.add<Label>(describeLabel()).has_value());
 
         room = world.createEntity("Room");

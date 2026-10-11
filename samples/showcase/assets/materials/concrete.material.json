@@ -1,0 +1,18 @@
+// The floor: poured concrete slabs. The three textures cover two metres each way and
+// are repeated across whatever the material is put on.
+{
+    "format": "cordite.material",
+    "version": 1,
+    "baseColorTexture": "2dda2b13-09fa-8d68-8783-86d9ed8d9606",
+    "normalTexture": "214caee0-158f-8752-8cca-3e27f5babf4b",
+    // One packed texture in two slots: occlusion in red, roughness in green, metallic in blue.
+    "metallicRoughnessTexture": "ae918817-5388-8d00-9021-1f94f118bcbc",
+    "occlusionTexture": "ae918817-5388-8d00-9021-1f94f118bcbc",
+    // The texture decides: these multiply it.
+    "metallic": 1,
+    "roughness": 1,
+    "uvScale": [10, 10],
+    // Every other row of slabs is the texture upside down, which makes the repetition
+    // harder to spot.
+    "wrapV": "mirroredRepeat"
+}

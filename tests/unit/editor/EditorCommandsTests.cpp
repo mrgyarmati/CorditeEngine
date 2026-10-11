@@ -65,12 +65,13 @@ TEST_SUITE("EditorCommands") {
         }
 
         CHECK(names == std::set<std::string>{
-                           "component.add",   "component.get",   "component.remove",  "component.set",
-                           "component.types", "editor.commands", "editor.redo",       "editor.state",
-                           "editor.undo",     "entity.create",   "entity.delete",     "entity.duplicate",
-                           "entity.get",      "entity.rename",   "entity.setEnabled", "entity.setParent",
-                           "scene.describe",  "scene.get",       "scene.new",         "scene.open",
-                           "scene.save",      "selection.get",   "selection.set",
+                           "asset.get",       "asset.instantiate", "asset.list",        "asset.refresh",
+                           "component.add",   "component.get",     "component.remove",  "component.set",
+                           "component.types", "editor.commands",   "editor.redo",       "editor.state",
+                           "editor.undo",     "entity.create",     "entity.delete",     "entity.duplicate",
+                           "entity.get",      "entity.rename",     "entity.setEnabled", "entity.setParent",
+                           "scene.describe",  "scene.get",         "scene.new",         "scene.open",
+                           "scene.save",      "scene.validate",    "selection.get",     "selection.set",
                        });
         CHECK(catalogue.size() == fixture.commands.commands().size());
     }
@@ -156,7 +157,7 @@ TEST_SUITE("EditorCommands") {
     TEST_CASE("component.types describes what can be edited") {
         CommandFixture fixture;
         const Json types = fixture.run("component.types");
-        REQUIRE(types.size() == 3);
+        REQUIRE(types.size() == 4);
 
         CHECK(types[0]["name"] == "Transform");
         CHECK(types[0]["optional"] == false);
@@ -168,8 +169,18 @@ TEST_SUITE("EditorCommands") {
         CHECK(types[1]["optional"] == true);
         CHECK(types[1]["properties"][0]["options"] == json(R"(["perspective", "orthographic"])"));
 
-        CHECK(types[2]["name"] == "Label");
-        CHECK(types[2]["properties"][1]["readOnly"] == true);
+        // References to assets say what kind of asset they take.
+        CHECK(types[2]["name"] == "MeshRenderer");
+        CHECK(types[2]["properties"][0]["name"] == "mesh");
+        CHECK(types[2]["properties"][0]["type"] == "uuid");
+        CHECK(types[2]["properties"][0]["semantic"] == "asset");
+        CHECK(types[2]["properties"][0]["assetType"] == "Mesh");
+        CHECK(types[2]["properties"][1]["name"] == "materials");
+        CHECK(types[2]["properties"][1]["type"] == "list");
+        CHECK(types[2]["properties"][1]["assetType"] == "Material");
+
+        CHECK(types[3]["name"] == "Label");
+        CHECK(types[3]["properties"][1]["readOnly"] == true);
     }
 
     TEST_CASE("entities are moved, copied and deleted by reference") {
