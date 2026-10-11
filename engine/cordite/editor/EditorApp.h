@@ -37,7 +37,8 @@
 ///
 /// Besides the scene-editing and asset commands (see EditorCommands.h) the application
 /// adds the ones that need a running editor: `editor.screenshot`, `editor.runFrames`,
-/// `editor.exit`, `viewport.lookAt`, `viewport.frame` and `viewport.camera`.
+/// `editor.statistics`, `editor.showPanel`, `editor.exit`, `viewport.lookAt`,
+/// `viewport.frame` and `viewport.camera`.
 
 #include "cordite/assets/Image.h"
 #include "cordite/core/Base.h"
@@ -49,6 +50,7 @@
 #include "cordite/editor/EditorContext.h"
 #include "cordite/editor/HierarchyPanel.h"
 #include "cordite/editor/InspectorPanel.h"
+#include "cordite/editor/StatisticsPanel.h"
 #include "cordite/editor/ViewportPanel.h"
 #include "cordite/engine/Engine.h"
 #include "cordite/engine/Project.h"
@@ -157,6 +159,7 @@ private:
     HierarchyPanel m_hierarchy;
     InspectorPanel m_inspector;
     ConsolePanel m_console;
+    StatisticsPanel m_statistics;
 
     /// Lines entered in the console during a frame; they run before the next one, when
     /// commands are free to render frames themselves.
@@ -165,6 +168,7 @@ private:
     bool m_openFileDialog = false;
     std::string m_fileDialogPath;
     bool m_showInterfaceDemo = false;
+    bool m_showStatistics = false;
     /// What the window title was last set from, to change it only when needed.
     std::string m_shownTitle;
 };

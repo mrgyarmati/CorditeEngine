@@ -25,6 +25,9 @@ using Type = CommandParameterType;
 
 constexpr const char* kEditorName = "Cordite Editor";
 constexpr const char* kFileDialogId = "Scene file";
+/// The windows that are closed until someone asks for them, as editor.showPanel names them.
+constexpr const char* kStatisticsPanelName = "statistics";
+constexpr const char* kInterfaceDemoPanelName = "interfaceDemo";
 /// Where the arrangement of the windows is remembered, inside a .cordite directory.
 constexpr const char* kLayoutFileName = "editor-layout.ini";
 
@@ -323,6 +326,42 @@ Status EditorApp::registerApplicationCommands() {
     }));
 
     CORDITE_TRY(m_commands.add({
+        .name = "editor.statistics",
+        .description = "Reports what the last frame cost: milliseconds on the CPU and on the GPU (null where "
+                       "the GPU cannot time its work, and before its first measurement has arrived), what the "
+                       "scene renderer drew, and what it holds on the GPU. Run a few frames first: a frame "
+                       "that loads assets is not typical.",
+        .parameters = {},
+        .handler = [this](const Json& /*parameters*/) -> Result<Json> {
+            return describeFrameStatistics(m_engine->statistics());
+        },
+    }));
+
+    CORDITE_TRY(m_commands.add({
+        .name = "editor.showPanel",
+        .description = "Opens or closes one of the editor's optional windows, so that it is part of what a "
+                       "screenshot shows. Returns which of them are open.",
+        .parameters = {{"panel", Type::String, "The window: \"statistics\" or \"interfaceDemo\"."},
+                       {"visible", Type::Boolean, "Whether it is to be open. Defaults to true.", false}},
+        .handler = [this](const Json& parameters) -> Result<Json> {
+            const std::string panel = parameters.at("panel").get<std::string>();
+            const bool visible = jsonGetOr<bool>(parameters, "visible", true);
+            if (panel == kStatisticsPanelName) {
+                m_showStatistics = visible;
+            } else if (panel == kInterfaceDemoPanelName) {
+                m_showInterfaceDemo = visible;
+            } else {
+                return makeError(ErrorCode::InvalidArgument, "there is no panel '{}'; use \"{}\" or \"{}\"", panel,
+                                 kStatisticsPanelName, kInterfaceDemoPanelName);
+            }
+            Json result = Json::object();
+            result[kStatisticsPanelName] = m_showStatistics;
+            result[kInterfaceDemoPanelName] = m_showInterfaceDemo;
+            return result;
+        },
+    }));
+
+    CORDITE_TRY(m_commands.add({
         .name = "editor.exit",
         .description = "Closes the editor after the current frame. Unsaved changes are discarded.",
         .parameters = {},
@@ -398,6 +437,9 @@ void EditorApp::drawInterface() {
     m_console.draw(m_submittedLines);
     drawFileDialog();
 
+    if (m_showStatistics) {
+        m_statistics.draw(m_engine->statistics(), m_showStatistics);
+    }
     if (m_showInterfaceDemo) {
         ImGui::ShowDemoWindow(&m_showInterfaceDemo);
     }
@@ -493,6 +535,11 @@ void EditorApp::drawMainMenu() {
 
     drawEntityMenu();
     drawAssetMenu();
+
+    if (ImGui::BeginMenu("View")) {
+        ImGui::MenuItem("Statistics", nullptr, &m_showStatistics);
+        ImGui::EndMenu();
+    }
 
     if (ImGui::BeginMenu("Help")) {
         // Every widget ImGui has, with its source: the reference for writing panels.

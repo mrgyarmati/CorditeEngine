@@ -78,6 +78,18 @@ void SceneRenderer::render(nvrhi::ICommandList* commandList, const World& world,
     targets.clear(commandList, settings.backgroundColor);
     m_statistics.meshes = m_forwardPass.draw(commandList, targets.sceneFramebuffer(), m_draws, passView);
     m_encodePass.draw(commandList, targets.sceneColor(), targets.displayFramebuffer());
+
+    m_statistics.views = 1;
+    m_frameStatistics.views += 1;
+    m_frameStatistics.meshRenderers += m_statistics.meshRenderers;
+    m_frameStatistics.culled += m_statistics.culled;
+    m_frameStatistics.meshes.drawCalls += m_statistics.meshes.drawCalls;
+    m_frameStatistics.meshes.instances += m_statistics.meshes.instances;
+    m_frameStatistics.meshes.triangles += m_statistics.meshes.triangles;
+}
+
+SceneRenderStatistics SceneRenderer::takeFrameStatistics() {
+    return std::exchange(m_frameStatistics, {});
 }
 
 } // namespace cordite

@@ -58,6 +58,9 @@ struct AdapterInfo {
     uint64_t dedicatedMemoryBytes = 0;
     /// Vulkan version the device supports, e.g. "1.4.321".
     std::string apiVersion;
+    /// The device can time its own work (see GpuTimer). Nearly every GPU can; software
+    /// implementations sometimes cannot.
+    bool supportsTimerQueries = false;
 };
 
 struct GraphicsDeviceDesc {

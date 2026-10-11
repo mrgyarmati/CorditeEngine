@@ -448,6 +448,11 @@ Status GraphicsDevice::Impl::initialize(const GraphicsDeviceDesc& desc) {
         adapter.vendorId = properties.vendorID;
         adapter.deviceId = properties.deviceID;
         adapter.apiVersion = formatVersion(properties.apiVersion);
+        // Timestamps have to be supported by the device and by the queue that is used.
+        const std::vector<vk::QueueFamilyProperties> families = vulkan.physicalDevice.getQueueFamilyProperties();
+        adapter.supportsTimerQueries = properties.limits.timestampComputeAndGraphics != VK_FALSE &&
+                                       vulkan.graphicsQueueFamily < families.size() &&
+                                       families[vulkan.graphicsQueueFamily].timestampValidBits > 0;
         const vk::PhysicalDeviceMemoryProperties memory = vulkan.physicalDevice.getMemoryProperties();
         for (uint32_t heap = 0; heap < memory.memoryHeapCount; ++heap) {
             if (memory.memoryHeaps[heap].flags & vk::MemoryHeapFlagBits::eDeviceLocal) {

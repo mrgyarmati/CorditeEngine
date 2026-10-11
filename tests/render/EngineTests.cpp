@@ -321,6 +321,61 @@ TEST_SUITE("Engine") {
         checkNoValidationIssues(engine->graphics());
     }
 
+    TEST_CASE("the engine reports what a frame cost") {
+        const std::unique_ptr<Engine> engine = createEngine(headlessDesc(UVec2(160, 90)));
+        // Before the first frame there is nothing to report.
+        CHECK(engine->statistics().cpuMilliseconds == 0.0);
+        CHECK_FALSE(engine->statistics().gpuMilliseconds.has_value());
+        CHECK(engine->statistics().scene.views == 0);
+
+        // Two cubes in front of a camera: one mesh, drawn twice in one call.
+        World& world = engine->world();
+        const Entity camera = world.createEntity("Camera");
+        world.transform(camera).position = Vec3(0.0f, 0.0f, 5.0f);
+        world.add<CameraComponent>(camera);
+        for (const float x : {-1.0f, 1.0f}) {
+            const Entity cube = world.createEntity("Cube");
+            world.transform(cube).position = Vec3(x, 0.0f, 0.0f);
+            world.add<MeshRendererComponent>(cube).mesh = builtinMeshId(BuiltinMesh::Cube);
+        }
+
+        runFrames(*engine, 1);
+        const FrameStatistics first = engine->statistics();
+        CHECK(first.frameIndex == 0);
+        CHECK(first.cpuMilliseconds > 0.0);
+        CHECK(first.scene.views == 1);
+        CHECK(first.scene.meshRenderers == 2);
+        CHECK(first.scene.culled == 0);
+        CHECK(first.scene.meshes.drawCalls == 1);
+        CHECK(first.scene.meshes.instances == 2);
+        CHECK(first.scene.meshes.triangles == 24);
+        CHECK(first.resources.meshCount == 1);
+        // 24 vertices of 56 bytes and 36 indices of two.
+        CHECK(first.resources.meshBytes == 24 * 56 + 36 * 2);
+
+        // The time the GPU took arrives once it has finished a frame, where it can measure.
+        runFrames(*engine, 3);
+        engine->graphics().waitIdle();
+        runFrames(*engine, 1);
+        CHECK(engine->statistics().frameIndex == 4);
+        if (engine->graphics().adapter().supportsTimerQueries) {
+            REQUIRE(engine->statistics().gpuMilliseconds.has_value());
+            CHECK(*engine->statistics().gpuMilliseconds > 0.0);
+            CHECK(*engine->statistics().gpuMilliseconds < 1000.0);
+        } else {
+            CHECK_FALSE(engine->statistics().gpuMilliseconds.has_value());
+        }
+
+        // A frame that draws no world has nothing in its scene numbers; what is on the
+        // GPU stays there.
+        world.setEnabled(camera, false);
+        runFrames(*engine, 1);
+        CHECK(engine->statistics().scene.views == 0);
+        CHECK(engine->statistics().scene.meshes.drawCalls == 0);
+        CHECK(engine->statistics().resources.meshCount == 1);
+        checkNoValidationIssues(engine->graphics());
+    }
+
     TEST_CASE("drawWorld belongs between beginFrame and endFrame") {
         const std::unique_ptr<Engine> engine = createEngine(headlessDesc());
 #if defined(CORDITE_ENABLE_ASSERTS)

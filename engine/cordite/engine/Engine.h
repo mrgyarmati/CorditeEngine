@@ -40,6 +40,7 @@
 #include "cordite/math/Math.h"
 #include "cordite/platform/Input.h"
 #include "cordite/platform/Window.h"
+#include "cordite/renderer/RenderResources.h"
 #include "cordite/renderer/RenderTarget.h"
 #include "cordite/renderer/SceneRenderer.h"
 #include "cordite/renderer/ShaderManager.h"
@@ -54,9 +55,28 @@
 #include <cstdint>
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <string>
 
 namespace cordite {
+
+/// What a frame cost. See Engine::statistics().
+struct FrameStatistics {
+    /// The frame the numbers describe: the value frameIndex() had while it ran.
+    uint64_t frameIndex = 0;
+    /// The time from beginFrame() until the frame was handed to the GPU, in
+    /// milliseconds: the program's own work on the frame. Waiting for the display
+    /// afterwards is not counted.
+    double cpuMilliseconds = 0.0;
+    /// How long the GPU worked on the commands of a recent frame, in milliseconds. The
+    /// measurement is a few frames old when it arrives; there is none before the first
+    /// has arrived, and never one on an adapter that cannot time its work.
+    std::optional<double> gpuMilliseconds;
+    /// What the scene renderer drew during the frame, all views together.
+    SceneRenderStatistics scene;
+    /// What the scene renderer holds on the GPU.
+    RenderResourceStatistics resources;
+};
 
 struct EngineDesc {
     std::string applicationName = "Cordite";
@@ -150,6 +170,9 @@ public:
     /// measured duration of the previous frame, capped so that a pause does not turn
     /// into a jump.
     [[nodiscard]] float deltaSeconds() const;
+
+    /// What the last frame that was ended cost. All zero before the first.
+    [[nodiscard]] const FrameStatistics& statistics() const;
 
     /// Size in pixels of the frame target.
     [[nodiscard]] UVec2 renderSize() const;

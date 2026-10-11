@@ -21,6 +21,9 @@
                   all three configurations, clang-cl build and tests, and tidy on the
                   changed files. Prints one PASS/FAIL line per step. '-Filter quick'
                   runs only the first three steps.
+    perf          Run the performance tests on their own and print what they measured
+                  next to the run before (tests/perf/output/). Use -Config Release for
+                  the numbers a shipped game would have.
     run           Run a built executable (-Target) with the remaining arguments.
     clean         Delete the build tree of the selected preset.
 
@@ -39,7 +42,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0, Mandatory = $true)]
-    [ValidateSet('configure', 'build', 'test', 'format', 'format-check', 'tidy', 'verify', 'run', 'clean')]
+    [ValidateSet('configure', 'build', 'test', 'format', 'format-check', 'tidy', 'verify', 'perf', 'run', 'clean')]
     [string]$Command,
 
     [ValidateSet('Debug', 'RelWithDebInfo', 'Release')]
@@ -142,6 +145,70 @@ function Invoke-Checked {
     & $Executable @ArgumentList
     if ($LASTEXITCODE -ne 0) {
         exit $LASTEXITCODE
+    }
+}
+
+# The numbers of a performance report worth comparing between two runs, in the order
+# they are shown.
+function Get-PerformanceMetrics {
+    param($Report)
+
+    $times = $Report.milliseconds
+    $metrics = [ordered]@{
+        'CPU frame, median (ms)' = $times.cpuFrame.median
+        'GPU frame, median (ms)' = $null
+        'first frame (ms)'       = $times.firstFrame
+        'cold start (ms)'        = $times.coldStart
+        'warm start (ms)'        = $times.warmStart
+        'asset index (ms)'       = $times.assetIndex
+        'asset load (ms)'        = $times.assetLoad
+        'scene load (ms)'        = $times.sceneLoad
+        'draw calls'             = $Report.scene.drawCalls
+        'triangles'              = $Report.scene.triangles
+        'mesh memory (KiB)'      = $Report.resources.meshBytes / 1024
+        'texture memory (KiB)'   = $Report.resources.textureBytes / 1024
+    }
+    # Null where the GPU cannot time its work.
+    if ($null -ne $times.gpuFrame) {
+        $metrics['GPU frame, median (ms)'] = $times.gpuFrame.median
+    }
+    return $metrics
+}
+
+# Prints the newest performance report next to the one before it.
+function Show-PerformanceHistory {
+    $historyFile = Join-Path $repoRoot 'tests\perf\output\history.jsonl'
+    if (-not (Test-Path $historyFile)) {
+        return
+    }
+    $runs = @(Get-Content -LiteralPath $historyFile | Where-Object { $_.Trim() } | Select-Object -Last 2 |
+            ForEach-Object { $_ | ConvertFrom-Json })
+    if ($runs.Count -eq 0) {
+        return
+    }
+    $current = $runs[-1]
+    $currentMetrics = Get-PerformanceMetrics $current
+    $previousMetrics = @{}
+    $heading = "Showcase on $($current.adapter), commit $($current.commit)"
+    if ($runs.Count -gt 1) {
+        $previousMetrics = Get-PerformanceMetrics $runs[0]
+        $heading += "; the run before: commit $($runs[0].commit)"
+    }
+
+    Write-Host ''
+    Write-Host $heading
+    Write-Host ('  {0,-24} {1,12} {2,12} {3,9}' -f '', 'now', 'before', 'change')
+    foreach ($name in $currentMetrics.Keys) {
+        $value = $currentMetrics[$name]
+        if ($null -eq $value) {
+            continue
+        }
+        $line = '  {0,-24} {1,12:N3}' -f $name, $value
+        if ($previousMetrics.Contains($name) -and $null -ne $previousMetrics[$name] -and $previousMetrics[$name] -ne 0) {
+            $before = $previousMetrics[$name]
+            $line += ' {0,12:N3} {1,8:+0.0;-0.0;0.0}%' -f $before, (($value - $before) / $before * 100)
+        }
+        Write-Host $line
     }
 }
 
@@ -416,6 +483,33 @@ switch ($Command) {
         if ($Label) { $testArguments += @('-L', $Label) }
         if ($ExcludeLabel) { $testArguments += @('-LE', $ExcludeLabel) }
         Invoke-Checked ctest $testArguments
+    }
+    'perf' {
+        $executable = Join-Path $buildDir "bin\$Config\cordite_performance_tests.exe"
+        if (-not (Test-Path $executable)) {
+            throw "$executable does not exist. Build it first: scripts/dev.ps1 build -Config $Config"
+        }
+        # Recorded with the measurements, so that a line of the history can be traced
+        # back to the code it measured. A plus sign marks uncommitted changes.
+        $commit = (& git -C $repoRoot rev-parse --short HEAD).Trim()
+        if (& git -C $repoRoot status --porcelain) {
+            $commit += '+'
+        }
+        $env:CORDITE_COMMIT = $commit
+
+        # On its own and from the repository root, as CTest runs it: next to other tests
+        # it would measure them as well.
+        Push-Location $repoRoot
+        try {
+            & $executable
+            $exitCode = $LASTEXITCODE
+        } finally {
+            Pop-Location
+        }
+        Show-PerformanceHistory
+        if ($exitCode -ne 0) {
+            exit $exitCode
+        }
     }
     'run' {
         if (-not $Target) {

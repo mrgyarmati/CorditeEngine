@@ -454,6 +454,23 @@ instance. The alternative, a structured buffer indexed by the instance id, depen
 whether the shading language adds the start instance to that id - which differs between
 Direct3D and Vulkan conventions and between compilers.
 
+### What a frame costs is measured by the engine itself
+
+`Engine::statistics()` reports, for the last frame: the time the program worked on it,
+the time the GPU worked on it, what the scene renderer drew in all its views, and what
+it holds on the GPU. The editor shows these numbers, the `editor.statistics` command
+returns them, and the performance tests hold them against budgets - one source for all
+three, so that a person, an agent and a test argue about the same numbers.
+
+Counts and sizes have tight budgets, because they are the same on every machine and a
+change in them is a change in the code. Times have loose ones: a test that fails
+because the machine was busy teaches people to ignore it. Times are compared by
+running `dev.ps1 perf` before and after a change instead.
+
+The time on the GPU comes from a timer query that is read only after the GPU has
+finished the command list it is in. Read earlier, a driver may combine the start time
+of the new measurement with the end time of the one before.
+
 ### Enum names use `nameOf`, not `toString`
 
 doctest stringifies values by calling an unqualified `toString`, which finds any

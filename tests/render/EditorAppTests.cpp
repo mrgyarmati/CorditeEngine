@@ -1,5 +1,6 @@
 #include "cordite/editor/EditorApp.h"
 
+#include "cordite/assets/ImageCompare.h"
 #include "cordite/core/FileSystem.h"
 
 #include "render/RenderTestSupport.h"
@@ -497,10 +498,71 @@ TEST_SUITE("EditorApp") {
         checkNoValidationIssues(editor->engine().graphics());
     }
 
+    TEST_CASE("editor.statistics reports what the last frame cost") {
+        EditorAppDesc desc = headlessDesc(UVec2(640, 360));
+        desc.project = showcaseProject();
+        const std::unique_ptr<EditorApp> editor = createEditor(desc);
+        REQUIRE(editor->runFrames(3).has_value());
+
+        const Json statistics = run(*editor, "editor.statistics");
+        CHECK(statistics["frame"] == 2);
+        CHECK(statistics["cpuMilliseconds"].get<double>() > 0.0);
+        CHECK((statistics["gpuMilliseconds"].is_null() || statistics["gpuMilliseconds"].get<double>() > 0.0));
+
+        // The viewport is the one view; it draws the showcase, some of it instanced.
+        const Json& scene = statistics["scene"];
+        CHECK(scene["views"] == 1);
+        CHECK(scene["meshRenderers"] == 21);
+        CHECK(scene["drawCalls"].get<uint32_t>() > 0);
+        CHECK(scene["drawCalls"].get<uint32_t>() < scene["instances"].get<uint32_t>());
+        CHECK(scene["triangles"].get<uint64_t>() > 1000);
+
+        const Json& resources = statistics["resources"];
+        CHECK(resources["meshes"].get<uint32_t>() >= 9);
+        CHECK(resources["textures"].get<uint32_t>() >= 10);
+        CHECK(resources["meshBytes"].get<uint64_t>() > 0);
+        CHECK(resources["textureBytes"].get<uint64_t>() > 0);
+
+        // A picture taken between frames draws the scene once more, which is not counted
+        // as part of the frame that follows.
+        const TempDirectory directory;
+        run(*editor, "editor.screenshot",
+            fmt::format(R"({{"path": {}, "viewportOnly": true}})", quoted(directory.path() / "view.png")));
+        REQUIRE(editor->runFrames(1).has_value());
+        CHECK(run(*editor, "editor.statistics")["scene"]["views"] == 1);
+        checkNoValidationIssues(editor->engine().graphics());
+    }
+
+    TEST_CASE("optional windows are opened and closed by command") {
+        const std::unique_ptr<EditorApp> editor = createEditor(headlessDesc(UVec2(640, 360)));
+        REQUIRE(editor->runFrames(2).has_value());
+        const Image closed = unwrap(editor->engine().captureFrame());
+
+        Json panels = run(*editor, "editor.showPanel", R"({"panel": "statistics"})");
+        CHECK(panels["statistics"] == true);
+        CHECK(panels["interfaceDemo"] == false);
+        REQUIRE(editor->runFrames(2).has_value());
+        // The window is there to be seen.
+        const ImageComparison shown = unwrap(compareImages(closed, unwrap(editor->engine().captureFrame())));
+        CHECK(shown.differingPixels > 2000);
+
+        panels = run(*editor, "editor.showPanel", R"({"panel": "statistics", "visible": false})");
+        CHECK(panels["statistics"] == false);
+        REQUIRE(editor->runFrames(2).has_value());
+        CHECK(unwrap(compareImages(closed, unwrap(editor->engine().captureFrame()))).differingPixels == 0);
+
+        const Result<Json> unknown = editor->commands().execute("editor.showPanel", json(R"({"panel": "nonsense"})"));
+        REQUIRE_FALSE(unknown.has_value());
+        CHECK(unknown.error().code == ErrorCode::InvalidArgument);
+        CHECK(unknown.error().message.find("statistics") != std::string::npos);
+        checkNoValidationIssues(editor->engine().graphics());
+    }
+
     TEST_CASE("the application adds its commands to the catalogue") {
         const std::unique_ptr<EditorApp> editor = createEditor(headlessDesc(UVec2(640, 360)));
-        for (const char* name : {"editor.runFrames", "editor.screenshot", "editor.exit", "viewport.lookAt",
-                                 "viewport.frame", "viewport.camera", "entity.create", "scene.save"}) {
+        for (const char* name :
+             {"editor.runFrames", "editor.screenshot", "editor.statistics", "editor.showPanel", "editor.exit",
+              "viewport.lookAt", "viewport.frame", "viewport.camera", "entity.create", "scene.save"}) {
             CAPTURE(name);
             const CommandDesc* command = editor->commands().find(name);
             REQUIRE(command != nullptr);

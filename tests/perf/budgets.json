@@ -1,0 +1,29 @@
+// What the scenarios of the performance tests may cost.
+// See tests/perf/ShowcasePerformanceTests.cpp, and `scripts/dev.ps1 perf` for the numbers
+// of this machine.
+{
+    "showcase": {
+        // Counts and sizes are the same on every machine. They leave room for a small
+        // addition to the showcase and no more: a change that exceeds one either has a
+        // reason, and raises the budget in the same commit, or has a mistake.
+        "drawCalls": 24,
+        "triangles": 3500,
+        "meshBytes": 160000,
+        "textureBytes": 9437184,
+
+        // Times depend on the machine and on what else it is doing, so these are many
+        // times what a desktop GPU needs. They catch what has become very much slower,
+        // not what has become a little slower; for that, compare runs of `dev.ps1 perf`.
+        // Checked in optimized builds only.
+        "milliseconds": {
+            "assetIndex": 500,
+            "assetLoad": 1000,
+            "coldStart": 15000,
+            "warmStart": 5000,
+            "sceneLoad": 100,
+            "firstFrame": 5000,
+            "cpuFrameMedian": 5,
+            "gpuFrameMedian": 5
+        }
+    }
+}

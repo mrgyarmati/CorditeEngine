@@ -15,5 +15,6 @@
     {"command": "editor.redo"},
     {"command": "viewport.frame", "params": {"entity": "Smoke probe", "radius": 4}},
     {"command": "scene.validate"},
+    {"command": "editor.statistics"},
     {"command": "editor.state"}
 ]

@@ -59,8 +59,10 @@ struct SceneRenderSettings {
     Vec3 groundColor{0.10f, 0.09f, 0.08f};
 };
 
-/// What the last call to SceneRenderer::render() did.
+/// What SceneRenderer::render() did: in its last call, or in all the calls of a frame.
 struct SceneRenderStatistics {
+    /// The calls these numbers cover: one view each.
+    uint32_t views = 0;
     /// Enabled entities with a mesh that could be loaded.
     uint32_t meshRenderers = 0;
     /// Of those, the ones outside the view, which were not drawn.
@@ -88,7 +90,13 @@ public:
     void render(nvrhi::ICommandList* commandList, const World& world, const CameraView& view,
                 const SceneTargets& targets, const SceneRenderSettings& settings = {});
 
+    /// What the last call to render() did.
     [[nodiscard]] const SceneRenderStatistics& statistics() const { return m_statistics; }
+
+    /// What every call to render() since the last call to this function did, added up,
+    /// and starts counting afresh. The engine takes it once per frame: with several
+    /// views, a frame costs what they cost together.
+    [[nodiscard]] SceneRenderStatistics takeFrameStatistics();
 
     /// The GPU copies of the assets drawn so far.
     [[nodiscard]] const RenderResources& resources() const { return *m_resources; }
@@ -101,6 +109,7 @@ private:
     MeshForwardPass m_forwardPass;
     DisplayEncodePass m_encodePass;
     SceneRenderStatistics m_statistics;
+    SceneRenderStatistics m_frameStatistics;
     /// Rebuilt every call; a member so that its memory is reused.
     std::vector<MeshDraw> m_draws;
 };

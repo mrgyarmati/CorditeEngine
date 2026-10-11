@@ -74,6 +74,7 @@ Do not guess command or property names; ask the editor.
 | `asset.list` | Every asset with its id, type, name and path; optionally of one type |
 | `asset.get` | One asset: dependencies, import warnings, and its content (size, properties, nodes) |
 | `scene.validate` | References to assets that are missing or of the wrong kind |
+| `editor.statistics` | What the last frame cost: CPU and GPU time, draw calls, triangles, memory on the GPU |
 
 ## Refer to entities
 
@@ -126,6 +127,17 @@ set it like any other property:
 
 Then read the image file. Looking at the picture is the only way to know that a change
 is visible and looks right; a passing command only says that the data changed.
+
+## Measure
+
+`editor.statistics` returns what the last frame cost. Run a few frames first
+(`editor.runFrames`): the frame that loads a scene is not typical, and the time the
+GPU took arrives a few frames late (`gpuMilliseconds` is null until then, and on
+adapters that cannot time their work). The counts - `drawCalls`, `instances`,
+`triangles`, `meshBytes`, `textureBytes` - are exact and the same on every machine,
+which makes them the numbers to compare before and after a change to a scene.
+`editor.showPanel {"panel": "statistics"}` opens the same numbers as a window, for
+screenshots.
 
 ## Try commands by hand
 

@@ -104,3 +104,43 @@ in that configuration alone.
   the layering in `AGENTS.md` allows it) or move the code.
 - **A test that used to pass is flaky**: it depends on timing, thread scheduling or
   iteration order. Make it deterministic rather than retrying it.
+
+## Performance
+
+```powershell
+./scripts/dev.ps1 perf                    # RelWithDebInfo
+./scripts/dev.ps1 perf -Config Release    # what a shipped game would have
+```
+
+runs the `performance` suite on its own and prints what it measured next to the run
+before:
+
+```
+Showcase on AMD Radeon RX 9070 XT, commit dbc1f33+; the run before: commit dbc1f33
+                                    now       before    change
+  CPU frame, median (ms)          0.081        0.078     +3.8%
+  GPU frame, median (ms)          0.068        0.069     -1.7%
+  first frame (ms)               85.864       84.945     +1.1%
+  draw calls                     19.000       19.000      0.0%
+  ...
+```
+
+Run it before a change and after it. Times move by a few percent from run to run; a
+change is real when it is larger than that and repeats. The full report of the last run
+is `tests/perf/output/showcase.json`, and every run adds a line to `history.jsonl` next
+to it (neither is committed).
+
+The same suite runs with all the other tests and checks the numbers against
+`tests/perf/budgets.json`:
+
+- **A count or size is over budget** (draw calls, triangles, bytes on the GPU): these
+  are the same on every machine, so the change did it. If it is meant - the showcase
+  gained something - raise the budget in the same commit, leaving little room. If not,
+  find what stopped being instanced, culled or shared.
+- **A time is over budget**: the budgets are many times what is normal, so something
+  became very slow. Compare `tests/perf/output/showcase.json` with an earlier run to see
+  which phase.
+
+To measure something new, add it to `FrameStatistics` (`engine/Engine.h`) if it is a
+cost of every frame, show it in `StatisticsPanel`, and add it to the report and the
+budgets in `tests/perf/`.

@@ -8,6 +8,7 @@
 #include "cordite/engine/EngineComponents.h"
 #include "cordite/renderer/BlitPass.h"
 #include "cordite/renderer/CameraView.h"
+#include "cordite/renderer/GpuTimer.h"
 #include "cordite/renderer/TestPatternPass.h"
 #include "cordite/rhi/Swapchain.h"
 #include "cordite/rhi/TextureReadback.h"
@@ -72,6 +73,8 @@ struct Engine::Impl {
     std::unique_ptr<ShaderManager> shaderManager;
 
     nvrhi::CommandListHandle commandList;
+    /// Times the frame's command list on the GPU.
+    std::unique_ptr<GpuTimer> gpuTimer;
     std::unique_ptr<TestPatternPass> testPattern;
     std::unique_ptr<BlitPass> blit;
 
@@ -93,6 +96,9 @@ struct Engine::Impl {
     World world;
 
     Stopwatch frameClock;
+    /// Runs from beginFrame() to the moment the frame is handed to the GPU.
+    Stopwatch workClock;
+    FrameStatistics statistics;
     double timeSeconds = 0.0;
     double deltaSeconds = 0.0;
     uint64_t frameIndex = 0;
@@ -138,6 +144,7 @@ Status Engine::Impl::initialize() {
 
     nvrhi::IDevice* device = graphics->device();
     commandList = device->createCommandList();
+    gpuTimer = std::make_unique<GpuTimer>(device, graphics->adapter().supportsTimerQueries);
     CORDITE_TRY_ASSIGN(TestPatternPass createdTestPattern, TestPatternPass::create(device, *shaderManager));
     testPattern = std::make_unique<TestPatternPass>(std::move(createdTestPattern));
     CORDITE_TRY_ASSIGN(BlitPass createdBlit, BlitPass::create(device, *shaderManager));
@@ -192,6 +199,7 @@ Result<bool> Engine::beginFrame() {
         return makeError(ErrorCode::InvalidState, "the previous frame has not been ended");
     }
 
+    impl.workClock.restart();
     impl.windowSystem->pollEvents();
     if (impl.exitRequested || (impl.window && impl.window->shouldClose())) {
         return false;
@@ -212,6 +220,7 @@ Result<bool> Engine::beginFrame() {
     }
 
     impl.commandList->open();
+    impl.gpuTimer->begin(impl.commandList);
     impl.frameTarget.clear(impl.commandList);
 
     if (!impl.window) {
@@ -224,6 +233,9 @@ Result<bool> Engine::beginFrame() {
     }
     impl.ui->beginFrame(impl.frameTarget.size(), static_cast<float>(impl.deltaSeconds));
 
+    // What was drawn between frames - a picture taken of a viewport, say - is not part
+    // of this frame, so its numbers are dropped here.
+    (void)impl.sceneRenderer->takeFrameStatistics();
     impl.frameOpen = true;
     return true;
 }
@@ -240,10 +252,18 @@ Status Engine::endFrame() {
     if (hasBackBuffer) {
         impl.blit->draw(impl.commandList, impl.frameTarget.color(), impl.backBuffer.framebuffer);
     }
+    impl.gpuTimer->end(impl.commandList);
     impl.commandList->close();
     impl.frameOpen = false;
 
     impl.graphics->device()->executeCommandList(impl.commandList);
+
+    // Before the frame is shown: showing it may wait for the display, which is not work.
+    impl.statistics.frameIndex = impl.frameIndex;
+    impl.statistics.cpuMilliseconds = impl.workClock.elapsedSeconds() * 1000.0;
+    impl.statistics.gpuMilliseconds = impl.gpuTimer->latestMilliseconds();
+    impl.statistics.scene = impl.sceneRenderer->takeFrameStatistics();
+    impl.statistics.resources = impl.sceneRenderer->resources().statistics();
 
     if (hasBackBuffer) {
         CORDITE_TRY(impl.swapchain->present());
@@ -332,6 +352,10 @@ Result<Image> Engine::captureFrame() {
 
 uint64_t Engine::frameIndex() const {
     return m_impl->frameIndex;
+}
+
+const FrameStatistics& Engine::statistics() const {
+    return m_impl->statistics;
 }
 
 double Engine::timeSeconds() const {

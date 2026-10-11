@@ -12,6 +12,8 @@ cordite_add_module(renderer
         DisplayEncodePass.h
         FullscreenPass.cpp
         FullscreenPass.h
+        GpuTimer.cpp
+        GpuTimer.h
         MeshForwardPass.cpp
         MeshForwardPass.h
         RenderComponents.cpp

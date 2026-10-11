@@ -46,6 +46,7 @@ Read this file before changing anything. Task-specific walkthroughs live in
 ./scripts/dev.ps1 tidy -Filter math      # only files whose path matches the regex
 ./scripts/dev.ps1 verify                 # the whole pre-commit gate, one PASS/FAIL line per step
 ./scripts/dev.ps1 verify -Filter quick   # format-check plus the default build and tests
+./scripts/dev.ps1 perf                   # the performance tests alone, compared with the run before
 
 ./scripts/dev.ps1 run -Target cordite-editor       # open the editor without a project
 ./scripts/dev.ps1 run -Target cordite-editor -- --project samples/showcase
@@ -99,6 +100,7 @@ samples/showcase/      The project that uses every feature of the engine; tests 
 tests/support/         Test entry point and fixtures
 tests/unit/<mod>/      Unit tests, mirroring engine/cordite/<mod>
 tests/render/          Tests that need a GPU, and their reference images
+tests/perf/            Performance tests and their budgets
 tests/data/            Input files for tests, such as editor command scripts
 scripts/               Developer tooling (bootstrap, dev, hash-url)
 docs/                  Architecture notes and the third-party list
@@ -430,6 +432,16 @@ with CTest under the module name. See the skills
 - Rendered frames are compared with reference images in `tests/render/references/`
   within a small tolerance. A new or changed reference image is reviewed by looking at
   it before it is committed; never approve one unseen.
+- **Performance is tested against budgets.** The `performance` suite (labels `gpu` and
+  `perf`) runs the showcase as a game would and checks what it costs against
+  `tests/perf/budgets.json`. Counts and sizes - draw calls, triangles, bytes on the GPU -
+  are the same everywhere and have tight budgets: a change that exceeds one raises it in
+  the same commit, with a reason, or has a mistake. Times have budgets many times what
+  a desktop GPU needs and are checked in optimized builds only, because a test must not
+  fail for a busy machine. To see what a change did to them, run `./scripts/dev.ps1
+  perf` before and after: it runs the suite alone and prints the run next to the one
+  before. The numbers come from `Engine::statistics()`, which the editor shows under
+  View > Statistics and returns from `editor.statistics`.
 - Windows opened by tests are hidden (`visible = false`) or use the headless window
   system, so the suite never disturbs the desktop and runs on machines without one.
 - Only one `Engine`, one `WindowSystem` and one `GraphicsDevice` can exist at a time;
@@ -500,6 +512,10 @@ body explaining what changed and why. One logical change per commit.
 - NVRHI's validation layer rejects a second *immediate* command list opened while
   another is open. Anything that records while a frame is being recorded needs
   `CommandListParameters().setEnableImmediateExecution(false)`.
+- A GPU timer query must not be read while the command list that fills it is still
+  executing: the driver can hand out the new start time together with the end time of
+  the measurement before, which gives a duration of seconds for a frame of
+  microseconds. `GpuTimer` waits for the command list with an event query first.
 - cgltf leaves the `scale` of a texture slot at zero when the material has no such
   texture; only its texture-view parser sets the default of one. Read optional glTF
   values only when the thing they belong to is present.

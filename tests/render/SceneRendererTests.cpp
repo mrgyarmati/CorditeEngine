@@ -1041,6 +1041,19 @@ TEST_SUITE("SceneRenderer") {
         checkPixel(strip, 52, 16, kBackground);
         checkPixel(strip, 76, 16, kBackground);
 
+        // The last view on its own, and both together as what the frame cost.
+        CHECK(scene.renderer->statistics().views == 1);
+        CHECK(scene.renderer->statistics().meshes.triangles == 12);
+        const SceneRenderStatistics frame = scene.renderer->takeFrameStatistics();
+        CHECK(frame.views == 2);
+        CHECK(frame.meshRenderers == 2);
+        CHECK(frame.meshes.drawCalls == 2);
+        CHECK(frame.meshes.instances == 2);
+        CHECK(frame.meshes.triangles == 24);
+        // Taking the numbers starts the count afresh.
+        CHECK(scene.renderer->takeFrameStatistics().views == 0);
+        CHECK(scene.renderer->statistics().views == 1);
+
         wide = SceneTargets();
         checkNoValidationIssues(*scene.context.graphics);
     }

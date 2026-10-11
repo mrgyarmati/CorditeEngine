@@ -147,6 +147,7 @@ cordite_add_test_suite(render
         render/DebugLineTests.cpp
         render/EditorAppTests.cpp
         render/EngineTests.cpp
+        render/GpuTimerTests.cpp
         render/GraphicsDeviceTests.cpp
         render/RenderPassTests.cpp
         render/RenderTargetTests.cpp
@@ -159,6 +160,19 @@ cordite_add_test_suite(render
         cordite::editor
     LABELS
         gpu)
+
+# Measures what the showcase costs, writes it to tests/perf/output/ and checks it against
+# tests/perf/budgets.json. See the comment at the top of the test file.
+cordite_add_test_suite(performance
+    SOURCES
+        perf/ShowcasePerformanceTests.cpp
+        render/RenderTestSupport.cpp
+        render/RenderTestSupport.h
+    LIBRARIES
+        cordite::engine
+    LABELS
+        gpu
+        perf)
 
 # Runs the real editor executable in batch mode: it opens the showcase project, runs a
 # script of commands on it, renders and saves a picture. It exits with a non-zero status
