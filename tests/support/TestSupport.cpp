@@ -2,6 +2,7 @@
 
 #include "cordite/core/Assert.h"
 #include "cordite/core/FileSystem.h"
+#include "cordite/core/Platform.h"
 #include "cordite/core/Uuid.h"
 
 #include <algorithm>
@@ -18,6 +19,8 @@ void throwingAssertionHandler(const AssertionInfo& info) {
 } // namespace
 
 void installTestEnvironment() {
+    // A test run must never wait for someone to click a dialog away.
+    suppressErrorDialogs();
     setAssertionHandler(&throwingAssertionHandler);
 
     LogConfig config;

@@ -37,19 +37,21 @@ Status readNumbers(const Json& json, std::array<float, N>& out) {
 } // namespace
 
 Json toJson(const Vec2& value) {
-    return Json::array({value.x, value.y});
+    return Json::array({jsonFromFloat(value.x), jsonFromFloat(value.y)});
 }
 
 Json toJson(const Vec3& value) {
-    return Json::array({value.x, value.y, value.z});
+    return Json::array({jsonFromFloat(value.x), jsonFromFloat(value.y), jsonFromFloat(value.z)});
 }
 
 Json toJson(const Vec4& value) {
-    return Json::array({value.x, value.y, value.z, value.w});
+    return Json::array(
+        {jsonFromFloat(value.x), jsonFromFloat(value.y), jsonFromFloat(value.z), jsonFromFloat(value.w)});
 }
 
 Json toJson(const Quat& value) {
-    return Json::array({value.x, value.y, value.z, value.w});
+    return Json::array(
+        {jsonFromFloat(value.x), jsonFromFloat(value.y), jsonFromFloat(value.z), jsonFromFloat(value.w)});
 }
 
 Json toJson(const Transform& value) {
@@ -97,7 +99,13 @@ Status fromJson(const Json& json, Quat& out) {
     if (lengthSquared < kEpsilon) {
         return makeError(ErrorCode::ParseError, "a rotation quaternion must not be zero");
     }
-    out = rotation / std::sqrt(lengthSquared);
+
+    // A quaternion that is already of unit length, as every saved one is, is kept bit for
+    // bit: renormalizing would nudge its last digits on each load, and files would change
+    // every time they are saved again.
+    constexpr float kUnitLengthTolerance = 1e-5f;
+    const bool isUnitLength = std::abs(lengthSquared - 1.0f) <= kUnitLengthTolerance;
+    out = isUnitLength ? rotation : rotation / std::sqrt(lengthSquared);
     return {};
 }
 

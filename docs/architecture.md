@@ -13,7 +13,8 @@ game and contains no editing code.
             editor (executable)          runtime (executable)
                       \                    /
                        +---- engine modules (static libraries) ----+
-                       |  ...                                      |
+                       |  engine                                   |
+                       |  ui, renderer, world, ...                 |
                        |  math                                     |
                        |  core                                     |
                        +-------------------------------------------+
@@ -32,29 +33,71 @@ of slowly turning the code base into a ball of mud.
 | `math` | `core`    | glm type aliases and conventions; `Transform`, bounding volumes, rays and intersection tests, frustum culling, projection matrices, color conversions, keyframed curves, deterministic random numbers. |
 | `platform` | `core`, `math` | The window system and windows (GLFW), and per-window keyboard, mouse and gamepad state with an injection API for tests and automation. |
 | `assets` | `core`, `math` | CPU-side asset data. Currently images: decoding, PNG encoding, pixel access and tolerance-based comparison. |
+| `world` | `core`, `math` | The scene: entities, their components and their parent/child hierarchy, stored with EnTT; the registry of component types known by name; scene files. |
 | `rhi` | `core`, `math`, `platform` | The GPU: Vulkan instance and device creation, the NVRHI device the renderer programs against, the swapchain, and texture readback. The only module that calls Vulkan. |
 | `shaders` | `core` | What a shader *is* to the engine: requests and their permutation keys, compiled binaries, the on-disk cache, and the `ShaderLibrary` that resolves a request from memory, disk or a compiler. |
 | `shader_compiler` | `core`, `shaders` | The Slang-based implementation of `IShaderCompiler`. Kept separate so exported games do not link a compiler. |
-| `renderer` | `core`, `math`, `rhi`, `shaders` | Render passes and the `ShaderManager` that turns shader binaries into GPU shader objects. |
-| `engine` | all of the above | `Engine`: creates and owns the subsystems and runs the frame loop. |
+| `renderer` | `core`, `math`, `world`, `rhi`, `shaders` | Render passes, render targets, the view a camera gives, debug line drawing, and the `ShaderManager` that turns shader binaries into GPU shader objects. |
+| `ui` | `core`, `math`, `platform`, `rhi`, `shaders`, `renderer` | The immediate-mode user interface: the Dear ImGui context, its input, and the renderer that draws it with NVRHI. |
+| `engine` | all of the above | `Engine`: creates and owns the subsystems, the world and the interface, and runs the frame loop. |
+| `editor` | `engine` and below | The editor: the scene document, undoable actions, the command registry, the panels, and `EditorApp`. Not part of exported games. |
 
-Further modules (world, physics, audio, scripting) are added by the later milestones and
-will be listed here as they land.
+Further modules (physics, audio, scripting) are added by the later milestones and will be
+listed here as they land.
 
 ### A frame
 
-`Engine::runFrame()` does the same thing with and without a window:
+A frame is bracketed by `Engine::beginFrame()` and `Engine::endFrame()`, and is the same
+with and without a window:
 
-1. Poll the window system, which starts a new input frame and delivers events.
-2. Acquire the swapchain back buffer (windowed mode only). A minimized window yields no
-   back buffer and the frame is skipped.
-3. Render into the engine's own offscreen frame target.
-4. Copy the frame target to the back buffer and present (windowed mode only).
-5. Release GPU resources whose last use has finished.
+1. `beginFrame` polls the window system, which starts a new input frame and delivers
+   events, and advances the clock.
+2. It acquires the swapchain back buffer (windowed mode only). A minimized window yields
+   none; the frame still runs, offscreen, so the program needs no special case.
+3. It opens the frame's command list, clears the engine's offscreen frame target and
+   starts the interface frame.
+4. The program does its work: it updates the world, records render passes into the
+   command list, and describes its interface with ImGui calls. The editor renders the
+   scene into the viewport panel's own target here; a game renders into the frame target.
+5. `endFrame` draws the interface over the frame target, copies the frame target to the
+   back buffer and presents (windowed mode only), and releases GPU resources whose last
+   use has finished.
 
 Rendering to an offscreen target first is what makes the engine testable and
-automatable: the headless path is not a special case, it is the main path minus step 4.
-Screenshots, reference-image tests and editor automation all read the frame target.
+automatable: the headless path is not a special case, it is the main path minus the
+copy. Screenshots, reference-image tests and editor automation all read the frame target.
+In headless mode input comes from what is injected into `Engine::input()`, and the
+interface is laid out and drawn exactly as on screen.
+
+### The scene
+
+A `World` holds entities. An entity is an id; everything else about it is in components,
+which are plain structs. Four of them every entity has: `EntityInfo` (a permanent `Uuid`,
+a name, an enabled flag), `Transform` (placement relative to the parent), `Hierarchy`
+(parent and ordered children) and `WorldTransform` (the derived placement in the world).
+Systems - rendering now; physics, audio and scripts later - iterate the components they
+need and know nothing of each other.
+
+Each component type is described once through reflection (`TypeBuilder` in
+`core/Reflection.h`): the names, types, ranges and meaning of its properties. That
+description is what saves and loads scenes, fills the editor inspector, makes edits
+undoable and tells an AI agent what it can set. Component types are registered by name
+in a `ComponentRegistry`, which is an ordinary object owned by the engine, not a global.
+
+### The editor
+
+The editor is four layers, each usable without the ones above it:
+
+```
+EditorContext    the document: a world, the selection, the undo history, the scene file
+EditorActions    every edit: validated, applied, recorded for undo
+EditorCommands   the same edits by name, taking and returning JSON
+panels, EditorApp    hierarchy, inspector, viewport, console; the frame loop
+```
+
+A person clicking in a panel, a script passed with `--exec` and a line typed in the
+console all end up in the same `EditorActions` function. That is what "fully controllable
+by AI agents" rests on: there is no feature that exists only as a button.
 
 ## Conventions
 
@@ -219,6 +262,90 @@ version: those are stored *in* the entry and checked on load. One permutation th
 has exactly one cache file, which is replaced when it goes stale, instead of leaving an
 orphan behind for every edit. A test pins the key of a known request, because changing
 the key function would silently invalidate every cache.
+
+### Entities and components are stored with EnTT
+
+EnTT is the de-facto standard C++ entity-component store: sparse sets with dense,
+cache-friendly iteration and no code generation. `World` wraps it to add what a scene
+needs and EnTT leaves open: permanent ids, names, an ordered hierarchy and world
+transforms. The registry is still exposed, because iterating views is the whole point.
+
+The 3.x line is used rather than 4.0, which needs C++20 syntax that MSVC 19.38 - still
+the default toolset of many Visual Studio 2022 installations - does not accept. EnTT is
+configured by macros that must be identical in every translation unit, so it is only
+ever included through `cordite/world/Entt.h`, and a test enforces that.
+
+### A component is described once, by hand
+
+Reflection is a table built in code (`TypeBuilder<T>().property(...)`), not generated
+by a tool and not hidden in macros. C++ has no reflection of its own yet; a code
+generator would add a build step and a parser, and macro-based schemes make the struct
+itself unreadable. The table costs one line per field and buys a place to put what
+no generator could infer: ranges, units, descriptions for tooltips and for agents,
+and whether a field is read-only or runtime state.
+
+### Input is parsed into a patch before it touches an object
+
+`TypeInfo::parse` turns JSON into a `PropertyPatch` - a list of already validated
+writes - or fails as a whole. Applying a patch cannot fail. Scene loading and editor
+commands use that to validate everything they were given before they change anything,
+so a bad file or a bad request leaves the world exactly as it was. The alternative,
+applying as you go and rolling back on error, needs every setter to be reversible and
+goes wrong in the cases nobody tested.
+
+Saved data and edits are parsed with different rules: a file may contain a read-only
+property (it was saved, after all) but not runtime state; an edit is the reverse.
+
+### The world stays where it is
+
+`World` cannot be moved or swapped. Loading a scene validates the file into a plan,
+then clears the existing world and fills it again, rather than building a new world
+and replacing the old one. Systems can therefore keep a reference to the world and
+their listeners on its registry across scene changes, and they see every component
+destroyed and every new one constructed - complete, not default-initialized and then
+patched. When an entity is destroyed its children go first, and while its components
+are being destroyed it still has its identity, transform and place in the hierarchy.
+
+### Scene files are JSON, strict, and stable
+
+Scenes are JSON so that people and agents can read, diff and write them. Two rules keep
+that practical. Loading is strict: an unknown component, property or member is an error
+naming the entity, because silently dropping a misspelled field loses work. And files
+do not churn: loading and saving again writes the same bytes. Floats are written in
+their shortest exact form (`0.1`, not `0.10000000149011612`) and read back to the
+identical value, and quaternions that are already unit length are not renormalized.
+
+### The editor's user interface is Dear ImGui
+
+ImGui is the standard immediate-mode UI library for tools. Immediate mode suits an
+editor whose panels are generated from reflection data: there is no widget tree to
+keep in sync with the scene. The docking branch provides the panel layout. ImGui's own
+GLFW backend handles input, clipboard and cursors; the renderer backend is ours,
+written against NVRHI like every other pass, because ImGui ships none for it.
+
+Without a window the interface still runs, with the pointer fed from the engine's
+input. Reference images of the whole editor and scripted interaction tests depend on
+that.
+
+### Third-party assertions report through the engine
+
+EnTT and ImGui check how they are used and, by default, report through the C runtime's
+`assert`, which on Windows can open a dialog and hang an unattended run. Both are
+configured to call the engine's assertion handler instead (`ExternalAssert.h` for code
+that must not include engine headers). Their checks are then logged, turned into test
+failures by the test harness, and compiled out of `Release` together with ours.
+
+### Undo stores ids and validated patches
+
+A history entry is a pair of functions, one to take an edit back and one to make it
+again. They capture entity `Uuid`s and `PropertyPatch`es or serialized entities - never
+handles or pointers into the world, which do not survive the entity being deleted and
+restored by another entry. Deleting is undone by re-instantiating a snapshot under the
+original ids, which keeps every later entry valid.
+
+Interactive edits (dragging a value in the inspector) are applied to the component
+directly while the control is held and become a single history entry when it is
+released.
 
 ### Enum names use `nameOf`, not `toString`
 

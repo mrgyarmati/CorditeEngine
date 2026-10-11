@@ -27,6 +27,7 @@ cordite_add_test_suite(core
         unit/core/LogTests.cpp
         unit/core/MemoryTests.cpp
         unit/core/PlatformTests.cpp
+        unit/core/ReflectionTests.cpp
         unit/core/ResultTests.cpp
         unit/core/StringUtilsTests.cpp
         unit/core/TimeTests.cpp
@@ -42,11 +43,20 @@ cordite_add_test_suite(math
         unit/math/FrustumTests.cpp
         unit/math/GeometryTests.cpp
         unit/math/MathJsonTests.cpp
+        unit/math/MathReflectionTests.cpp
         unit/math/ProjectionTests.cpp
         unit/math/RandomTests.cpp
         unit/math/TransformTests.cpp
     LIBRARIES
         cordite::math)
+
+cordite_add_test_suite(world
+    SOURCES
+        unit/world/ComponentRegistryTests.cpp
+        unit/world/SceneSerializerTests.cpp
+        unit/world/WorldTests.cpp
+    LIBRARIES
+        cordite::world)
 
 cordite_add_test_suite(platform
     SOURCES
@@ -72,6 +82,34 @@ cordite_add_test_suite(shaders
     LIBRARIES
         cordite::shaders)
 
+# The parts of the renderer that need no GPU: view matrices and debug geometry.
+cordite_add_test_suite(renderer
+    SOURCES
+        unit/renderer/CameraViewTests.cpp
+        unit/renderer/DebugDrawTests.cpp
+    LIBRARIES
+        cordite::renderer)
+
+# The editor without its user interface: commands, undo, the document and the camera.
+cordite_add_test_suite(editor
+    SOURCES
+        unit/editor/CommandRegistryTests.cpp
+        unit/editor/EditorActionsTests.cpp
+        unit/editor/EditorCameraTests.cpp
+        unit/editor/EditorCommandsTests.cpp
+        unit/editor/EditorContextTests.cpp
+        unit/editor/EditorTestSupport.h
+        unit/editor/UndoStackTests.cpp
+    LIBRARIES
+        cordite::editor)
+
+# Keeps the showcase scene loading and complete. Needs no GPU.
+cordite_add_test_suite(samples
+    SOURCES
+        unit/samples/ShowcaseSceneTests.cpp
+    LIBRARIES
+        cordite::engine)
+
 # Compiles real shaders with Slang; needs no GPU.
 cordite_add_test_suite(shader_compiler
     SOURCES
@@ -83,23 +121,32 @@ cordite_add_test_suite(shader_compiler
 # Everything below renders on a real Vulkan device.
 cordite_add_test_suite(render
     SOURCES
+        render/DebugLineTests.cpp
+        render/EditorAppTests.cpp
         render/EngineTests.cpp
         render/GraphicsDeviceTests.cpp
         render/RenderPassTests.cpp
+        render/RenderTargetTests.cpp
         render/RenderTestSupport.cpp
         render/RenderTestSupport.h
         render/SwapchainTests.cpp
+        render/UiTests.cpp
     LIBRARIES
-        cordite::engine
+        cordite::editor
     LABELS
         gpu)
 
-# Runs the real editor executable in batch mode. It exits with a non-zero status when
-# anything fails or when the GPU validation layers report a problem.
+# Runs the real editor executable in batch mode: it opens the showcase scene, runs a
+# script of commands on it, renders and saves a picture. It exits with a non-zero status
+# when anything fails, when a script step fails, or when the GPU validation layers report
+# a problem.
 add_test(NAME editor_smoke
     COMMAND cordite-editor
         --headless --validation --frames 5 --fixed-time-step 0.1
-        --width 320 --height 180
+        --width 960 --height 540
+        --scene samples/showcase/showcase.scene.json
+        --exec tests/data/editor-smoke.json
+        --exec-output "${PROJECT_BINARY_DIR}/test-tmp/editor-smoke.json"
         --screenshot "${PROJECT_BINARY_DIR}/test-tmp/editor-smoke.png"
     WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}")
 set_tests_properties(editor_smoke PROPERTIES LABELS "gpu" TIMEOUT 120)

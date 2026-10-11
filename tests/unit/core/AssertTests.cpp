@@ -1,5 +1,7 @@
 #include "cordite/core/Assert.h"
 
+#include "cordite/core/ExternalAssert.h"
+
 #include "support/TestSupport.h"
 
 #include <string>
@@ -76,5 +78,36 @@ TEST_SUITE("Assert") {
 
         // The previous (throwing) handler is back in place.
         CHECK_THROWS_AS(CORDITE_VERIFY(false), AssertionFailure);
+    }
+
+    TEST_CASE("assertions of third-party libraries reach the same handler") {
+        g_evaluations = 0;
+        CHECK_NOTHROW(CORDITE_EXTERNAL_ASSERT(countedCondition(true)));
+#if defined(CORDITE_ENABLE_ASSERTS)
+        CHECK(g_evaluations == 1);
+        try {
+            CORDITE_EXTERNAL_ASSERT(countedCondition(false) && "library message");
+            FAIL("the assertion handler was not invoked");
+        } catch (const AssertionFailure& failure) {
+            const std::string text = failure.what();
+            CHECK(text.find("countedCondition(false) && \"library message\"") != std::string::npos);
+            CHECK(text.find("AssertTests.cpp") != std::string::npos);
+        }
+#else
+        // Compiled out: the expression is not even evaluated.
+        CHECK(g_evaluations == 0);
+        CHECK_NOTHROW(CORDITE_EXTERNAL_ASSERT(countedCondition(false)));
+        CHECK(g_evaluations == 0);
+#endif
+    }
+
+    TEST_CASE("the external entry point tolerates missing text") {
+        const cordite::AssertionHandler previous = cordite::setAssertionHandler(&recordingHandler);
+        g_customExpression = "unset";
+        cordite::detail::reportExternalAssertionFailure(nullptr, nullptr, 7);
+        cordite::setAssertionHandler(previous);
+
+        CHECK(g_customExpression.empty());
+        CHECK(g_customLine == 7);
     }
 }

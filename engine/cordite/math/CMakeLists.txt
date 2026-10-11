@@ -11,6 +11,8 @@ cordite_add_module(math
         Math.h
         MathJson.cpp
         MathJson.h
+        MathReflection.cpp
+        MathReflection.h
         Projection.cpp
         Projection.h
         Random.cpp

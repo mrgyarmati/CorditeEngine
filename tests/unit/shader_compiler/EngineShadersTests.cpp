@@ -17,7 +17,11 @@ std::vector<ShaderRequest> engineShaders() {
     return {
         {.path = "common/Fullscreen.slang", .entryPoint = "fullscreenVertex", .stage = ShaderStage::Vertex},
         {.path = "passes/Blit.slang", .entryPoint = "blitPixel", .stage = ShaderStage::Pixel},
+        {.path = "passes/DebugLines.slang", .entryPoint = "debugLineVertex", .stage = ShaderStage::Vertex},
+        {.path = "passes/DebugLines.slang", .entryPoint = "debugLinePixel", .stage = ShaderStage::Pixel},
         {.path = "passes/TestPattern.slang", .entryPoint = "testPatternPixel", .stage = ShaderStage::Pixel},
+        {.path = "ui/ImGui.slang", .entryPoint = "uiVertex", .stage = ShaderStage::Vertex},
+        {.path = "ui/ImGui.slang", .entryPoint = "uiPixel", .stage = ShaderStage::Pixel},
     };
 }
 

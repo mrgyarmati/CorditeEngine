@@ -20,6 +20,7 @@
 #include "support/TestSupport.h"
 
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <string_view>
 
@@ -49,6 +50,9 @@ struct RenderContext {
     std::unique_ptr<ShaderLibrary> library;
     std::unique_ptr<ShaderManager> shaders;
 };
+
+/// Opens a new command list, lets `record` fill it, and executes it.
+void recordAndExecute(RenderContext& context, const std::function<void(nvrhi::ICommandList*)>& record);
 
 /// A color texture that can be rendered to, sampled and read back.
 nvrhi::TextureHandle createColorTarget(nvrhi::IDevice* device, uint32_t width, uint32_t height,

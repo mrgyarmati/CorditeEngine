@@ -21,6 +21,7 @@ Checks: >
   -misc-no-recursion,
   -misc-non-private-member-variables-in-classes,
   -modernize-macro-to-enum,
+  -modernize-return-braced-init-list,
   -modernize-use-designated-initializers,
   -modernize-use-nodiscard,
   -modernize-use-trailing-return-type,
@@ -28,6 +29,7 @@ Checks: >
   -readability-identifier-length,
   -readability-magic-numbers,
   -readability-math-missing-parentheses,
+  -readability-redundant-casting,
   -readability-uppercase-literal-suffix,
   -readability-use-anyofallof
 
@@ -43,6 +45,7 @@ Checks: >
 #   misc-no-recursion                      recursion over JSON and scene trees is intentional
 #   misc-non-private-member-variables-in-classes   plain data structs are part of the style
 #   modernize-macro-to-enum                platform and feature macros are tested with #if
+#   modernize-return-braced-init-list      wrong for Json: `return {x};` builds an array holding x, not x
 #   modernize-use-designated-initializers  positional init of small aggregates (Ray, Plane) is idiomatic
 #   modernize-use-nodiscard                we mark [[nodiscard]] deliberately, not everywhere
 #   modernize-use-trailing-return-type     style choice: conventional return types
@@ -50,6 +53,8 @@ Checks: >
 #   readability-identifier-length          loop indices and math symbols (x, y, t) are fine
 #   readability-magic-numbers              too noisy for math and rendering constants
 #   readability-math-missing-parentheses   standard precedence is readable
+#   readability-redundant-casting          reported inside the standard library for every hasher that
+#                                          returns size_t (std::unordered_map<Uuid, T> triggers it)
 #   readability-uppercase-literal-suffix   we write 1.0f and 10ull
 #   readability-use-anyofallof             a short loop is as clear as the algorithm
 

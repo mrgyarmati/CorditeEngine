@@ -20,6 +20,13 @@ pinned in [cmake/CorditeDependencies.cmake](../cmake/CorditeDependencies.cmake) 
 | [Vulkan-Headers](https://github.com/KhronosGroup/Vulkan-Headers) | 1.4.352 | Apache-2.0 OR MIT | Vulkan API declarations (headers only) |
 | [stb](https://github.com/nothings/stb) | commit `2c980bb` | MIT OR public domain | Image decoding (`stb_image`) and PNG encoding (`stb_image_write`) |
 | [CLI11](https://github.com/CLIUtils/CLI11) | 2.7.2 | BSD-3-Clause | Command-line parsing in the executables |
+| [EnTT](https://github.com/skypjack/entt) | 3.16.0 | MIT | Entity and component storage behind `World` |
+| [Dear ImGui](https://github.com/ocornut/imgui) | 1.92.9b, docking branch | MIT | Immediate-mode user interface: the editor and in-game debug overlays |
+
+EnTT stays on the 3.x line: 4.0 needs C++20 syntax that the default MSVC toolset of
+many Visual Studio 2022 installations (19.38) does not accept. Dear ImGui comes with the
+fonts it embeds (ProggyClean and ProggyForever, MIT) and uses its bundled
+copies of stb_rect_pack, stb_textedit and stb_truetype (public domain / MIT).
 
 ## Linked into the editor and tools, not into exported games
 

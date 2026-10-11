@@ -2,5 +2,5 @@ cordite_add_executable(cordite-editor
     SOURCES
         Main.cpp
     LIBRARIES
-        cordite::engine
+        cordite::editor
         CLI11::CLI11)

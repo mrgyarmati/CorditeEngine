@@ -1,0 +1,191 @@
+---
+name: editor-automation
+description: Drive the Cordite editor without a person, and extend what can be driven. Use when building or changing a scene from a script, taking screenshots of the editor or the viewport, checking what the editor shows after a change, adding an editor command or an undoable action, or when an editor feature exists only as a button.
+---
+
+# Editor automation
+
+Everything the editor can do is a named command with JSON parameters and a JSON result.
+Commands are the same code path the menus use, so they are undoable and tested.
+
+## Run a script
+
+A script is a JSON array of steps:
+
+```json
+[
+    {"command": "scene.open", "params": {"path": "samples/showcase/showcase.scene.json"}},
+    {"command": "entity.create", "params": {"name": "Probe", "parent": "Stage",
+                                            "components": {"Transform": {"position": [0, 1, 2]}}}},
+    {"command": "selection.set", "params": {"entities": ["Probe"]}},
+    {"command": "viewport.frame", "params": {"entity": "Probe", "radius": 3}},
+    {"command": "editor.screenshot", "params": {"path": "build/shots/probe.png"}}
+]
+```
+
+```powershell
+./scripts/dev.ps1 run -Target cordite-editor -- --headless --width 1280 --height 720 `
+    --exec script.json --exec-output build/outcome.json
+```
+
+- `--headless` needs no desktop. Add `--validation` to have the GPU validation layers
+  check the run.
+- `--scene <file>` opens a scene before the script runs.
+- Without `--exec-output` the outcome is written to standard output; logs always go to
+  standard error.
+- `--frames N` renders N more frames after the script; `--screenshot <file>` saves the
+  last one.
+
+Exit status: `0` success, `1` the editor could not run, `2` the validation layers
+reported something, `3` a script step failed.
+
+The outcome lists every step that ran:
+
+```json
+{
+    "ok": false,
+    "results": [
+        {"command": "scene.open", "ok": true,
+         "result": {"name": "Showcase", "path": "samples/showcase/showcase.scene.json",
+                    "unsavedChanges": false, "entityCount": 9}},
+        {"command": "entity.create", "ok": false,
+         "error": {"code": "NotFound", "message": "entity.create: no entity is named 'Stag'"}}
+    ]
+}
+```
+
+A failed step ends the script; the steps after it do not run.
+
+## Find out what exists
+
+Do not guess command or property names; ask the editor.
+
+| Command | Returns |
+|---------|---------|
+| `editor.commands` | Every command with its description and parameters |
+| `component.types` | Every component type with its properties: type, range, unit, options, description |
+| `scene.describe` | The hierarchy: ids, paths, enabled state, component names |
+| `entity.get` | Everything about one entity, including all property values |
+| `editor.state` | Scene file, unsaved changes, what undo and redo would do, the selection |
+
+## Refer to entities
+
+Wherever a command takes an entity, it accepts:
+
+- its id: `"10000000-0000-4000-8000-000000000002"` - always unambiguous;
+- its path of names from a root: `"Stage/Crate"` (or `"/Stage"` for a root);
+- its name: `"Crate"` - only if exactly one entity has that name.
+
+A name or path that matches several entities is an error that lists the candidates with
+their ids. Commands that create or change an entity return its `id` and `path`; keep the
+id when the entity will be referred to again.
+
+## See the result
+
+- `editor.screenshot {"path": ...}` saves the whole editor window after letting the
+  layout settle.
+- `editor.screenshot {"path": ..., "viewportOnly": true, "width": W, "height": H}`
+  saves the scene alone, at any size.
+- `viewport.lookAt {"position": [x,y,z], "target": [x,y,z]}` and
+  `viewport.frame {"entity": ...}` place the viewport camera first.
+
+Then read the image file. Looking at the picture is the only way to know that a change
+is visible and looks right; a passing command only says that the data changed.
+
+## Try commands by hand
+
+The Console panel of the interactive editor runs the same commands: type the name,
+optionally followed by the parameters as a JSON object.
+
+```
+entity.create {"name": "Lamp", "parent": "Stage"}
+editor.undo
+```
+
+## Add a command
+
+A command is a thin JSON front for an `EditorActions` function. If the edit does not
+exist as an action yet, add the action first.
+
+### 1. The action (`engine/cordite/editor/EditorActions.h/.cpp`)
+
+An action validates, applies the change, and pushes one entry on the history:
+
+```cpp
+Status EditorActions::setEntityEnabled(Entity entity, bool enabled) {
+    CORDITE_TRY(requireValid(m_context, entity));
+    World& world = m_context.world();
+    if (world.isEnabled(entity) == enabled) {
+        return {};                                   // not an edit: record nothing
+    }
+    world.setEnabled(entity, enabled);
+
+    EditorContext* context = &m_context;
+    const Uuid id = world.id(entity);                // ids, never handles
+    const auto apply = [context, id](bool value) -> Status {
+        CORDITE_TRY_ASSIGN(const Entity target, findEntity(*context, id));
+        context->world().setEnabled(target, value);
+        return {};
+    };
+    m_context.history().push({.label = ..., .undo = [apply, enabled] { return apply(!enabled); },
+                              .redo = [apply, enabled] { return apply(enabled); }});
+    return {};
+}
+```
+
+- Validate everything before changing anything. A failed action changes nothing and
+  records nothing.
+- Capture entity `Uuid`s and validated `PropertyPatch`es or serialized entities in the
+  undo and redo functions. Never capture an `Entity`, a component pointer or a
+  reference into the world.
+- An action that changes nothing pushes nothing.
+- Redo must reproduce the edit exactly, ids included, so that later history entries
+  still find what they refer to.
+
+Test it in `tests/unit/editor/EditorActionsTests.cpp`: the change, `checkUndoRedo`, each
+way it can fail with `checkUntouched`, and add it to the "whole session" test.
+
+### 2. The command (`engine/cordite/editor/EditorCommands.cpp`)
+
+```cpp
+CORDITE_TRY(commands.add({
+    .name = "entity.setEnabled",
+    .description = "Enables or disables an entity. A disabled entity, and everything below it, is ignored.",
+    .parameters = {{"entity", Type::String, kEntityReference}, {"enabled", Type::Boolean, "The new state."}},
+    .handler = [&context](const Json& parameters) -> Result<Json> {
+        CORDITE_TRY_ASSIGN(const Entity entity, entityParameter(context, parameters, "entity"));
+        CORDITE_TRY(EditorActions(context).setEntityEnabled(entity, parameters.at("enabled").get<bool>()));
+        return describeEntity(context, entity);
+    },
+}));
+```
+
+- Names are `group.verb` in dotted lowercase words. Group by what the command acts on:
+  `scene`, `entity`, `component`, `selection`, `viewport`, `editor`.
+- Declare every parameter with its type, a description and whether it is required. The
+  registry checks them before the handler runs, so the handler may assume declared
+  types.
+- The description and the parameter descriptions are all an agent knows about the
+  command. Say what it does and what it returns.
+- Return something a caller can use next (the entity's `id` and `path`), or null.
+- A command that needs a running editor (frames, the viewport camera, the window) is
+  registered in `EditorApp::registerApplicationCommands` instead.
+
+Test it in `tests/unit/editor/EditorCommandsTests.cpp`: add the name to the catalogue
+list, exercise it, and add its failure cases to the "mistakes" table.
+
+### 3. The interface
+
+Only now add the menu item, button or shortcut, calling the same action and reporting
+failure with `reportIfFailed`. An edit requested while a panel is iterating over the
+world (the hierarchy tree) is deferred until the iteration is over.
+
+## Checklist for an editor change
+
+- The edit is an `EditorActions` function with undo, and has a command.
+- `editor.commands` describes it well enough to use without reading the source.
+- Unit tests cover the action and the command; `./scripts/dev.ps1 test -Filter editor`.
+- A headless run with a script shows the feature working:
+  `./scripts/dev.ps1 test -Filter editor_smoke`, or your own script with a screenshot.
+- If the default editor layout looks different, the reference image
+  `editor-showcase-1280x720` was looked at and approved (skill: `render-tests`).

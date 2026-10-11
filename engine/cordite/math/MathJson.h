@@ -33,7 +33,8 @@ Status fromJson(const Json& json, Vec2& out);
 Status fromJson(const Json& json, Vec3& out);
 Status fromJson(const Json& json, Vec4& out);
 
-/// The quaternion is normalized. A zero quaternion is rejected.
+/// The quaternion is normalized unless it already has unit length, in which case it is
+/// read back exactly as written. A zero quaternion is rejected.
 Status fromJson(const Json& json, Quat& out);
 
 /// Reads {"position": [...], "rotation": [...], "scale": [...]}; missing members keep

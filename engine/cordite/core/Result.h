@@ -73,24 +73,35 @@ template <typename... Args>
 
 } // namespace cordite
 
+// Both macros keep the Result in a local variable. Its name is made unique with
+// __COUNTER__ (available on every compiler we build with) rather than __LINE__: a macro
+// used inside the argument of another macro - a lambda passed to a function that is
+// itself wrapped in CORDITE_TRY, say - is expanded as if it were all on one line.
+
 /// Evaluates an expression returning a Result and returns its error from the enclosing
 /// function when it failed.
-#define CORDITE_TRY(expression)                                                                                        \
+#define CORDITE_TRY(expression) CORDITE_TRY_IMPL(CORDITE_CONCAT(corditeTryResult, __COUNTER__), expression)
+
+// `result` names a variable and `declaration` introduces one, so neither can be
+// parenthesized.
+// NOLINTBEGIN(bugprone-macro-parentheses)
+#define CORDITE_TRY_IMPL(result, expression)                                                                           \
     do {                                                                                                               \
-        auto&& corditeTryResult = (expression);                                                                        \
-        if (!corditeTryResult) {                                                                                       \
-            return ::tl::unexpected<::cordite::Error>(std::move(corditeTryResult).error());                            \
+        auto&& result = (expression);                                                                                  \
+        if (!result) {                                                                                                 \
+            return ::tl::unexpected<::cordite::Error>(std::move(result).error());                                      \
         }                                                                                                              \
     } while (false)
 
 /// Like CORDITE_TRY, but binds the value on success:
 /// `CORDITE_TRY_ASSIGN(auto text, readTextFile(path));`
-// `declaration` introduces a variable, so it cannot be parenthesized.
-// NOLINTBEGIN(bugprone-macro-parentheses)
 #define CORDITE_TRY_ASSIGN(declaration, expression)                                                                    \
-    auto CORDITE_CONCAT(corditeTryResult, __LINE__) = (expression);                                                    \
-    if (!CORDITE_CONCAT(corditeTryResult, __LINE__)) {                                                                 \
-        return ::tl::unexpected<::cordite::Error>(std::move(CORDITE_CONCAT(corditeTryResult, __LINE__)).error());      \
+    CORDITE_TRY_ASSIGN_IMPL(CORDITE_CONCAT(corditeTryResult, __COUNTER__), declaration, expression)
+
+#define CORDITE_TRY_ASSIGN_IMPL(result, declaration, expression)                                                       \
+    auto result = (expression);                                                                                        \
+    if (!result) {                                                                                                     \
+        return ::tl::unexpected<::cordite::Error>(std::move(result).error());                                          \
     }                                                                                                                  \
-    declaration = std::move(*CORDITE_CONCAT(corditeTryResult, __LINE__))
+    declaration = std::move(*result)
 // NOLINTEND(bugprone-macro-parentheses)

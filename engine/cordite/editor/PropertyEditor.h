@@ -1,0 +1,75 @@
+#pragma once
+
+/// @file
+/// Widgets for editing reflected properties.
+///
+/// Given the description of a property and its current value as JSON, a PropertyEditor
+/// draws the fitting ImGui widget - a checkbox, a drag field, a color picker, a list of
+/// options - and reports whether the user changed the value. The inspector is built from
+/// it, and so is any other panel that edits reflected data, which is why a new component
+/// needs no editor code of its own.
+///
+/// @code
+/// PropertyEditor editor;
+/// for (const PropertyInfo& property : type.properties()) {
+///     Json value = property.get(instance);
+///     if (editor.draw(property, value)) {
+///         CORDITE_TRY(property.set(instance, value));    // or parse it into an undoable edit
+///     }
+/// }
+/// @endcode
+///
+/// It only edits the JSON it is handed. Validating the result and storing it is the
+/// caller's business, which keeps undo and error handling in one place.
+
+#include "cordite/core/Json.h"
+#include "cordite/core/Reflection.h"
+#include "cordite/math/Math.h"
+
+#include <imgui.h>
+
+#include <functional>
+#include <string>
+#include <string_view>
+#include <unordered_map>
+
+namespace cordite {
+
+class PropertyEditor {
+public:
+    /// Turns the id of an entity into the text to show for it. Without one, entity
+    /// references are shown as ids.
+    using EntityNameLookup = std::function<std::string(const Uuid& id)>;
+
+    void setEntityNameLookup(EntityNameLookup lookup) { m_entityName = std::move(lookup); }
+
+    /// Draws a label and a widget for `property` on the current line of a two-column
+    /// table and returns true when the user changed `value` this frame. `value` must be
+    /// what PropertyInfo::get returns for the property.
+    bool draw(const PropertyInfo& property, Json& value);
+
+    /// The name of the drag-and-drop payload that carries an entity: a Uuid. The
+    /// hierarchy panel is its source; entity reference fields accept it.
+    static constexpr const char* kEntityPayload = "CORDITE_ENTITY";
+
+private:
+    bool drawValue(PropertyType type, const PropertyInfo& property, Json& value);
+    bool drawRotation(Json& value);
+    bool drawReference(const PropertyInfo& property, Json& value);
+    bool drawObject(const PropertyInfo& property, Json& value);
+    bool drawList(const PropertyInfo& property, Json& value);
+
+    /// The Euler angles last shown for a rotation, with the quaternion they stand for.
+    struct RotationState {
+        Vec3 eulerDegrees{0.0f};
+        Quat rotation = kIdentityQuat;
+    };
+
+    EntityNameLookup m_entityName;
+    /// Per widget. Angles are remembered rather than recomputed from the quaternion every
+    /// frame, because that conversion jumps between equivalent sets of angles and would
+    /// make a field fight the user who is dragging it.
+    std::unordered_map<ImGuiID, RotationState> m_rotations;
+};
+
+} // namespace cordite

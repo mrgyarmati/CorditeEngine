@@ -9,6 +9,7 @@ cordite_add_module(core
         BinaryStream.h
         Config.cpp
         Config.h
+        ExternalAssert.h
         FileSystem.cpp
         FileSystem.h
         Hash.cpp
@@ -22,6 +23,8 @@ cordite_add_module(core
         Log.h
         Platform.cpp
         Platform.h
+        Reflection.cpp
+        Reflection.h
         Result.cpp
         Result.h
         StringUtils.cpp

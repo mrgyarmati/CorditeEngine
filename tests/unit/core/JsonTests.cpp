@@ -4,11 +4,17 @@
 
 #include "support/TestSupport.h"
 
+#include <bit>
+#include <cmath>
+#include <cstdint>
+#include <limits>
+#include <optional>
 #include <string>
 #include <vector>
 
 using namespace cordite;
 using cordite::test::TempDirectory;
+using cordite::test::unwrap;
 
 TEST_SUITE("Json") {
     TEST_CASE("parseJson reads valid documents") {
@@ -100,6 +106,69 @@ TEST_SUITE("Json") {
         CHECK(jsonGetOr<std::string>(json, "title", "untitled") == "untitled");
         CHECK(jsonGetOr<int>(json, "height", 600) == 600);
         CHECK(jsonGetOr<int>(Json(5), "width", 9) == 9);
+    }
+
+    TEST_CASE("jsonGetOptional tells a missing member from a mistyped one") {
+        const Json json = *parseJson(R"({"width": 800, "title": null, "height": "tall"})");
+
+        CHECK(unwrap(jsonGetOptional<int>(json, "width")) == std::optional<int>(800));
+        CHECK(unwrap(jsonGetOptional<int>(json, "depth")) == std::nullopt);
+        CHECK(unwrap(jsonGetOptional<std::string>(json, "title")) == std::nullopt);
+
+        const Result<std::optional<int>> wrongType = jsonGetOptional<int>(json, "height");
+        REQUIRE_FALSE(wrongType.has_value());
+        CHECK(wrongType.error().code == ErrorCode::ParseError);
+        CHECK(wrongType.error().message.find("'height'") != std::string::npos);
+        CHECK(wrongType.error().message.find("string") != std::string::npos);
+
+        const Result<std::optional<int>> notObject = jsonGetOptional<int>(Json(5), "width");
+        REQUIRE_FALSE(notObject.has_value());
+        CHECK(notObject.error().message.find("number") != std::string::npos);
+    }
+
+    TEST_CASE("jsonFromFloat writes floats the way a person would") {
+        CHECK(dumpJson(jsonFromFloat(0.1f)) == "0.1");
+        CHECK(dumpJson(jsonFromFloat(-2.5f)) == "-2.5");
+        CHECK(dumpJson(jsonFromFloat(1.0f)) == "1.0");
+        CHECK(dumpJson(jsonFromFloat(0.0f)) == "0.0");
+        CHECK(dumpJson(jsonFromFloat(1.0f / 3.0f)) == "0.33333334");
+        CHECK(dumpJson(jsonFromFloat(16777216.0f)) == "16777216.0");
+        // Without it, the double nearest to the float is what gets written.
+        CHECK(dumpJson(Json(0.1f)) == "0.10000000149011612");
+
+        // The result is always a floating-point number, never an integer.
+        CHECK(jsonFromFloat(3.0f).is_number_float());
+    }
+
+    TEST_CASE("jsonFromFloat never changes the value") {
+        const auto roundTrips = [](float value) {
+            const Json json = *parseJson(dumpJson(jsonFromFloat(value)));
+            const float restored = static_cast<float>(json.get<double>());
+            return std::bit_cast<uint32_t>(restored) == std::bit_cast<uint32_t>(value);
+        };
+
+        for (const float value : {0.0f, -0.0f, 1.0f, -1.0f, 0.1f, 1e-45f, 1.17549435e-38f, 3.4028235e38f,
+                                  -3.4028235e38f, 1e10f, 1e-10f, 123456.79f, 8388608.5f}) {
+            CAPTURE(value);
+            CHECK(roundTrips(value));
+        }
+
+        // A deterministic sweep over every exponent and many bit patterns.
+        uint32_t state = 0x12345678u;
+        int failures = 0;
+        for (int index = 0; index < 200000; ++index) {
+            state = state * 1664525u + 1013904223u;
+            const float value = std::bit_cast<float>(state);
+            if (std::isfinite(value) && !roundTrips(value)) {
+                ++failures;
+            }
+        }
+        CHECK(failures == 0);
+    }
+
+    TEST_CASE("jsonFromFloat writes non-finite values as null") {
+        CHECK(dumpJson(jsonFromFloat(std::numeric_limits<float>::infinity())) == "null");
+        CHECK(dumpJson(jsonFromFloat(std::numeric_limits<float>::quiet_NaN())) == "null");
     }
 
     TEST_CASE("JSON files round-trip and end with a newline") {

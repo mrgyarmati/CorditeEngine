@@ -101,7 +101,7 @@ function(cordite_add_layering_test)
 
     add_test(NAME module_layering
         COMMAND ${CMAKE_COMMAND}
-            "-DENGINE_DIR=${PROJECT_SOURCE_DIR}/engine/cordite"
+            "-DREPOSITORY_DIR=${PROJECT_SOURCE_DIR}"
             "-DDEPENDENCY_TABLE=${dependency_table}"
             -P "${PROJECT_SOURCE_DIR}/cmake/CheckModuleLayering.cmake")
     set_tests_properties(module_layering PROPERTIES LABELS "lint")

@@ -48,7 +48,8 @@ Read this file before changing anything. Task-specific walkthroughs live in
 ./scripts/dev.ps1 verify -Filter quick   # format-check plus the default build and tests
 
 ./scripts/dev.ps1 run -Target cordite-editor       # open the editor
-./scripts/dev.ps1 run -Target cordite-editor -- --headless --validation --frames 10 --screenshot out.png
+./scripts/dev.ps1 run -Target cordite-editor -- --scene samples/showcase/showcase.scene.json
+./scripts/dev.ps1 run -Target cordite-editor -- --headless --validation --scene samples/showcase/showcase.scene.json --exec tests/data/editor-smoke.json --frames 3 --screenshot out.png
 ```
 
 `dev.ps1` loads the MSVC environment itself, so it works from any shell. It requires
@@ -89,11 +90,13 @@ in that configuration.
 ```
 cmake/                 Build helpers: dependencies, compiler options, module/test macros
 engine/cordite/<mod>/  Engine modules (static libraries), one directory each
-editor/                The cordite-editor executable
-shaders/               Engine shader sources (Slang): common/ is shared code, passes/ one file per pass
+editor/                The cordite-editor executable (a thin main around the editor module)
+shaders/               Engine shader sources (Slang): common/ is shared code, passes/ one file per pass, ui/ the interface
+samples/showcase/      The scene that uses every feature of the engine; tests keep it complete
 tests/support/         Test entry point and fixtures
 tests/unit/<mod>/      Unit tests, mirroring engine/cordite/<mod>
 tests/render/          Tests that need a GPU, and their reference images
+tests/data/            Input files for tests, such as editor command scripts
 scripts/               Developer tooling (bootstrap, dev, hash-url)
 docs/                  Architecture notes and the third-party list
 .claude/skills/        Step-by-step guides for recurring tasks
@@ -113,18 +116,21 @@ by accident.
 
 | Module | Depends on | Contains |
 |--------|-----------|----------|
-| `core` | -         | Logging, assertions, `Result`, hashing, UUIDs, JSON, binary streams, file I/O, config, job system, allocators, timing |
-| `math` | `core`    | glm aliases, `Transform`, bounds, rays, frustum, projections, color, curves, random |
+| `core` | -         | Logging, assertions, `Result`, hashing, UUIDs, JSON, reflection, binary streams, file I/O, config, job system, allocators, timing |
+| `math` | `core`    | glm aliases, `Transform`, bounds, rays, frustum, projections, color, curves, random, reflection of math types |
 | `platform` | `core`, `math` | Windows (GLFW), keyboard / mouse / gamepad input |
 | `assets` | `core`, `math` | CPU-side asset data: images, image comparison |
+| `world` | `core`, `math` | Entities, components and their hierarchy (EnTT), the component registry, scene files |
 | `rhi` | `core`, `math`, `platform` | Vulkan device, swapchain and texture readback over NVRHI |
 | `shaders` | `core` | Shader requests and permutation keys, disk cache, `ShaderLibrary` |
 | `shader_compiler` | `core`, `shaders` | Slang to SPIR-V compiler (not linked into exported games) |
-| `renderer` | `core`, `math`, `rhi`, `shaders` | Render passes and GPU shader management |
-| `engine` | all of the above | `Engine`: owns the subsystems and runs the frame loop |
+| `renderer` | `core`, `math`, `world`, `rhi`, `shaders` | Render passes, render targets, camera views, debug line drawing, GPU shader management |
+| `ui` | `core`, `math`, `platform`, `rhi`, `shaders`, `renderer` | The immediate-mode interface: the Dear ImGui context and its NVRHI renderer |
+| `engine` | all of the above | `Engine`: owns the subsystems, the world and the interface, and runs the frame loop |
+| `editor` | `engine` and below | The editor: the scene document, undoable actions, commands, panels, `EditorApp` (not linked into exported games) |
 
-`cordite-editor` (in `editor/`) is a thin executable around `Engine`. Run it headless
-for automation: `cordite-editor --headless --frames 10 --screenshot out.png`.
+`cordite-editor` (in `editor/`) is a thin `main` around `EditorApp`. Everything else,
+including what tests need to drive the editor, is in the `editor` module.
 
 Rules that keep the architecture honest:
 
@@ -244,9 +250,16 @@ Vulkan directly. Step-by-step guide for adding a pass:
 - **Shaders are Slang**, in `shaders/`. Matrices are column-major (`mul(matrix, vector)`
   matches glm's `matrix * vector`). Resources use HLSL registers with NVRHI's default
   Vulkan offsets: `tN` -> N, `sN` -> 128 + N, `bN` -> 256 + N, `uN` -> 384 + N.
-- **A C++ struct that mirrors a shader constant buffer** uses only 16-byte-aligned
-  groups (`Vec4`, or `Vec2` + two floats, ...), is named after the `cbuffer`, and has a
-  `static_assert` on its size.
+- **A C++ struct that mirrors a shader constant buffer** is named after the `cbuffer`,
+  has a `static_assert` on its size, and is laid out so that every packing rule agrees
+  on it: fill each 16 bytes exactly with a `Vec4`, a `Vec3` followed by one float, or a
+  `Vec2` and two floats, and pad with scalar floats. Never end on a `float3`; HLSL and
+  std140 place it differently.
+- **Debug lines and the interface are drawn in display colors** (sRGB-encoded) onto the
+  finished image, after tone mapping. Everything before that is linear.
+- **A texture shown in the interface** (`ImGui::Image`) must stay alive until the
+  frame's interface has been rendered: ImGui only remembers a pointer. Replace such a
+  texture before the widget that shows it, never after.
 - **Shader permutations** are `ShaderRequest`s: path, entry point, stage and sorted
   defines. Their key is deterministic and pinned by a test; changing how it is computed
   orphans every shader cache. Every engine shader entry point is listed in
@@ -258,6 +271,73 @@ Vulkan directly. Step-by-step guide for adding a pass:
   sensible `initialState`, and NVRHI inserts every barrier. Do not transition swapchain
   images yourself; they may only change layout while acquired.
 
+## Scene and components
+
+Step-by-step guide for adding a component: [add-component](.claude/skills/add-component/SKILL.md).
+
+- **Components are plain data.** An entity is an id in a `World`; everything else about
+  it is in components: structs without behavior, declared in the module that owns the
+  data. Systems live in their own modules and read the components they care about.
+  A component never knows which systems use it.
+- **Every component is described once**, with `TypeBuilder` (`core/Reflection.h`), and
+  registered by its module's `register...Components` function, which
+  `registerEngineComponents` calls. That one description drives scene files, the editor
+  inspector, undo and the automation API. A field that is not described cannot be saved
+  or edited; describe every field, with a `description` and, for numbers, a range.
+- **JSON never reaches an object unchecked.** `TypeInfo::parse` (saved data) and
+  `TypeInfo::parseEdit` (a change by a person, a script or an agent) validate first and
+  return a `PropertyPatch`; applying a patch cannot fail. Code that changes several
+  things validates all of them before it applies any, so a failure changes nothing.
+- **Property attributes mean something:** ranges are enforced on every write;
+  `readOnly` properties are saved and loaded but refused as edits; `transient`
+  properties are runtime state and never saved.
+- **Refer to entities by `Uuid`** across frames, saves and undo. `Entity` handles die
+  with their entity, and references to components are invalidated when any entity is
+  destroyed. Hold the `Entity`, fetch the component again.
+- **Change the hierarchy only through `World`** (`createEntity`, `destroyEntity`,
+  `setParent`); iterate components through `world.registry()`.
+- **Include EnTT only through `cordite/world/Entt.h`**, which configures it identically
+  everywhere. The `module_layering` test rejects a direct `<entt/...>` include.
+- **Files do not churn.** Loading a scene and saving it again produces the same bytes.
+  Floats written to a file go through `jsonFromFloat`; nothing is "improved" on load.
+- **Scene loading is strict.** An unknown component, property or member is an error
+  that names the entity, not something to skip.
+- **The showcase scene uses everything.** `samples/showcase/showcase.scene.json` must
+  contain every component type and every named option; the `samples` test fails
+  otherwise. Adding a feature includes showing it there.
+
+## Editor and automation
+
+Step-by-step guide for scripting the editor and adding commands:
+[editor-automation](.claude/skills/editor-automation/SKILL.md).
+
+The editor is layered so that it can be driven without a person:
+
+```
+EditorContext    the document: world, selection, undo history, scene file
+EditorActions    every edit, validated and undoable
+EditorCommands   the same edits by name, with JSON parameters and results
+panels, EditorApp    the interface, built on the three layers above
+```
+
+- **Every edit goes through `EditorActions`.** Panels and commands never change the
+  world directly, so everything is undoable and nothing exists only in the interface.
+- **Everything a person can do is a command.** A new editor feature is an action, a
+  command and their tests first, and interface second. `editor.commands` returns the
+  catalogue an agent reads, so every command and parameter needs a real description
+  (a test rejects empty ones).
+- **History entries hold ids and validated patches**, never `Entity` handles, component
+  pointers or references into the world.
+- **Commands run between frames.** A command may render frames itself (screenshots);
+  lines typed in the console are queued and run before the next frame for that reason.
+- **Batch mode is the test and agent entry point:** `cordite-editor --headless --scene
+  S --exec script.json --frames N --screenshot out.png`. Exit status: 0 success, 1
+  could not run, 2 GPU validation issues, 3 a script step failed. The script's outcome
+  goes to standard output as JSON, logs to standard error.
+- **The interface is Dear ImGui**, reached through the `ui` module. It runs without a
+  window too, with the pointer fed from `Engine::input()`, so interface code is covered
+  by headless tests.
+
 ## Testing
 
 Framework: doctest. One executable per module (`cordite_<module>_tests`), registered
@@ -266,6 +346,9 @@ with CTest under the module name. See the skills
 [render-tests](.claude/skills/render-tests/SKILL.md).
 
 - Test files are named `<Thing>Tests.cpp` and live in `tests/unit/<module>/`.
+- Three suites are not tied to one module: `samples` keeps the showcase scene loading
+  and complete, `editor_smoke` runs the real editor executable with a command script,
+  and `module_layering` checks the include rules.
 - Test case names are sentences describing behavior: `"an exhausted arena returns
   nullptr and stays usable"`.
 - Cover the normal path, the boundaries, and each documented failure. For parsers and
@@ -340,3 +423,12 @@ body explaining what changed and why. One logical change per commit.
   two values is not obvious at the call site.
 - Shell working directories persist between commands in agent sessions. Use absolute
   paths, or `cd` to the repository root at the start of every command.
+- EnTT is pinned to the 3.x line on purpose: 4.0 relies on C++20 syntax that MSVC 19.38
+  rejects. Check every supported compiler before moving to a new major version of a
+  header-only library.
+- Editor reference images show the whole interface, so any visible change to a panel
+  changes them. That is intended: look at the new image, then approve it (see the
+  render-tests skill). They are rendered with logging silenced; do not add anything to
+  the default layout that shows machine-specific text.
+- Agent tools that run shell commands can mangle a here-document that contains an odd
+  number of apostrophes. Write files with the file-writing tool instead of `cat <<EOF`.

@@ -15,7 +15,7 @@ Cordite is under active development. Milestones follow the brief:
 |---|-----------|-------|
 | 1 | Engine foundation: build system, core, math, tests, tooling | Done |
 | 2 | Window and renderer skeleton: GLFW, Vulkan via NVRHI, swapchain, Slang shaders | Done |
-| 3 | Scene and ECS | Planned |
+| 3 | Scene and ECS: entities, components, hierarchy, scene files, editor with viewport and command automation | Done |
 | 4 | Static mesh rendering | Planned |
 | 5 | Deferred G-buffer | Planned |
 | 6 | Lighting | Planned |
@@ -56,12 +56,42 @@ see [docs/third-party.md](docs/third-party.md).
 A Vulkan 1.3 capable GPU and driver are required.
 
 ```powershell
-./scripts/dev.ps1 run -Target cordite-editor
-./scripts/dev.ps1 run -Target cordite-editor -- --headless --frames 10 --screenshot frame.png
+./scripts/dev.ps1 run -Target cordite-editor -- --scene samples/showcase/showcase.scene.json
 ```
 
-The second form renders without a window and saves the last frame, which is how the
-automated tests and AI agents drive the engine. `--help` lists every option.
+![The editor showing the showcase scene](tests/render/references/editor-showcase-1280x720.png)
+
+The picture is one of the reference images the rendering tests compare against. Until
+the engine draws meshes (milestone 4), the viewport shows the grid, a marker for every
+entity and the view volumes of cameras.
+
+In the viewport, hold the right mouse button to look around and fly with W A S D, Q and
+E; hold the middle button to slide; turn the wheel to move forwards and backwards.
+
+## Automation
+
+Everything the editor can do is a named command that takes and returns JSON, and the
+editor runs without a window. A script is a list of commands:
+
+```json
+[
+    {"command": "entity.create", "params": {"name": "Eye", "components": {"Camera": {}}}},
+    {"command": "component.set", "params": {"entity": "Eye", "component": "Transform",
+                                            "properties": {"position": [0, 1.7, 4]}}},
+    {"command": "editor.screenshot", "params": {"path": "out/eye.png"}},
+    {"command": "scene.save", "params": {"path": "out/eye.scene.json"}}
+]
+```
+
+```powershell
+./scripts/dev.ps1 run -Target cordite-editor -- --headless --exec script.json
+```
+
+The outcome of every step is written to standard output as JSON, and the exit status
+says whether the script ran to the end. `editor.commands` lists every command with its
+parameters, and `component.types` describes every component and property; that is what
+an AI agent reads to find out what it can do. The same commands can be typed into the
+console panel of the interactive editor. `--help` lists every command-line option.
 
 ## Documentation
 
@@ -69,5 +99,9 @@ automated tests and AI agents drive the engine. `--help` lists every option.
   testing and review rules. Written for both people and AI agents.
 - [docs/architecture.md](docs/architecture.md) - module map, conventions and the
   reasoning behind the main design decisions.
+- [docs/third-party.md](docs/third-party.md) - every library the engine uses, with
+  versions and licenses.
+- [.claude/skills](.claude/skills) - step-by-step guides for recurring tasks: building
+  and testing, adding a component, a render pass, a dependency or an editor command.
 - Public APIs are documented in their headers under `engine/cordite/`, each with a
   usage example.

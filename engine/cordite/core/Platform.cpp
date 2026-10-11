@@ -9,6 +9,7 @@
 #include <vector>
 
 #if CORDITE_PLATFORM_WINDOWS
+#include <crtdbg.h>
 #include <windows.h>
 #elif CORDITE_PLATFORM_MACOS
 #include <mach-o/dyld.h>
@@ -56,6 +57,23 @@ bool isDebuggerPresent() {
     return IsDebuggerPresent() != FALSE;
 #else
     return false;
+#endif
+}
+
+void suppressErrorDialogs() {
+#if CORDITE_PLATFORM_WINDOWS
+    // Missing DLLs and crashes: fail the process instead of asking the user.
+    SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX);
+    // abort(): no message box, no error-reporting hand-off; just exit with its status.
+    _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
+#if defined(_DEBUG)
+    // The debug C runtime reports failed assert() calls and its own checks in a dialog
+    // with Abort/Retry/Ignore buttons. Send them to standard error instead.
+    for (const int reportType : {_CRT_WARN, _CRT_ERROR, _CRT_ASSERT}) {
+        _CrtSetReportMode(reportType, _CRTDBG_MODE_FILE);
+        _CrtSetReportFile(reportType, _CRTDBG_FILE_STDERR);
+    }
+#endif
 #endif
 }
 

@@ -2,8 +2,16 @@ cordite_add_module(renderer
     SOURCES
         BlitPass.cpp
         BlitPass.h
+        CameraView.cpp
+        CameraView.h
+        DebugDraw.cpp
+        DebugDraw.h
+        DebugLinePass.cpp
+        DebugLinePass.h
         FullscreenPass.cpp
         FullscreenPass.h
+        RenderTarget.cpp
+        RenderTarget.h
         ShaderManager.cpp
         ShaderManager.h
         TestPatternPass.cpp
@@ -11,5 +19,6 @@ cordite_add_module(renderer
     DEPENDS
         core
         math
+        world
         rhi
         shaders)

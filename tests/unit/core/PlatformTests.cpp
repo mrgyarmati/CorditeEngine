@@ -33,4 +33,10 @@ TEST_SUITE("Platform") {
     TEST_CASE("no debugger is attached during automated tests") {
         CHECK_FALSE(isDebuggerPresent());
     }
+
+    TEST_CASE("error dialogs can be suppressed any number of times") {
+        // The test harness has already done it; doing it again changes nothing.
+        CHECK_NOTHROW(suppressErrorDialogs());
+        CHECK_NOTHROW(suppressErrorDialogs());
+    }
 }

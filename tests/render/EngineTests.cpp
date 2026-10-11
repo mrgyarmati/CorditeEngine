@@ -124,14 +124,171 @@ TEST_SUITE("Engine") {
         {
             const std::unique_ptr<Engine> engine = createEngine(desc);
             runFrames(*engine, 1);
-            CHECK(engine->shaders().stats().compilations == 3);
+            // The fullscreen triangle, the test pattern, the blit and the two interface shaders.
+            CHECK(engine->shaders().stats().compilations == 5);
             CHECK(engine->shaders().stats().diskHits == 0);
         }
 
         const std::unique_ptr<Engine> engine = createEngine(desc);
         runFrames(*engine, 1);
         CHECK(engine->shaders().stats().compilations == 0);
-        CHECK(engine->shaders().stats().diskHits == 3);
+        CHECK(engine->shaders().stats().diskHits == 5);
+        checkNoValidationIssues(engine->graphics());
+    }
+
+    TEST_CASE("a program can drive the frame step by step") {
+        const std::unique_ptr<Engine> engine = createEngine(headlessDesc());
+        CHECK_FALSE(engine->isFrameOpen());
+        CHECK(engine->frameTarget().size() == UVec2(320, 180));
+
+        REQUIRE(test::unwrap(engine->beginFrame()));
+        CHECK(engine->isFrameOpen());
+        CHECK(engine->deltaSeconds() == doctest::Approx(1.0f / 60.0f));
+        CHECK(engine->commandList() != nullptr);
+        // Counters advance when the frame ends, not when it begins.
+        CHECK(engine->frameIndex() == 0);
+        CHECK(engine->timeSeconds() == 0.0);
+
+        engine->drawTestPattern();
+        REQUIRE(engine->endFrame().has_value());
+        CHECK_FALSE(engine->isFrameOpen());
+        CHECK(engine->frameIndex() == 1);
+        CHECK(engine->timeSeconds() == doctest::Approx(1.0 / 60.0));
+
+        // The frame holds the test pattern: at time zero its bar is on the left edge.
+        CHECK(test::unwrap(engine->captureFrame()).pixel(0, 90).b > 0.5f);
+        checkNoValidationIssues(engine->graphics());
+    }
+
+    TEST_CASE("a frame nobody draws into is cleared") {
+        const std::unique_ptr<Engine> engine = createEngine(headlessDesc(UVec2(64, 64)));
+        runFrames(*engine, 1);
+
+        REQUIRE(test::unwrap(engine->beginFrame()));
+        REQUIRE(engine->endFrame().has_value());
+
+        // Nothing of the test pattern drawn by the frame before is left.
+        const Image frame = test::unwrap(engine->captureFrame());
+        for (const UVec2 pixel : {UVec2(0, 0), UVec2(32, 32), UVec2(63, 63)}) {
+            const Vec4 color = frame.pixel(pixel.x, pixel.y);
+            CHECK(color.r == 0.0f);
+            CHECK(color.g == 0.0f);
+            CHECK(color.b == 0.0f);
+            CHECK(color.a == 1.0f);
+        }
+        checkNoValidationIssues(engine->graphics());
+    }
+
+    TEST_CASE("the interface is drawn on top of the frame") {
+        const std::unique_ptr<Engine> engine = createEngine(headlessDesc());
+
+        for (int frame = 0; frame < 3; ++frame) {
+            REQUIRE(test::unwrap(engine->beginFrame()));
+            engine->drawTestPattern();
+            ImGui::SetNextWindowPos(ImVec2(100.0f, 40.0f), ImGuiCond_Always);
+            ImGui::SetNextWindowSize(ImVec2(120.0f, 100.0f), ImGuiCond_Always);
+            ImGui::Begin("Overlay", nullptr, ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoTitleBar);
+            ImGui::End();
+            REQUIRE(engine->endFrame().has_value());
+        }
+        const Image withInterface = test::unwrap(engine->captureFrame());
+
+        // Inside the window its dark background covers the pattern; outside, the pattern shows.
+        const Vec4 inside = withInterface.pixel(160, 90);
+        CHECK(inside.r < 0.25f);
+        CHECK(inside.g < 0.25f);
+        CHECK(inside.b < 0.25f);
+        const Vec4 outside = withInterface.pixel(20, 150);
+        CHECK(outside.r + outside.g + outside.b > inside.r + inside.g + inside.b);
+        checkNoValidationIssues(engine->graphics());
+    }
+
+    TEST_CASE("input injected between frames is seen by the next frame and by the interface") {
+        const std::unique_ptr<Engine> engine = createEngine(headlessDesc());
+        Input& input = engine->input();
+
+        int clicks = 0;
+        const auto frame = [&] {
+            REQUIRE(test::unwrap(engine->beginFrame()));
+            ImGui::SetNextWindowPos(ImVec2(0.0f, 0.0f), ImGuiCond_Always);
+            ImGui::SetNextWindowSize(ImVec2(200.0f, 100.0f), ImGuiCond_Always);
+            ImGui::Begin("Clickable", nullptr, ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoTitleBar);
+            ImGui::SetCursorPos(ImVec2(10.0f, 10.0f));
+            clicks += ImGui::Button("Go", ImVec2(100.0f, 40.0f)) ? 1 : 0;
+            ImGui::End();
+            REQUIRE(engine->endFrame().has_value());
+        };
+
+        input.injectKey(Key::Space, true);
+        REQUIRE(test::unwrap(engine->beginFrame()));
+        CHECK(input.wasKeyPressed(Key::Space));
+        CHECK(input.isKeyDown(Key::Space));
+        REQUIRE(engine->endFrame().has_value());
+
+        // The press belonged to that frame only; the key itself is still held.
+        REQUIRE(test::unwrap(engine->beginFrame()));
+        CHECK_FALSE(input.wasKeyPressed(Key::Space));
+        CHECK(input.isKeyDown(Key::Space));
+        REQUIRE(engine->endFrame().has_value());
+
+        input.injectMouseMove(Vec2(60.0f, 30.0f));
+        frame();
+        frame();
+        input.injectMouseButton(MouseButton::Left, true);
+        frame();
+        CHECK(clicks == 0);
+        input.injectMouseButton(MouseButton::Left, false);
+        frame();
+        CHECK(clicks == 1);
+        checkNoValidationIssues(engine->graphics());
+    }
+
+    TEST_CASE("the engine owns a world with the built-in components registered") {
+        const std::unique_ptr<Engine> engine = createEngine(headlessDesc());
+        CHECK(engine->components().find("Transform") != nullptr);
+        CHECK(engine->components().find("Camera") != nullptr);
+        CHECK(engine->world().entityCount() == 0);
+
+        const Entity parent = engine->world().createEntity("Parent");
+        const Entity child = engine->world().createEntity("Child");
+        REQUIRE(engine->world().setParent(child, parent).has_value());
+        engine->world().transform(parent).position = Vec3(1.0f, 2.0f, 3.0f);
+
+        // runFrame() brings the world transforms up to date.
+        runFrames(*engine, 1);
+        CHECK(engine->world().isValid(child));
+        CHECK(Vec3(engine->world().worldMatrix(child)[3]) == Vec3(1.0f, 2.0f, 3.0f));
+    }
+
+    TEST_CASE("frames must be begun and ended in pairs") {
+        const std::unique_ptr<Engine> engine = createEngine(headlessDesc());
+#if defined(CORDITE_ENABLE_ASSERTS)
+        CHECK_THROWS_AS((void)engine->endFrame(), test::AssertionFailure);
+        REQUIRE(test::unwrap(engine->beginFrame()));
+        CHECK_THROWS_AS((void)engine->beginFrame(), test::AssertionFailure);
+#else
+        const Status unopened = engine->endFrame();
+        REQUIRE_FALSE(unopened.has_value());
+        CHECK(unopened.error().code == ErrorCode::InvalidState);
+        REQUIRE(test::unwrap(engine->beginFrame()));
+        CHECK_FALSE(engine->beginFrame().has_value());
+#endif
+        // The frame that was properly begun can still be finished.
+        CHECK(engine->endFrame().has_value());
+        CHECK(engine->frameIndex() == 1);
+        checkNoValidationIssues(engine->graphics());
+    }
+
+    TEST_CASE("an engine destroyed in the middle of a frame shuts down cleanly") {
+        {
+            const std::unique_ptr<Engine> engine = createEngine(headlessDesc());
+            REQUIRE(test::unwrap(engine->beginFrame()));
+            engine->drawTestPattern();
+            ImGui::Begin("Unfinished");
+            ImGui::End();
+        }
+        const std::unique_ptr<Engine> engine = createEngine(headlessDesc());
+        runFrames(*engine, 1);
         checkNoValidationIssues(engine->graphics());
     }
 

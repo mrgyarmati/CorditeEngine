@@ -1,0 +1,17 @@
+cordite_add_module(world
+    SOURCES
+        ComponentRegistry.cpp
+        ComponentRegistry.h
+        Components.cpp
+        Components.h
+        Entity.h
+        Entt.h
+        SceneSerializer.cpp
+        SceneSerializer.h
+        World.cpp
+        World.h
+    DEPENDS
+        core
+        math
+    PUBLIC_LIBRARIES
+        EnTT::EnTT)

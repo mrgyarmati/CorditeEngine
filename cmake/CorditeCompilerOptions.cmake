@@ -6,12 +6,19 @@ add_library(cordite::build_options ALIAS cordite_build_options)
 
 target_compile_features(cordite_build_options INTERFACE cxx_std_20)
 
+# The definitions that say which kind of build this is. They live in a target of their
+# own because third-party libraries that are configured to assert through the engine
+# (Dear ImGui) need exactly these and none of our warning flags.
+#
 # CORDITE_ENABLE_ASSERTS stays on in RelWithDebInfo, the day-to-day development
 # configuration. Release is the shipping configuration used for exported games.
-target_compile_definitions(cordite_build_options INTERFACE
+add_library(cordite_build_configuration INTERFACE)
+add_library(cordite::build_configuration ALIAS cordite_build_configuration)
+target_compile_definitions(cordite_build_configuration INTERFACE
     $<$<CONFIG:Debug>:CORDITE_DEBUG=1>
     $<$<NOT:$<CONFIG:Release>>:CORDITE_ENABLE_ASSERTS=1>
     $<$<CONFIG:Release>:CORDITE_SHIPPING=1>)
+target_link_libraries(cordite_build_options INTERFACE cordite::build_configuration)
 
 if(WIN32)
     target_compile_definitions(cordite_build_options INTERFACE

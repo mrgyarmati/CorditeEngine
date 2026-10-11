@@ -144,9 +144,24 @@ cordite_dependency_option(CLI11_BUILD_DOCS OFF)
 cordite_dependency_option(CLI11_INSTALL OFF)
 cordite_dependency_option(CLI11_PRECOMPILED OFF)
 
+# --- EnTT: entity-component-system storage ----------------------------------------------
+cordite_declare_dependency(entt
+    URL https://github.com/skypjack/entt/archive/refs/tags/v3.16.0.tar.gz
+    SHA256 7d7b4037b737992342049ffab14f22fa10243e01664f8c3a0657aa247ac52f71)
+cordite_dependency_option(ENTT_BUILD_TESTING OFF)
+cordite_dependency_option(ENTT_BUILD_DOCS OFF)
+cordite_dependency_option(ENTT_INSTALL OFF)
+
+# --- Dear ImGui: immediate-mode user interface (docking branch) -------------------------
+# Has no CMake project; the cordite_imgui target below compiles the parts we use.
+cordite_declare_dependency(imgui
+    URL https://github.com/ocornut/imgui/archive/refs/tags/v1.92.9b-docking.tar.gz
+    SHA256 90ded916bd57db2e0e171b6b098940a47c6f5042725dcdc67fb19940ca8bfdcc
+    SOURCES_ONLY)
+
 FetchContent_MakeAvailable(
     fmt spdlog nlohmann_json tl_expected enkits xxhash glm
-    glfw vulkan_headers nvrhi stb cli11)
+    glfw vulkan_headers nvrhi stb cli11 entt imgui)
 
 add_library(cordite_xxhash INTERFACE)
 add_library(cordite::xxhash ALIAS cordite_xxhash)
@@ -155,6 +170,28 @@ target_include_directories(cordite_xxhash SYSTEM INTERFACE "${xxhash_SOURCE_DIR}
 add_library(cordite_stb INTERFACE)
 add_library(cordite::stb ALIAS cordite_stb)
 target_include_directories(cordite_stb SYSTEM INTERFACE "${stb_SOURCE_DIR}")
+
+# Dear ImGui is configured through engine/cordite/ui/ImGuiConfig.h, which every file that
+# includes imgui.h picks up through IMGUI_USER_CONFIG - ImGui's own sources included.
+# That header routes ImGui's assertions into the engine's, hence the link to core.
+add_library(cordite_imgui STATIC
+    "${imgui_SOURCE_DIR}/imgui.cpp"
+    "${imgui_SOURCE_DIR}/imgui_demo.cpp"
+    "${imgui_SOURCE_DIR}/imgui_draw.cpp"
+    "${imgui_SOURCE_DIR}/imgui_tables.cpp"
+    "${imgui_SOURCE_DIR}/imgui_widgets.cpp"
+    "${imgui_SOURCE_DIR}/misc/cpp/imgui_stdlib.cpp"
+    "${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp")
+add_library(cordite::imgui ALIAS cordite_imgui)
+target_compile_features(cordite_imgui PUBLIC cxx_std_20)
+target_include_directories(cordite_imgui SYSTEM PUBLIC "${imgui_SOURCE_DIR}")
+target_include_directories(cordite_imgui PUBLIC "${PROJECT_SOURCE_DIR}/engine")
+target_compile_definitions(cordite_imgui PUBLIC IMGUI_USER_CONFIG="cordite/ui/ImGuiConfig.h")
+# The GLFW backend loads X11 with dlopen() on Linux.
+target_link_libraries(cordite_imgui
+    PUBLIC cordite::build_configuration
+    PRIVATE glfw $<LINK_ONLY:cordite::core> ${CMAKE_DL_LIBS})
+set_target_properties(cordite_imgui PROPERTIES FOLDER "ThirdParty")
 
 # --- Slang: shader compiler -------------------------------------------------------------
 # Used as the official prebuilt release: building Slang from source takes far longer than

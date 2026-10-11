@@ -22,6 +22,23 @@ std::filesystem::path executableDirectory();
 /// way to tell (Linux, macOS).
 bool isDebuggerPresent();
 
+/// Makes fatal errors end the process instead of opening a dialog that waits for a
+/// click: failed C runtime assertions, abort(), crashes and missing libraries are
+/// reported on standard error and through the exit status. Call it first thing in any
+/// program that runs unattended - tests, batch tools, the editor in headless mode -
+/// where a dialog would hang the run until it times out. Does nothing on platforms that
+/// have no such dialogs.
+///
+/// @code
+/// int main(int argc, char** argv) {
+///     if (runsUnattended(argc, argv)) {
+///         cordite::suppressErrorDialogs();
+///     }
+///     ...
+/// }
+/// @endcode
+void suppressErrorDialogs();
+
 /// Returns the value of an environment variable, or nullopt when it is not set.
 std::optional<std::string> environmentVariable(std::string_view name);
 

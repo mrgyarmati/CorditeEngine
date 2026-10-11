@@ -59,6 +59,23 @@ TEST_SUITE("MathJson") {
         CHECK(zero.error().code == ErrorCode::ParseError);
     }
 
+    TEST_CASE("unit quaternions and vectors are read back bit for bit") {
+        // Saving, loading and saving again must not change a file, so nothing may be
+        // "improved" on the way in.
+        for (const float degrees : {1.0f, 30.0f, 77.7f, 123.4f, 179.0f}) {
+            CAPTURE(degrees);
+            const Quat rotation = glm::angleAxis(toRadians(degrees), glm::normalize(Vec3(0.3f, -0.8f, 0.5f)));
+            Quat parsed = kIdentityQuat;
+            REQUIRE(fromJson(*parseJson(dumpJson(toJson(rotation))), parsed).has_value());
+            CHECK(parsed == rotation);
+        }
+
+        const Vec3 position(0.1f, -1234.5678f, 1.0f / 3.0f);
+        Vec3 parsedPosition(0.0f);
+        REQUIRE(fromJson(*parseJson(dumpJson(toJson(position))), parsedPosition).has_value());
+        CHECK(parsedPosition == position);
+    }
+
     TEST_CASE("malformed vectors are rejected and leave the output untouched") {
         Vec3 value(7.0f, 8.0f, 9.0f);
 

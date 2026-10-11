@@ -66,6 +66,15 @@ RenderContext::~RenderContext() {
     graphics.reset();
 }
 
+void recordAndExecute(RenderContext& context, const std::function<void(nvrhi::ICommandList*)>& record) {
+    const nvrhi::CommandListHandle commandList = context.device()->createCommandList();
+    REQUIRE(commandList);
+    commandList->open();
+    record(commandList);
+    commandList->close();
+    context.device()->executeCommandList(commandList);
+}
+
 nvrhi::TextureHandle createColorTarget(nvrhi::IDevice* device, uint32_t width, uint32_t height, nvrhi::Format format) {
     nvrhi::TextureDesc desc;
     desc.width = width;

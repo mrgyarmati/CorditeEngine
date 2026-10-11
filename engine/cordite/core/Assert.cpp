@@ -1,5 +1,6 @@
 #include "cordite/core/Assert.h"
 
+#include "cordite/core/ExternalAssert.h"
 #include "cordite/core/Log.h"
 #include "cordite/core/Platform.h"
 
@@ -37,6 +38,10 @@ namespace detail {
 void reportAssertionFailure(std::string_view expression, std::string_view file, int line, std::string_view message) {
     const AssertionInfo info{expression, file, line, message};
     g_assertionHandler.load()(info);
+}
+
+void reportExternalAssertionFailure(const char* expression, const char* file, int line) {
+    reportAssertionFailure(expression != nullptr ? expression : "", file != nullptr ? file : "", line, {});
 }
 
 } // namespace detail

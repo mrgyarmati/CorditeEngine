@@ -1,7 +1,8 @@
-# Fails when an engine module includes a header from a module it does not depend on.
+# Fails when an engine module includes a header from a module it does not depend on, or
+# when any source reaches a wrapped third-party library around its wrapper.
 #
 # Usage:
-#   cmake -DENGINE_DIR=<repo>/engine/cordite
+#   cmake -DREPOSITORY_DIR=<repo>
 #         -DDEPENDENCY_TABLE="core=|math=core|platform=core,math"
 #         -P CheckModuleLayering.cmake
 #
@@ -10,9 +11,16 @@
 
 cmake_minimum_required(VERSION 3.28)
 
-if(NOT DEFINED ENGINE_DIR OR NOT DEFINED DEPENDENCY_TABLE)
-    message(FATAL_ERROR "ENGINE_DIR and DEPENDENCY_TABLE must be defined.")
+if(NOT DEFINED REPOSITORY_DIR OR NOT DEFINED DEPENDENCY_TABLE)
+    message(FATAL_ERROR "REPOSITORY_DIR and DEPENDENCY_TABLE must be defined.")
 endif()
+set(ENGINE_DIR "${REPOSITORY_DIR}/engine/cordite")
+
+# Third-party libraries that are configured through macros and therefore must be seen
+# identically by every translation unit. Each entry is "<include prefix>|<the one file
+# allowed to include it>"; everything else includes that file.
+set(WRAPPED_LIBRARIES
+    "entt/|engine/cordite/world/Entt.h")
 
 string(REPLACE "|" ";" entries "${DEPENDENCY_TABLE}")
 
@@ -74,9 +82,30 @@ foreach(directory IN LISTS module_directories)
     endif()
 endforeach()
 
+file(GLOB_RECURSE all_sources
+    "${REPOSITORY_DIR}/engine/*.h" "${REPOSITORY_DIR}/engine/*.cpp" "${REPOSITORY_DIR}/engine/*.inl"
+    "${REPOSITORY_DIR}/editor/*.h" "${REPOSITORY_DIR}/editor/*.cpp"
+    "${REPOSITORY_DIR}/runtime/*.h" "${REPOSITORY_DIR}/runtime/*.cpp"
+    "${REPOSITORY_DIR}/tests/*.h" "${REPOSITORY_DIR}/tests/*.cpp")
+foreach(entry IN LISTS WRAPPED_LIBRARIES)
+    string(REPLACE "|" ";" entry "${entry}")
+    list(GET entry 0 prefix)
+    list(GET entry 1 wrapper)
+    foreach(source IN LISTS all_sources)
+        file(RELATIVE_PATH relative "${REPOSITORY_DIR}" "${source}")
+        if(relative STREQUAL wrapper)
+            continue()
+        endif()
+        file(STRINGS "${source}" direct_includes REGEX "^[ \t]*#[ \t]*include[ \t]*[\"<]${prefix}")
+        if(direct_includes)
+            string(APPEND violations "  ${relative}: includes <${prefix}...> directly; include ${wrapper} instead\n")
+        endif()
+    endforeach()
+endforeach()
+
 if(violations)
     message(FATAL_ERROR "Module layering violations:\n${violations}"
-        "Declare the dependency in the module's CMakeLists.txt, or move the code.")
+        "Declare the dependency in the module's CMakeLists.txt, use the wrapper header, or move the code.")
 endif()
 
 list(LENGTH modules module_count)

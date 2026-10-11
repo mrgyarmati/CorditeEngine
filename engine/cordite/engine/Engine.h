@@ -3,33 +3,51 @@
 /// @file
 /// The engine instance: owns every subsystem and runs the frame loop.
 ///
-/// The editor and the game runtime are both thin programs around an Engine.
+/// The editor and the game runtime are both thin programs around an Engine. A frame is
+/// bracketed by beginFrame() and endFrame(); in between, the program updates the world,
+/// renders into the frame target and describes its user interface:
 ///
 /// @code
 /// EngineDesc desc;
 /// desc.applicationName = "My Game";
 /// CORDITE_TRY_ASSIGN(auto engine, Engine::create(desc));
+///
 /// while (true) {
-///     CORDITE_TRY_ASSIGN(const bool keepRunning, engine->runFrame());
+///     CORDITE_TRY_ASSIGN(const bool keepRunning, engine->beginFrame());
 ///     if (!keepRunning) {
 ///         break;
 ///     }
+///     updateGame(engine->world(), engine->deltaSeconds());
+///     engine->world().updateWorldTransforms();
+///     engine->drawTestPattern();                        // or any passes on engine->commandList()
+///     ImGui::Text("frame %llu", engine->frameIndex());  // the interface is drawn on top
+///     CORDITE_TRY(engine->endFrame());
 /// }
 /// @endcode
 ///
+/// A program with nothing of its own to draw calls runFrame(), which does all of that.
+///
 /// Only one Engine can exist in a process at a time, because it owns the window system.
 ///
-/// A headless engine has no window and no swapchain and renders to an offscreen target.
-/// It behaves identically otherwise, which is what the rendering tests and the editor's
-/// automation mode rely on.
+/// A headless engine has no window and no swapchain. It renders to the same offscreen
+/// frame target and takes its input from what is injected into input(), so it behaves
+/// identically otherwise; the rendering tests and the editor's automation mode rely on it.
 
 #include "cordite/assets/Image.h"
 #include "cordite/core/Base.h"
 #include "cordite/core/Result.h"
 #include "cordite/math/Math.h"
+#include "cordite/platform/Input.h"
 #include "cordite/platform/Window.h"
+#include "cordite/renderer/RenderTarget.h"
+#include "cordite/renderer/ShaderManager.h"
 #include "cordite/rhi/GraphicsDevice.h"
 #include "cordite/shaders/ShaderLibrary.h"
+#include "cordite/ui/UiSystem.h"
+#include "cordite/world/ComponentRegistry.h"
+#include "cordite/world/World.h"
+
+#include <nvrhi/nvrhi.h>
 
 #include <cstdint>
 #include <filesystem>
@@ -45,8 +63,8 @@ struct EngineDesc {
     bool headless = false;
     WindowDesc window;
 
-    /// Size of the offscreen render target in headless mode. With a window, the render
-    /// target follows the window's framebuffer size instead.
+    /// Size of the frame target in headless mode. With a window, the frame target
+    /// follows the window's framebuffer size instead.
     UVec2 renderSize{1280, 720};
 
     bool vsync = true;
@@ -64,6 +82,10 @@ struct EngineDesc {
     /// Directory for derived data such as the shader cache. Empty keeps it in memory.
     std::filesystem::path cacheDirectory;
 
+    /// File in which the user interface remembers its layout. See
+    /// UiSystemDesc::settingsFile.
+    std::filesystem::path uiSettingsFile;
+
     /// Advance time by exactly this many seconds per frame instead of measuring it.
     /// Zero uses the real clock. Tests and frame captures set it so that every run
     /// produces the same frames.
@@ -76,30 +98,70 @@ public:
     ~Engine();
     CORDITE_NON_MOVABLE(Engine);
 
-    /// Runs one frame: processes input, renders and presents. Returns false once the
-    /// application should exit (the window was closed or requestExit() was called).
+    /// Starts a frame: delivers window events, advances the clock, clears the frame
+    /// target and begins the interface frame. Returns false once the application should
+    /// exit (the window was closed or requestExit() was called); the frame has not been
+    /// started then, and endFrame() must not be called.
+    [[nodiscard]] Result<bool> beginFrame();
+
+    /// Finishes the frame: draws the interface over the frame target, shows the result
+    /// in the window if there is one, and advances frameIndex() and timeSeconds().
+    [[nodiscard]] Status endFrame();
+
+    /// True between a beginFrame() that returned true and the matching endFrame().
+    [[nodiscard]] bool isFrameOpen() const;
+
+    /// Fills the frame target with the diagnostic test pattern. Only during a frame. It
+    /// is what the engine shows while it has nothing else to draw.
+    void drawTestPattern();
+
+    /// Runs a whole frame for a program that draws nothing itself: beginFrame(), world
+    /// transform update, the test pattern, endFrame(). Returns what beginFrame() returned.
     [[nodiscard]] Result<bool> runFrame();
 
-    /// Makes the next runFrame() return false.
+    /// Makes the next beginFrame() return false.
     void requestExit();
 
-    /// Copies the most recently rendered frame to the CPU as an Rgba8 image.
+    /// Copies the most recently finished frame to the CPU as an Rgba8 image.
     [[nodiscard]] Result<Image> captureFrame();
 
-    /// Number of frames rendered so far.
+    /// Number of frames finished so far.
     [[nodiscard]] uint64_t frameIndex() const;
 
-    /// Seconds of engine time elapsed, as advanced by runFrame().
+    /// Seconds of engine time elapsed up to the start of the current frame.
     [[nodiscard]] double timeSeconds() const;
 
-    /// Size in pixels of the frame being rendered.
+    /// Seconds the current frame advances time by: `fixedTimeStep` if set, otherwise the
+    /// measured duration of the previous frame, capped so that a pause does not turn
+    /// into a jump.
+    [[nodiscard]] float deltaSeconds() const;
+
+    /// Size in pixels of the frame target.
     [[nodiscard]] UVec2 renderSize() const;
+
+    /// Where the frame is rendered before it is shown: an 8-bit target that holds
+    /// display-ready colors. The interface is drawn onto it in endFrame().
+    [[nodiscard]] const RenderTarget& frameTarget() const;
+
+    /// The command list every pass of the frame records into. Open only during a frame.
+    [[nodiscard]] nvrhi::ICommandList* commandList();
 
     /// Null in headless mode.
     [[nodiscard]] Window* window();
 
+    /// The keyboard, pointer and gamepads: the window's, or in headless mode a stand-in
+    /// that only ever reports what is injected into it. Inject between frames; the next
+    /// frame sees it.
+    [[nodiscard]] Input& input();
+
+    /// The scene, and the component types that scene files and tools know by name.
+    [[nodiscard]] World& world();
+    [[nodiscard]] ComponentRegistry& components();
+
     [[nodiscard]] GraphicsDevice& graphics();
     [[nodiscard]] ShaderLibrary& shaders();
+    [[nodiscard]] ShaderManager& shaderManager();
+    [[nodiscard]] UiSystem& ui();
 
 private:
     struct Impl;

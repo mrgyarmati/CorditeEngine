@@ -2,7 +2,9 @@
 
 #include "support/TestSupport.h"
 
+#include <functional>
 #include <string>
+#include <tuple>
 
 using namespace cordite;
 
@@ -23,6 +25,25 @@ Status requirePositive(int value) {
 Result<int> doubled(int value) {
     CORDITE_TRY_ASSIGN(const int parsed, parsePositive(value));
     return parsed * 2;
+}
+
+Result<int> callWith(int value, const std::function<Result<int>(int)>& function) {
+    return function(value);
+}
+
+/// Uses the macros several times on one line and inside the argument of another macro,
+/// where every use is expanded as if it were on the same line.
+Result<int> sumOfThree(int first, int second, int third) {
+    // clang-format off
+    CORDITE_TRY_ASSIGN(const int a, parsePositive(first)); CORDITE_TRY_ASSIGN(const int b, parsePositive(second)); CORDITE_TRY(parsePositive(third));
+    // clang-format on
+    CORDITE_TRY_ASSIGN(const int c, callWith(third, [](int value) -> Result<int> {
+                           CORDITE_TRY(parsePositive(value));
+                           CORDITE_TRY_ASSIGN(const int inner, parsePositive(value));
+                           CORDITE_TRY_ASSIGN(const int again, parsePositive(inner));
+                           return again;
+                       }));
+    return a + b + c;
 }
 
 } // namespace
@@ -65,6 +86,19 @@ TEST_SUITE("Result") {
         const Result<int> failed = doubled(-1);
         REQUIRE_FALSE(failed.has_value());
         CHECK(failed.error().message == "-1 is not positive");
+    }
+
+    TEST_CASE("the macros can share a line and nest inside each other") {
+        const Result<int> sum = sumOfThree(1, 2, 3);
+        REQUIRE(sum.has_value());
+        CHECK(*sum == 6);
+
+        for (const auto& [first, second, third, culprit] :
+             {std::tuple{0, 2, 3, "0"}, std::tuple{1, -2, 3, "-2"}, std::tuple{1, 2, -3, "-3"}}) {
+            const Result<int> failed = sumOfThree(first, second, third);
+            REQUIRE_FALSE(failed.has_value());
+            CHECK(failed.error().message == std::string(culprit) + " is not positive");
+        }
     }
 
     TEST_CASE("every error code has a distinct name") {

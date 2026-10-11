@@ -1,0 +1,16 @@
+cordite_add_module(ui
+    SOURCES
+        ImGuiConfig.h
+        UiRenderer.cpp
+        UiRenderer.h
+        UiSystem.cpp
+        UiSystem.h
+    DEPENDS
+        core
+        math
+        platform
+        rhi
+        shaders
+        renderer
+    PUBLIC_LIBRARIES
+        cordite::imgui)

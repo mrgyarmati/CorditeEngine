@@ -1,11 +1,12 @@
 #include "cordite/engine/Engine.h"
 
+#include "cordite/core/Assert.h"
 #include "cordite/core/FileSystem.h"
 #include "cordite/core/Log.h"
 #include "cordite/core/Platform.h"
 #include "cordite/core/Time.h"
+#include "cordite/engine/EngineComponents.h"
 #include "cordite/renderer/BlitPass.h"
-#include "cordite/renderer/ShaderManager.h"
 #include "cordite/renderer/TestPatternPass.h"
 #include "cordite/rhi/Swapchain.h"
 #include "cordite/rhi/TextureReadback.h"
@@ -22,6 +23,10 @@ namespace {
 /// Largest frame time fed into the simulation. A longer pause (a breakpoint, a window
 /// drag) should not make everything jump ahead by seconds.
 constexpr double kMaxFrameSeconds = 0.25;
+
+/// How long a frame waits when the window is minimized and nothing can be shown, so
+/// that the loop does not spin at full speed.
+constexpr std::chrono::milliseconds kMinimizedFrameDelay(10);
 
 Result<std::filesystem::path> locateShaderDirectory(const std::filesystem::path& requested) {
     if (!requested.empty()) {
@@ -54,7 +59,8 @@ struct Engine::Impl {
     EngineDesc desc;
 
     // Members are declared in dependency order; destruction runs in reverse, so GPU
-    // resources go before the device and the window before the window system.
+    // resources go before the device, and the interface and the window before the
+    // window system.
     std::unique_ptr<WindowSystem> windowSystem;
     std::unique_ptr<Window> window;
     std::unique_ptr<GraphicsDevice> graphics;
@@ -69,45 +75,26 @@ struct Engine::Impl {
 
     // The frame is rendered here first; the swapchain only receives a copy. This keeps
     // windowed and headless rendering identical and gives captureFrame() a stable source.
-    nvrhi::TextureHandle frameColor;
-    nvrhi::FramebufferHandle frameFramebuffer;
-    UVec2 frameSize{0};
+    RenderTarget frameTarget;
+    std::unique_ptr<UiSystem> ui;
+
+    /// Stands in for the window's input when there is no window.
+    Input headlessInput;
+
+    ComponentRegistry components;
+    World world;
 
     Stopwatch frameClock;
     double timeSeconds = 0.0;
+    double deltaSeconds = 0.0;
     uint64_t frameIndex = 0;
     bool exitRequested = false;
+    bool frameOpen = false;
+    /// The window's image for the frame in progress; empty when headless or minimized.
+    SwapchainFrame backBuffer;
 
     Status initialize();
-    Status resizeFrameTarget(UVec2 size);
 };
-
-Status Engine::Impl::resizeFrameTarget(UVec2 size) {
-    if (size == frameSize && frameColor) {
-        return {};
-    }
-
-    nvrhi::TextureDesc textureDesc;
-    textureDesc.width = size.x;
-    textureDesc.height = size.y;
-    textureDesc.format = nvrhi::Format::RGBA8_UNORM;
-    textureDesc.debugName = "Frame color";
-    textureDesc.isRenderTarget = true;
-    textureDesc.initialState = nvrhi::ResourceStates::ShaderResource;
-    textureDesc.keepInitialState = true;
-    textureDesc.clearValue = nvrhi::Color(0.0f, 0.0f, 0.0f, 1.0f);
-    textureDesc.useClearValue = true;
-
-    nvrhi::IDevice* device = graphics->device();
-    nvrhi::TextureHandle texture = device->createTexture(textureDesc);
-    if (!texture) {
-        return makeError(ErrorCode::DeviceError, "cannot create a {}x{} frame target", size.x, size.y);
-    }
-    frameFramebuffer = device->createFramebuffer(nvrhi::FramebufferDesc().addColorAttachment(texture));
-    frameColor = std::move(texture);
-    frameSize = size;
-    return {};
-}
 
 Status Engine::Impl::initialize() {
     CORDITE_TRY_ASSIGN(windowSystem, WindowSystem::create({.headless = desc.headless}));
@@ -141,13 +128,20 @@ Status Engine::Impl::initialize() {
     shaderLibrary = std::make_unique<ShaderLibrary>(std::move(libraryDesc));
     shaderManager = std::make_unique<ShaderManager>(graphics->device(), *shaderLibrary);
 
-    commandList = graphics->device()->createCommandList();
-    CORDITE_TRY_ASSIGN(TestPatternPass createdTestPattern, TestPatternPass::create(graphics->device(), *shaderManager));
+    nvrhi::IDevice* device = graphics->device();
+    commandList = device->createCommandList();
+    CORDITE_TRY_ASSIGN(TestPatternPass createdTestPattern, TestPatternPass::create(device, *shaderManager));
     testPattern = std::make_unique<TestPatternPass>(std::move(createdTestPattern));
-    CORDITE_TRY_ASSIGN(BlitPass createdBlit, BlitPass::create(graphics->device(), *shaderManager));
+    CORDITE_TRY_ASSIGN(BlitPass createdBlit, BlitPass::create(device, *shaderManager));
     blit = std::make_unique<BlitPass>(std::move(createdBlit));
 
-    CORDITE_TRY(resizeFrameTarget(swapchain ? swapchain->size() : desc.renderSize));
+    CORDITE_TRY_ASSIGN(
+        frameTarget,
+        RenderTarget::create(device, {.size = swapchain ? swapchain->size() : desc.renderSize, .debugName = "Frame"}));
+    CORDITE_TRY_ASSIGN(
+        ui, UiSystem::create(device, *shaderManager, {.window = window.get(), .settingsFile = desc.uiSettingsFile}));
+
+    CORDITE_TRY(registerEngineComponents(components));
     frameClock.restart();
     return {};
 }
@@ -170,53 +164,115 @@ Result<std::unique_ptr<Engine>> Engine::create(const EngineDesc& desc) {
 Engine::Engine(std::unique_ptr<Impl> impl) : m_impl(std::move(impl)) {}
 
 Engine::~Engine() {
+    if (m_impl->frameOpen) {
+        // Abandon the frame in progress: nothing recorded in it will be executed.
+        m_impl->ui->discardFrame();
+        m_impl->commandList->close();
+    }
     // Finish everything in flight before the members that own GPU resources go away.
     m_impl->graphics->waitIdle();
 }
 
-Result<bool> Engine::runFrame() {
+Result<bool> Engine::beginFrame() {
     Impl& impl = *m_impl;
+    CORDITE_ASSERT(!impl.frameOpen, "beginFrame() called again before endFrame()");
+    if (impl.frameOpen) {
+        return makeError(ErrorCode::InvalidState, "the previous frame has not been ended");
+    }
 
     impl.windowSystem->pollEvents();
     if (impl.exitRequested || (impl.window && impl.window->shouldClose())) {
         return false;
     }
 
-    const double frameSeconds = impl.desc.fixedTimeStep > 0.0
-                                    ? impl.desc.fixedTimeStep
-                                    : std::min(impl.frameClock.elapsedSeconds(), kMaxFrameSeconds);
+    impl.deltaSeconds = impl.desc.fixedTimeStep > 0.0 ? impl.desc.fixedTimeStep
+                                                      : std::min(impl.frameClock.elapsedSeconds(), kMaxFrameSeconds);
     impl.frameClock.restart();
 
-    SwapchainFrame backBuffer;
+    impl.backBuffer = {};
     if (impl.swapchain) {
-        CORDITE_TRY_ASSIGN(backBuffer, impl.swapchain->beginFrame());
-        if (backBuffer.framebuffer == nullptr) {
-            // Minimized. Keep time moving, but there is nothing to draw on; sleep so the
-            // loop does not spin at full speed until the window comes back.
-            impl.timeSeconds += frameSeconds;
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-            return true;
+        CORDITE_TRY_ASSIGN(impl.backBuffer, impl.swapchain->beginFrame());
+        // A minimized window has no back buffer. The frame still runs, offscreen at the
+        // size it last had, so that the program need not treat that case specially.
+        if (impl.backBuffer.framebuffer != nullptr) {
+            CORDITE_TRY(impl.frameTarget.resize(impl.graphics->device(), impl.backBuffer.size));
         }
-        CORDITE_TRY(impl.resizeFrameTarget(backBuffer.size));
     }
 
     impl.commandList->open();
-    impl.testPattern->draw(impl.commandList, impl.frameFramebuffer,
-                           {.timeSeconds = static_cast<float>(impl.timeSeconds)});
-    if (backBuffer.framebuffer != nullptr) {
-        impl.blit->draw(impl.commandList, impl.frameColor, backBuffer.framebuffer);
+    impl.frameTarget.clear(impl.commandList);
+
+    if (!impl.window) {
+        const Input& pointer = impl.headlessInput;
+        impl.ui->setPointerState({.position = pointer.mousePosition(),
+                                  .leftDown = pointer.isMouseButtonDown(MouseButton::Left),
+                                  .rightDown = pointer.isMouseButtonDown(MouseButton::Right),
+                                  .middleDown = pointer.isMouseButtonDown(MouseButton::Middle),
+                                  .wheel = pointer.scrollDelta().y});
+    }
+    impl.ui->beginFrame(impl.frameTarget.size(), static_cast<float>(impl.deltaSeconds));
+
+    impl.frameOpen = true;
+    return true;
+}
+
+Status Engine::endFrame() {
+    Impl& impl = *m_impl;
+    CORDITE_ASSERT(impl.frameOpen, "endFrame() called without a frame started by beginFrame()");
+    if (!impl.frameOpen) {
+        return makeError(ErrorCode::InvalidState, "no frame has been started");
+    }
+
+    impl.ui->render(impl.commandList, impl.frameTarget.framebuffer());
+    const bool hasBackBuffer = impl.backBuffer.framebuffer != nullptr;
+    if (hasBackBuffer) {
+        impl.blit->draw(impl.commandList, impl.frameTarget.color(), impl.backBuffer.framebuffer);
     }
     impl.commandList->close();
+    impl.frameOpen = false;
 
     impl.graphics->device()->executeCommandList(impl.commandList);
 
-    if (impl.swapchain) {
+    if (hasBackBuffer) {
         CORDITE_TRY(impl.swapchain->present());
+    } else if (impl.swapchain) {
+        std::this_thread::sleep_for(kMinimizedFrameDelay);
     }
     impl.graphics->collectGarbage();
 
-    impl.timeSeconds += frameSeconds;
+    if (!impl.window) {
+        // This frame has seen what was injected; what is injected from now on belongs to
+        // the next one.
+        impl.headlessInput.beginFrame();
+    }
+
+    impl.timeSeconds += impl.deltaSeconds;
     ++impl.frameIndex;
+    return {};
+}
+
+bool Engine::isFrameOpen() const {
+    return m_impl->frameOpen;
+}
+
+void Engine::drawTestPattern() {
+    const Impl& impl = *m_impl;
+    CORDITE_ASSERT(impl.frameOpen, "drawTestPattern() needs a frame started by beginFrame()");
+    if (!impl.frameOpen) {
+        return;
+    }
+    impl.testPattern->draw(impl.commandList, impl.frameTarget.framebuffer(),
+                           {.timeSeconds = static_cast<float>(impl.timeSeconds)});
+}
+
+Result<bool> Engine::runFrame() {
+    CORDITE_TRY_ASSIGN(const bool keepRunning, beginFrame());
+    if (!keepRunning) {
+        return false;
+    }
+    m_impl->world.updateWorldTransforms();
+    drawTestPattern();
+    CORDITE_TRY(endFrame());
     return true;
 }
 
@@ -228,7 +284,7 @@ Result<Image> Engine::captureFrame() {
     if (m_impl->frameIndex == 0) {
         return makeError(ErrorCode::InvalidState, "no frame has been rendered yet");
     }
-    CORDITE_TRY_ASSIGN(TexturePixels pixels, readTexture(*m_impl->graphics, m_impl->frameColor));
+    CORDITE_TRY_ASSIGN(TexturePixels pixels, readTexture(*m_impl->graphics, m_impl->frameTarget.color()));
     return Image::fromPixels(pixels.width, pixels.height, ImageFormat::Rgba8, std::move(pixels.data));
 }
 
@@ -240,12 +296,36 @@ double Engine::timeSeconds() const {
     return m_impl->timeSeconds;
 }
 
+float Engine::deltaSeconds() const {
+    return static_cast<float>(m_impl->deltaSeconds);
+}
+
 UVec2 Engine::renderSize() const {
-    return m_impl->frameSize;
+    return m_impl->frameTarget.size();
+}
+
+const RenderTarget& Engine::frameTarget() const {
+    return m_impl->frameTarget;
+}
+
+nvrhi::ICommandList* Engine::commandList() {
+    return m_impl->commandList;
 }
 
 Window* Engine::window() {
     return m_impl->window.get();
+}
+
+Input& Engine::input() {
+    return m_impl->window ? m_impl->window->input() : m_impl->headlessInput;
+}
+
+World& Engine::world() {
+    return m_impl->world;
+}
+
+ComponentRegistry& Engine::components() {
+    return m_impl->components;
 }
 
 GraphicsDevice& Engine::graphics() {
@@ -254,6 +334,14 @@ GraphicsDevice& Engine::graphics() {
 
 ShaderLibrary& Engine::shaders() {
     return *m_impl->shaderLibrary;
+}
+
+ShaderManager& Engine::shaderManager() {
+    return *m_impl->shaderManager;
+}
+
+UiSystem& Engine::ui() {
+    return *m_impl->ui;
 }
 
 } // namespace cordite

@@ -1,0 +1,13 @@
+[
+    {"command": "scene.describe"},
+    {"command": "entity.create", "params": {"name": "Smoke probe", "parent": "Stage", "components": {"Transform": {"position": [0, 1, 2]}}}},
+    {"command": "component.add", "params": {"entity": "Smoke probe", "component": "Camera", "properties": {"primary": false}}},
+    {"command": "component.set", "params": {"entity": "Smoke probe", "component": "Camera", "properties": {"verticalFovDegrees": 35}}},
+    {"command": "entity.duplicate", "params": {"entities": ["Stage/Crate"]}},
+    {"command": "selection.set", "params": {"entities": ["Smoke probe"]}},
+    {"command": "editor.runFrames", "params": {"count": 2}},
+    {"command": "editor.undo"},
+    {"command": "editor.redo"},
+    {"command": "viewport.frame", "params": {"entity": "Smoke probe", "radius": 4}},
+    {"command": "editor.state"}
+]
