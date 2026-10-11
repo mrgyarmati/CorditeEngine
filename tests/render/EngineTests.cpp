@@ -304,6 +304,10 @@ TEST_SUITE("Engine") {
         world.add<CameraComponent>(camera);
         const Entity cube = world.createEntity("Cube");
         world.add<MeshRendererComponent>(cube).mesh = builtinMeshId(BuiltinMesh::Cube);
+        // A game shows what its scene says: without a light, the cube would be black.
+        const Entity lamp = world.createEntity("Lamp");
+        world.transform(lamp).position = Vec3(0.0f, 0.0f, 3.0f);
+        world.add<LightComponent>(lamp) = {.type = LightType::Point, .intensity = 9.0f, .range = 10.0f};
 
         runFrames(*engine, 1);
         const Image frame = test::unwrap(engine->captureFrame());

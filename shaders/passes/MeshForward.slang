@@ -13,5 +13,5 @@
 float4 meshForwardPixel(MeshVaryings input, bool isFrontFace : SV_IsFrontFace) : SV_Target0
 {
     const Surface surface = evaluateSurface(input, isFrontFace);
-    return float4(shadeSurface(surface), surface.opacity);
+    return float4(shadeSurface(surface, input.clipPosition.xy * inverseTargetSize), surface.opacity);
 }

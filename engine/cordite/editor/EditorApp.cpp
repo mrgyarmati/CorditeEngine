@@ -329,8 +329,10 @@ Status EditorApp::registerApplicationCommands() {
         .name = "editor.statistics",
         .description = "Reports what the last frame cost: milliseconds on the CPU and on the GPU (null where "
                        "the GPU cannot time its work, and before its first measurement has arrived), what the "
-                       "scene renderer drew, and what it holds on the GPU. Run a few frames first: a frame "
-                       "that loads assets is not typical.",
+                       "scene renderer drew, the lights it drew it with (their number, the entries of the "
+                       "cluster lists they are in, and how many were left out because a view holds only so "
+                       "many), and what it holds on the GPU. Run a few frames first: a frame that loads "
+                       "assets is not typical.",
         .parameters = {},
         .handler = [this](const Json& /*parameters*/) -> Result<Json> {
             return describeFrameStatistics(m_engine->statistics());
@@ -409,10 +411,11 @@ Status EditorApp::registerApplicationCommands() {
         .name = "viewport.debugView",
         .description = "Chooses what the viewport shows: the lit picture (\"none\") or a debug view of the "
                        "renderer - one thing the G-buffer holds (baseColor, normals, roughness, metallic, "
-                       "specular, occlusion, emissive, depth), the light without the materials "
-                       "(lightingOnly), the edges of the triangles (wireframe) or how often each pixel is "
-                       "drawn (overdraw). Returns the view now shown and all there are; without a parameter "
-                       "it changes nothing.",
+                       "specular, occlusion, emissive, depth), how many point and spot lights each pixel "
+                       "has to ask (lightCount: dark for none, blue for one, through green to red for eight "
+                       "and more), the light without the materials (lightingOnly), the edges of the "
+                       "triangles (wireframe) or how often each pixel is drawn (overdraw). Returns the view "
+                       "now shown and all there are; without a parameter it changes nothing.",
         .parameters = {{"view", Type::String, "The view to show, by one of the names above.", false}},
         .handler = [this](const Json& parameters) -> Result<Json> {
             if (const auto name = jsonGetOr<std::string>(parameters, "view", ""); !name.empty()) {
@@ -617,6 +620,33 @@ void EditorApp::drawEntityMenu() {
         Json components = Json::object();
         components["Camera"] = Json::object();
         create("Camera", std::move(components));
+    }
+    if (ImGui::BeginMenu("Create light")) {
+        const auto light = [&create](const char* name, const char* type, const Quat& rotation) {
+            Json components = Json::object();
+            components["Light"]["type"] = type;
+            components["Transform"]["rotation"] = toJson(rotation);
+            create(name, std::move(components));
+        };
+        // A light shines along its -Z axis. Left level, a directional light would only
+        // graze a floor, so it starts out shining down at an angle; so does a spot
+        // light, which would otherwise shine along the floor it stands on.
+        const Quat downwards(glm::radians(Vec3(-50.0f, -30.0f, 0.0f)));
+        if (ImGui::MenuItem("Directional light")) {
+            light("Directional light", "directional", downwards);
+        }
+        if (ImGui::MenuItem("Point light")) {
+            light("Point light", "point", kIdentityQuat);
+        }
+        if (ImGui::MenuItem("Spot light")) {
+            light("Spot light", "spot", downwards);
+        }
+        if (ImGui::MenuItem("Ambient light")) {
+            Json components = Json::object();
+            components["AmbientLight"] = Json::object();
+            create("Ambient light", std::move(components));
+        }
+        ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("Create shape")) {
         // The built-in meshes: enough to block out a scene before models exist.

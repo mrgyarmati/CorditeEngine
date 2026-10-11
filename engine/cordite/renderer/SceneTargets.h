@@ -23,7 +23,7 @@
 ///
 /// | Texture         | Format        | Holds                                               |
 /// |-----------------|---------------|-----------------------------------------------------|
-/// | G-buffer 0      | SRGBA8_UNORM  | rgb: base color                                     |
+/// | G-buffer 0      | SRGBA8_UNORM  | rgb: base color, a: lighting channels               |
 /// | G-buffer 1      | RG16_UNORM    | The world-space normal, octahedrally mapped         |
 /// | G-buffer 2      | RGBA8_UNORM   | Roughness, metallic, specular, occlusion            |
 /// | G-buffer 3      | R11G11B10F    | Emissive light                                      |
@@ -49,7 +49,8 @@ namespace cordite {
 /// The color targets of the G-buffer, in the order the base pass writes them.
 enum class GBufferTarget : uint8_t {
     /// rgb: base color. Stored sRGB-encoded, which spends the eight bits where the eye
-    /// tells shades apart; reads and writes are in linear values.
+    /// tells shades apart; reads and writes are in linear values. a: the lighting
+    /// channels of the surface, as a number out of 255.
     BaseColor,
     /// rg: the unit normal in world space, as a point of an unfolded octahedron.
     Normal,

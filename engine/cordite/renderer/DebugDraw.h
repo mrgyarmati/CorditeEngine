@@ -73,6 +73,15 @@ public:
     /// Three perpendicular circles: the outline of a sphere from any side.
     void sphere(const Vec3& center, float radius, const Vec4& color, uint32_t segments = 32);
 
+    /// A line with a head at `to`: four short lines back from the tip, a fifth as long
+    /// as the arrow. An arrow without length draws nothing.
+    void arrow(const Vec3& from, const Vec3& to, const Vec4& color);
+
+    /// The outline of a cone: its tip at `apex`, its axis along `direction`, and at
+    /// `height` along the axis a circle of `radius`, joined to the tip by four lines.
+    void cone(const Vec3& apex, const Vec3& direction, float height, float radius, const Vec4& color,
+              uint32_t segments = 32);
+
     /// The edges of the volume a camera sees, from the inverse of its view-projection.
     void frustum(const Mat4& inverseViewProjection, const Vec4& color);
 

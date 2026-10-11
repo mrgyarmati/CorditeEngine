@@ -129,7 +129,7 @@ by accident.
 | `rhi` | `core`, `math`, `platform` | Vulkan device, swapchain and texture readback over NVRHI |
 | `shaders` | `core` | Shader requests and permutation keys, disk cache, `ShaderLibrary` |
 | `shader_compiler` | `core`, `shaders` | Slang to SPIR-V compiler (not linked into exported games) |
-| `renderer` | `core`, `math`, `assets`, `world`, `rhi`, `shaders` | The scene renderer and what it is made of: GPU copies of assets, the mesh passes, the G-buffer and its lighting, the debug views, scene targets, the `MeshRenderer` component; camera views, debug lines, GPU timing, GPU shader management |
+| `renderer` | `core`, `math`, `assets`, `world`, `rhi`, `shaders` | The scene renderer and what it is made of: GPU copies of assets, the mesh passes, the G-buffer and its lighting, the lights of a world and the clusters they are sorted into, the debug views, scene targets, the `MeshRenderer`, `Light` and `AmbientLight` components; camera views, debug lines, GPU timing, GPU shader management |
 | `ui` | `core`, `math`, `platform`, `rhi`, `shaders`, `renderer` | The immediate-mode interface: the Dear ImGui context and its NVRHI renderer |
 | `engine` | all of the above | `Engine`: owns the subsystems, the assets, the world and the interface, and runs the frame loop; projects; placing models; checking the assets a scene uses |
 | `editor` | `engine` and below | The editor: the scene document, undoable actions, scene and asset commands, panels, `EditorApp` (not linked into exported games) |
@@ -278,18 +278,43 @@ Vulkan directly. Step-by-step guide for adding a pass:
   whose depth *equals* what the depth pre-pass wrote, which holds only while both
   compute positions with the same code. Never give a mesh pass a vertex shader of its
   own.
-- **Binding sets:** register space 0 is the view's (`ViewBindings`,
-  `common/View.slang`), space 1 the material's in a mesh pass
-  (`materials/Material.slang`; call `evaluateSurface`, never sample material textures
-  directly) or the G-buffer's in a pass that reads it (`GBufferBindings`).
+- **Binding sets:** register space 0 is the view's (`ViewBindings`: the constants of
+  `common/View.slang` at `b0` and the lights of `common/Lights.slang` at `t0` to `t2`),
+  space 1 the material's in a mesh pass (`materials/Material.slang`; call
+  `evaluateSurface`, never sample material textures directly) or the G-buffer's in a
+  pass that reads it (`GBufferBindings`).
 - **The G-buffer layout is written down twice**: `common/GBuffer.slang` and
   `GBufferTarget` in `SceneTargets.h`. Change both, and only through
   `encodeGBuffer`/`decodeGBuffer`; `SceneRendererTests` checks every channel through
   the debug views.
 - **Light is computed in one place**, `shadeSurface` (`common/SceneLighting.slang`),
-  which the deferred lighting and the forward pass both call. A test renders the same
-  surface both ways and compares the pictures; a lighting feature that only one path
-  has fails it.
+  which the deferred lighting and the forward pass both call. Tests render the same
+  surface both ways and compare the pictures; a lighting feature that only one path
+  has fails them.
+- **A scene is lit by components:** `Light` (directional, point or spot) and
+  `AmbientLight` (`RenderComponents.h`). A light shines from where its entity is, along
+  the entity's -Z axis. An intensity of 1 lights a white, matte surface that faces the
+  light to white - at any distance for a directional light, one metre away for the
+  others. `SceneLights` turns that into what shaders compute with (times pi); nothing
+  else converts brightness. A world without light components is black, as a game
+  shows it; only an editor view asks for stand-ins (`SceneRenderSettings::defaultLighting`).
+- **Point and spot lights are found through clusters** (`LightClusters.h`,
+  `common/Lights.slang`): a grid of 16 x 9 x 24 boxes over what the camera sees, each
+  with the list of the lights that touch it, built on the CPU for every view. The size
+  of the grid, the layout of a light and the arithmetic that turns a pixel into a
+  cluster are written down twice, in those two files; change both.
+  `SceneLightingTests` holds a floor under hundreds of lights against the sum worked
+  out on the CPU, so a light that is missing from a list fails it.
+- **A light ends at its range**, and is culled by it. Whatever is added to how a point
+  or spot light falls off must still be zero at the range, or the light is cut off
+  along the borders of clusters.
+- **Lighting channels** are eight bits on every mesh renderer and every light; a light
+  shines on a surface when they share one. They reach the shaders as per-instance data
+  (`MeshDrawList`) and, for the deferred path, in the alpha of G-buffer target 0.
+  Ambient light does not ask for them.
+- **Lights are taken in the order of their entities' ids**, and ambient lights add up:
+  neither a sum nor the choice of which lights are left out when a view has too many
+  (`kMaxDirectionalLights`, `kMaxLocalLights`) may depend on how components are stored.
 - **A pass that samples the depth buffer cannot draw into a framebuffer that has it
   attached.** Use `SceneTargets::lightingFramebuffer()`, which has color only.
 - **Every renderer feature gets a debug view** (`RenderDebugView`) when there is
@@ -344,7 +369,10 @@ Step-by-step guide for adding a component: [add-component](.claude/skills/add-co
   things validates all of them before it applies any, so a failure changes nothing.
 - **Property attributes mean something:** ranges are enforced on every write;
   `readOnly` properties are saved and loaded but refused as edits; `transient`
-  properties are runtime state and never saved.
+  properties are runtime state and never saved. A `semantic` says how a value is
+  edited - a color with a picker, an asset reference with a list of assets, a number
+  whose bits are switches (`BitMask`) with a row of check boxes - and is published in
+  the automation schema.
 - **Refer to entities by `Uuid`** across frames, saves and undo. `Entity` handles die
   with their entity, and references to components are invalidated when any entity is
   destroyed. Hold the `Entity`, fetch the component again.
@@ -440,8 +468,11 @@ with CTest under the module name. See the skills
   and complete, `editor_smoke` runs the real editor executable with a command script,
   and `module_layering` checks the include rules.
 - Rendering is tested with numbers before pictures. A test that can state what a pixel
-  must be (`SceneRendererTests`: flat emissive materials, an orthographic camera, no
-  light) does so; reference images are for what only an eye can judge.
+  must be does so: `SceneRendererTests` with flat emissive materials, an orthographic
+  camera and no light; `SceneLightingTests` with a white, matte wall and lights whose
+  brightness on it follows from the documented model. Both use the fixture in
+  `tests/render/SceneTestSupport.h`. Reference images are for what only an eye can
+  judge.
 - glTF files for tests are built in the test (`GltfTestSupport.h`) or written by the
   exporter, never checked in as binaries.
 - Test case names are sentences describing behavior: `"an exhausted arena returns
@@ -463,15 +494,16 @@ with CTest under the module name. See the skills
   within a small tolerance. A new or changed reference image is reviewed by looking at
   it before it is committed; never approve one unseen.
 - **Performance is tested against budgets.** The `performance` suite (labels `gpu` and
-  `perf`) runs the showcase as a game would and checks what it costs against
-  `tests/perf/budgets.json`. Counts and sizes - draw calls, triangles, bytes on the GPU -
-  are the same everywhere and have tight budgets: a change that exceeds one raises it in
-  the same commit, with a reason, or has a mistake. Times have budgets many times what
-  a desktop GPU needs and are checked in optimized builds only, because a test must not
-  fail for a busy machine. To see what a change did to them, run `./scripts/dev.ps1
-  perf` before and after: it runs the suite alone and prints the run next to the one
-  before. The numbers come from `Engine::statistics()`, which the editor shows under
-  View > Statistics and returns from `editor.statistics`.
+  `perf`) runs scenarios - the showcase as a game would run it, a field under six
+  hundred lights - and checks what each costs against `tests/perf/budgets.json`. Counts
+  and sizes - draw calls, triangles, lights and the entries of their lists, bytes on
+  the GPU - are the same everywhere and have tight budgets: a change that exceeds one
+  raises it in the same commit, with a reason, or has a mistake. Times have budgets
+  many times what a desktop GPU needs and are checked in optimized builds only, because
+  a test must not fail for a busy machine. To see what a change did to them, run
+  `./scripts/dev.ps1 perf` before and after: it runs the suite alone and prints every
+  scenario's run next to the one before. The numbers come from `Engine::statistics()`,
+  which the editor shows under View > Statistics and returns from `editor.statistics`.
 - Windows opened by tests are hidden (`visible = false`) or use the headless window
   system, so the suite never disturbs the desktop and runs on machines without one.
 - Only one `Engine`, one `WindowSystem` and one `GraphicsDevice` can exist at a time;
@@ -562,3 +594,19 @@ body explaining what changed and why. One logical change per commit.
   computes its last column from index zero instead, or the seam is a crack.
 - `-0.0f` and `0.0f` compare equal but differ in their bits; code that compares
   vertices by bytes (`meshopt_generateVertexRemap`) must normalize it first.
+- Turning a float that is infinite, negative or not a number into an unsigned integer
+  is undefined in C++ and left open in shaders: an infinite depth became slice 0.
+  Bring the value into range as a float first, then convert
+  (`ClusterDepthMapping::sliceOf`, `clusterIndexOf` in `common/Lights.slang`).
+- A floor seen at a low angle runs through one pixel for many centimetres, and where
+  in the pixel the GPU takes its sample is not exactly the centre: vertices are
+  snapped to a sub-pixel grid. A test that predicts such a pixel from its centre fails
+  on a steep gradient - the edge of a spot light - by a few steps of 255. Compare with
+  the range of what the model gives a little around the centre (`SceneLightingTests`,
+  the test with hundreds of lights), or look at the surface head-on.
+- Check that a test can fail. The lighting tests were run once with every light's
+  bounds shrunk by a sixth, to see them fail, before they were trusted to pass.
+- doctest prints a `const char*` that is streamed into a message as `1`. Wrap it:
+  `REQUIRE_MESSAGE(found, "no budget for " << std::string(name))`.
+- A braced list inside the braced list of a range-for (`for (auto [a, b] : {{1, 2}})`)
+  has no type to deduce. Name the type: `std::initializer_list<std::pair<...>>{...}`.

@@ -69,6 +69,9 @@ SceneRenderStatistics& SceneRenderStatistics::operator+=(const SceneRenderStatis
     views += other.views;
     meshRenderers += other.meshRenderers;
     culled += other.culled;
+    lights += other.lights;
+    lightListEntries += other.lightListEntries;
+    droppedLights += other.droppedLights;
     depthPass += other.depthPass;
     basePass += other.basePass;
     forwardPass += other.forwardPass;
@@ -137,7 +140,11 @@ void SceneRenderer::collectDraws(const World& world, const CameraView& view) {
         const size_t firstDraw = m_draws.size();
         for (uint32_t submesh = 0; submesh < mesh->submeshes.size(); ++submesh) {
             const Uuid material = submesh < renderer.materials.size() ? renderer.materials[submesh] : Uuid();
-            m_draws.push_back({mesh, submesh, &m_resources->material(material), placement.matrix});
+            m_draws.push_back({.mesh = mesh,
+                               .submesh = submesh,
+                               .material = &m_resources->material(material),
+                               .localToWorld = placement.matrix,
+                               .lightChannels = renderer.lightChannels});
         }
         if (!frustum.intersects(mesh->bounds.transformed(placement.matrix))) {
             ++m_statistics.culled;
@@ -159,12 +166,26 @@ void SceneRenderer::render(nvrhi::ICommandList* commandList, const World& world,
     // Before anything that uses the new resources is recorded behind them.
     m_resources->flushUploads();
 
-    m_viewBindings.update(commandList, {.camera = view,
-                                        .targetSize = targets.size(),
-                                        .keyLightDirection = settings.keyLightDirection,
-                                        .keyLightColor = settings.keyLightColor,
-                                        .skyColor = settings.skyColor,
-                                        .groundColor = settings.groundColor});
+    // The lights: gathered from the world, sorted into the clusters of this view.
+    m_lights.collect(world, {.defaultLighting = settings.defaultLighting});
+    m_clusterBuilder.build(view, m_lights.lights(), m_clusters);
+    m_statistics.lights = static_cast<uint32_t>(m_clusters.lights.size());
+    m_statistics.lightListEntries = static_cast<uint32_t>(m_clusters.indices.size());
+    m_statistics.droppedLights = m_clusters.droppedLights;
+    if (m_clusters.droppedLights > 0 && !m_reportedDroppedLights) {
+        CORDITE_LOG_WARN("Renderer",
+                         "too many lights for one view: {} left out (a view holds {} directional lights and {} "
+                         "point and spot lights)",
+                         m_clusters.droppedLights, kMaxDirectionalLights, kMaxLocalLights);
+        m_reportedDroppedLights = true;
+    }
+
+    m_viewBindings.update(commandList,
+                          {.camera = view,
+                           .targetSize = targets.size(),
+                           .skyColor = m_lights.skyColor(),
+                           .groundColor = m_lights.groundColor()},
+                          m_clusters);
     m_drawList.build(commandList, m_draws, view.position, view.forward);
     nvrhi::IBindingSet* viewBindings = m_viewBindings.bindings();
     nvrhi::IBuffer* instances = m_drawList.instanceBuffer();
@@ -193,7 +214,7 @@ void SceneRenderer::render(nvrhi::ICommandList* commandList, const World& world,
                                                      viewBindings, instances);
         m_statistics.basePass = m_passes.base.draw(commandList, targets.gbufferFramebuffer(), m_drawList.solidBatches(),
                                                    viewBindings, instances);
-        if (showsGBufferChannel(debugView)) {
+        if (isDrawnFromGBuffer(debugView)) {
             m_passes.debugView.draw(commandList, targets, viewBindings, debugView);
         } else {
             m_passes.lighting.draw(commandList, targets, viewBindings, debugView == RenderDebugView::LightingOnly);

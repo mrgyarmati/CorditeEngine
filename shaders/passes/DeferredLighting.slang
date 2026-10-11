@@ -29,7 +29,8 @@ float4 deferredLightingPixel(FullscreenVaryings input) : SV_Target0
         discard;
     }
 
-    const float3 position = worldPositionFromDepth(input.position.xy * inverseTargetSize, depth, inverseViewProjection);
+    const float2 uv = input.position.xy * inverseTargetSize;
+    const float3 position = worldPositionFromDepth(uv, depth, inverseViewProjection);
     Surface surface = decodeGBuffer(gbufferBaseColor.Load(pixel), gbufferNormal.Load(pixel).xy,
                                     gbufferParameters.Load(pixel), gbufferEmissive.Load(pixel).rgb, position);
 #if defined(LIGHTING_ONLY)
@@ -37,5 +38,5 @@ float4 deferredLightingPixel(FullscreenVaryings input) : SV_Target0
     surface.metallic = 0.0;
     surface.emissive = float3(0.0);
 #endif
-    return float4(shadeSurface(surface), 1.0);
+    return float4(shadeSurface(surface, uv), 1.0);
 }

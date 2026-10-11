@@ -8,6 +8,7 @@
 #include "support/TestSupport.h"
 
 #include <cmath>
+#include <limits>
 #include <span>
 
 using namespace cordite;
@@ -143,6 +144,87 @@ TEST_SUITE("DebugDraw") {
         REQUIRE(lines.lineCount() == 36);
         for (const DebugVertex& vertex : lines.vertices()) {
             CHECK(glm::distance(vertex.position, Vec3(0.0f, 5.0f, 0.0f)) == doctest::Approx(1.5f));
+        }
+    }
+
+    TEST_CASE("an arrow is a line with four short lines back from its tip") {
+        const Vec3 from(1.0f, 2.0f, 3.0f);
+        for (const Vec3 direction : {kWorldUp, kWorldRight, kWorldForward, glm::normalize(Vec3(1.0f, -2.0f, 0.5f))}) {
+            CAPTURE(test::describe(direction));
+            const Vec3 to = from + direction * 5.0f;
+            DebugDraw lines;
+            lines.arrow(from, to, kWhite);
+
+            REQUIRE(lines.lineCount() == 5);
+            const std::span<const DebugVertex> vertices = lines.vertices();
+            CHECK(vertices[0].position == from);
+            CHECK(vertices[1].position == to);
+            Vec3 middle(0.0f);
+            for (size_t line = 1; line < 5; ++line) {
+                // From the tip back to a point a fifth of the arrow behind it and a
+                // little to the side.
+                CHECK(vertices[line * 2].position == to);
+                const Vec3 back = vertices[line * 2 + 1].position - to;
+                CHECK(glm::dot(back, direction) == doctest::Approx(-1.0f));
+                CHECK(glm::length(back + direction) == doctest::Approx(0.4f));
+                middle += vertices[line * 2 + 1].position * 0.25f;
+            }
+            // The four are spread evenly around the shaft.
+            CHECK_NEAR(middle, to - direction, 1e-5f);
+        }
+    }
+
+    TEST_CASE("an arrow without length draws nothing") {
+        DebugDraw lines;
+        lines.arrow(Vec3(1.0f, 2.0f, 3.0f), Vec3(1.0f, 2.0f, 3.0f), kWhite);
+        CHECK(lines.isEmpty());
+        const float notANumber = std::numeric_limits<float>::quiet_NaN();
+        lines.arrow(Vec3(0.0f), Vec3(notANumber, 0.0f, 0.0f), kWhite);
+        CHECK(lines.isEmpty());
+    }
+
+    TEST_CASE("a cone is a circle joined to the tip by four lines") {
+        const Vec3 apex(1.0f, 2.0f, 3.0f);
+        for (const Vec3 direction : {kWorldUp, -kWorldUp, kWorldForward, glm::normalize(Vec3(1.0f, 1.0f, 1.0f))}) {
+            CAPTURE(test::describe(direction));
+            DebugDraw lines;
+            // Twice as long as its direction: the direction is an axis, not a length.
+            lines.cone(apex, direction * 2.0f, 4.0f, 3.0f, kWhite, 16);
+
+            REQUIRE(lines.lineCount() == 20);
+            const std::span<const DebugVertex> vertices = lines.vertices();
+            const Vec3 center = apex + direction * 4.0f;
+            // The rim: around the point four along the axis, three away from it, flat.
+            for (size_t line = 0; line < 16; ++line) {
+                const Vec3 offset = vertices[line * 2].position - center;
+                CHECK(glm::length(offset) == doctest::Approx(3.0f));
+                CHECK(glm::dot(offset, direction) == doctest::Approx(0.0f));
+            }
+            // The sides: from the tip to the rim, five long (3-4-5), a quarter turn apart.
+            Vec3 middle(0.0f);
+            for (size_t line = 16; line < 20; ++line) {
+                CHECK(vertices[line * 2].position == apex);
+                CHECK(lineLength(vertices, line) == doctest::Approx(5.0f));
+                CHECK(glm::distance(vertices[line * 2 + 1].position, center) == doctest::Approx(3.0f));
+                middle += vertices[line * 2 + 1].position * 0.25f;
+            }
+            CHECK_NEAR(middle, center, 1e-5f);
+        }
+    }
+
+    TEST_CASE("a cone without a direction or a size still draws without trouble") {
+        DebugDraw lines;
+        // No direction: a fallback axis.
+        lines.cone(Vec3(0.0f), Vec3(0.0f), 1.0f, 1.0f, kWhite, 8);
+        CHECK(lines.lineCount() == 12);
+        for (const DebugVertex& vertex : lines.vertices()) {
+            CHECK(std::isfinite(vertex.position.x + vertex.position.y + vertex.position.z));
+        }
+        // No size: every line ends at the tip.
+        lines.clear();
+        lines.cone(Vec3(1.0f), kWorldUp, 0.0f, 0.0f, kWhite, 8);
+        for (const DebugVertex& vertex : lines.vertices()) {
+            CHECK_NEAR(vertex.position, Vec3(1.0f), 1e-6f);
         }
     }
 

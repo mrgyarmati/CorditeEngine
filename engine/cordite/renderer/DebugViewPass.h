@@ -32,7 +32,7 @@ public:
                                                       nvrhi::IBindingLayout* viewLayout);
 
     /// Writes what `view` shows into the scene color of `targets`. `view` must be one
-    /// for which showsGBufferChannel() is true. The command list must be open.
+    /// for which isDrawnFromGBuffer() is true. The command list must be open.
     void draw(nvrhi::ICommandList* commandList, const SceneTargets& targets, nvrhi::IBindingSet* viewBindings,
               RenderDebugView view);
 

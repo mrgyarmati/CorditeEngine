@@ -50,6 +50,8 @@ struct SurfaceInput
     float2 uv0;
     float2 uv1;
     bool isFrontFace;
+    // The lighting channels of what is being drawn; handed on to the surface.
+    uint lightChannels;
 };
 
 // Where the material's textures are read: the set of coordinates it uses, scaled and
@@ -107,6 +109,7 @@ Surface evaluateSurface(SurfaceInput input)
     const float occlusion = occlusionTexture.Sample(materialSampler, occlusionUv).r;
     surface.occlusion = lerp(1.0, occlusion, occlusionStrength);
     surface.emissive = emissiveTexture.Sample(materialSampler, uv).rgb * emissive;
+    surface.lightChannels = input.lightChannels;
     return surface;
 }
 
@@ -120,5 +123,6 @@ Surface evaluateSurface(MeshVaryings input, bool isFrontFace)
     surfaceInput.uv0 = input.uv0;
     surfaceInput.uv1 = input.uv1;
     surfaceInput.isFrontFace = isFrontFace;
+    surfaceInput.lightChannels = input.lightChannels;
     return evaluateSurface(surfaceInput);
 }

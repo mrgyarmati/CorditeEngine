@@ -75,11 +75,29 @@ TEST_SUITE("EditorApp") {
         checkNoValidationIssues(editor->engine().graphics());
     }
 
+    TEST_CASE("the editor showing a selected light matches the reference image") {
+        EditorAppDesc desc = headlessDesc();
+        desc.project = showcaseProject();
+        const std::unique_ptr<EditorApp> editor = createEditor(desc);
+        // The inspector shows the light: its kind as a list, its color, numbers with their
+        // units, and its lighting channels as a row of switches. The viewport shows how far
+        // it reaches.
+        run(*editor, "selection.set", R"({"entities": ["Stage/Lamp post/Arm/Head/Lamp"]})");
+        run(*editor, "component.set",
+            R"({"entity": "Stage/Lamp post/Arm/Head/Lamp", "component": "Light", "properties": {"channels": 37}})");
+
+        REQUIRE(editor->runFrames(4).has_value());
+        checkAgainstReference(unwrap(editor->engine().captureFrame()), "editor-light-1280x720");
+        checkNoValidationIssues(editor->engine().graphics());
+    }
+
     TEST_CASE("the viewport alone matches its reference image") {
         EditorAppDesc desc = headlessDesc();
         desc.project = showcaseProject();
         const std::unique_ptr<EditorApp> editor = createEditor(desc);
-        run(*editor, "selection.set", R"({"entities": ["Stage/Crate"]})");
+        // A mesh and a light are selected: the box of the one and the reach of the other
+        // are drawn over the picture.
+        run(*editor, "selection.set", R"({"entities": ["Stage/Crate", "Stage/Lamp post/Arm/Head/Lamp"]})");
         run(*editor, "viewport.lookAt", R"({"position": [-5.5, 3.2, 6.5], "target": [0.5, 0.8, -1.5]})");
 
         // No frame of the editor is needed for it.
@@ -516,6 +534,11 @@ TEST_SUITE("EditorApp") {
         CHECK(scene["drawCalls"].get<uint32_t>() > 0);
         CHECK(scene["drawCalls"].get<uint32_t>() < scene["instances"].get<uint32_t>());
         CHECK(scene["triangles"].get<uint64_t>() > 1000);
+        // The sun and the three lamps of the showcase, each lamp in the lists of the
+        // clusters it reaches.
+        CHECK(scene["lights"]["count"] == 4);
+        CHECK(scene["lights"]["listEntries"].get<uint32_t>() > 3);
+        CHECK(scene["lights"]["dropped"] == 0);
 
         const Json& resources = statistics["resources"];
         CHECK(resources["meshes"].get<uint32_t>() >= 9);

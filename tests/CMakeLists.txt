@@ -94,12 +94,16 @@ cordite_add_test_suite(shaders
     LIBRARIES
         cordite::shaders)
 
-# The parts of the renderer that need no GPU: view matrices and debug geometry.
+# The parts of the renderer that need no GPU: view matrices, debug geometry, the
+# components, and the lights of a world and the clusters they are sorted into.
 cordite_add_test_suite(renderer
     SOURCES
         unit/renderer/CameraViewTests.cpp
         unit/renderer/DebugDrawTests.cpp
+        unit/renderer/LightClustersTests.cpp
+        unit/renderer/RenderComponentsTests.cpp
         unit/renderer/RenderDebugViewTests.cpp
+        unit/renderer/SceneLightsTests.cpp
     LIBRARIES
         cordite::renderer)
 
@@ -155,7 +159,9 @@ cordite_add_test_suite(render
         render/RenderTargetTests.cpp
         render/RenderTestSupport.cpp
         render/RenderTestSupport.h
+        render/SceneLightingTests.cpp
         render/SceneRendererTests.cpp
+        render/SceneTestSupport.h
         render/SwapchainTests.cpp
         render/UiTests.cpp
     LIBRARIES
@@ -163,10 +169,13 @@ cordite_add_test_suite(render
     LABELS
         gpu)
 
-# Measures what the showcase costs, writes it to tests/perf/output/ and checks it against
-# tests/perf/budgets.json. See the comment at the top of the test file.
+# Measures what the scenarios cost - the showcase, a scene full of lights - writes it to
+# tests/perf/output/ and checks it against tests/perf/budgets.json. See the comment at
+# the top of perf/PerformanceTestSupport.h.
 cordite_add_test_suite(performance
     SOURCES
+        perf/LightingPerformanceTests.cpp
+        perf/PerformanceTestSupport.h
         perf/ShowcasePerformanceTests.cpp
         render/RenderTestSupport.cpp
         render/RenderTestSupport.h

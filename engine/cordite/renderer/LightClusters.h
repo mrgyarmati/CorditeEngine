@@ -1,0 +1,204 @@
+#pragma once
+
+/// @file
+/// Clustered lighting: which lights reach which part of a view.
+///
+/// A scene may hold hundreds of lights, but a pixel is lit by the few whose range it is
+/// in. To find those few without asking every light about every pixel, the volume a
+/// camera sees is cut into a grid of clusters - columns across, rows down, slices into
+/// the depth - and each cluster gets the list of the lights that touch it. A pixel
+/// shader works out which cluster its point is in and reads that list.
+///
+/// @code
+/// LightClusterBuilder builder;              // kept from frame to frame
+/// LightClusters clusters;
+/// builder.build(view, sceneLights.lights(), clusters);
+///
+/// upload(clusters.lights);        // one GpuLight per light: the directional ones first
+/// upload(clusters.grid);          // per cluster: where its list starts, how long it is
+/// upload(clusters.indices);       // the lists: indices into `lights`
+/// @endcode
+///
+/// Slices are thin near the camera and thick far away (each is a constant factor deeper
+/// than the one before), because that is how much of the screen things take up. An
+/// orthographic view is sliced evenly instead. The shader side of the arithmetic is in
+/// shaders/common/Lights.slang; clusterOf() here is the same function, and a test keeps
+/// the two in step.
+
+#include "cordite/math/Geometry.h"
+#include "cordite/math/Math.h"
+#include "cordite/renderer/CameraView.h"
+
+#include <cstdint>
+#include <span>
+#include <vector>
+
+namespace cordite {
+
+/// The grid a view is cut into: 16 x 9 x 24 clusters.
+inline constexpr uint32_t kClusterColumns = 16;
+inline constexpr uint32_t kClusterRows = 9;
+inline constexpr uint32_t kClusterSlices = 24;
+inline constexpr uint32_t kClusterCount = kClusterColumns * kClusterRows * kClusterSlices;
+
+/// How many lights a view can have. More than these are left out, the ones named last
+/// first.
+inline constexpr uint32_t kMaxDirectionalLights = 4;
+inline constexpr uint32_t kMaxLocalLights = 1024;
+
+/// The clusters do not reach further than this, however far the camera sees: beyond it,
+/// everything is in the last slice.
+inline constexpr float kMaxClusterDepth = 500.0f;
+
+/// The kinds of light, as the shaders number them.
+enum class GpuLightType : uint8_t {
+    Directional = 0,
+    Point = 1,
+    Spot = 2,
+};
+
+/// A light as the renderer collects it from the scene. All of it is in world space.
+struct SceneLight {
+    GpuLightType type = GpuLightType::Point;
+    Vec3 position{0.0f};
+    /// Unit vector along which a directional or spot light shines.
+    Vec3 direction{0.0f, -1.0f, 0.0f};
+    /// Linear color times intensity.
+    Vec3 color{1.0f};
+    /// Point and spot: where the light has faded to nothing, in metres.
+    float range = 10.0f;
+    /// Spot: the angles from the axis at which the light starts to fade and at which
+    /// it ends, in radians.
+    float innerConeAngle = 0.35f;
+    float outerConeAngle = 0.5f;
+    /// The lighting channels the light belongs to, one bit each.
+    uint32_t channels = 1;
+};
+
+/// A light as the shaders read it: `Light` in shaders/common/Lights.slang.
+struct GpuLight {
+    Vec3 position{0.0f};
+    float range = 0.0f;
+    Vec3 color{0.0f};
+    /// The GpuLightType in the low 8 bits, the channels in the 8 above.
+    uint32_t typeAndChannels = 0;
+    Vec3 direction{0.0f, -1.0f, 0.0f};
+    float padding0 = 0.0f;
+    /// A spot light's brightness at an angle whose cosine is c: saturate(c * scale + offset).
+    float spotScale = 0.0f;
+    float spotOffset = 1.0f;
+    float padding1 = 0.0f;
+    float padding2 = 0.0f;
+};
+
+static_assert(sizeof(GpuLight) == 64, "must match Light in shaders/common/Lights.slang");
+
+/// Where the list of a cluster is in LightClusters::indices.
+struct ClusterRange {
+    uint32_t offset = 0;
+    uint32_t count = 0;
+
+    bool operator==(const ClusterRange&) const = default;
+};
+
+/// How a point's depth becomes a slice, in a form the shaders share:
+/// perspective: slice = log2(depth) * scale + bias; orthographic: slice = depth * scale + bias.
+struct ClusterDepthMapping {
+    float scale = 1.0f;
+    float bias = 0.0f;
+    bool orthographic = false;
+
+    bool operator==(const ClusterDepthMapping&) const = default;
+
+    /// The slice a depth (metres in front of the camera) falls in, from 0 to
+    /// kClusterSlices - 1; depths in front of the first slice or beyond the last are
+    /// counted to those.
+    [[nodiscard]] uint32_t sliceOf(float depth) const;
+
+    /// The depth at which slice `slice` begins; `kClusterSlices` gives where the last
+    /// one ends.
+    [[nodiscard]] float sliceStart(uint32_t slice) const;
+};
+
+/// The depth mapping for a view.
+[[nodiscard]] ClusterDepthMapping clusterDepthMapping(const CameraView& view);
+
+/// The index of the cluster a point of the target falls in: `uv` from (0, 0) at the top
+/// left to (1, 1), `depth` in metres in front of the camera.
+[[nodiscard]] uint32_t clusterOf(Vec2 uv, float depth, const ClusterDepthMapping& mapping);
+
+/// The index of a cluster from its column, row and slice.
+[[nodiscard]] constexpr uint32_t clusterIndex(uint32_t column, uint32_t row, uint32_t slice) {
+    return (slice * kClusterRows + row) * kClusterColumns + column;
+}
+
+/// The lights of a view, sorted into clusters.
+struct LightClusters {
+    /// Directional lights first - they reach everywhere and are in no list - then the
+    /// point and spot lights.
+    std::vector<GpuLight> lights;
+    uint32_t directionalCount = 0;
+    /// One per cluster, indexed by clusterIndex().
+    std::vector<ClusterRange> grid;
+    /// The lists of all clusters, one after another: indices into `lights`, in
+    /// increasing order within a list.
+    std::vector<uint32_t> indices;
+    ClusterDepthMapping depthMapping;
+    /// Lights that were left out because the view has more than it can hold.
+    uint32_t droppedLights = 0;
+
+    /// The lights of the cluster with the given index.
+    [[nodiscard]] std::span<const uint32_t> lightsOf(uint32_t cluster) const;
+};
+
+/// Sorts lights into the clusters of a view.
+///
+/// Keep one for as long as there are views to draw: it remembers where the clusters of
+/// the last projection are, which is a good part of the work and the same from frame
+/// to frame for a camera whose lens does not change, and it reuses its memory.
+class LightClusterBuilder {
+public:
+    /// Sorts `lights` into the clusters of `view`. The result is the same for the same
+    /// input, whatever was built before: the builder and `clusters` are only reused for
+    /// what they hold in memory. Lights without brightness or range are left out, as
+    /// are those that reach no cluster.
+    void build(const CameraView& view, std::span<const SceneLight> lights, LightClusters& clusters);
+
+private:
+    struct Pair {
+        uint32_t cluster;
+        uint32_t light;
+    };
+
+    /// Makes m_bounds and the others hold the boxes for the projection of `view`.
+    void updateBounds(const CameraView& view, const ClusterDepthMapping& mapping);
+
+    /// Adds a pair to m_pairs for every cluster that `reach`, a sphere in view space,
+    /// touches.
+    void addPairs(const Sphere& reach, uint32_t light, const ClusterDepthMapping& mapping);
+
+    /// Cuts the lists of the clusters from m_pairs.
+    void writeLists(LightClusters& clusters) const;
+
+    /// The boxes of the clusters in view space, indexed by clusterIndex(), ...
+    std::vector<Aabb> m_bounds;
+    /// ... of each row of a slice (slice * kClusterRows + row) and of each of its
+    /// columns (slice * kClusterColumns + column): what a light does not touch, none
+    /// of the clusters in it has to be asked about.
+    std::vector<Aabb> m_rowBounds;
+    std::vector<Aabb> m_columnBounds;
+    /// What the boxes were worked out for.
+    Mat4 m_boundsProjection{0.0f};
+    ClusterDepthMapping m_boundsMapping;
+    bool m_hasBounds = false;
+
+    /// Working memory of build().
+    std::vector<const SceneLight*> m_local;
+    std::vector<Pair> m_pairs;
+};
+
+/// LightClusterBuilder::build() with a builder made for the one call: for where a view
+/// is built once, such as a test or a tool.
+void buildLightClusters(const CameraView& view, std::span<const SceneLight> lights, LightClusters& clusters);
+
+} // namespace cordite

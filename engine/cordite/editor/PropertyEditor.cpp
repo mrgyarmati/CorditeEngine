@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -151,6 +152,71 @@ bool drawNumber(const PropertyInfo& property, Json& value, bool isInteger) {
     return false;
 }
 
+/// An integer whose bits are switches: one check box per bit, the lowest first, as
+/// many as the property's maximum has bits.
+bool drawBitMask(const PropertyInfo& property, Json& value) {
+    if (!value.is_number_integer()) {
+        ImGui::TextDisabled("(not a number)");
+        return false;
+    }
+    // Without a maximum, the 32 bits of the widest integer a component declares.
+    constexpr uint64_t kAllBits = 0xFFFFFFFFu;
+    const PropertyAttributes& attributes = property.attributes();
+    const uint64_t allowed =
+        attributes.maximum ? static_cast<uint64_t>(std::clamp(*attributes.maximum, 0.0, 4294967295.0)) : kAllBits;
+    const int bitCount = std::bit_width(allowed);
+    auto bits = static_cast<uint64_t>(std::max<int64_t>(value.get<int64_t>(), 0));
+
+    bool changed = false;
+    const float spacing = ImGui::GetStyle().ItemInnerSpacing.x;
+    const float boxWidth = ImGui::GetFrameHeight();
+    for (int bit = 0; bit < bitCount; ++bit) {
+        // On the same line as long as there is room, so that a narrow panel wraps the
+        // row instead of cutting it off.
+        if (bit > 0) {
+            ImGui::SameLine(0.0f, spacing);
+            if (ImGui::GetContentRegionAvail().x < boxWidth) {
+                ImGui::NewLine();
+            }
+        }
+        ImGui::PushID(bit);
+        bool isSet = ((bits >> bit) & 1u) != 0;
+        if (ImGui::Checkbox("##bit", &isSet)) {
+            bits ^= uint64_t{1} << bit;
+            changed = true;
+        }
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
+            ImGui::SetTooltip("%d", bit + 1);
+        }
+        ImGui::PopID();
+    }
+    if (changed) {
+        value = static_cast<int64_t>(bits);
+    }
+    return changed;
+}
+
+/// A color: a swatch as wide as the row, which opens a picker when it is clicked. The
+/// numbers are in the picker; three or four of them do not fit a narrow panel side by
+/// side. Colors are not limited to one: a light may be brighter than white.
+bool drawColor(std::array<float, 4>& components, int componentCount) {
+    const bool hasAlpha = componentCount == 4;
+    const ImGuiColorEditFlags flags = ImGuiColorEditFlags_Float | ImGuiColorEditFlags_HDR |
+                                      (hasAlpha ? ImGuiColorEditFlags_AlphaBar : ImGuiColorEditFlags_NoAlpha);
+    const ImVec4 color(components[0], components[1], components[2], hasAlpha ? components[3] : 1.0f);
+    if (ImGui::ColorButton("##value", color, flags, ImVec2(ImGui::CalcItemWidth(), ImGui::GetFrameHeight()))) {
+        ImGui::OpenPopup("##picker");
+    }
+
+    bool changed = false;
+    if (ImGui::BeginPopup("##picker")) {
+        changed = hasAlpha ? ImGui::ColorPicker4("##color", components.data(), flags)
+                           : ImGui::ColorPicker3("##color", components.data(), flags);
+        ImGui::EndPopup();
+    }
+    return changed;
+}
+
 bool drawVector(const PropertyInfo& property, Json& value, int componentCount) {
     const PropertyAttributes& attributes = property.attributes();
     const auto count = static_cast<size_t>(componentCount);
@@ -166,9 +232,7 @@ bool drawVector(const PropertyInfo& property, Json& value, int componentCount) {
 
     bool changed = false;
     if (attributes.semantic == PropertySemantic::Color && componentCount >= 3) {
-        const ImGuiColorEditFlags flags = ImGuiColorEditFlags_Float | ImGuiColorEditFlags_HDR;
-        changed = componentCount == 3 ? ImGui::ColorEdit3("##value", components.data(), flags)
-                                      : ImGui::ColorEdit4("##value", components.data(), flags);
+        changed = drawColor(components, componentCount);
     } else {
         const float minimum =
             attributes.minimum ? static_cast<float>(*attributes.minimum) : -std::numeric_limits<float>::max();
@@ -245,7 +309,8 @@ bool PropertyEditor::drawValue(PropertyType type, const PropertyInfo& property, 
             return false;
         }
         case PropertyType::Int:
-            return drawNumber(property, value, true);
+            return property.attributes().semantic == PropertySemantic::BitMask ? drawBitMask(property, value)
+                                                                               : drawNumber(property, value, true);
         case PropertyType::Float:
             return drawNumber(property, value, false);
         case PropertyType::String: {

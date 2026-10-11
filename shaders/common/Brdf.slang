@@ -31,6 +31,9 @@ struct Surface
     float occlusion;
     // Light the surface gives off by itself.
     float3 emissive;
+    // The lighting channels the surface belongs to, one bit each: a light shines on
+    // it when they share one.
+    uint lightChannels;
 };
 
 // The color of the light scattered inside the surface: none for a metal.

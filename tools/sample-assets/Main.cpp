@@ -457,8 +457,10 @@ GltfDocument makeLampPost() {
     headNode.parent = 1;
     headNode.mesh = 2;
     headNode.transform.position = Vec3(0.5f, -0.06f, 0.0f);
-    // Tilted down a little, to show that rotations come through.
-    headNode.transform.rotation = glm::angleAxis(toRadians(-12.0f), Vec3(0.0f, 0.0f, 1.0f));
+    // Raised a little at its far end, as the head of a street lamp is, so that what
+    // shines out of its underside is thrown away from the pole. It also shows that
+    // rotations come through.
+    headNode.transform.rotation = glm::angleAxis(toRadians(12.0f), Vec3(0.0f, 0.0f, 1.0f));
     document.nodes = {poleNode, armNode, headNode};
     document.roots = {0};
     return document;

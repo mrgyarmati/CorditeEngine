@@ -148,6 +148,10 @@ desc.depth = MeshPassDepth::TestAndWrite;
   `evaluateSurface(input, isFrontFace)` gives the `Surface` at the pixel, and
   `evaluateOpacity` is enough for a pass that only needs to cut holes. Never sample
   material textures directly.
+- **Per-instance data** is what `MeshDrawList` writes for every instance: the transform
+  and, in a fourth row, the lighting channels (`kMeshInstanceStride` bytes). Something
+  else that differs between two instances of the same mesh and material goes into
+  that row, and from `meshVertex` into `MeshVaryings`.
 - **Call it** from `SceneRenderer::render`, add it to `SceneRenderer::Passes`, and
   count what it draws in `SceneRenderStatistics`.
 
@@ -180,23 +184,64 @@ Texture2D<float4> sceneDepth : register(t4, space1);
 - Anything that lights a surface calls `shadeSurface` (`common/SceneLighting.slang`),
   which the forward pass calls too; extend that function, not one of its callers.
 
+### Something about lights
+
+The lights of a view are in its binding set, so every pass that binds the view has
+them (`common/Lights.slang`):
+
+```slang
+#include "common/Lights.slang"
+
+// Every directional light, then the point and spot lights near the pixel.
+for (uint index = 0; index < directionalLightCount; ++index) { ... lights[index] ... }
+const ClusterRange range = clusterGrid[clusterIndexOf(uv, viewDepth(position))];
+for (uint entry = 0; entry < range.count; ++entry) { ... lights[lightIndices[range.offset + entry]] ... }
+```
+
+- **A new property of a light** is a field of `LightComponent` (described with
+  `TypeBuilder`, see the add-component skill), of `SceneLight`, and of `GpuLight` and
+  its mirror `Light` in `Lights.slang` - 64 bytes, in rows of 16, with a
+  `static_assert`. `makeSceneLight` (`SceneLights.cpp`) converts what a person sets,
+  `toGpuLight` (`LightClusters.cpp`) what the shader needs.
+- **A new kind of light** also needs a bound for the clusters (`boundsOf` in
+  `LightClusters.cpp`): a sphere that encloses everything the light reaches. Too large
+  costs time; too small cuts the light off along the borders of clusters, which the
+  tests of `SceneLightingTests` catch.
+- **How a light falls off** is in `shadeLight`. It must reach zero at the light's
+  range, where the clusters stop listing the light.
+- **The grid** (`kClusterColumns`, `kClusterRows`, `kClusterSlices`) and
+  `clusterIndexOf` exist in C++ and in the shader. Change both; the light-count debug
+  view shows at once whether they still agree.
+- Measure: `./scripts/dev.ps1 perf` runs a scene with six hundred lights and reports
+  what gathering and clustering them costs, and how many list entries there are.
+
 ### A debug view
 
 1. Add the value to `RenderDebugView` (`RenderDebugView.h`): the enumerator, its place
    in `kRenderDebugViews`, `nameOf` and `displayNameOf`. The editor's menu and
    `viewport.debugView` pick it up from the list.
-2. If it shows something the G-buffer holds, keep it between `BaseColor` and `Depth`,
-   and add a `case` with the same number to `passes/DebugView.slang`. Write colors as
-   they are and numbers through `asShown`, so that 0.5 comes out as mid-grey.
+2. If it is drawn from the G-buffer and the depth, keep it between `BaseColor` and
+   `LightCount` (`isDrawnFromGBuffer`), and add a `case` with the same number to
+   `passes/DebugView.slang`. Write colors as they are and numbers through `asShown`,
+   so that 0.5 comes out as mid-grey.
 3. Otherwise handle it in `SceneRenderer::render`, as wireframe and overdraw are.
 4. Test it in `SceneRendererTests`: what a known surface must look like in the view.
 
 ### Testing a scene pass
 
-`tests/render/SceneRendererTests.cpp` with `SceneFixture`. State what a pixel must be
+`tests/render/SceneRendererTests.cpp` and `SceneLightingTests.cpp`, with the
+`SceneFixture` of `tests/render/SceneTestSupport.h`. State what a pixel must be
 wherever that is possible:
 
 - flat emissive materials (`writeFlatMaterial`), an orthographic camera and
   `flatSettings()` (no light) make colors exact: `checkPixel(image, x, y, linearColor)`;
+- a white, matte material (`writeMatteMaterial`) shows exactly the light that reaches
+  it: lit head-on by a light of intensity 1, it is white. `scene.addLight`, `setSun`
+  and `setAmbient` light the world; `lightOn` in `SceneLightingTests.cpp` is the
+  lighting model written out on the CPU, to compare whole pictures with;
 - a debug view makes a number visible: `checkShown(image, x, y, Vec3(0.25f))`;
-- `scene.renderer->statistics()` says which pass drew what.
+- `scene.renderer->statistics()` says which pass drew what, and how many lights.
+
+Look at surfaces head-on when the test predicts single pixels. Seen at a low angle, a
+surface runs through a pixel for a long way, and the value depends on where in the
+pixel the GPU samples; see the test with hundreds of lights for how to allow for that.

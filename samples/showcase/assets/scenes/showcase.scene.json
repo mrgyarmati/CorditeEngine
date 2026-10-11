@@ -113,6 +113,27 @@
             }
         },
         {
+            // A material that glows lights nothing but itself. What the fitting throws on the
+            // wall and the floor is a light of its own, in front of it: a point light, which
+            // shines in all directions as far as its range.
+            "id": "10000000-0000-4000-8000-000000000021",
+            "name": "Wall light glow",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-00000000000b",
+            "components": {
+                "Transform": { "position": [1.5, 0.9, 0.7], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [1.0, 1.0, 1.0] },
+                "Light": {
+                    "type": "point",
+                    "color": [1.0, 0.62, 0.3],
+                    "intensity": 4.0,
+                    "range": 7.0,
+                    "innerConeDegrees": 25.0,
+                    "outerConeDegrees": 35.0,
+                    "channels": 1
+                }
+            }
+        },
+        {
             // A mesh from a model file (models/crate.gltf). It has two submeshes, the wood
             // and the steel strips, and so two materials. Turned 30 degrees about the
             // vertical axis.
@@ -228,12 +249,39 @@
             "components": {
                 "Transform": {
                     "position": [0.5, -0.06, 0.0],
-                    "rotation": [0.0, 0.0, -0.10452846, 0.9945219],
+                    "rotation": [0.0, 0.0, 0.10452846, 0.9945219],
                     "scale": [1.0, 1.0, 1.0]
                 },
                 "MeshRenderer": {
                     "mesh": "fa9df97d-9a27-8ad1-9563-9dea950126bf",
                     "materials": ["56fbbbc8-bf07-899e-9f24-437d651f7d94", "ba028e98-9e91-86bf-af55-c8963a15ad16"]
+                }
+            }
+        },
+        {
+            // The lamp in the head: a spot light. It shines along the -Z axis of its entity,
+            // which a quarter turn about X points out of the underside of the head, and so
+            // it follows wherever the head is turned. Inside the inner cone it is at full
+            // brightness; from there it fades to nothing at the outer one. Its range is no
+            // more than the floor below it needs: a light costs what it can reach.
+            "id": "10000000-0000-4000-8000-000000000022",
+            "name": "Lamp",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-000000000015",
+            "components": {
+                "Transform": {
+                    "position": [0.0, -0.1, 0.0],
+                    "rotation": [-0.70710677, 0.0, 0.0, 0.70710677],
+                    "scale": [1.0, 1.0, 1.0]
+                },
+                "Light": {
+                    "type": "spot",
+                    "color": [1.0, 0.9, 0.75],
+                    "intensity": 13.5,
+                    "range": 6.0,
+                    "innerConeDegrees": 28.0,
+                    "outerConeDegrees": 44.0,
+                    "channels": 1
                 }
             }
         },
@@ -304,13 +352,35 @@
         },
         {
             // No material at all: a submesh without one is drawn with the default material.
+            // The ball is in two lighting channels, the first and the second (1 + 2); what
+            // does not say is in the first only.
             "id": "10000000-0000-4000-8000-00000000001b",
             "name": "Ball",
             "enabled": true,
             "parent": "10000000-0000-4000-8000-000000000001",
             "components": {
                 "Transform": { "position": [0.9, 0.3, 0.2], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [0.6, 0.6, 0.6] },
-                "MeshRenderer": { "mesh": "aa35bb57-6b9a-8ecb-9eda-83a2a1be3014", "materials": [] }
+                "MeshRenderer": { "mesh": "aa35bb57-6b9a-8ecb-9eda-83a2a1be3014", "materials": [], "lightChannels": 3 }
+            }
+        },
+        {
+            // A light that shines on the second lighting channel only: it picks out the ball
+            // and leaves the floor under it and the glass next to it alone.
+            "id": "10000000-0000-4000-8000-000000000023",
+            "name": "Ball highlight",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-000000000001",
+            "components": {
+                "Transform": { "position": [1.5, 1.0, 0.9], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [1.0, 1.0, 1.0] },
+                "Light": {
+                    "type": "point",
+                    "color": [0.45, 0.7, 1.0],
+                    "intensity": 2.0,
+                    "range": 3.0,
+                    "innerConeDegrees": 25.0,
+                    "outerConeDegrees": 35.0,
+                    "channels": 2
+                }
             }
         },
         {
@@ -418,6 +488,56 @@
                     "farPlane": 50.0,
                     "primary": false
                 }
+            }
+        },
+        {
+            // A scene shows only what its lights light: without any, a game renders it black.
+            // (The editor lights a scene that has no lights yet, so that it can be worked on.)
+            "id": "10000000-0000-4000-8000-00000000001e",
+            "name": "Lighting",
+            "enabled": true,
+            "parent": null,
+            "components": {
+                "Transform": { "position": [0.0, 0.0, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [1.0, 1.0, 1.0] }
+            }
+        },
+        {
+            // The sun: a directional light, which arrives from the same direction everywhere.
+            // Where its entity is does not matter, only how it is turned: it shines along the
+            // entity's -Z axis, here 53 degrees downwards and 48 degrees about the vertical
+            // axis. An intensity of 1 lights a white, matte surface that faces the light to
+            // white. Range and cone angles are for the other kinds of light.
+            "id": "10000000-0000-4000-8000-00000000001f",
+            "name": "Sun",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-00000000001e",
+            "components": {
+                "Transform": {
+                    "position": [0.0, 6.0, 0.0],
+                    "rotation": [-0.40762199, 0.3640026, 0.181485, 0.81756322],
+                    "scale": [1.0, 1.0, 1.0]
+                },
+                "Light": {
+                    "type": "directional",
+                    "color": [1.0, 0.86, 0.7],
+                    "intensity": 0.45,
+                    "range": 10.0,
+                    "innerConeDegrees": 25.0,
+                    "outerConeDegrees": 35.0,
+                    "channels": 1
+                }
+            }
+        },
+        {
+            // Light from all around: from the sky above, and what the ground throws back from
+            // below. It reaches everything, whatever its lighting channels.
+            "id": "10000000-0000-4000-8000-000000000020",
+            "name": "Sky",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-00000000001e",
+            "components": {
+                "Transform": { "position": [0.0, 8.0, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [1.0, 1.0, 1.0] },
+                "AmbientLight": { "skyColor": [0.13, 0.17, 0.25], "groundColor": [0.06, 0.05, 0.045], "intensity": 1.0 }
             }
         }
     ]

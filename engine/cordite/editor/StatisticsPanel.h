@@ -24,6 +24,9 @@
 ///     "gpuMilliseconds": 0.24,          // null where the GPU cannot time its work
 ///     "scene": {"views": 1, "meshRenderers": 21, "culled": 0,
 ///               "drawCalls": 37, "instances": 45, "triangles": 5436,   // all passes together
+///               // The lights in view, the entries of the cluster lists they are in, and
+///               // the lights left out because a view holds only so many.
+///               "lights": {"count": 4, "listEntries": 310, "dropped": 0},
 ///               "passes": {"depth":   {"drawCalls": 18, "instances": 22, "triangles": 2712},
 ///                          "base":    {"drawCalls": 18, "instances": 22, "triangles": 2712},
 ///                          "forward": {"drawCalls": 1, "instances": 1, "triangles": 12}}},

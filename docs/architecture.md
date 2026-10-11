@@ -37,7 +37,7 @@ of slowly turning the code base into a ball of mud.
 | `rhi` | `core`, `math`, `platform` | The GPU: Vulkan instance and device creation, the NVRHI device the renderer programs against, the swapchain, and texture readback. The only module that calls Vulkan. |
 | `shaders` | `core` | What a shader *is* to the engine: requests and their permutation keys, compiled binaries, the on-disk cache, and the `ShaderLibrary` that resolves a request from memory, disk or a compiler. |
 | `shader_compiler` | `core`, `shaders` | The Slang-based implementation of `IShaderCompiler`. Kept separate so exported games do not link a compiler. |
-| `renderer` | `core`, `math`, `assets`, `world`, `rhi`, `shaders` | Drawing: the scene renderer and its passes (depth, G-buffer, deferred lighting, forward, debug views), the GPU copies of assets it draws with, the targets of a view, the component that makes an entity visible; the view a camera gives, debug line drawing, and the `ShaderManager` that turns shader binaries into GPU shader objects. |
+| `renderer` | `core`, `math`, `assets`, `world`, `rhi`, `shaders` | Drawing: the scene renderer and its passes (depth, G-buffer, deferred lighting, forward, debug views), the GPU copies of assets it draws with, the targets of a view, the components that make an entity visible or make it a light, the lights of a world sorted into the clusters of a view; the view a camera gives, debug line drawing, and the `ShaderManager` that turns shader binaries into GPU shader objects. |
 | `ui` | `core`, `math`, `platform`, `rhi`, `shaders`, `renderer` | The immediate-mode user interface: the Dear ImGui context, its input, and the renderer that draws it with NVRHI. |
 | `engine` | all of the above | `Engine`: creates and owns the subsystems, the assets, the world and the interface, and runs the frame loop. Also what needs several of the modules below at once: projects, placing a model in a world, checking the assets a scene refers to. |
 | `editor` | `engine` and below | The editor: the scene document, undoable actions, the command registry, the panels, and `EditorApp`. Not part of exported games. |
@@ -115,11 +115,13 @@ batches, once for all the passes that follow. The picture is built in a `SceneTa
 one per view:
 
 ```
+lights of the world ──> light clusters: which lights reach which part of the view
 solid surfaces ──> depth pre-pass ──> depth
-               ──> base pass      ──> G-buffer: base color, normal, roughness / metallic /
-                                               specular / occlusion, emissive
-G-buffer + depth ──> deferred lighting ──> scene color (linear, float)
-translucent surfaces ──> forward pass ──> scene color, blended over it, far to near
+               ──> base pass      ──> G-buffer: base color and lighting channels, normal,
+                                               roughness / metallic / specular / occlusion,
+                                               emissive
+G-buffer + depth + clusters ──> deferred lighting ──> scene color (linear, float)
+translucent surfaces + clusters ──> forward pass ──> scene color, blended over it, far to near
 scene color ──> display encoding ──> display image (sRGB, 8 bit)
                                       ^ overlays: debug lines, gizmos
 ```
@@ -127,13 +129,23 @@ scene color ──> display encoding ──> display image (sRGB, 8 bit)
 The deferred path is what makes many lights affordable: every solid surface is written
 down once, and each light then costs the pixels it reaches, not the geometry. What
 cannot be written down that way - a surface through which another shows - is drawn by
-the forward pass, with the same shading code. Lights, shadows and post-processing of
-the next milestones go between the G-buffer and the display encoding; for now the
-lighting is a fixed key light and ambient light.
+the forward pass, with the same shading code. Shadows and post-processing of the next
+milestones go between the G-buffer and the display encoding.
+
+A scene is lit by components: `Light` (directional, point or spot) and `AmbientLight`
+(a sky above and a ground below). For every view, `SceneLights` gathers the enabled
+ones and a `LightClusterBuilder` sorts the point and spot lights into a grid of
+clusters that fills what the camera sees - 16 columns, 9 rows, 24 slices into the
+depth. Each cluster gets the list of the lights that touch it; a pixel works out which
+cluster it is in and asks the lights of that list, and the directional lights, which
+reach everywhere. The lights, the grid and the lists are three buffers in the binding
+set of the view, next to its constants, so that the deferred lighting and the forward
+pass read the same ones.
 
 A debug view (`RenderDebugView`) replaces the lighting, or the passes altogether, by a
-picture of something the renderer works with: a channel of the G-buffer, the light
-without the materials, the edges of the triangles, how often each pixel is drawn.
+picture of something the renderer works with: a channel of the G-buffer, how many
+lights each pixel asks, the light without the materials, the edges of the triangles,
+how often each pixel is drawn.
 
 ### The editor
 
@@ -478,7 +490,7 @@ draws one surface both ways and compares the pictures.
 
 | Target | Format | Holds | Why this format |
 |--------|--------|-------|-----------------|
-| 0 | SRGBA8 | Base color | Eight bits are enough when they are spent as the eye sees |
+| 0 | SRGBA8 | Base color; in alpha, the lighting channels | Eight bits are enough when they are spent as the eye sees; alpha is not encoded, so its eight bits hold eight channels exactly |
 | 1 | RG16_UNORM | World-space normal, octahedrally mapped | Two channels, the same precision in every direction, no banding on smooth highlights |
 | 2 | RGBA8 | Roughness, metallic, specular, occlusion | Four numbers between 0 and 1 |
 | 3 | R11G11B10F | Emissive | Light is not limited to 1; no alpha is needed |
@@ -501,6 +513,72 @@ geometry is transformed twice.
 "Exactly the same depth" is only true when both passes compute positions with the
 same code, so every pass that draws meshes shares one vertex shader, and a mesh pass
 is a description (`MeshPassDesc`) rather than a class with shaders of its own.
+
+### Lights are found through clusters, built on the CPU
+
+A scene of the kind the engine is for has dozens of lamps in view and may have
+hundreds; a pixel is lit by the few whose range it is in. The ways to find those few:
+
+- *Ask every light for every pixel.* Simple, and the cost is lights times pixels.
+- *Draw a volume per light* over the G-buffer. Each light costs the pixels it covers,
+  but it works for the deferred path only, and every light is a draw call and a
+  round of reading the G-buffer.
+- *Tiles:* cut the screen into squares and list the lights of each. Works for both
+  paths, but a tile that contains a near and a far surface lists the lights of
+  everything in between.
+- *Clusters:* cut the tiles along the depth as well. A list holds what is near one
+  piece of the view, and both the deferred lighting and the forward pass can use it.
+
+The engine uses clusters. The slices get deeper by a constant factor (evenly for a
+camera without perspective), because that is how much of the picture things take up,
+and the grid stops at 500 metres, beyond which everything shares the last slice.
+
+The lists are built on the CPU, per view: a few hundred lights against a few thousand
+boxes is a fraction of a millisecond (the `lights` performance scenario measures it),
+the code runs and is tested without a GPU, and the result is plain data that a test
+can read. A compute shader would only pay off with many thousands of lights. Two
+things keep it cheap: the boxes of the clusters depend on the projection alone and
+are kept from frame to frame, and a light is first held against whole rows and
+columns of a slice, so that most clusters are never asked about it.
+
+A view holds four directional lights and 1024 point and spot lights. More are left
+out, counted in the statistics and reported once; lights that reach nothing in view
+do not count. Lights are taken in the order of their entities' ids, which is the same
+on every run and after any edit, so that neither the sums nor the choice of what is
+left out depend on how components happen to be stored.
+
+### Brightness is set for artists, computed in radiance
+
+A light has a color and an intensity, and an intensity of 1 lights a white, matte
+surface that faces the light to white: at any distance for a directional light, one
+metre away for a point or spot light, which thin out with the square of the distance.
+That is a unit a person can set by eye and check in a test. `SceneLights` converts it
+to what the shaders compute with - a matte surface throws back one part in pi of what
+reaches it, so the light is handed on pi times as bright - and the conversion is the
+one place to change when photometric units (lux, candela) are added on top.
+
+A point or spot light ends at its `range`: the inverse-square falloff is multiplied by
+a window that brings it smoothly to zero there (the one of "Real Shading in Unreal
+Engine 4"). A light without an end would be in every cluster's list.
+
+### Lighting channels travel with the instance
+
+Every mesh renderer and every light is in some of eight lighting channels, and a
+light shines on a surface when they share one - for a rim light that picks out one
+character, or a lamp that must not light the room next door until there are shadows
+to stop it. The channels of a mesh renderer are per-instance data, next to the
+transform, so that two things that differ in nothing else still share a draw call.
+The base pass writes them into the alpha of the first G-buffer target, which was
+unused, and the forward pass has them at hand; `shadeSurface` compares them with the
+light's. Ambient light does not ask for channels.
+
+### A scene without lights is black, except in the editor
+
+A game shows what its scene says, and a scene without lights says darkness. An
+editor showing a scene that is being started would show nothing at all, so a view
+can ask for stand-ins (`SceneRenderSettings::defaultLighting`): a key light and
+ambient light, used only while the world has no light component whatsoever. One
+light, even switched off, ends that - a scene that was made dark stays dark.
 
 ### Debug views are part of the renderer
 

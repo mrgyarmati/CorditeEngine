@@ -21,6 +21,8 @@ struct MeshVertexInput
     float4 world0 : WORLD0;
     float4 world1 : WORLD1;
     float4 world2 : WORLD2;
+    // x: the lighting channels the instance belongs to, as a number.
+    float4 parameters : PARAMETERS;
 };
 
 [shader("vertex")]
@@ -49,5 +51,6 @@ MeshVaryings meshVertex(MeshVertexInput input)
                             input.tangent.w * mirrored);
     output.uv0 = input.uv0;
     output.uv1 = input.uv1;
+    output.lightChannels = uint(input.parameters.x + 0.5);
     return output;
 }

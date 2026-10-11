@@ -24,6 +24,8 @@ std::string_view nameOf(RenderDebugView view) {
             return "emissive";
         case RenderDebugView::Depth:
             return "depth";
+        case RenderDebugView::LightCount:
+            return "lightCount";
         case RenderDebugView::LightingOnly:
             return "lightingOnly";
         case RenderDebugView::Wireframe:
@@ -54,6 +56,8 @@ std::string_view displayNameOf(RenderDebugView view) {
             return "Emissive";
         case RenderDebugView::Depth:
             return "Depth";
+        case RenderDebugView::LightCount:
+            return "Light count";
         case RenderDebugView::LightingOnly:
             return "Lighting only";
         case RenderDebugView::Wireframe:

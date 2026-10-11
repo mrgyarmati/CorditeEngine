@@ -33,8 +33,9 @@
 /// picture of something the renderer works with.
 ///
 /// One scene renderer serves any number of views; give each view its own SceneTargets.
-/// Until the engine has lights, every surface is lit by the fixed key light and the
-/// ambient light of SceneRenderSettings.
+/// A scene is lit by its Light and AmbientLight components (RenderComponents.h): the
+/// directional lights everywhere, the point and spot lights where they reach, found
+/// through a grid of clusters (LightClusters.h).
 
 #include "cordite/assets/AssetManager.h"
 #include "cordite/core/Base.h"
@@ -44,10 +45,12 @@
 #include "cordite/renderer/DebugViewPass.h"
 #include "cordite/renderer/DeferredLightingPass.h"
 #include "cordite/renderer/DisplayEncodePass.h"
+#include "cordite/renderer/LightClusters.h"
 #include "cordite/renderer/MeshDrawList.h"
 #include "cordite/renderer/MeshPass.h"
 #include "cordite/renderer/RenderDebugView.h"
 #include "cordite/renderer/RenderResources.h"
+#include "cordite/renderer/SceneLights.h"
 #include "cordite/renderer/SceneTargets.h"
 #include "cordite/renderer/ShaderManager.h"
 #include "cordite/renderer/ViewBindings.h"
@@ -70,20 +73,15 @@ struct SceneRendererDesc {
     bool supportsWireframe = true;
 };
 
-/// How a scene is lit and what is behind it. All colors are linear.
+/// What a view shows of a scene besides the scene itself.
 struct SceneRenderSettings {
-    /// What shows where nothing is drawn.
+    /// What shows where nothing is drawn. Linear color.
     Vec3 backgroundColor{0.012f, 0.014f, 0.018f};
 
-    /// The fixed key light: the direction from a surface towards it, and its color and
-    /// strength. The default comes from above, over the right shoulder of a viewer who
-    /// looks along -Z, and is slightly warm.
-    Vec3 keyLightDirection{0.45f, 0.80f, 0.40f};
-    Vec3 keyLightColor{2.75f, 2.60f, 2.40f};
-
-    /// Ambient light arriving from above and from below.
-    Vec3 skyColor{0.26f, 0.31f, 0.40f};
-    Vec3 groundColor{0.10f, 0.09f, 0.08f};
+    /// Light a world that has no light components at all with a key light and soft
+    /// ambient light, so that what is in it can be seen (SceneLightsDesc). An editor
+    /// does, for a scene that is being started; a game shows what its scene says.
+    bool defaultLighting = false;
 
     /// What to show instead of the finished picture; None shows the picture.
     RenderDebugView debugView = RenderDebugView::None;
@@ -97,6 +95,15 @@ struct SceneRenderStatistics {
     uint32_t meshRenderers = 0;
     /// Of those, the ones outside the view, which were not drawn.
     uint32_t culled = 0;
+
+    /// The lights that reach something in view: directional ones, and point and spot
+    /// lights that touch at least one cluster.
+    uint32_t lights = 0;
+    /// The entries of all the clusters' lists together: how much the lights overlap.
+    uint32_t lightListEntries = 0;
+    /// Lights left out because a view can only hold so many (kMaxDirectionalLights,
+    /// kMaxLocalLights).
+    uint32_t droppedLights = 0;
 
     /// What each of the passes that draw meshes did. A debug view that draws the meshes
     /// itself - wireframe, overdraw - counts as the forward pass.
@@ -165,6 +172,13 @@ private:
     bool m_supportsWireframe;
     /// So that the missing wireframe view is reported once, not every frame.
     bool m_reportedWireframe = false;
+
+    /// The lights of the view being drawn. Members so that their memory is reused.
+    SceneLights m_lights;
+    LightClusterBuilder m_clusterBuilder;
+    LightClusters m_clusters;
+    /// So that lights that were left out are reported once, not every frame.
+    bool m_reportedDroppedLights = false;
 
     SceneRenderStatistics m_statistics;
     SceneRenderStatistics m_frameStatistics;

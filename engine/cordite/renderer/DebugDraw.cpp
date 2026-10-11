@@ -99,6 +99,39 @@ void DebugDraw::sphere(const Vec3& center, float radius, const Vec4& color, uint
     circle(center, kWorldForward, radius, color, segments);
 }
 
+void DebugDraw::arrow(const Vec3& from, const Vec3& to, const Vec4& color) {
+    // The head, as fractions of the arrow's length.
+    constexpr float kHeadLength = 0.2f;
+    constexpr float kHeadHalfWidth = 0.08f;
+
+    const Vec3 shaft = to - from;
+    const float length = glm::length(shaft);
+    // Written so that a length that is not a number draws nothing either.
+    if (!(length > 0.0f)) {
+        return;
+    }
+    const Vec3 axis = shaft / length;
+    const auto [first, second] = perpendicularBasis(axis);
+    const Vec3 neck = to - axis * (length * kHeadLength);
+
+    line(from, to, color);
+    for (const Vec3& side : {first, -first, second, -second}) {
+        line(to, neck + side * (length * kHeadHalfWidth), color);
+    }
+}
+
+void DebugDraw::cone(const Vec3& apex, const Vec3& direction, float height, float radius, const Vec4& color,
+                     uint32_t segments) {
+    const Vec3 axis = normalizeOr(direction, kWorldForward);
+    const auto [first, second] = perpendicularBasis(axis);
+    const Vec3 center = apex + axis * height;
+
+    circle(center, axis, radius, color, segments);
+    for (const Vec3& side : {first, -first, second, -second}) {
+        line(apex, center + side * radius, color);
+    }
+}
+
 void DebugDraw::frustum(const Mat4& inverseViewProjection, const Vec4& color) {
     const std::array<Vec3, 8> corners = frustumCorners(inverseViewProjection);
     for (const auto& [from, to] : kBoxEdges) {

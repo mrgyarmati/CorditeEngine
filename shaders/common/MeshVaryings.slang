@@ -16,4 +16,6 @@ struct MeshVaryings
     float4 tangent : TANGENT0;
     float2 uv0 : TEXCOORD0;
     float2 uv1 : TEXCOORD1;
+    // The lighting channels of the instance, one bit each; the same all over it.
+    nointerpolation uint lightChannels : LIGHTCHANNELS;
 };

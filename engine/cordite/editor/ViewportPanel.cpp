@@ -3,6 +3,7 @@
 #include "cordite/editor/EditorFeedback.h"
 #include "cordite/math/Color.h"
 #include "cordite/renderer/RenderComponents.h"
+#include "cordite/renderer/SceneLights.h"
 #include "cordite/world/Components.h"
 
 #include <imgui.h>
@@ -20,6 +21,8 @@ namespace {
 constexpr Vec3 kBackgroundColor(0.085f, 0.090f, 0.105f);
 constexpr Vec4 kSelectionColor(1.0f, 0.78f, 0.20f, 1.0f);
 constexpr Vec4 kCameraColor(0.75f, 0.78f, 0.85f, 1.0f);
+/// A light is not seen itself, only what it lights; its lines say where it is.
+constexpr Vec4 kLightColor(1.0f, 0.86f, 0.38f, 1.0f);
 
 /// The ground grid follows the camera and fades out before its edge comes into view.
 /// Its lines are faint: far away they crowd together, and at full strength they would
@@ -45,6 +48,11 @@ constexpr float kSelectedMarkerSize = 0.6f;
 constexpr float kSelectionBoxHalfSize = 0.2f;
 /// A camera's view volume is drawn only this deep, or it would fill the scene.
 constexpr float kCameraFrustumDepth = 2.0f;
+/// A light that is not selected shows what kind it is and where it points, this
+/// large; how far it reaches is drawn only for a selected one.
+constexpr float kLightMarkerRadius = 0.15f;
+constexpr float kLightMarkerLength = 0.75f;
+constexpr uint32_t kLightMarkerSegments = 16;
 
 /// How close, in pixels, a click has to be to a marker to select its entity, and how
 /// close two markers have to be on screen to count as being in the same spot.
@@ -98,6 +106,40 @@ std::optional<float> intersectMesh(const Ray& ray, const MeshData& mesh, const M
     return nearest ? std::optional<float>(*nearest / scale) : std::nullopt;
 }
 
+/// A light as lines: what kind it is and where it shines into `marker`, and how far
+/// it reaches into `reach`. Drawn from the light as the renderer sees it, so the
+/// lines are where the light is.
+void drawLight(const SceneLight& light, const Vec4& color, DebugDraw& marker, DebugDraw* reach) {
+    switch (light.type) {
+        case GpuLightType::Directional:
+            // The same everywhere: a disc the light leaves, and the way it goes.
+            marker.circle(light.position, light.direction, kLightMarkerRadius, color, kLightMarkerSegments);
+            marker.arrow(light.position, light.position + light.direction * kLightMarkerLength, color);
+            break;
+        case GpuLightType::Point:
+            marker.sphere(light.position, kLightMarkerRadius, color, kLightMarkerSegments);
+            if (reach != nullptr) {
+                reach->sphere(light.position, light.range, color);
+            }
+            break;
+        case GpuLightType::Spot: {
+            // The edge of the cone is as long as the light reaches, so its rim lies on
+            // the sphere of the range.
+            const auto cone = [&light, &color](DebugDraw& lines, float angle, float length) {
+                lines.cone(light.position, light.direction, std::cos(angle) * length, std::sin(angle) * length, color);
+            };
+            cone(marker, light.outerConeAngle, std::min(light.range, kLightMarkerLength));
+            if (reach != nullptr) {
+                cone(*reach, light.outerConeAngle, light.range);
+                // Where the light starts to fade towards the edge.
+                reach->circle(light.position + light.direction * (std::cos(light.innerConeAngle) * light.range),
+                              light.direction, std::sin(light.innerConeAngle) * light.range, color);
+            }
+            break;
+        }
+    }
+}
+
 } // namespace
 
 ViewportPanel::ViewportPanel(SceneRenderer& sceneRenderer, DebugLinePass linePass)
@@ -145,6 +187,10 @@ void ViewportPanel::collectLines(EditorContext& context, const CameraView& view)
             const CameraView cameraView = makeCameraView(placement, shown, 16.0f / 9.0f);
             m_sceneLines.frustum(cameraView.inverseViewProjection, selected ? kSelectionColor : kCameraColor);
         }
+        if (const auto* light = world.tryGet<LightComponent>(entity)) {
+            drawLight(makeSceneLight(*light, placement), selected ? kSelectionColor : kLightColor, m_sceneLines,
+                      selected ? &m_selectionLines : nullptr);
+        }
         if (selected) {
             if (mesh != nullptr) {
                 // The box the mesh fills, turned and scaled with the entity.
@@ -172,6 +218,8 @@ Status ViewportPanel::render(nvrhi::IDevice* device, nvrhi::ICommandList* comman
     SceneRenderSettings settings;
     settings.backgroundColor = srgbToLinear(kBackgroundColor);
     settings.debugView = m_debugView;
+    // A scene that is being started has no lights yet, and would be black.
+    settings.defaultLighting = true;
     m_sceneRenderer->render(commandList, context.world(), m_view, m_targets, settings);
 
     // Over the finished image, in display colors, but still behind what is nearer.

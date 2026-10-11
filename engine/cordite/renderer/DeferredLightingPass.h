@@ -12,8 +12,9 @@
 ///
 /// The pass writes linear light into the scene color of the targets and leaves pixels
 /// alone in which nothing was drawn, so the background stays what it was cleared to.
-/// The lights are those of the view (see SceneView): until the engine has lights of its
-/// own, a key light and ambient light from a sky and a ground.
+/// The lights are those of the view (see ViewBindings): its directional lights, the
+/// point and spot lights of the cluster each pixel is in, and ambient light from a sky
+/// and a ground.
 
 #include "cordite/core/Result.h"
 #include "cordite/renderer/FullscreenPass.h"

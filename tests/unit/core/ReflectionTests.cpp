@@ -587,6 +587,30 @@ TEST_SUITE("Reflection") {
         CHECK(schema["properties"][1]["semantic"] == "multiline");
     }
 
+    TEST_CASE("a number whose bits are switches says so, and stays a number") {
+        struct Holder {
+            uint32_t layers = 5;
+        };
+
+        const TypeInfo type = TypeBuilder<Holder>("Holder")
+                                  .property("layers", &Holder::layers,
+                                            {.semantic = PropertySemantic::BitMask, .minimum = 0.0, .maximum = 15.0})
+                                  .build();
+
+        const Json schema = type.describe();
+        CHECK(schema["properties"][0]["type"] == "int");
+        CHECK(schema["properties"][0]["semantic"] == "bitMask");
+        CHECK(schema["properties"][0]["maximum"] == 15.0);
+
+        // In data it is a plain number, held to its range like any other.
+        Holder holder;
+        CHECK(type.toJson(&holder) == json(R"({"layers": 5})"));
+        REQUIRE(type.fromJson(&holder, json(R"({"layers": 10})")).has_value());
+        CHECK(holder.layers == 10);
+        CHECK_FALSE(type.fromJson(&holder, json(R"({"layers": 16})")).has_value());
+        CHECK(holder.layers == 10);
+    }
+
     TEST_CASE("property type names are stable") {
         CHECK(nameOf(PropertyType::Bool) == "bool");
         CHECK(nameOf(PropertyType::Int) == "int");

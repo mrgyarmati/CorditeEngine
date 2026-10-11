@@ -38,6 +38,7 @@ TEST_SUITE("RenderDebugView") {
         CHECK(nameOf(RenderDebugView::Occlusion) == "occlusion");
         CHECK(nameOf(RenderDebugView::Emissive) == "emissive");
         CHECK(nameOf(RenderDebugView::Depth) == "depth");
+        CHECK(nameOf(RenderDebugView::LightCount) == "lightCount");
         CHECK(nameOf(RenderDebugView::LightingOnly) == "lightingOnly");
         CHECK(nameOf(RenderDebugView::Wireframe) == "wireframe");
         CHECK(nameOf(RenderDebugView::Overdraw) == "overdraw");
@@ -59,18 +60,18 @@ TEST_SUITE("RenderDebugView") {
         CHECK_FALSE(renderDebugViewFromName("xray").has_value());
     }
 
-    TEST_CASE("the views of the G-buffer are the ones from base color to depth") {
-        CHECK_FALSE(showsGBufferChannel(RenderDebugView::None));
+    TEST_CASE("the views drawn from the G-buffer are the ones from base color to light count") {
+        CHECK_FALSE(isDrawnFromGBuffer(RenderDebugView::None));
         for (const RenderDebugView view :
              {RenderDebugView::BaseColor, RenderDebugView::Normals, RenderDebugView::Roughness,
               RenderDebugView::Metallic, RenderDebugView::Specular, RenderDebugView::Occlusion,
-              RenderDebugView::Emissive, RenderDebugView::Depth}) {
+              RenderDebugView::Emissive, RenderDebugView::Depth, RenderDebugView::LightCount}) {
             CAPTURE(nameOf(view));
-            CHECK(showsGBufferChannel(view));
+            CHECK(isDrawnFromGBuffer(view));
         }
-        CHECK_FALSE(showsGBufferChannel(RenderDebugView::LightingOnly));
-        CHECK_FALSE(showsGBufferChannel(RenderDebugView::Wireframe));
-        CHECK_FALSE(showsGBufferChannel(RenderDebugView::Overdraw));
+        CHECK_FALSE(isDrawnFromGBuffer(RenderDebugView::LightingOnly));
+        CHECK_FALSE(isDrawnFromGBuffer(RenderDebugView::Wireframe));
+        CHECK_FALSE(isDrawnFromGBuffer(RenderDebugView::Overdraw));
 
         // The shader that draws them tells them apart by these numbers.
         CHECK(static_cast<int>(RenderDebugView::BaseColor) == 1);
@@ -81,5 +82,6 @@ TEST_SUITE("RenderDebugView") {
         CHECK(static_cast<int>(RenderDebugView::Occlusion) == 6);
         CHECK(static_cast<int>(RenderDebugView::Emissive) == 7);
         CHECK(static_cast<int>(RenderDebugView::Depth) == 8);
+        CHECK(static_cast<int>(RenderDebugView::LightCount) == 9);
     }
 }

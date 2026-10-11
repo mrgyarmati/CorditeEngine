@@ -44,9 +44,8 @@ only when the check is wrong for that particular line.
 
 If the change touches a header that many other directories include, also run the full
 `./scripts/dev.ps1 tidy`: the changed-files heuristic only covers the header's own
-directory. A test that needs a GPU
-may be skipped only on a machine without one, and you must say so in the commit
-message or hand-off.
+directory. A test that needs a GPU may be skipped only on a machine without one, and
+you must say so in the commit message or hand-off.
 
 ## 3. Read the diff as a reviewer
 

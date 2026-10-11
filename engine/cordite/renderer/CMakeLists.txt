@@ -22,6 +22,8 @@ cordite_add_module(renderer
         GBufferBindings.h
         GpuTimer.cpp
         GpuTimer.h
+        LightClusters.cpp
+        LightClusters.h
         MeshDrawList.cpp
         MeshDrawList.h
         MeshPass.cpp
@@ -34,6 +36,8 @@ cordite_add_module(renderer
         RenderResources.h
         RenderTarget.cpp
         RenderTarget.h
+        SceneLights.cpp
+        SceneLights.h
         SceneRenderer.cpp
         SceneRenderer.h
         SceneTargets.cpp

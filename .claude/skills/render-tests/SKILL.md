@@ -82,6 +82,13 @@ TEST_CASE("the vignette darkens the corners") {
 - Prefer asserting on properties of the image (a corner is darker than the centre, the
   tint removed green) in addition to, or instead of, a reference image. Property checks
   survive intentional restyling and explain what matters.
+- Best of all is a test that says what a pixel must be. For anything drawn by the
+  scene renderer, `SceneFixture` (`tests/render/SceneTestSupport.h`) makes that
+  possible: materials that emit a color or reflect all light evenly, cameras without
+  perspective, lights of known brightness. `SceneRendererTests.cpp` and
+  `SceneLightingTests.cpp` are full of examples.
+- Make sure the test can fail: break the code on purpose once (leave a light out,
+  shrink a bound) and see the test notice.
 - Everything that influences the image must be fixed: sizes, times, seeds. Use
   `EngineDesc::fixedTimeStep` rather than the clock.
 - Give the reference a name that includes its size and anything else that distinguishes

@@ -148,51 +148,65 @@ function Invoke-Checked {
     }
 }
 
+# The number at a dotted path of a performance report, or null where the report has
+# none: a scenario reports what it measures, and the GPU cannot time its work everywhere.
+function Get-ReportValue {
+    param($Report, [string]$Path)
+
+    $value = $Report
+    foreach ($name in $Path.Split('.')) {
+        if ($null -eq $value -or -not ($value.PSObject.Properties.Name -contains $name)) {
+            return $null
+        }
+        $value = $value.$name
+    }
+    return $value
+}
+
 # The numbers of a performance report worth comparing between two runs, in the order
-# they are shown.
+# they are shown. Null for what the report's scenario does not measure.
 function Get-PerformanceMetrics {
     param($Report)
 
-    $times = $Report.milliseconds
-    $metrics = [ordered]@{
-        'CPU frame, median (ms)' = $times.cpuFrame.median
-        'GPU frame, median (ms)' = $null
-        'first frame (ms)'       = $times.firstFrame
-        'cold start (ms)'        = $times.coldStart
-        'warm start (ms)'        = $times.warmStart
-        'asset index (ms)'       = $times.assetIndex
-        'asset load (ms)'        = $times.assetLoad
-        'scene load (ms)'        = $times.sceneLoad
-        'draw calls'             = $Report.scene.drawCalls
-        'triangles'              = $Report.scene.triangles
-        'mesh memory (KiB)'      = $Report.resources.meshBytes / 1024
-        'texture memory (KiB)'   = $Report.resources.textureBytes / 1024
+    $paths = [ordered]@{
+        'CPU frame, median (ms)' = 'milliseconds.cpuFrame.median'
+        'GPU frame, median (ms)' = 'milliseconds.gpuFrame.median'
+        'collect lights (ms)'    = 'milliseconds.lightCollect.median'
+        'cluster lights (ms)'    = 'milliseconds.lightClusters.median'
+        'first frame (ms)'       = 'milliseconds.firstFrame'
+        'cold start (ms)'        = 'milliseconds.coldStart'
+        'warm start (ms)'        = 'milliseconds.warmStart'
+        'asset index (ms)'       = 'milliseconds.assetIndex'
+        'asset load (ms)'        = 'milliseconds.assetLoad'
+        'scene load (ms)'        = 'milliseconds.sceneLoad'
+        'draw calls'             = 'scene.drawCalls'
+        'triangles'              = 'scene.triangles'
+        'lights'                 = 'scene.lights.count'
+        'light list entries'     = 'scene.lights.listEntries'
+        'mesh memory (KiB)'      = 'resources.meshBytes'
+        'texture memory (KiB)'   = 'resources.textureBytes'
     }
-    # Null where the GPU cannot time its work.
-    if ($null -ne $times.gpuFrame) {
-        $metrics['GPU frame, median (ms)'] = $times.gpuFrame.median
+    $metrics = [ordered]@{}
+    foreach ($name in $paths.Keys) {
+        $value = Get-ReportValue $Report $paths[$name]
+        if ($null -ne $value -and $name -like '*(KiB)') {
+            $value = $value / 1024
+        }
+        $metrics[$name] = $value
     }
     return $metrics
 }
 
-# Prints the newest performance report next to the one before it.
-function Show-PerformanceHistory {
-    $historyFile = Join-Path $repoRoot 'tests\perf\output\history.jsonl'
-    if (-not (Test-Path $historyFile)) {
-        return
-    }
-    $runs = @(Get-Content -LiteralPath $historyFile | Where-Object { $_.Trim() } | Select-Object -Last 2 |
-            ForEach-Object { $_ | ConvertFrom-Json })
-    if ($runs.Count -eq 0) {
-        return
-    }
-    $current = $runs[-1]
-    $currentMetrics = Get-PerformanceMetrics $current
+# Prints a performance report next to the one before it, if there is one.
+function Show-PerformanceComparison {
+    param($Current, $Previous)
+
+    $currentMetrics = Get-PerformanceMetrics $Current
     $previousMetrics = @{}
-    $heading = "Showcase on $($current.adapter), commit $($current.commit)"
-    if ($runs.Count -gt 1) {
-        $previousMetrics = Get-PerformanceMetrics $runs[0]
-        $heading += "; the run before: commit $($runs[0].commit)"
+    $heading = "$($Current.scenario) on $($Current.adapter), commit $($Current.commit)"
+    if ($null -ne $Previous) {
+        $previousMetrics = Get-PerformanceMetrics $Previous
+        $heading += "; the run before: commit $($Previous.commit)"
     }
 
     Write-Host ''
@@ -209,6 +223,34 @@ function Show-PerformanceHistory {
             $line += ' {0,12:N3} {1,8:+0.0;-0.0;0.0}%' -f $before, (($value - $before) / $before * 100)
         }
         Write-Host $line
+    }
+}
+
+# Prints the newest performance report of every scenario next to the one before it.
+function Show-PerformanceHistory {
+    $historyFile = Join-Path $repoRoot 'tests\perf\output\history.jsonl'
+    if (-not (Test-Path $historyFile)) {
+        return
+    }
+    $runs = @(Get-Content -LiteralPath $historyFile | Where-Object { $_.Trim() } |
+            ForEach-Object { $_ | ConvertFrom-Json })
+
+    # The runs of each scenario, oldest first, the scenarios in the order they first ran.
+    $byScenario = [ordered]@{}
+    foreach ($run in $runs) {
+        $scenario = [string]$run.scenario
+        if (-not $byScenario.Contains($scenario)) {
+            $byScenario[$scenario] = @()
+        }
+        $byScenario[$scenario] = @($byScenario[$scenario]) + $run
+    }
+    foreach ($scenario in $byScenario.Keys) {
+        $ofScenario = @($byScenario[$scenario])
+        $previous = $null
+        if ($ofScenario.Count -gt 1) {
+            $previous = $ofScenario[-2]
+        }
+        Show-PerformanceComparison $ofScenario[-1] $previous
     }
 }
 

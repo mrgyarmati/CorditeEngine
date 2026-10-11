@@ -1,8 +1,9 @@
 // What every pass that draws a scene knows about the view it draws: the camera, the
-// target and - until the engine has lights of its own - the light.
+// target, and how the view's lights are laid out.
 //
-// Bound as the first binding set (space0) of those passes. The C++ side is
-// ViewConstants in engine/cordite/renderer/ViewBindings.cpp.
+// Bound as the first binding set (space0) of those passes, together with the buffers
+// of the lights (common/Lights.slang). The C++ side is ViewConstants in
+// engine/cordite/renderer/ViewBindings.cpp.
 
 #pragma once
 
@@ -19,17 +20,15 @@ cbuffer ViewConstants : register(b0, space0)
     float orthographic;
     // Unit vector along which the camera looks.
     float3 cameraForward;
-    float viewPadding0;
-    // Unit vector from a surface towards the key light.
-    float3 keyLightDirection;
-    float viewPadding1;
-    float3 keyLightColor;
-    float viewPadding2;
+    // How many directional lights are at the front of the light buffer.
+    uint directionalLightCount;
     // Ambient light arriving from above and from below.
     float3 skyColor;
-    float viewPadding3;
+    // How a depth becomes a slice of the cluster grid: log2(depth) * scale + bias with
+    // perspective, depth * scale + bias without.
+    float clusterDepthScale;
     float3 groundColor;
-    float viewPadding4;
+    float clusterDepthBias;
     // The size of the target in pixels, and one divided by it.
     float2 targetSize;
     float2 inverseTargetSize;

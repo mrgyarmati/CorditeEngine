@@ -41,6 +41,8 @@ struct MeshDraw {
     const GpuMaterial* material = nullptr;
     /// Places the mesh in the world.
     Mat4 localToWorld{1.0f};
+    /// The lighting channels the surface belongs to, one bit each.
+    uint32_t lightChannels = 1;
 };
 
 // What a batch needs of the pipeline that draws it: the bits of MeshBatch::variant.
@@ -87,8 +89,10 @@ public:
     /// Every batch: the solid ones, then the blended ones.
     [[nodiscard]] std::span<const MeshBatch> batches() const { return m_batches; }
 
-    /// One placement per instance: three rows of a 3x4 matrix, as three float4. Null
-    /// while the list is empty.
+    /// One entry per instance, kMeshInstanceStride bytes each: the three rows of the
+    /// 3x4 matrix that places it, as three float4, and a fourth float4 with what else
+    /// differs between instances - its lighting channels in x. Null while the list is
+    /// empty.
     [[nodiscard]] nvrhi::IBuffer* instanceBuffer() const { return m_instanceBuffer; }
 
 private:
@@ -100,6 +104,6 @@ private:
 };
 
 /// The stride of MeshDrawList::instanceBuffer() in bytes.
-inline constexpr uint32_t kMeshInstanceStride = 48;
+inline constexpr uint32_t kMeshInstanceStride = 64;
 
 } // namespace cordite

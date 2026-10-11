@@ -3,7 +3,8 @@
 //
 // | Target | Format       | Holds                                                 |
 // |--------|--------------|-------------------------------------------------------|
-// | 0      | SRGBA8       | rgb: base color (stored sRGB-encoded, read as linear)  |
+// | 0      | SRGBA8       | rgb: base color (stored sRGB-encoded, read as linear); |
+// |        |              | a: the lighting channels, as a number out of 255       |
 // | 1      | RG16_UNORM   | the world-space normal, octahedrally mapped            |
 // | 2      | RGBA8_UNORM  | r: roughness, g: metallic, b: specular, a: occlusion   |
 // | 3      | R11G11B10F   | emissive light, linear and not limited to one          |
@@ -53,7 +54,8 @@ float3 decodeNormal(float2 encoded)
 GBufferOutput encodeGBuffer(Surface surface)
 {
     GBufferOutput output;
-    output.baseColor = float4(surface.baseColor, 1.0);
+    // Alpha is not sRGB-encoded: eight bits hold the eight channels exactly.
+    output.baseColor = float4(surface.baseColor, float(surface.lightChannels & 0xFF) / 255.0);
     output.normal = encodeNormal(surface.normal);
     output.parameters = float4(surface.roughness, surface.metallic, surface.specular, surface.occlusion);
     output.emissive = surface.emissive;
@@ -74,6 +76,7 @@ Surface decodeGBuffer(float4 baseColor, float2 normal, float4 parameters, float3
     surface.specular = parameters.b;
     surface.occlusion = parameters.a;
     surface.emissive = emissive;
+    surface.lightChannels = uint(baseColor.a * 255.0 + 0.5);
     return surface;
 }
 

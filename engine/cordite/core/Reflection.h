@@ -92,6 +92,10 @@ enum class PropertySemantic : uint8_t {
     AssetReference,
     /// A string holding several lines of text.
     Multiline,
+    /// An integer whose bits are switches, such as lighting channels: edited as a row
+    /// of check boxes, one per bit up to the highest that PropertyAttributes::maximum
+    /// allows. In data it stays a number.
+    BitMask,
 };
 
 /// Optional information about a property.

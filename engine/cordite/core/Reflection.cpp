@@ -343,6 +343,9 @@ Json PropertyInfo::describe() const {
         case PropertySemantic::Multiline:
             description["semantic"] = "multiline";
             break;
+        case PropertySemantic::BitMask:
+            description["semantic"] = "bitMask";
+            break;
     }
     if (m_attributes.readOnly) {
         description["readOnly"] = true;

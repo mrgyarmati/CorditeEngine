@@ -8,9 +8,10 @@
 #include "common/Color.slang"
 #include "common/Fullscreen.slang"
 #include "common/GBuffer.slang"
+#include "common/Lights.slang"
 #include "common/View.slang"
 
-// Matches RenderDebugView in engine/cordite/renderer/SceneRenderer.h, for the views
+// Matches RenderDebugView in engine/cordite/renderer/RenderDebugView.h, for the views
 // this pass draws.
 static const uint kViewBaseColor = 1;
 static const uint kViewNormals = 2;
@@ -20,6 +21,7 @@ static const uint kViewSpecular = 5;
 static const uint kViewOcclusion = 6;
 static const uint kViewEmissive = 7;
 static const uint kViewDepth = 8;
+static const uint kViewLightCount = 9;
 
 cbuffer DebugViewConstants : register(b0, space1)
 {
@@ -85,6 +87,19 @@ float4 debugViewPixel(FullscreenVaryings input) : SV_Target0
         const float3 position =
             worldPositionFromDepth(input.position.xy * inverseTargetSize, depth, inverseViewProjection);
         color = asShown(float3(1.0 / (1.0 + 0.25 * max(viewDepth(position), 0.0))));
+        break;
+    }
+    case kViewLightCount:
+    {
+        // How many point and spot lights the pixel has to ask: none is dark grey, then
+        // from blue through green to red at eight and more.
+        const float2 uv = input.position.xy * inverseTargetSize;
+        const float3 position = worldPositionFromDepth(uv, depth, inverseViewProjection);
+        const uint count = clusterGrid[clusterIndexOf(uv, viewDepth(position))].count;
+        const float heat = saturate(float(count) / 8.0);
+        const float3 ramp = heat < 0.5 ? lerp(float3(0.0, 0.0, 1.0), float3(0.0, 1.0, 0.0), heat * 2.0)
+                                       : lerp(float3(0.0, 1.0, 0.0), float3(1.0, 0.0, 0.0), heat * 2.0 - 1.0);
+        color = count == 0 ? asShown(float3(0.1)) : asShown(ramp);
         break;
     }
     default:

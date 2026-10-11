@@ -54,7 +54,7 @@ Result<MeshPass> MeshPass::create(nvrhi::IDevice* device, ShaderManager& shaders
             .setElementStride(kMeshInstanceStride)
             .setIsInstanced(true);
     };
-    const std::array<nvrhi::VertexAttributeDesc, 8> attributes = {
+    const std::array<nvrhi::VertexAttributeDesc, 9> attributes = {
         vertexAttribute("POSITION", nvrhi::Format::RGB32_FLOAT, offsetof(MeshVertex, position)),
         vertexAttribute("NORMAL", nvrhi::Format::RGB32_FLOAT, offsetof(MeshVertex, normal)),
         vertexAttribute("TANGENT", nvrhi::Format::RGBA32_FLOAT, offsetof(MeshVertex, tangent)),
@@ -63,6 +63,7 @@ Result<MeshPass> MeshPass::create(nvrhi::IDevice* device, ShaderManager& shaders
         instanceAttribute("WORLD0", 0),
         instanceAttribute("WORLD1", 1),
         instanceAttribute("WORLD2", 2),
+        instanceAttribute("PARAMETERS", 3),
     };
     pass.m_inputLayout =
         device->createInputLayout(attributes.data(), static_cast<uint32_t>(attributes.size()), pass.m_vertexShader);

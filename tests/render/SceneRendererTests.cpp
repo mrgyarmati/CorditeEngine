@@ -12,6 +12,7 @@
 #include "cordite/world/World.h"
 
 #include "render/RenderTestSupport.h"
+#include "render/SceneTestSupport.h"
 #include "support/MathTestSupport.h"
 
 #include <cmath>
@@ -20,200 +21,25 @@
 #include <vector>
 
 using namespace cordite;
+using cordite::test::at;
 using cordite::test::checkAgainstReference;
 using cordite::test::checkNoValidationIssues;
+using cordite::test::checkPixel;
+using cordite::test::checkShown;
+using cordite::test::displayed;
+using cordite::test::kBackground;
+using cordite::test::kBlue;
+using cordite::test::kGreen;
+using cordite::test::kRed;
 using cordite::test::LogCapture;
+using cordite::test::makeBumpNormalMap;
+using cordite::test::makeChecker;
 using cordite::test::readToImage;
 using cordite::test::recordAndExecute;
 using cordite::test::RenderContext;
+using cordite::test::SceneFixture;
 using cordite::test::TempDirectory;
 using cordite::test::unwrap;
-
-namespace {
-
-/// Linear colors that are easy to tell apart in a rendered image.
-constexpr Vec3 kRed(1.0f, 0.0f, 0.0f);
-constexpr Vec3 kGreen(0.0f, 1.0f, 0.0f);
-constexpr Vec3 kBlue(0.0f, 0.0f, 1.0f);
-constexpr Vec3 kBackground(0.25f, 0.25f, 0.25f);
-
-/// What a linear color looks like once it has been encoded for display.
-Vec3 displayed(const Vec3& linear) {
-    return linearToSrgb(glm::clamp(linear, Vec3(0.0f), Vec3(1.0f)));
-}
-
-/// A device, a project directory to put assets in, and a world to draw.
-///
-/// Tests write the asset files they need, call open(), fill the world and render it.
-class SceneFixture {
-public:
-    explicit SceneFixture(UVec2 size = UVec2(64, 64)) : m_size(size) {
-        REQUIRE(ensureDirectory(m_directory.path()).has_value());
-    }
-
-    ~SceneFixture() {
-        // GPU objects go before the device that made them.
-        renderer.reset();
-        targets = SceneTargets();
-        context.graphics->waitIdle();
-    }
-
-    SceneFixture(const SceneFixture&) = delete;
-    SceneFixture& operator=(const SceneFixture&) = delete;
-
-    /// Where a file of the given name is, or would be, in the asset directory.
-    [[nodiscard]] std::filesystem::path file(std::string_view name) const {
-        return m_directory.path() / pathFromUtf8(name);
-    }
-
-    /// Writes `<name>.material.json` with the given members.
-    void writeMaterial(std::string_view name, std::string_view members) const {
-        const std::string text =
-            fmt::format(R"({{"format": "cordite.material", "version": 1{}{}}})", members.empty() ? "" : ", ", members);
-        REQUIRE(writeTextFile(file(fmt::format("{}.material.json", name)), text).has_value());
-    }
-
-    /// Writes a material that shows `color` exactly, whatever the light: it reflects
-    /// nothing and emits the color.
-    void writeFlatMaterial(std::string_view name, const Vec3& color, std::string_view more = "") const {
-        writeMaterial(name,
-                      fmt::format(R"("baseColor": [0, 0, 0, 1], "specular": 0, "emissiveColor": [{}, {}, {}]{}{})",
-                                  color.r, color.g, color.b, more.empty() ? "" : ", ", more));
-    }
-
-    void writeImage(std::string_view name, const Image& image) const {
-        REQUIRE(image.savePng(file(fmt::format("{}.png", name))).has_value());
-    }
-
-    /// Indexes the files written so far and creates the renderer.
-    void open(const RenderResourcesDesc& resources = {}) {
-        assets = unwrap(AssetManager::create({.rootDirectory = m_directory.path()}));
-        renderer = unwrap(SceneRenderer::create(
-            context.device(), *context.shaders, *assets,
-            {.resources = resources, .supportsWireframe = context.graphics->adapter().supportsWireframe}));
-        targets = unwrap(SceneTargets::create(context.device(), m_size, "Test"));
-    }
-
-    [[nodiscard]] Uuid asset(std::string_view reference) const {
-        const AssetInfo* info = assets->database().findByReference(reference);
-        REQUIRE_MESSAGE(info != nullptr, "no asset " << std::string(reference));
-        return info->id;
-    }
-
-    [[nodiscard]] Uuid material(std::string_view name) const { return asset(fmt::format("{}.material.json", name)); }
-
-    Entity add(BuiltinMesh mesh, const Uuid& materialId, const Transform& transform = {}) {
-        const Entity entity = world.createEntity(std::string(nameOf(mesh)));
-        world.transform(entity) = transform;
-        MeshRendererComponent& component = world.add<MeshRendererComponent>(entity);
-        component.mesh = builtinMeshId(mesh);
-        component.materials = {materialId};
-        return entity;
-    }
-
-    /// Renders the world and returns the display image.
-    Image render(const CameraView& view, const SceneRenderSettings& settings = flatSettings()) {
-        world.updateWorldTransforms();
-        recordAndExecute(context, [&](nvrhi::ICommandList* commandList) {
-            renderer->render(commandList, world, view, targets, settings);
-        });
-        return readToImage(*context.graphics, targets.display());
-    }
-
-    /// No light at all, and a grey background: what is seen is what materials emit.
-    static SceneRenderSettings flatSettings() {
-        return {.backgroundColor = kBackground,
-                .keyLightColor = Vec3(0.0f),
-                .skyColor = Vec3(0.0f),
-                .groundColor = Vec3(0.0f)};
-    }
-
-    /// A camera without perspective that looks from `eye` at `target` and sees
-    /// `height` metres from top to bottom.
-    [[nodiscard]] CameraView orthographicView(const Vec3& eye, const Vec3& target, float height,
-                                              const Vec3& up = kWorldUp) const {
-        CameraComponent camera;
-        camera.projection = CameraProjection::Orthographic;
-        camera.orthographicHeight = height;
-        camera.nearPlane = 0.1f;
-        camera.farPlane = 100.0f;
-        return makeCameraView(glm::inverse(lookAt(eye, target, up)), camera,
-                              static_cast<float>(m_size.x) / static_cast<float>(m_size.y));
-    }
-
-    [[nodiscard]] CameraView perspectiveView(const Vec3& eye, const Vec3& target, float fovDegrees = 50.0f) const {
-        CameraComponent camera;
-        camera.verticalFovDegrees = fovDegrees;
-        return makeCameraView(glm::inverse(lookAt(eye, target)), camera,
-                              static_cast<float>(m_size.x) / static_cast<float>(m_size.y));
-    }
-
-    RenderContext context;
-    std::unique_ptr<AssetManager> assets;
-    std::unique_ptr<SceneRenderer> renderer;
-    SceneTargets targets;
-    World world;
-
-private:
-    TempDirectory m_directory;
-    UVec2 m_size;
-};
-
-/// Checks one pixel against a linear color, allowing for rounding.
-void checkPixel(const Image& image, uint32_t x, uint32_t y, const Vec3& linear) {
-    CAPTURE(x);
-    CAPTURE(y);
-    CHECK_NEAR(Vec3(image.pixel(x, y)), displayed(linear), 2.5f / 255.0f);
-}
-
-/// Checks one pixel against the value the image itself is to hold there, as the debug
-/// views show numbers: 0.25 as the grey a quarter of the way to white.
-void checkShown(const Image& image, uint32_t x, uint32_t y, const Vec3& value) {
-    CAPTURE(x);
-    CAPTURE(y);
-    CHECK_NEAR(Vec3(image.pixel(x, y)), value, 2.5f / 255.0f);
-}
-
-Transform at(const Vec3& position, const Vec3& scale = Vec3(1.0f), const Quat& rotation = kIdentityQuat) {
-    return {.position = position, .rotation = rotation, .scale = scale};
-}
-
-/// A square image of `cells` x `cells` squares in two colors, top-left square first.
-Image makeChecker(uint32_t size, uint32_t cells, const Vec4& first, const Vec4& second) {
-    Image image = unwrap(Image::create(size, size, ImageFormat::Rgba8));
-    const uint32_t cellSize = size / cells;
-    for (uint32_t y = 0; y < size; ++y) {
-        for (uint32_t x = 0; x < size; ++x) {
-            image.setPixel(x, y, ((x / cellSize) + (y / cellSize)) % 2 == 0 ? first : second);
-        }
-    }
-    return image;
-}
-
-/// A normal map of round bumps, one per cell: the surface normal of each bump, encoded
-/// the way normal maps are, with +Y up in the image.
-Image makeBumpNormalMap(uint32_t size, uint32_t cells) {
-    Image image = unwrap(Image::create(size, size, ImageFormat::Rgba8));
-    const float cellSize = static_cast<float>(size) / static_cast<float>(cells);
-    for (uint32_t y = 0; y < size; ++y) {
-        for (uint32_t x = 0; x < size; ++x) {
-            // Position within the cell, from -1 to 1, with y pointing up.
-            const float u = std::fmod(static_cast<float>(x) + 0.5f, cellSize) / cellSize * 2.0f - 1.0f;
-            const float v = 1.0f - std::fmod(static_cast<float>(y) + 0.5f, cellSize) / cellSize * 2.0f;
-            const float radius = std::sqrt(u * u + v * v);
-            Vec3 normal(0.0f, 0.0f, 1.0f);
-            if (radius < 0.8f) {
-                // The slope of a dome that meets the flat surface at radius 0.8.
-                const float slope = radius / 0.8f;
-                normal = glm::normalize(Vec3(u * slope, v * slope, std::sqrt(std::max(1.0f - slope * slope, 0.05f))));
-            }
-            image.setPixel(x, y, Vec4(normal * 0.5f + 0.5f, 1.0f));
-        }
-    }
-    return image;
-}
-
-} // namespace
 
 TEST_SUITE("SceneTargets") {
     TEST_CASE("scene targets have the formats and sizes the renderer expects") {
@@ -608,8 +434,7 @@ TEST_SUITE("SceneRenderer") {
         const auto brightness = [&](std::string_view material, const Vec3& toLight) {
             scene.world.tryGet<MeshRendererComponent>(cube)->materials = {scene.material(material)};
             SceneRenderSettings settings = SceneFixture::flatSettings();
-            settings.keyLightDirection = toLight;
-            settings.keyLightColor = Vec3(kPi);
+            scene.setSun(toLight, Vec3(kPi));
             const Vec4 pixel = scene.render(view, settings).pixel(32, 32);
             CHECK(pixel.r == doctest::Approx(pixel.g).epsilon(0.01));
             return srgbToLinear(pixel.r);
@@ -646,8 +471,7 @@ TEST_SUITE("SceneRenderer") {
             scene.world.clear();
             scene.add(BuiltinMesh::Plane, scene.material("right"), transform);
             SceneRenderSettings settings = SceneFixture::flatSettings();
-            settings.keyLightDirection = toLight;
-            settings.keyLightColor = Vec3(kPi);
+            scene.setSun(toLight, Vec3(kPi));
             return srgbToLinear(scene.render(view, settings).pixel(32, 32).r);
         };
 
@@ -750,8 +574,7 @@ TEST_SUITE("SceneRenderer") {
         // The light is straight above the floor and the camera looks straight down from
         // one metre up, so the floor mirrors the light exactly into the eye below it.
         SceneRenderSettings settings = SceneFixture::flatSettings();
-        settings.keyLightDirection = kWorldUp;
-        settings.keyLightColor = Vec3(1.0f);
+        scene.setSun(kWorldUp, Vec3(1.0f));
         const Vec3 eye(0.0f, 1.0f, 0.0f);
         const Vec3 up(0.0f, 0.0f, -1.0f);
 
@@ -795,8 +618,7 @@ TEST_SUITE("SceneRenderer") {
 
         // Ambient light alone, the same from everywhere: what is seen is the occlusion.
         SceneRenderSettings settings = SceneFixture::flatSettings();
-        settings.skyColor = Vec3(1.0f);
-        settings.groundColor = Vec3(1.0f);
+        scene.setAmbient(Vec3(1.0f), Vec3(1.0f));
         const Entity cube = scene.add(BuiltinMesh::Cube, scene.material("packed"), at(Vec3(0.0f), Vec3(2.0f)));
         const CameraView view = scene.orthographicView(Vec3(0.0f, 0.0f, 5.0f), Vec3(0.0f), 2.0f);
 
@@ -935,8 +757,7 @@ TEST_SUITE("SceneRenderer") {
 
         // The default material is lit, so give the scene some ambient light to see it by.
         SceneRenderSettings settings = SceneFixture::flatSettings();
-        settings.skyColor = Vec3(1.0f);
-        settings.groundColor = Vec3(1.0f);
+        scene.setAmbient(Vec3(1.0f), Vec3(1.0f));
         const CameraView view = scene.orthographicView(Vec3(0.0f, 0.0f, 5.0f), Vec3(0.0f), 2.0f);
 
         const Entity cube = scene.add(BuiltinMesh::Cube, Uuid());
@@ -1194,7 +1015,7 @@ TEST_SUITE("SceneRenderer") {
         const Entity ball = scene.add(BuiltinMesh::Sphere, scene.material("deferred"), at(Vec3(0.0f), Vec3(1.6f)));
         const CameraView view = scene.perspectiveView(Vec3(1.5f, 1.0f, 2.5f), Vec3(0.0f));
         // Lit the way a scene is: a key light and light from the sky and the ground.
-        const SceneRenderSettings settings;
+        const SceneRenderSettings settings{.defaultLighting = true};
 
         const Image deferred = scene.render(view, settings);
         CHECK(scene.renderer->statistics().forwardPass.drawCalls == 0);
@@ -1222,13 +1043,13 @@ TEST_SUITE("SceneRenderer") {
         const Entity ball = scene.add(BuiltinMesh::Sphere, scene.material("loud"), at(Vec3(0.0f), Vec3(1.6f)));
         const CameraView view = scene.perspectiveView(Vec3(1.0f, 1.5f, 2.5f), Vec3(0.0f));
 
-        SceneRenderSettings lightingOnly;
+        SceneRenderSettings lightingOnly{.defaultLighting = true};
         lightingOnly.debugView = RenderDebugView::LightingOnly;
         const Image shown = scene.render(view, lightingOnly);
 
         // The same ball made of grey, in the ordinary view: the same picture.
         scene.world.tryGet<MeshRendererComponent>(ball)->materials = {scene.material("grey")};
-        const Image grey = scene.render(view, SceneRenderSettings());
+        const Image grey = scene.render(view, SceneRenderSettings{.defaultLighting = true});
         const ImageComparison difference = unwrap(compareImages(shown, grey, {.channelTolerance = 2}));
         CHECK(difference.differingPixels == 0);
         // And grey it is: no trace of the red, of the metal or of the glow.
@@ -1410,7 +1231,7 @@ TEST_SUITE("SceneRenderer") {
         scene.add(BuiltinMesh::Cube, scene.material("glass"), at(Vec3(-0.6f, 0.4f, 1.9f), Vec3(0.8f)));
 
         const Image image = scene.render(scene.perspectiveView(Vec3(0.6f, 2.6f, 6.2f), Vec3(0.1f, 0.5f, 0.0f), 40.0f),
-                                         SceneRenderSettings());
+                                         SceneRenderSettings{.defaultLighting = true});
         checkAgainstReference(image, "scene-primitives-640x360");
         CHECK(scene.renderer->statistics().meshRenderers == 8);
         checkNoValidationIssues(*scene.context.graphics);

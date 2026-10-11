@@ -14,7 +14,7 @@ namespace {
 
 /// Mirrors DebugViewConstants in shaders/passes/DebugView.slang.
 struct DebugViewConstants {
-    /// A RenderDebugView for which showsGBufferChannel() is true.
+    /// A RenderDebugView for which isDrawnFromGBuffer() is true.
     uint32_t view;
     std::array<float, 3> padding;
 };
@@ -23,7 +23,7 @@ static_assert(sizeof(DebugViewConstants) == 16, "must match the cbuffer layout i
 
 // The shader tells the views apart by these numbers.
 static_assert(static_cast<uint32_t>(RenderDebugView::BaseColor) == 1 &&
-                  static_cast<uint32_t>(RenderDebugView::Depth) == 8,
+                  static_cast<uint32_t>(RenderDebugView::LightCount) == 9,
               "must match the kView constants in DebugView.slang");
 
 /// The constants are rewritten for every view that shows a debug view, every frame.
@@ -61,8 +61,8 @@ void DebugViewPass::draw(nvrhi::ICommandList* commandList, const SceneTargets& t
                          nvrhi::IBindingSet* viewBindings, RenderDebugView view) {
     CORDITE_ASSERT(commandList != nullptr && targets.isValid() && viewBindings != nullptr,
                    "a debug view needs a command list, valid targets and the view");
-    CORDITE_ASSERT(showsGBufferChannel(view), "'{}' is not a view of the G-buffer", nameOf(view));
-    if (commandList == nullptr || !targets.isValid() || viewBindings == nullptr || !showsGBufferChannel(view)) {
+    CORDITE_ASSERT(isDrawnFromGBuffer(view), "'{}' is not a view of the G-buffer", nameOf(view));
+    if (commandList == nullptr || !targets.isValid() || viewBindings == nullptr || !isDrawnFromGBuffer(view)) {
         return;
     }
 

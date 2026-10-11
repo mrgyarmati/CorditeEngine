@@ -43,6 +43,11 @@ Json describeFrameStatistics(const FrameStatistics& statistics) {
     scene["views"] = statistics.scene.views;
     scene["meshRenderers"] = statistics.scene.meshRenderers;
     scene["culled"] = statistics.scene.culled;
+    Json lights = Json::object();
+    lights["count"] = statistics.scene.lights;
+    lights["listEntries"] = statistics.scene.lightListEntries;
+    lights["dropped"] = statistics.scene.droppedLights;
+    scene["lights"] = std::move(lights);
     Json passes = Json::object();
     passes["depth"] = describePass(statistics.scene.depthPass);
     passes["base"] = describePass(statistics.scene.basePass);
@@ -84,6 +89,10 @@ void StatisticsPanel::draw(const FrameStatistics& statistics, bool& open) {
         row("Instances", fmt::format("{}", scene.meshes.instances));
         row("Triangles", fmt::format("{}", scene.meshes.triangles));
         row("Mesh renderers", fmt::format("{} ({} out of view)", scene.meshRenderers, scene.culled));
+        row("Lights", scene.droppedLights == 0
+                          ? fmt::format("{} ({} in cluster lists)", scene.lights, scene.lightListEntries)
+                          : fmt::format("{} ({} in cluster lists, {} left out)", scene.lights, scene.lightListEntries,
+                                        scene.droppedLights));
 
         const RenderResourceStatistics& resources = statistics.resources;
         row("Meshes", fmt::format("{} ({:.1f} MiB)", resources.meshCount,

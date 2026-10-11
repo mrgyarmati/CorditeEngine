@@ -65,6 +65,9 @@ struct Sphere {
 
     [[nodiscard]] bool contains(const Vec3& point) const;
     [[nodiscard]] bool intersects(const Sphere& other) const;
+    /// True when the sphere and the box have a point in common; touching counts. An
+    /// empty box has none.
+    [[nodiscard]] bool intersects(const Aabb& box) const;
 };
 
 /// The plane of points p satisfying dot(normal, p) + distance == 0. Points with a

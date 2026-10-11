@@ -29,8 +29,8 @@ enum class RenderDebugView : uint8_t {
     /// The finished picture.
     None,
 
-    // One thing the G-buffer holds, as a picture. The values of these are known to
-    // shaders/passes/DebugView.slang.
+    // What can be read off the G-buffer and the depth, as a picture. The values of
+    // these are known to shaders/passes/DebugView.slang.
     /// The color of the surfaces without any light.
     BaseColor,
     /// Which way the surfaces face, normal maps included: x, y and z as red, green, blue.
@@ -47,6 +47,9 @@ enum class RenderDebugView : uint8_t {
     Emissive,
     /// How far the surfaces are from the camera: near is white.
     Depth,
+    /// How many point and spot lights each pixel has to ask: dark where none reaches,
+    /// blue for one, through green to red for eight and more.
+    LightCount,
 
     /// The light alone: every surface a plain matte grey. Translucent surfaces are left out.
     LightingOnly,
@@ -56,10 +59,11 @@ enum class RenderDebugView : uint8_t {
     Overdraw,
 };
 
-inline constexpr std::array<RenderDebugView, 12> kRenderDebugViews = {
-    RenderDebugView::None,     RenderDebugView::BaseColor,    RenderDebugView::Normals,   RenderDebugView::Roughness,
-    RenderDebugView::Metallic, RenderDebugView::Specular,     RenderDebugView::Occlusion, RenderDebugView::Emissive,
-    RenderDebugView::Depth,    RenderDebugView::LightingOnly, RenderDebugView::Wireframe, RenderDebugView::Overdraw,
+inline constexpr std::array<RenderDebugView, 13> kRenderDebugViews = {
+    RenderDebugView::None,     RenderDebugView::BaseColor,  RenderDebugView::Normals,      RenderDebugView::Roughness,
+    RenderDebugView::Metallic, RenderDebugView::Specular,   RenderDebugView::Occlusion,    RenderDebugView::Emissive,
+    RenderDebugView::Depth,    RenderDebugView::LightCount, RenderDebugView::LightingOnly, RenderDebugView::Wireframe,
+    RenderDebugView::Overdraw,
 };
 
 /// The name used in files and by tools: "none", "baseColor", "lightingOnly", ...
@@ -71,9 +75,10 @@ std::string_view displayNameOf(RenderDebugView view);
 /// The view with the given nameOf(), or nothing. Upper and lower case are not told apart.
 [[nodiscard]] std::optional<RenderDebugView> renderDebugViewFromName(std::string_view name);
 
-/// True for the views that show one thing the G-buffer holds, BaseColor to Depth.
-[[nodiscard]] constexpr bool showsGBufferChannel(RenderDebugView view) {
-    return view >= RenderDebugView::BaseColor && view <= RenderDebugView::Depth;
+/// True for the views that are drawn from the G-buffer and the depth, in place of the
+/// lighting: BaseColor to LightCount.
+[[nodiscard]] constexpr bool isDrawnFromGBuffer(RenderDebugView view) {
+    return view >= RenderDebugView::BaseColor && view <= RenderDebugView::LightCount;
 }
 
 } // namespace cordite

@@ -15,20 +15,29 @@ Put the struct in the module that owns the data (`engine/cordite/world/Component
 for general scene data; a system-specific component goes in that system's module, which
 must then depend on `world`).
 
+The engine's light (`engine/cordite/renderer/RenderComponents.h`), shortened:
+
 ```cpp
-enum class LightKind : uint8_t {
+enum class LightType : uint8_t {
+    Directional,
     Point,
     Spot,
 };
 
-/// A light source. It shines from the entity's position, along -Z for a spot light.
+std::string_view nameOf(LightType type);
+
+/// A light. It shines from where the entity is; a directional or a spot light shines
+/// along the entity's -Z axis.
 struct LightComponent {
-    LightKind kind = LightKind::Point;
-    /// Linear RGB.
+    LightType type = LightType::Point;
+    /// Linear color.
     Vec3 color{1.0f};
+    /// Brightness. 1 lights a white, matte surface that faces the light to white.
     float intensity = 1.0f;
-    /// Distance at which the light has faded to nothing, in metres.
+    /// The distance at which the light has faded to nothing, in metres.
     float range = 10.0f;
+    /// The lighting channels the light shines on, one bit each.
+    uint32_t channels = 1;
 };
 ```
 
@@ -53,14 +62,22 @@ In the module's `Components.cpp` (or equivalent), next to the other descriptions
 ```cpp
 TypeInfo describeLight() {
     return TypeBuilder<LightComponent>("Light")
-        .enumProperty("kind", &LightComponent::kind, {{LightKind::Point, "point"}, {LightKind::Spot, "spot"}},
-                      {.description = "The shape of the light"})
+        .enumProperty("type", &LightComponent::type,
+                      {{LightType::Directional, std::string(nameOf(LightType::Directional))},
+                       {LightType::Point, std::string(nameOf(LightType::Point))},
+                       {LightType::Spot, std::string(nameOf(LightType::Spot))}},
+                      {.description = "Directional: from one direction, everywhere. Point: from a point ..."})
         .property("color", &LightComponent::color,
                   {.description = "Linear color of the light", .semantic = PropertySemantic::Color, .minimum = 0.0})
         .property("intensity", &LightComponent::intensity,
-                  {.description = "Brightness", .minimum = 0.0, .unit = "cd"})
+                  {.description = "Brightness; 1 lights a white matte surface facing the light to white",
+                   .minimum = 0.0})
         .property("range", &LightComponent::range,
-                  {.description = "Distance at which the light has faded out", .minimum = 0.01, .unit = "m"})
+                  {.description = "The distance at which the light has faded to nothing", .minimum = 0.01,
+                   .unit = "m"})
+        .property("channels", &LightComponent::channels,
+                  {.description = "The lighting channels the light shines on, one bit each",
+                   .semantic = PropertySemantic::BitMask, .minimum = 0.0, .maximum = 255.0})
         .build();
 }
 ```
@@ -73,7 +90,10 @@ TypeInfo describeLight() {
 - Numbers get a `minimum` and/or `maximum` wherever a value outside would be a bug.
   The range is enforced on every write, from files and from tools alike.
 - `semantic` picks the editor widget: `Color`, `EntityReference`, `AssetReference`
-  (with `referenceType`), `Multiline`.
+  (with `referenceType`), `Multiline`, and `BitMask` for an integer whose bits are
+  switches - a row of check boxes, as many as its `maximum` has bits.
+- An enum has a `nameOf` in the header, and its options are named by it, so that
+  code, files and tools use the same words.
 - `readOnly`: shown, saved and loaded, but tools cannot change it.
   `transient`: runtime state, never saved.
 - Property types: `bool`, integers, `float`, `double`, `std::string`, `Uuid`, `Vec2/3/4`,
@@ -87,7 +107,7 @@ In the same file's registration function:
 
 ```cpp
 CORDITE_TRY(registry.add<LightComponent>(
-    describeLight(), {.description = "A light source at the entity's position."}));
+    describeLight(), {.description = "A light at the entity's place: directional, point or spot."}));
 ```
 
 A module that registers components for the first time adds its
@@ -107,8 +127,10 @@ Give the entity a fixed, readable id in the style already used there.
 ## 5. Test it
 
 - Extend `tests/unit/<module>/ComponentRegistryTests.cpp` (or add a suite for the
-  module): the component is registered under its name, in its place in the order; its
-  defaults are what the struct says; representative invalid values are rejected.
+  module, as `tests/unit/renderer/RenderComponentsTests.cpp` is): the component is
+  registered under its name, in its place in the order; its defaults are what the
+  struct says; what it looks like in a scene file is pinned; representative invalid
+  values are rejected.
 - The generic tests already cover save/load, undo and the inspector for every
   registered component; do not repeat them per component.
 - If a system consumes the component, test the system.
@@ -130,8 +152,9 @@ there, with its tooltip, and its widget fits its type. Or, without a window:
 
 with a script that calls `component.types` and reads the description of the new type.
 
-The editor reference image (`editor-showcase-1280x720`) changes when the showcase scene
-does. Look at the new image and approve it (skill: `render-tests`).
+The editor reference images (`editor-showcase-1280x720` and the others that show the
+showcase) change when the showcase scene does. Look at the new images and approve them
+(skill: `render-tests`).
 
 ## Adding a property to an existing component
 

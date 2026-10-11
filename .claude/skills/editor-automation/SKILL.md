@@ -74,7 +74,7 @@ Do not guess command or property names; ask the editor.
 | `asset.list` | Every asset with its id, type, name and path; optionally of one type |
 | `asset.get` | One asset: dependencies, import warnings, and its content (size, properties, nodes) |
 | `scene.validate` | References to assets that are missing or of the wrong kind |
-| `editor.statistics` | What the last frame cost: CPU and GPU time, draw calls, triangles, memory on the GPU |
+| `editor.statistics` | What the last frame cost: CPU and GPU time, draw calls, triangles, lights, memory on the GPU |
 
 ## Refer to entities
 
@@ -116,6 +116,39 @@ set it like any other property:
 - Run `scene.validate` after editing references; a reference to nothing draws nothing
   and says so only in the log.
 
+## Light a scene
+
+A scene shows what its lights light. The viewport lights a scene that has no light
+component at all, so that it can be worked on; a game does not, and renders such a
+scene black. Lights are components like any other:
+
+```json
+[
+    {"command": "entity.create", "params": {"name": "Sun", "components": {
+        "Transform": {"rotation": [-0.40762199, 0.3640026, 0.181485, 0.81756322]},
+        "Light": {"type": "directional", "color": [1, 0.95, 0.87], "intensity": 0.9}}}},
+    {"command": "entity.create", "params": {"name": "Sky", "components": {
+        "AmbientLight": {"skyColor": [0.26, 0.31, 0.4], "groundColor": [0.1, 0.09, 0.08]}}}},
+    {"command": "entity.create", "params": {"name": "Lamp", "components": {
+        "Transform": {"position": [0, 3, 0], "rotation": [-0.70710677, 0, 0, 0.70710677]},
+        "Light": {"type": "spot", "intensity": 12, "range": 6,
+                  "innerConeDegrees": 25, "outerConeDegrees": 40}}}}
+]
+```
+
+- A light shines from where its entity is. A directional and a spot light shine along
+  the entity's -Z axis: the rotations above point the sun 53 degrees down and the lamp
+  straight down. `component.types` describes every property.
+- `intensity` 1 lights a white, matte surface that faces the light to white: at any
+  distance for a directional light, one metre away for a point or spot light, which
+  thin out with the square of the distance and end at their `range`.
+- `channels` on a light and `lightChannels` on a mesh renderer are numbers with one
+  bit per lighting channel (1, 2, 4 ... 128). A light shines on a mesh when they share
+  a bit; left alone, everything is in channel 1.
+- `viewport.debugView {"view": "lightCount"}` shows how many point and spot lights
+  each pixel has to ask, and `editor.statistics` how many lights are in view and how
+  many were left out because a view holds only so many.
+
 ## See the result
 
 - `editor.screenshot {"path": ...}` saves the whole editor window after letting the
@@ -126,10 +159,10 @@ set it like any other property:
   `viewport.frame {"entity": ...}` place the viewport camera first.
 - `viewport.debugView {"view": "normals"}` makes the viewport show something the
   renderer works with instead of the lit picture: `baseColor`, `normals`, `roughness`,
-  `metallic`, `specular`, `occlusion`, `emissive`, `depth`, `lightingOnly`,
-  `wireframe`, `overdraw`; `none` brings the picture back. When a surface looks wrong,
-  a screenshot of the right view says whether the material, the normals or the light
-  is at fault.
+  `metallic`, `specular`, `occlusion`, `emissive`, `depth`, `lightCount`,
+  `lightingOnly`, `wireframe`, `overdraw`; `none` brings the picture back. When a
+  surface looks wrong, a screenshot of the right view says whether the material, the
+  normals or the light is at fault.
 
 Then read the image file. Looking at the picture is the only way to know that a change
 is visible and looks right; a passing command only says that the data changed.
@@ -140,8 +173,8 @@ is visible and looks right; a passing command only says that the data changed.
 (`editor.runFrames`): the frame that loads a scene is not typical, and the time the
 GPU took arrives a few frames late (`gpuMilliseconds` is null until then, and on
 adapters that cannot time their work). The counts - `drawCalls`, `instances`,
-`triangles`, `meshBytes`, `textureBytes` - are exact and the same on every machine,
-which makes them the numbers to compare before and after a change to a scene.
+`triangles`, `lights`, `meshBytes`, `textureBytes` - are exact and the same on every
+machine, which makes them the numbers to compare before and after a change to a scene.
 `editor.showPanel {"panel": "statistics"}` opens the same numbers as a window, for
 screenshots.
 

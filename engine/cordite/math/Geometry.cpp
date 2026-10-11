@@ -98,6 +98,15 @@ bool Sphere::intersects(const Sphere& other) const {
     return glm::dot(offset, offset) <= reach * reach;
 }
 
+bool Sphere::intersects(const Aabb& box) const {
+    if (box.isEmpty()) {
+        return false;
+    }
+    // The point of the box nearest to the centre decides.
+    const Vec3 offset = glm::clamp(center, box.min, box.max) - center;
+    return glm::dot(offset, offset) <= radius * radius;
+}
+
 Plane Plane::fromPointNormal(const Vec3& point, const Vec3& normal) {
     const Vec3 unitNormal = normalizeOr(normal, kWorldUp);
     return {unitNormal, -glm::dot(unitNormal, point)};

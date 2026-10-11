@@ -133,6 +133,29 @@ TEST_SUITE("Sphere") {
         CHECK(sphere.intersects(Sphere{Vec3(3.0f, 0.0f, 0.0f), 1.0f}));
         CHECK_FALSE(sphere.intersects(Sphere{Vec3(3.1f, 0.0f, 0.0f), 1.0f}));
     }
+
+    TEST_CASE("a sphere and a box intersect when the nearest point of the box is within the radius") {
+        const Aabb box{Vec3(-1.0f), Vec3(1.0f)};
+
+        // Inside, and around: the centre is in the box.
+        CHECK(Sphere{Vec3(0.0f), 0.1f}.intersects(box));
+        CHECK(Sphere{Vec3(0.5f, -0.5f, 0.9f), 50.0f}.intersects(box));
+        // Beside a face: the gap is along one axis.
+        CHECK(Sphere{Vec3(3.0f, 0.0f, 0.0f), 2.0f}.intersects(box));
+        CHECK_FALSE(Sphere{Vec3(3.0f, 0.0f, 0.0f), 1.99f}.intersects(box));
+        // Off a corner: the gap is the distance to the corner, not to the faces. The
+        // corner (1, 1, 1) is the square root of three away from (2, 2, 2).
+        CHECK(Sphere{Vec3(2.0f), 1.74f}.intersects(box));
+        CHECK_FALSE(Sphere{Vec3(2.0f), 1.72f}.intersects(box));
+        // Off an edge.
+        CHECK(Sphere{Vec3(2.0f, 2.0f, 0.0f), 1.42f}.intersects(box));
+        CHECK_FALSE(Sphere{Vec3(2.0f, 2.0f, 0.0f), 1.41f}.intersects(box));
+
+        // A sphere without size is a point; an empty box has no points.
+        CHECK(Sphere{Vec3(1.0f, 0.0f, 0.0f), 0.0f}.intersects(box));
+        CHECK_FALSE(Sphere{Vec3(1.1f, 0.0f, 0.0f), 0.0f}.intersects(box));
+        CHECK_FALSE(Sphere{Vec3(0.0f), 100.0f}.intersects(Aabb()));
+    }
 }
 
 TEST_SUITE("Plane") {

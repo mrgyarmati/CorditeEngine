@@ -157,7 +157,7 @@ TEST_SUITE("EditorCommands") {
     TEST_CASE("component.types describes what can be edited") {
         CommandFixture fixture;
         const Json types = fixture.run("component.types");
-        REQUIRE(types.size() == 4);
+        REQUIRE(types.size() == 6);
 
         CHECK(types[0]["name"] == "Transform");
         CHECK(types[0]["optional"] == false);
@@ -178,9 +178,75 @@ TEST_SUITE("EditorCommands") {
         CHECK(types[2]["properties"][1]["name"] == "materials");
         CHECK(types[2]["properties"][1]["type"] == "list");
         CHECK(types[2]["properties"][1]["assetType"] == "Material");
+        // A number whose bits are switches says so, and how many of them there are.
+        CHECK(types[2]["properties"][2]["name"] == "lightChannels");
+        CHECK(types[2]["properties"][2]["type"] == "int");
+        CHECK(types[2]["properties"][2]["semantic"] == "bitMask");
+        CHECK(types[2]["properties"][2]["maximum"] == 255.0);
 
-        CHECK(types[3]["name"] == "Label");
-        CHECK(types[3]["properties"][1]["readOnly"] == true);
+        CHECK(types[3]["name"] == "Light");
+        CHECK(types[3]["properties"][0]["name"] == "type");
+        CHECK(types[3]["properties"][0]["options"] == json(R"(["directional", "point", "spot"])"));
+        CHECK(types[3]["properties"][1]["semantic"] == "color");
+        CHECK(types[3]["properties"][3]["name"] == "range");
+        CHECK(types[3]["properties"][3]["unit"] == "m");
+        CHECK(types[4]["name"] == "AmbientLight");
+
+        CHECK(types[5]["name"] == "Label");
+        CHECK(types[5]["properties"][1]["readOnly"] == true);
+    }
+
+    TEST_CASE("a scene is lit by commands: lights are made, changed and taken back like everything else") {
+        CommandFixture fixture;
+        const Json start = fixture.scene();
+
+        // The lamp of the fixture gets the light it is named for.
+        fixture.run("component.add", R"({"entity": "Lamp", "component": "Light", "properties": {
+            "type": "spot", "color": [1, 0.8, 0.6], "intensity": 4, "range": 6}})");
+        const Json light = fixture.run("component.get", R"({"entity": "Lamp", "component": "Light"})");
+        CHECK(light["type"] == "spot");
+        CHECK(light["intensity"] == 4.0);
+        CHECK(light["range"] == 6.0);
+        // What was not said has its default.
+        CHECK(light["innerConeDegrees"] == 25.0);
+        CHECK(light["outerConeDegrees"] == 35.0);
+        CHECK(light["channels"] == 1);
+        REQUIRE(fixture.world.has<LightComponent>(fixture.lamp));
+        CHECK(fixture.world.tryGet<LightComponent>(fixture.lamp)->type == LightType::Spot);
+
+        // Several properties at once.
+        const Json changed = fixture.run("component.set", R"({"entity": "Lamp", "component": "Light",
+            "properties": {"type": "point", "channels": 5}})");
+        CHECK(changed["type"] == "point");
+        CHECK(changed["channels"] == 5);
+        CHECK(changed["intensity"] == 4.0);
+
+        // A value a light cannot have is refused, and nothing of the request is applied.
+        const Error tooManyChannels = fixture.fail("component.set", R"({"entity": "Lamp", "component": "Light",
+            "properties": {"intensity": 9, "channels": 256}})");
+        CHECK(tooManyChannels.code == ErrorCode::OutOfRange);
+        CHECK(tooManyChannels.message.find("channels") != std::string::npos);
+        const Error unknownKind = fixture.fail(
+            "component.set", R"({"entity": "Lamp", "component": "Light", "properties": {"type": "area"}})");
+        CHECK(unknownKind.message.find("expected one of [directional, point, spot]") != std::string::npos);
+        CHECK(fixture.world.tryGet<LightComponent>(fixture.lamp)->intensity == 4.0f);
+        CHECK(fixture.world.tryGet<LightComponent>(fixture.lamp)->channels == 5);
+
+        // Light from all around, and something for the lamp to shine on that is in
+        // lighting channels of its own.
+        fixture.run("entity.create",
+                    R"({"name": "Sky", "components": {"AmbientLight": {"skyColor": [0.2, 0.3, 0.5]}}})");
+        CHECK(fixture.run("component.get", R"({"entity": "Sky", "component": "AmbientLight"})")["intensity"] == 1.0);
+        fixture.run("component.add", R"({"entity": "Table", "component": "MeshRenderer",
+            "properties": {"lightChannels": 4}})");
+        CHECK(fixture.world.tryGet<MeshRendererComponent>(fixture.table)->lightChannels == 4);
+
+        // All of it is in the history, and can be taken back.
+        for (int step = 0; step < 4; ++step) {
+            fixture.run("editor.undo");
+        }
+        CHECK(fixture.scene() == start);
+        CHECK_FALSE(fixture.world.has<LightComponent>(fixture.lamp));
     }
 
     TEST_CASE("entities are moved, copied and deleted by reference") {
