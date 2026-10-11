@@ -308,3 +308,9 @@ Early UE3 titles relied heavily on normal maps, aggressive specular response, an
 - Do not require ray tracing for the core visual identity.
 - Do not implement every modern rendering feature before establishing a stable, testable deferred renderer.
 - Do not sacrifice engine stability, diagnostics, or test coverage for visual effects.
+
+## Post ToDo
+
+- Once the engine is done, write a documentation for end users who wants to make a game in the engine
+- Write a detaield documentation (that I can use to learn from this project) for me or pont to me if already done.
+- @AEGEON_Vertical_Slice_Prototype_Brief.md for a later demo when I ask it
