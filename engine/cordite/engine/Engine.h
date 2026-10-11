@@ -151,8 +151,14 @@ public:
     [[nodiscard]] Status drawWorld(const SceneRenderSettings& settings = {});
 
     /// Runs a whole frame for a program that draws nothing itself: beginFrame(), world
-    /// transform update, drawWorld(), endFrame(). Returns what beginFrame() returned.
+    /// transform update, drawWorld(renderSettings()), endFrame(). Returns what
+    /// beginFrame() returned.
     [[nodiscard]] Result<bool> runFrame();
+
+    /// What runFrame() draws the world with: the background, the quality of the
+    /// shadows. A game changes them when its player changes the graphics options.
+    [[nodiscard]] SceneRenderSettings& renderSettings();
+    [[nodiscard]] const SceneRenderSettings& renderSettings() const;
 
     /// Makes the next beginFrame() return false.
     void requestExit();

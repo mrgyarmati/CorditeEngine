@@ -104,6 +104,7 @@ cordite_add_test_suite(renderer
         unit/renderer/RenderComponentsTests.cpp
         unit/renderer/RenderDebugViewTests.cpp
         unit/renderer/SceneLightsTests.cpp
+        unit/renderer/ShadowPlanTests.cpp
     LIBRARIES
         cordite::renderer)
 
@@ -161,9 +162,12 @@ cordite_add_test_suite(render
         render/RenderTestSupport.h
         render/SceneLightingTests.cpp
         render/SceneRendererTests.cpp
+        render/SceneShadowTests.cpp
         render/SceneTestSupport.h
+        render/ShadowAtlasTests.cpp
         render/SwapchainTests.cpp
         render/UiTests.cpp
+        render/ViewBindingsTests.cpp
     LIBRARIES
         cordite::editor
     LABELS

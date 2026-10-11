@@ -20,6 +20,10 @@ struct Surface
     float3 position;
     // Unit length, facing the viewer's side of the surface.
     float3 normal;
+    // The normal of the surface itself - of the triangle, without what a normal map
+    // makes of it - unit length and on the same side. Shadows are looked up with
+    // this one: a normal map bends the light on a surface, not the surface.
+    float3 geometricNormal;
     float3 baseColor;
     // 1 is opaque.
     float opacity;

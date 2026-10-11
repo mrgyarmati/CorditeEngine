@@ -117,7 +117,8 @@ Look at the screenshot. Then run `./scripts/dev.ps1 verify` before committing.
 `SceneRenderer.h` is the reference):
 
 ```
-depth pre-pass -> base pass (G-buffer) -> deferred lighting -> forward pass -> display encoding
+shadow maps -> depth pre-pass -> base pass (G-buffer) -> deferred lighting -> forward pass
+            -> display encoding
 ```
 
 Decide where a new pass belongs before writing it: does it draw meshes, read the
@@ -126,8 +127,8 @@ G-buffer, or work on the lit picture?
 ### A pass that draws meshes
 
 Do not write a class. A mesh pass is a `MeshPassDesc` given to `MeshPass`
-(`engine/cordite/renderer/MeshPass.h`); the five that exist are at the top of
-`SceneRenderer.cpp`:
+(`engine/cordite/renderer/MeshPass.h`); five of those that exist are at the top of
+`SceneRenderer.cpp`, and the one that draws shadow maps is in `ShadowAtlas.cpp`:
 
 ```cpp
 MeshPassDesc desc;
@@ -215,13 +216,42 @@ for (uint entry = 0; entry < range.count; ++entry) { ... lights[lightIndices[ran
 - Measure: `./scripts/dev.ps1 perf` runs a scene with six hundred lights and reports
   what gathering and clustering them costs, and how many list entries there are.
 
+### Something about shadows
+
+`ShadowPlan.h` decides which light gets which shadow maps and what each map shows;
+`ShadowAtlas` draws them; `common/Shadows.slang` looks surfaces up in them.
+
+- **What a map shows** is a `ShadowView`: a matrix, a tile of the atlas, the size of a
+  texel in the world and the directions its axes run in. `planShadows` is arithmetic
+  and has unit tests (`ShadowPlanTests.cpp`); change it there first.
+- **Depth in a shadow map is not reversed** (0 at the light), because the comparison
+  sampler only knows "smaller". Use `orthographic()` and `perspective()`, not their
+  `ReverseZ` relatives, and `MeshPassDesc::conventionalDepth`.
+- **The shadow pass binds its own, smaller view set** - the constants alone - because
+  the atlas cannot be read while it is drawn into. A pass that draws into a texture
+  other passes read needs the same.
+- **Nothing is biased when a map is drawn.** A surface is kept out of its own shadow
+  by where it is looked up (`shadowLookupPosition`), and the filter reads beside the
+  point on the point's own plane (`shadowMapVisibility`). A change there has two
+  tests to pass that pull in opposite directions: no stripes under a sun three
+  degrees up, and a shadow that begins at the foot of what casts it.
+- **Look things up with `Surface::geometricNormal`**, the triangle's own normal, never
+  with `normal`, which a normal map has bent: the map holds the depth of the triangle.
+  A pass that builds a `Surface` by another way than `evaluateSurface` has to fill it
+  in; deferred lighting does, from the depth buffer (`geometricNormalAt`).
+- **A new kind of shadow-casting light** needs its maps planned (`planLocalLight`), a
+  way to pick the map for a point in the shader, and a test like the one that checks
+  each of the six sides of a point light.
+- Measure: the `shadows` scenario of `./scripts/dev.ps1 perf` draws more than fifty
+  shadow maps a frame.
+
 ### A debug view
 
 1. Add the value to `RenderDebugView` (`RenderDebugView.h`): the enumerator, its place
    in `kRenderDebugViews`, `nameOf` and `displayNameOf`. The editor's menu and
    `viewport.debugView` pick it up from the list.
 2. If it is drawn from the G-buffer and the depth, keep it between `BaseColor` and
-   `LightCount` (`isDrawnFromGBuffer`), and add a `case` with the same number to
+   `ShadowCascades` (`isDrawnFromGBuffer`), and add a `case` with the same number to
    `passes/DebugView.slang`. Write colors as they are and numbers through `asShown`,
    so that 0.5 comes out as mid-grey.
 3. Otherwise handle it in `SceneRenderer::render`, as wireframe and overdraw are.
@@ -240,7 +270,11 @@ wherever that is possible:
   and `setAmbient` light the world; `lightOn` in `SceneLightingTests.cpp` is the
   lighting model written out on the CPU, to compare whole pictures with;
 - a debug view makes a number visible: `checkShown(image, x, y, Vec3(0.25f))`;
-- `scene.renderer->statistics()` says which pass drew what, and how many lights.
+- `lightOn` with a list of boxes knows shadows: a point no light can see past a box
+  gets none of it. `checkReceiver` in `SceneShadowTests.cpp` compares a whole floor or
+  wall with that, leaving out the soft edges of shadows;
+- `scene.renderer->statistics()` says which pass drew what, how many lights there are
+  and how many shadow maps.
 
 Look at surfaces head-on when the test predicts single pixels. Seen at a low angle, a
 surface runs through a pixel for a long way, and the value depends on where in the

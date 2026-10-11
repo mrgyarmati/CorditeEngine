@@ -114,7 +114,7 @@ Status RenderResources::initialize() {
     // What an empty texture slot reads as: white leaves the material's own values as
     // they are, and the flat normal leaves the surface normal alone.
     CORDITE_TRY_ASSIGN(m_whiteTexture, createSolidTexture(Vec4(1.0f), "Default white"));
-    CORDITE_TRY_ASSIGN(m_flatNormalTexture, createSolidTexture(Vec4(0.5f, 0.5f, 1.0f, 1.0f), "Default normal"));
+    CORDITE_TRY_ASSIGN(m_flatNormalTexture, createFlatNormalTexture());
     CORDITE_TRY_ASSIGN(m_defaultMaterial, createMaterial(MaterialData(), "Default material"));
     flushUploads();
     // These few stay for good, whatever happens to the assets.
@@ -275,6 +275,29 @@ Result<nvrhi::TextureHandle> RenderResources::createSolidTexture(const Vec4& col
     CORDITE_TRY_ASSIGN(Image image, Image::create(1, 1, ImageFormat::Rgba8));
     image.setPixel(0, 0, color);
     return createTexture(image, ColorSpace::Linear, name);
+}
+
+Result<nvrhi::TextureHandle> RenderResources::createFlatNormalTexture() {
+    // "No tilt" is one half in a normal map, which no 8-bit number is: 128 of 255 is a
+    // normal that leans by a third of a degree, enough to show in light that grazes a
+    // surface. In half floats, one half and one are exact: (0.5, 0.5, 1, 1).
+    constexpr std::array<uint16_t, 4> kFlatNormal = {0x3800, 0x3800, 0x3C00, 0x3C00};
+
+    nvrhi::TextureDesc desc;
+    desc.width = 1;
+    desc.height = 1;
+    desc.format = nvrhi::Format::RGBA16_FLOAT;
+    desc.debugName = "Default normal";
+    desc.initialState = nvrhi::ResourceStates::ShaderResource;
+    desc.keepInitialState = true;
+    nvrhi::TextureHandle texture = m_device->createTexture(desc);
+    if (!texture) {
+        return makeError(ErrorCode::DeviceError, "cannot allocate the default normal texture");
+    }
+    uploadCommandList()->writeTexture(texture, 0, 0, kFlatNormal.data(), sizeof(kFlatNormal));
+    m_statistics.textureBytes += sizeof(kFlatNormal);
+    ++m_statistics.textureCount;
+    return texture;
 }
 
 nvrhi::ITexture* RenderResources::texture(const Uuid& id, ColorSpace colorSpace, nvrhi::ITexture* fallback) {

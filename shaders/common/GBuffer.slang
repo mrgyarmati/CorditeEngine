@@ -69,6 +69,9 @@ Surface decodeGBuffer(float4 baseColor, float2 normal, float4 parameters, float3
     Surface surface;
     surface.position = position;
     surface.normal = decodeNormal(normal);
+    // The G-buffer does not hold the surface's own normal; a pass that needs it works
+    // it out from the depth around the pixel (passes/DeferredLighting.slang).
+    surface.geometricNormal = surface.normal;
     surface.baseColor = baseColor.rgb;
     surface.opacity = 1.0;
     surface.roughness = parameters.r;

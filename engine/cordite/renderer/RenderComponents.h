@@ -23,7 +23,7 @@
 ///     "materials": ["5d0b6c1e-9c3f-4f0e-8a54-0d6f3c1b2a79"]
 /// },
 /// "Light": {"type": "spot", "color": [1, 0.8, 0.6], "intensity": 5, "range": 8,
-///           "innerConeDegrees": 20, "outerConeDegrees": 30}
+///           "innerConeDegrees": 20, "outerConeDegrees": 30, "castsShadows": true}
 /// @endcode
 ///
 /// Lighting channels: every mesh renderer and every light belongs to some of eight
@@ -54,6 +54,9 @@ struct MeshRendererComponent {
     std::vector<Uuid> materials;
     /// The lighting channels the mesh belongs to, one bit each.
     uint32_t lightChannels = 1;
+    /// Whether the mesh throws shadows, in the light of the lights that cast them and
+    /// share a lighting channel with it. Translucent surfaces never do.
+    bool castsShadows = true;
 };
 
 enum class LightType : uint8_t {
@@ -66,6 +69,19 @@ enum class LightType : uint8_t {
 };
 
 std::string_view nameOf(LightType type);
+
+/// How large the shadow map of a light is, compared with what the shadow quality of a
+/// view gives a light: the choice for a single light that matters more, or less, than
+/// the others.
+enum class ShadowResolution : uint8_t {
+    /// Half as many texels a side: a quarter of the memory.
+    Low,
+    Medium,
+    /// Twice as many texels a side.
+    High,
+};
+
+std::string_view nameOf(ShadowResolution resolution);
 
 /// A light. It shines from where the entity is; a directional or a spot light shines
 /// along the entity's -Z axis.
@@ -87,6 +103,35 @@ struct LightComponent {
     float outerConeDegrees = 35.0f;
     /// The lighting channels the light shines on, one bit each.
     uint32_t channels = 1;
+
+    /// Whether what stands in the light throws shadows. Shadows cost: a light that
+    /// casts them draws what it reaches once more - a point light six times, the sun
+    /// once for each cascade. Of the directional lights that are to cast shadows,
+    /// only the brightest does: a scene has one sun. A spot light throws shadows up
+    /// to 85 degrees from its axis; a wider one is better a point light.
+    bool castsShadows = false;
+    /// A shadow map is made of texels, and a lit surface looked up in it exactly where
+    /// it is would shadow itself in stripes. It is looked up a little off instead: this
+    /// many texels nearer the light, ...
+    float shadowBias = 1.0f;
+    /// ... and this many texels along the surface's normal, the more the flatter the
+    /// light strikes it. Too little shows as stripes on lit surfaces, too much as
+    /// shadows that begin a gap away from what casts them, and end short.
+    float shadowNormalOffset = 1.0f;
+    /// The size of the light's shadow maps against what lights usually get at the
+    /// shadow quality of the view. It is what the light asks for: all shadow maps of a
+    /// view share one atlas, and a light that does not find the room gets smaller ones.
+    ShadowResolution shadowResolution = ShadowResolution::Medium;
+    /// Directional: how far from the camera the shadows reach, in metres; towards that
+    /// distance they fade out. The shorter, the sharper: the same texels cover less.
+    float shadowDistance = 60.0f;
+    /// Directional: into how many shadow maps (cascades) that distance is divided, 1
+    /// to 4 - small, sharp ones near the camera and large, coarse ones far away.
+    uint32_t shadowCascades = 4;
+    /// Directional: how the cascades share the distance. 0 makes them equally deep; 1
+    /// makes each a constant factor deeper than the one before, which spends most of
+    /// the texels close to the camera.
+    float shadowCascadeDistribution = 0.75f;
 };
 
 /// Light that arrives from all around: from a sky above and from a ground below. It

@@ -131,9 +131,10 @@ lights on AMD Radeon RX 9070 XT, commit dd3c5d2+; the run before: commit dd3c5d2
   ...
 ```
 
-The scenarios are the showcase as a game shows it (`ShowcasePerformanceTests.cpp`) and
-a field under six hundred lights (`LightingPerformanceTests.cpp`); what they share is
-in `tests/perf/PerformanceTestSupport.h`.
+The scenarios are the showcase as a game shows it (`ShowcasePerformanceTests.cpp`), a
+field under six hundred lights, and the same field with more than fifty shadow maps
+(`lights` and `shadows`, both in `LightingPerformanceTests.cpp`); what they share is in
+`tests/perf/PerformanceTestSupport.h`.
 
 Run it before a change and after it. Times move by a few percent from run to run; a
 change is real when it is larger than that and repeats. The full report of the last run
@@ -144,8 +145,8 @@ The same suite runs with all the other tests and checks the numbers against
 `tests/perf/budgets.json`:
 
 - **A count or size is over budget** (draw calls, triangles, lights, entries of the
-  light lists, bytes on the GPU): these are the same on every machine, so the change
-  did it. If it is meant - the showcase gained something - raise the budget in the
+  light lists, shadow maps, bytes on the GPU): these are the same on every machine, so
+  the change did it. If it is meant - the showcase gained something - raise the budget in the
   same commit, leaving little room. If not, find what stopped being instanced, culled
   or shared, or which lights got into lists of clusters they do not reach.
 - **A time is over budget**: the budgets are many times what is normal, so something

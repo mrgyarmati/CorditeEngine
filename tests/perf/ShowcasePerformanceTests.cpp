@@ -125,12 +125,15 @@ TEST_SUITE("Performance") {
         CHECK(statistics.scene.views == 1);
         CHECK(statistics.scene.meshRenderers > 0);
         CHECK(statistics.scene.droppedLights == 0);
+        CHECK(statistics.scene.lightsWithoutShadows == 0);
         CHECK(assetCount > 0);
 
         checkBudget(budgets, "drawCalls", statistics.scene.meshes.drawCalls);
         checkBudget(budgets, "triangles", static_cast<double>(statistics.scene.meshes.triangles));
         checkBudget(budgets, "lights", statistics.scene.lights);
         checkBudget(budgets, "lightListEntries", statistics.scene.lightListEntries);
+        checkBudget(budgets, "shadowMaps", statistics.scene.shadowMaps);
+        checkBudget(budgets, "shadowAtlasBytes", static_cast<double>(statistics.scene.shadowAtlasBytes));
         checkBudget(budgets, "meshBytes", static_cast<double>(statistics.resources.meshBytes));
         checkBudget(budgets, "textureBytes", static_cast<double>(statistics.resources.textureBytes));
 

@@ -22,6 +22,7 @@ static const uint kViewOcclusion = 6;
 static const uint kViewEmissive = 7;
 static const uint kViewDepth = 8;
 static const uint kViewLightCount = 9;
+static const uint kViewShadowCascades = 10;
 
 cbuffer DebugViewConstants : register(b0, space1)
 {
@@ -100,6 +101,36 @@ float4 debugViewPixel(FullscreenVaryings input) : SV_Target0
         const float3 ramp = heat < 0.5 ? lerp(float3(0.0, 0.0, 1.0), float3(0.0, 1.0, 0.0), heat * 2.0)
                                        : lerp(float3(0.0, 1.0, 0.0), float3(1.0, 0.0, 0.0), heat * 2.0 - 1.0);
         color = count == 0 ? asShown(float3(0.1)) : asShown(ramp);
+        break;
+    }
+    case kViewShadowCascades:
+    {
+        // Which cascade of the sun's shadow each pixel is looked up in: red, green, blue
+        // and yellow from the nearest on, grey where the sun casts no shadow. The
+        // brightness is the surface's own, so that the scene can still be made out.
+        const float2 uv = input.position.xy * inverseTargetSize;
+        const float3 position = worldPositionFromDepth(uv, depth, inverseViewProjection);
+        const int cascade = shadowCascadeAt(viewDepth(position));
+        float3 tint = float3(0.5);
+        if (cascade == 0)
+        {
+            tint = float3(1.0, 0.25, 0.25);
+        }
+        else if (cascade == 1)
+        {
+            tint = float3(0.25, 1.0, 0.25);
+        }
+        else if (cascade == 2)
+        {
+            tint = float3(0.25, 0.25, 1.0);
+        }
+        else if (cascade == 3)
+        {
+            tint = float3(1.0, 1.0, 0.25);
+        }
+        const float3 base = gbufferBaseColor.Load(pixel).rgb;
+        const float brightness = 0.35 + 0.65 * dot(base, float3(0.2126, 0.7152, 0.0722));
+        color = asShown(tint * brightness);
         break;
     }
     default:

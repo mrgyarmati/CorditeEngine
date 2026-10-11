@@ -72,6 +72,10 @@ struct MeshPassDesc {
     /// Draw the edges of the triangles instead of filling them, front and back. Needs
     /// an adapter that can (AdapterInfo::supportsWireframe).
     bool wireframe = false;
+    /// Depth as a shadow map holds it: 0 at the nearest and 1 at the farthest, where
+    /// the views of a scene have it the other way round. The depth test passes what
+    /// is nearer either way.
+    bool conventionalDepth = false;
 };
 
 /// What a call to MeshPass::draw() cost.
@@ -106,6 +110,12 @@ public:
     MeshPassStatistics draw(nvrhi::ICommandList* commandList, nvrhi::IFramebuffer* framebuffer,
                             std::span<const MeshBatch> batches, nvrhi::IBindingSet* viewBindings,
                             nvrhi::IBuffer* instanceBuffer);
+
+    /// The same, into the part of the framebuffer that `viewport` names, in pixels;
+    /// nothing is drawn outside it.
+    MeshPassStatistics draw(nvrhi::ICommandList* commandList, nvrhi::IFramebuffer* framebuffer,
+                            std::span<const MeshBatch> batches, nvrhi::IBindingSet* viewBindings,
+                            nvrhi::IBuffer* instanceBuffer, const nvrhi::Viewport& viewport);
 
 private:
     MeshPass() = default;

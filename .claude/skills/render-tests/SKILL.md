@@ -85,8 +85,8 @@ TEST_CASE("the vignette darkens the corners") {
 - Best of all is a test that says what a pixel must be. For anything drawn by the
   scene renderer, `SceneFixture` (`tests/render/SceneTestSupport.h`) makes that
   possible: materials that emit a color or reflect all light evenly, cameras without
-  perspective, lights of known brightness. `SceneRendererTests.cpp` and
-  `SceneLightingTests.cpp` are full of examples.
+  perspective, lights of known brightness. `SceneRendererTests.cpp`,
+  `SceneLightingTests.cpp` and `SceneShadowTests.cpp` are full of examples.
 - Make sure the test can fail: break the code on purpose once (leave a light out,
   shrink a bound) and see the test notice.
 - Everything that influences the image must be fixed: sizes, times, seeds. Use

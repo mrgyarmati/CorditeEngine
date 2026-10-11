@@ -102,6 +102,8 @@ struct Engine::Impl {
     /// Runs from beginFrame() to the moment the frame is handed to the GPU.
     Stopwatch workClock;
     FrameStatistics statistics;
+    /// What runFrame() draws the world with.
+    SceneRenderSettings renderSettings;
     double timeSeconds = 0.0;
     double deltaSeconds = 0.0;
     uint64_t frameIndex = 0;
@@ -342,10 +344,18 @@ Result<bool> Engine::runFrame() {
     m_impl->world.updateWorldTransforms();
     // A frame that was begun is always ended, so that the engine stays usable after
     // a failure in between.
-    const Status drawn = drawWorld();
+    const Status drawn = drawWorld(m_impl->renderSettings);
     CORDITE_TRY(endFrame());
     CORDITE_TRY(drawn);
     return true;
+}
+
+SceneRenderSettings& Engine::renderSettings() {
+    return m_impl->renderSettings;
+}
+
+const SceneRenderSettings& Engine::renderSettings() const {
+    return m_impl->renderSettings;
 }
 
 void Engine::requestExit() {

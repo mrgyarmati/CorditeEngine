@@ -1,11 +1,12 @@
 #pragma once
 
 /// @file
-/// What the passes of a scene are told about the view they draw, and about its lights.
+/// What the passes of a scene are told about the view they draw, its lights and their
+/// shadows.
 ///
-/// The camera, the size of the target and the lights are the same for every pass of a
-/// view, so they live in one binding set that all of those passes bind first (register
-/// space 0):
+/// The camera, the size of the target, the lights and the shadow maps are the same for
+/// every pass of a view, so they live in one binding set that all of those passes bind
+/// first (register space 0):
 ///
 /// | Register | Holds                                                             |
 /// |----------|-------------------------------------------------------------------|
@@ -13,23 +14,29 @@
 /// | t0       | The lights: directional ones first (shaders/common/Lights.slang)  |
 /// | t1       | The cluster grid: where each cluster's list is                    |
 /// | t2       | The lists: indices into the lights                                |
+/// | t3       | The shadow views: where each shadow map is in the atlas           |
+/// | t4       | The shadow atlas (shaders/common/Shadows.slang)                   |
+/// | s0       | The sampler that compares a depth with the atlas                  |
 ///
 /// @code
 /// CORDITE_TRY_ASSIGN(ViewBindings view, ViewBindings::create(device));
 ///
-/// view.update(commandList, {.camera = cameraView, .targetSize = targets.size()}, lightClusters);
+/// view.update(commandList, {.camera = cameraView, .targetSize = targets.size()}, lightClusters,
+///             {.plan = &shadowPlan, .atlas = shadowAtlas.texture(), .filterRadius = 1});
 /// depthPass.draw(commandList, targets.depthFramebuffer(), batches, view.bindings(), instances);
 /// lightingPass.draw(commandList, targets, view.bindings());
 /// @endcode
 ///
 /// update() may be called any number of times in a command list: what is recorded after
 /// a call sees that call's values, what was recorded before keeps its own. Ask for
-/// bindings() after update(), not before: the set is replaced when a buffer has to grow.
+/// bindings() after update(), not before: the set is replaced when a buffer has to grow
+/// or the atlas is another texture.
 
 #include "cordite/core/Result.h"
 #include "cordite/math/Math.h"
 #include "cordite/renderer/CameraView.h"
 #include "cordite/renderer/LightClusters.h"
+#include "cordite/renderer/ShadowPlan.h"
 
 #include <nvrhi/nvrhi.h>
 
@@ -48,6 +55,18 @@ struct SceneView {
     Vec3 groundColor{0.0f};
 };
 
+/// The shadows of a view, as its passes read them.
+struct ViewShadows {
+    /// Where the shadow maps are and what they show; the lights of the view refer to
+    /// its views by index. Null when nothing casts a shadow.
+    const ShadowPlan* plan = nullptr;
+    /// The texture the plan's maps were drawn into (ShadowAtlas::texture()). Never
+    /// null: a view without shadows still binds an atlas, and reads none of it.
+    nvrhi::ITexture* atlas = nullptr;
+    /// How far the filter that softens the edges reaches, in texels (ShadowSettings).
+    uint32_t filterRadius = 1;
+};
+
 class ViewBindings {
 public:
     /// An empty object; assign one made by create() before use.
@@ -55,9 +74,11 @@ public:
 
     [[nodiscard]] static Result<ViewBindings> create(nvrhi::IDevice* device);
 
-    /// Makes `view` and `lights` what passes recorded from here on are told. `lights`
-    /// must have been built for the camera of `view`. The command list must be open.
-    void update(nvrhi::ICommandList* commandList, const SceneView& view, const LightClusters& lights);
+    /// Makes `view`, `lights` and `shadows` what passes recorded from here on are told.
+    /// `lights` must have been built for the camera of `view`, and `shadows` planned
+    /// for them. The command list must be open.
+    void update(nvrhi::ICommandList* commandList, const SceneView& view, const LightClusters& lights,
+                const ViewShadows& shadows);
 
     /// The layout of bindings(), for pipelines: register space 0, visible to every
     /// shader stage.
@@ -76,6 +97,10 @@ private:
     nvrhi::BufferHandle m_lights;
     nvrhi::BufferHandle m_clusterGrid;
     nvrhi::BufferHandle m_lightIndices;
+    nvrhi::BufferHandle m_shadowViews;
+    nvrhi::SamplerHandle m_shadowSampler;
+    /// The atlas the binding set holds; a view may come with another one.
+    nvrhi::TextureHandle m_atlas;
     nvrhi::BindingLayoutHandle m_layout;
     nvrhi::BindingSetHandle m_bindings;
     /// True when a buffer was replaced and the binding set has to follow.

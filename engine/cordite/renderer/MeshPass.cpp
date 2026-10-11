@@ -104,12 +104,16 @@ nvrhi::IGraphicsPipeline* MeshPass::pipelineFor(const nvrhi::FramebufferInfo& fr
                                                                                : nvrhi::RasterCullMode::Back;
     raster.fillMode = m_desc.wireframe ? nvrhi::RasterFillMode::Wireframe : nvrhi::RasterFillMode::Solid;
 
-    // Reversed depth: nearer fragments have larger values.
+    // Reversed depth: nearer fragments have larger values - except in a shadow map.
     nvrhi::DepthStencilState& depth = desc.renderState.depthStencilState;
     depth.depthTestEnable = m_desc.depth != MeshPassDepth::None;
     depth.depthWriteEnable = m_desc.depth == MeshPassDepth::TestAndWrite;
-    depth.depthFunc =
-        m_desc.depth == MeshPassDepth::Equal ? nvrhi::ComparisonFunc::Equal : nvrhi::ComparisonFunc::GreaterOrEqual;
+    if (m_desc.depth == MeshPassDepth::Equal) {
+        depth.depthFunc = nvrhi::ComparisonFunc::Equal;
+    } else {
+        depth.depthFunc =
+            m_desc.conventionalDepth ? nvrhi::ComparisonFunc::LessOrEqual : nvrhi::ComparisonFunc::GreaterOrEqual;
+    }
 
     if (m_desc.blend != MeshPassBlend::None) {
         nvrhi::BlendState::RenderTarget& blend = desc.renderState.blendState.targets[0];
@@ -131,6 +135,17 @@ nvrhi::IGraphicsPipeline* MeshPass::pipelineFor(const nvrhi::FramebufferInfo& fr
 MeshPassStatistics MeshPass::draw(nvrhi::ICommandList* commandList, nvrhi::IFramebuffer* framebuffer,
                                   std::span<const MeshBatch> batches, nvrhi::IBindingSet* viewBindings,
                                   nvrhi::IBuffer* instanceBuffer) {
+    CORDITE_ASSERT(framebuffer != nullptr || batches.empty(), "the pass '{}' needs a framebuffer", m_desc.debugName);
+    if (framebuffer == nullptr) {
+        return {};
+    }
+    return draw(commandList, framebuffer, batches, viewBindings, instanceBuffer,
+                framebuffer->getFramebufferInfo().getViewport());
+}
+
+MeshPassStatistics MeshPass::draw(nvrhi::ICommandList* commandList, nvrhi::IFramebuffer* framebuffer,
+                                  std::span<const MeshBatch> batches, nvrhi::IBindingSet* viewBindings,
+                                  nvrhi::IBuffer* instanceBuffer, const nvrhi::Viewport& viewport) {
     MeshPassStatistics statistics;
     if (batches.empty()) {
         return statistics;
@@ -160,7 +175,7 @@ MeshPassStatistics MeshPass::draw(nvrhi::ICommandList* commandList, nvrhi::IFram
         nvrhi::GraphicsState state;
         state.pipeline = pipeline;
         state.framebuffer = framebuffer;
-        state.viewport.addViewportAndScissorRect(framebufferInfo.getViewport());
+        state.viewport.addViewportAndScissorRect(viewport);
         state.bindings = {viewBindings, batch.material->bindings.Get()};
         state.vertexBuffers = {
             nvrhi::VertexBufferBinding().setBuffer(mesh.vertexBuffer).setSlot(0).setOffset(0),

@@ -14,13 +14,19 @@
     // The showcase project, as a game shows it.
     "showcase": {
         // Draw calls and triangles are those of all passes together: a solid surface is
-        // drawn by the depth pre-pass and again by the base pass, a translucent one once.
-        "drawCalls": 44,
-        "triangles": 6500,
+        // drawn by the depth pre-pass and again by the base pass, a translucent one
+        // once, and whatever stands in the light of a light that casts shadows once
+        // more for each of its shadow maps. Two thirds of both are the shadow maps.
+        "drawCalls": 130,
+        "triangles": 19500,
         // The lights in view, and the entries of the cluster lists they are in: how
         // many clusters the lamps of the showcase reach, all of them together.
         "lights": 6,
         "lightListEntries": 1250,
+        // Three cascades for the sun, one map for the lamp, six for the wall light, in
+        // the atlas of the medium shadow quality: 4096 texels a side, four bytes each.
+        "shadowMaps": 12,
+        "shadowAtlasBytes": 67108864,
         "meshBytes": 160000,
         "textureBytes": 9437184,
 
@@ -36,8 +42,8 @@
         }
     },
 
-    // Six hundred point and spot lights over a field of four hundred crates and balls;
-    // see tests/perf/LightingPerformanceTests.cpp.
+    // Six hundred point and spot lights over a field of four hundred crates and balls,
+    // none of them casting a shadow; see tests/perf/LightingPerformanceTests.cpp.
     "lights": {
         // The field is two draw calls a pass, the floor one.
         "drawCalls": 6,
@@ -47,14 +53,41 @@
         // clusters they do not reach, and every entry is a light a pixel has to ask.
         "lights": 600,
         "lightListEntries": 22500,
+        // No shadows: the atlas stays as small as an atlas can be.
+        "shadowMaps": 0,
+        "shadowAtlasBytes": 16384,
 
         "milliseconds": {
-            // Gathering the lights from the world, and sorting them into the clusters:
-            // what the CPU does for the lights for every view of every frame.
+            // Gathering the lights from the world, sorting them into the clusters and
+            // planning their shadow maps - here, finding that none wants any: what the
+            // CPU does for the lights for every view of every frame.
             "lightCollectMedian": 2,
             "lightClustersMedian": 5,
+            "shadowPlanMedian": 1,
             "cpuFrameMedian": 10,
             "gpuFrameMedian": 10
+        }
+    },
+
+    // The same field, with the sun and twelve of the lights casting shadows.
+    "shadows": {
+        // Four cascades, four spot lights with a map each and eight point lights with
+        // six: each map draws what its light reaches of the field once more, in up to
+        // three draw calls.
+        "shadowMaps": 60,
+        "shadowAtlasBytes": 67108864,
+        "drawCalls": 165,
+        "triangles": 800000,
+        "lights": 600,
+        "lightListEntries": 22500,
+
+        "milliseconds": {
+            "lightCollectMedian": 2,
+            "lightClustersMedian": 5,
+            // Choosing which of the lights get shadow maps, and where each map goes.
+            "shadowPlanMedian": 1,
+            "cpuFrameMedian": 15,
+            "gpuFrameMedian": 15
         }
     }
 }

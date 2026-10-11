@@ -119,6 +119,41 @@ TEST_SUITE("SceneLights") {
         CHECK(makeSceneLight(LightComponent{.channels = 0xFFFFFF01u}, Mat4(1.0f)).channels == 0x01);
     }
 
+    TEST_CASE("how a light casts shadows is handed on, with its resolution as a factor") {
+        const SceneLight plain = makeSceneLight(LightComponent(), Mat4(1.0f));
+        CHECK_FALSE(plain.shadow.enabled);
+        CHECK(plain.shadow.bias == 1.0f);
+        CHECK(plain.shadow.normalOffset == 1.0f);
+        CHECK(plain.shadow.resolutionScale == 1.0f);
+        CHECK(plain.shadow.distance == 60.0f);
+        CHECK(plain.shadow.cascades == 4);
+        CHECK(plain.shadow.cascadeDistribution == 0.75f);
+
+        const SceneLight set = makeSceneLight(LightComponent{.castsShadows = true,
+                                                             .shadowBias = 0.5f,
+                                                             .shadowNormalOffset = 3.0f,
+                                                             .shadowResolution = ShadowResolution::High,
+                                                             .shadowDistance = 35.0f,
+                                                             .shadowCascades = 2,
+                                                             .shadowCascadeDistribution = 0.25f},
+                                              Mat4(1.0f));
+        CHECK(set.shadow.enabled);
+        CHECK(set.shadow.bias == 0.5f);
+        CHECK(set.shadow.normalOffset == 3.0f);
+        CHECK(set.shadow.resolutionScale == 2.0f);
+        CHECK(set.shadow.distance == 35.0f);
+        CHECK(set.shadow.cascades == 2);
+        CHECK(set.shadow.cascadeDistribution == 0.25f);
+        CHECK(makeSceneLight(LightComponent{.shadowResolution = ShadowResolution::Low}, Mat4(1.0f))
+                  .shadow.resolutionScale == 0.5f);
+
+        // Offsets are never negative: they would push a surface into its own shadow.
+        const SceneLight negative =
+            makeSceneLight(LightComponent{.shadowBias = -1.0f, .shadowNormalOffset = -2.0f}, Mat4(1.0f));
+        CHECK(negative.shadow.bias == 0.0f);
+        CHECK(negative.shadow.normalOffset == 0.0f);
+    }
+
     TEST_CASE("the lights of a world are collected with their place in the world") {
         World world;
         const Entity room = world.createEntity("Room");

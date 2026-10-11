@@ -16,13 +16,16 @@
 /// @endcode
 ///
 /// Tests state what a pixel must be wherever they can: materials that emit a color and
-/// reflect nothing, cameras without perspective, lights of known brightness.
+/// reflect nothing, cameras without perspective, lights of known brightness. lightOn()
+/// is the lighting the engine documents, written down a second time on the CPU, for
+/// tests that compare whole pictures with it.
 
 #include "cordite/assets/AssetDatabase.h"
 #include "cordite/assets/AssetManager.h"
 #include "cordite/assets/Image.h"
 #include "cordite/core/FileSystem.h"
 #include "cordite/math/Color.h"
+#include "cordite/math/Geometry.h"
 #include "cordite/math/Projection.h"
 #include "cordite/math/Transform.h"
 #include "cordite/renderer/CameraView.h"
@@ -41,7 +44,10 @@
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
+#include <limits>
 #include <memory>
+#include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 
@@ -219,6 +225,71 @@ private:
     Entity m_sun;
     Entity m_ambient;
 };
+
+/// A light and where it is, for tests that work out themselves what it must light.
+struct PlacedLight {
+    LightComponent light;
+    Vec3 position{0.0f};
+    /// Unit vector along which a directional or a spot light shines.
+    Vec3 direction{0.0f, 0.0f, -1.0f};
+};
+
+/// What a white, perfectly matte surface at `point` that faces `normal` shows of a
+/// light: the lighting the engine documents (RenderComponents.h, Lights.slang), written
+/// down a second time, in the plainest way.
+inline Vec3 lightOn(const Vec3& point, const Vec3& normal, const PlacedLight& placed) {
+    const LightComponent& light = placed.light;
+    // An intensity of one lights such a surface to the color of the light when the
+    // surface faces it: head-on at any distance for a directional light, ...
+    const Vec3 color = light.color * light.intensity;
+    if (light.type == LightType::Directional) {
+        return color * std::max(glm::dot(normal, -placed.direction), 0.0f);
+    }
+
+    // ... and one metre away for the others, which thin out with the square of the
+    // distance and are brought to nothing at their range.
+    const Vec3 offset = placed.position - point;
+    const float distanceSquared = glm::dot(offset, offset);
+    if (distanceSquared >= light.range * light.range) {
+        return Vec3(0.0f);
+    }
+    const Vec3 toLight = offset / std::sqrt(distanceSquared);
+    const float ratio = distanceSquared / (light.range * light.range);
+    const float window = std::clamp(1.0f - ratio * ratio, 0.0f, 1.0f);
+    float brightness = window * window / distanceSquared;
+
+    if (light.type == LightType::Spot) {
+        // All of it inside the inner cone, none outside the outer one.
+        const float cosInner = std::cos(toRadians(light.innerConeDegrees));
+        const float cosOuter = std::cos(toRadians(light.outerConeDegrees));
+        const float amount =
+            std::clamp((glm::dot(-toLight, placed.direction) - cosOuter) / (cosInner - cosOuter), 0.0f, 1.0f);
+        brightness *= amount * amount;
+    }
+    return color * (brightness * std::max(glm::dot(normal, toLight), 0.0f));
+}
+
+/// The same where things stand in the light: `casters` are boxes that let none of it
+/// through. A point a light cannot see gets nothing of it.
+inline Vec3 lightOn(const Vec3& point, const Vec3& normal, const PlacedLight& placed, std::span<const Aabb> casters) {
+    const Vec3 unshadowed = lightOn(point, normal, placed);
+    if (std::max({unshadowed.r, unshadowed.g, unshadowed.b}) <= 0.0f) {
+        return unshadowed;
+    }
+    const bool isDirectional = placed.light.type == LightType::Directional;
+    const Vec3 toLight = isDirectional ? -placed.direction : glm::normalize(placed.position - point);
+    const float reach = isDirectional ? std::numeric_limits<float>::max() : glm::distance(placed.position, point);
+    // From a hair above the surface, so that the surface a box stands on is not in the
+    // box's shadow where the two touch.
+    const Ray towardsLight{point + normal * 1.0e-3f, toLight};
+    for (const Aabb& caster : casters) {
+        const std::optional<float> hit = intersect(towardsLight, caster);
+        if (hit && *hit < reach) {
+            return Vec3(0.0f);
+        }
+    }
+    return unshadowed;
+}
 
 /// Checks one pixel against a linear color, allowing for rounding.
 inline void checkPixel(const Image& image, uint32_t x, uint32_t y, const Vec3& linear) {

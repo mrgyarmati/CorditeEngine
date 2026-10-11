@@ -26,6 +26,8 @@ std::string_view nameOf(RenderDebugView view) {
             return "depth";
         case RenderDebugView::LightCount:
             return "lightCount";
+        case RenderDebugView::ShadowCascades:
+            return "shadowCascades";
         case RenderDebugView::LightingOnly:
             return "lightingOnly";
         case RenderDebugView::Wireframe:
@@ -58,6 +60,8 @@ std::string_view displayNameOf(RenderDebugView view) {
             return "Depth";
         case RenderDebugView::LightCount:
             return "Light count";
+        case RenderDebugView::ShadowCascades:
+            return "Shadow cascades";
         case RenderDebugView::LightingOnly:
             return "Lighting only";
         case RenderDebugView::Wireframe:

@@ -27,6 +27,18 @@ GpuLightType gpuTypeOf(LightType type) {
     return GpuLightType::Point;
 }
 
+float resolutionScaleOf(ShadowResolution resolution) {
+    switch (resolution) {
+        case ShadowResolution::Low:
+            return 0.5f;
+        case ShadowResolution::Medium:
+            return 1.0f;
+        case ShadowResolution::High:
+            return 2.0f;
+    }
+    return 1.0f;
+}
+
 } // namespace
 
 SceneLight makeSceneLight(const LightComponent& component, const Mat4& placement) {
@@ -42,6 +54,14 @@ SceneLight makeSceneLight(const LightComponent& component, const Mat4& placement
     light.outerConeAngle = toRadians(outer);
     light.innerConeAngle = toRadians(std::clamp(component.innerConeDegrees, 0.0f, outer));
     light.channels = component.channels & kAllLightChannels;
+
+    light.shadow.enabled = component.castsShadows;
+    light.shadow.bias = std::max(component.shadowBias, 0.0f);
+    light.shadow.normalOffset = std::max(component.shadowNormalOffset, 0.0f);
+    light.shadow.resolutionScale = resolutionScaleOf(component.shadowResolution);
+    light.shadow.distance = component.shadowDistance;
+    light.shadow.cascades = component.shadowCascades;
+    light.shadow.cascadeDistribution = component.shadowCascadeDistribution;
     return light;
 }
 

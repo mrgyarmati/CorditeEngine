@@ -408,12 +408,44 @@ Status EditorApp::registerApplicationCommands() {
     }));
 
     CORDITE_TRY(m_commands.add({
+        .name = "viewport.shadowQuality",
+        .description = "Chooses how much the shadows in the viewport may cost: \"off\" draws none; \"low\", "
+                       "\"medium\" and \"high\" give the shadow maps of a view an atlas of 2048, 4096 and "
+                       "8192 texels a side to share. Returns the quality now in use and all there are; "
+                       "without a parameter it changes nothing. A game sets its own quality; this is the "
+                       "editor's view of the scene.",
+        .parameters = {{"quality", Type::String, "The quality to use, by one of the names above.", false}},
+        .handler = [this](const Json& parameters) -> Result<Json> {
+            if (const auto name = jsonGetOr<std::string>(parameters, "quality", ""); !name.empty()) {
+                const std::optional<ShadowQuality> quality = shadowQualityFromName(name);
+                if (!quality) {
+                    return makeError(ErrorCode::InvalidArgument,
+                                     "'{}' is not a shadow quality; viewport.shadowQuality without parameters "
+                                     "lists them",
+                                     name);
+                }
+                m_viewport->setShadowQuality(*quality);
+            }
+            Json qualities = Json::array();
+            for (const ShadowQuality quality : kShadowQualities) {
+                qualities.push_back(nameOf(quality));
+            }
+            Json result = Json::object();
+            result["quality"] = nameOf(m_viewport->shadowQuality());
+            result["qualities"] = std::move(qualities);
+            return result;
+        },
+    }));
+
+    CORDITE_TRY(m_commands.add({
         .name = "viewport.debugView",
         .description = "Chooses what the viewport shows: the lit picture (\"none\") or a debug view of the "
                        "renderer - one thing the G-buffer holds (baseColor, normals, roughness, metallic, "
                        "specular, occlusion, emissive, depth), how many point and spot lights each pixel "
                        "has to ask (lightCount: dark for none, blue for one, through green to red for eight "
-                       "and more), the light without the materials (lightingOnly), the edges of the "
+                       "and more), which cascade of the sun's shadow each pixel is looked up in "
+                       "(shadowCascades: red, green, blue, yellow from the nearest on; grey where the sun "
+                       "casts none), the light without the materials (lightingOnly), the edges of the "
                        "triangles (wireframe) or how often each pixel is drawn (overdraw). Returns the view "
                        "now shown and all there are; without a parameter it changes nothing.",
         .parameters = {{"view", Type::String, "The view to show, by one of the names above.", false}},
@@ -567,21 +599,7 @@ void EditorApp::drawMainMenu() {
 
     drawEntityMenu();
     drawAssetMenu();
-
-    if (ImGui::BeginMenu("View")) {
-        // What the viewport shows: the picture, or a look into the renderer.
-        if (ImGui::BeginMenu("Render view")) {
-            for (const RenderDebugView view : kRenderDebugViews) {
-                const std::string label(displayNameOf(view));
-                if (ImGui::MenuItem(label.c_str(), nullptr, m_viewport->debugView() == view)) {
-                    m_viewport->setDebugView(view);
-                }
-            }
-            ImGui::EndMenu();
-        }
-        ImGui::MenuItem("Statistics", nullptr, &m_showStatistics);
-        ImGui::EndMenu();
-    }
+    drawViewMenu();
 
     if (ImGui::BeginMenu("Help")) {
         // Every widget ImGui has, with its source: the reference for writing panels.
@@ -598,6 +616,33 @@ void EditorApp::drawMainMenu() {
         ImGui::TextDisabled("%s", status.c_str());
     }
     ImGui::EndMainMenuBar();
+}
+
+void EditorApp::drawViewMenu() {
+    if (!ImGui::BeginMenu("View")) {
+        return;
+    }
+    // What the viewport shows: the picture, or a look into the renderer.
+    if (ImGui::BeginMenu("Render view")) {
+        for (const RenderDebugView view : kRenderDebugViews) {
+            const std::string label(displayNameOf(view));
+            if (ImGui::MenuItem(label.c_str(), nullptr, m_viewport->debugView() == view)) {
+                m_viewport->setDebugView(view);
+            }
+        }
+        ImGui::EndMenu();
+    }
+    if (ImGui::BeginMenu("Shadow quality")) {
+        for (const ShadowQuality quality : kShadowQualities) {
+            const std::string label(displayNameOf(quality));
+            if (ImGui::MenuItem(label.c_str(), nullptr, m_viewport->shadowQuality() == quality)) {
+                m_viewport->setShadowQuality(quality);
+            }
+        }
+        ImGui::EndMenu();
+    }
+    ImGui::MenuItem("Statistics", nullptr, &m_showStatistics);
+    ImGui::EndMenu();
 }
 
 void EditorApp::drawEntityMenu() {

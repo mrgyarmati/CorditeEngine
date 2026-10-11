@@ -63,6 +63,10 @@ TEST_SUITE("RenderComponents") {
         CHECK(nameOf(LightType::Directional) == "directional");
         CHECK(nameOf(LightType::Point) == "point");
         CHECK(nameOf(LightType::Spot) == "spot");
+
+        CHECK(nameOf(ShadowResolution::Low) == "low");
+        CHECK(nameOf(ShadowResolution::Medium) == "medium");
+        CHECK(nameOf(ShadowResolution::High) == "high");
     }
 
     TEST_CASE("a new light is a white point light of intensity one in the first lighting channel") {
@@ -74,9 +78,19 @@ TEST_SUITE("RenderComponents") {
         CHECK(light.innerConeDegrees == 25.0f);
         CHECK(light.outerConeDegrees == 35.0f);
         CHECK(light.channels == 1);
+        // Shadows are asked for, light by light.
+        CHECK_FALSE(light.castsShadows);
+        CHECK(light.shadowBias == 1.0f);
+        CHECK(light.shadowNormalOffset == 1.0f);
+        CHECK(light.shadowResolution == ShadowResolution::Medium);
+        CHECK(light.shadowDistance == 60.0f);
+        CHECK(light.shadowCascades == 4);
+        CHECK(light.shadowCascadeDistribution == 0.75f);
 
-        // What is drawn is in the first channel too, so every light shines on everything.
+        // What is drawn is in the first channel too, so every light shines on everything,
+        // and throws a shadow in the light of the lights that cast them.
         CHECK(MeshRendererComponent().lightChannels == 1);
+        CHECK(MeshRendererComponent().castsShadows);
         CHECK(kAllLightChannels == 255);
     }
 
@@ -90,11 +104,21 @@ TEST_SUITE("RenderComponents") {
                                    .range = 8.0f,
                                    .innerConeDegrees = 20.0f,
                                    .outerConeDegrees = 30.0f,
-                                   .channels = 6};
+                                   .channels = 6,
+                                   .castsShadows = true,
+                                   .shadowBias = 1.5f,
+                                   .shadowNormalOffset = 2.5f,
+                                   .shadowResolution = ShadowResolution::High,
+                                   .shadowDistance = 80.0f,
+                                   .shadowCascades = 3,
+                                   .shadowCascadeDistribution = 0.5f};
         const Json saved = type.toJson(&light);
         // The file format: pinned, because scenes on disk are written this way.
         CHECK(saved == json(R"({"type": "spot", "color": [1.0, 0.5, 0.25], "intensity": 2.5, "range": 8.0,
-                                "innerConeDegrees": 20.0, "outerConeDegrees": 30.0, "channels": 6})"));
+                                "innerConeDegrees": 20.0, "outerConeDegrees": 30.0, "channels": 6,
+                                "castsShadows": true, "shadowBias": 1.5, "shadowNormalOffset": 2.5,
+                                "shadowResolution": "high", "shadowDistance": 80.0, "shadowCascades": 3,
+                                "shadowCascadeDistribution": 0.5})"));
 
         LightComponent loaded;
         REQUIRE(type.fromJson(&loaded, saved).has_value());
@@ -105,6 +129,13 @@ TEST_SUITE("RenderComponents") {
         CHECK(loaded.innerConeDegrees == light.innerConeDegrees);
         CHECK(loaded.outerConeDegrees == light.outerConeDegrees);
         CHECK(loaded.channels == light.channels);
+        CHECK(loaded.castsShadows);
+        CHECK(loaded.shadowBias == 1.5f);
+        CHECK(loaded.shadowNormalOffset == 2.5f);
+        CHECK(loaded.shadowResolution == ShadowResolution::High);
+        CHECK(loaded.shadowDistance == 80.0f);
+        CHECK(loaded.shadowCascades == 3);
+        CHECK(loaded.shadowCascadeDistribution == 0.5f);
 
         // What a file leaves out keeps its default.
         LightComponent sparse;
@@ -113,6 +144,9 @@ TEST_SUITE("RenderComponents") {
         CHECK(sparse.intensity == 0.5f);
         CHECK(sparse.range == 10.0f);
         CHECK(sparse.channels == 1);
+        // A scene written before lights cast shadows: they still do not.
+        CHECK_FALSE(sparse.castsShadows);
+        CHECK(sparse.shadowCascades == 4);
     }
 
     TEST_CASE("values a light cannot have are refused, and leave the light as it was") {
@@ -134,7 +168,18 @@ TEST_SUITE("RenderComponents") {
                  R"({"channels": 256})",
                  R"({"channels": -1})",
                  R"({"channels": 1.5})",
-                 R"({"castsShadows": true})",
+                 R"({"castsShadows": 1})",
+                 R"({"shadowBias": -0.5})",
+                 R"({"shadowBias": 16.5})",
+                 R"({"shadowNormalOffset": -1.0})",
+                 R"({"shadowResolution": "ultra"})",
+                 R"({"shadowDistance": 0.5})",
+                 R"({"shadowDistance": 2001.0})",
+                 R"({"shadowCascades": 0})",
+                 R"({"shadowCascades": 5})",
+                 R"({"shadowCascades": 2.5})",
+                 R"({"shadowCascadeDistribution": 1.5})",
+                 R"({"volumetric": true})",
              }) {
             CAPTURE(bad);
             LightComponent light;
@@ -152,6 +197,13 @@ TEST_SUITE("RenderComponents") {
                     .has_value());
         CHECK(light.outerConeDegrees == 89.0f);
         CHECK(light.channels == 255);
+        REQUIRE(type.fromJson(&light, json(R"({"shadowBias": 0.0, "shadowNormalOffset": 16.0, "shadowDistance": 1.0,
+                                               "shadowCascades": 1, "shadowCascadeDistribution": 1.0,
+                                               "shadowResolution": "low", "castsShadows": true})"))
+                    .has_value());
+        CHECK(light.shadowCascades == 1);
+        CHECK(light.shadowResolution == ShadowResolution::Low);
+        CHECK(light.castsShadows);
         REQUIRE(type.fromJson(&light, json(R"({"channels": 0})")).has_value());
         CHECK(light.channels == 0);
         // A light may be brighter than any color: there is no upper end to brightness.
@@ -180,18 +232,22 @@ TEST_SUITE("RenderComponents") {
 
         MeshRendererComponent renderer;
         renderer.lightChannels = 5;
+        renderer.castsShadows = false;
         const Json saved = type.toJson(&renderer);
         CHECK(saved["lightChannels"] == 5);
+        CHECK(saved["castsShadows"] == false);
 
         MeshRendererComponent loaded;
         REQUIRE(type.fromJson(&loaded, saved).has_value());
         CHECK(loaded.lightChannels == 5);
+        CHECK_FALSE(loaded.castsShadows);
 
         // A scene written before there were lighting channels.
         MeshRendererComponent older;
         REQUIRE(type.fromJson(&older, json(R"({"mesh": "0a56c2f1-21e0-819d-8bac-567d1e1c4345", "materials": []})"))
                     .has_value());
         CHECK(older.lightChannels == 1);
+        CHECK(older.castsShadows);
 
         CHECK_FALSE(type.fromJson(&loaded, json(R"({"lightChannels": 256})")).has_value());
         CHECK_FALSE(type.fromJson(&loaded, json(R"({"lightChannels": -1})")).has_value());

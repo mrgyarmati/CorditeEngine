@@ -48,7 +48,13 @@ Json describeFrameStatistics(const FrameStatistics& statistics) {
     lights["listEntries"] = statistics.scene.lightListEntries;
     lights["dropped"] = statistics.scene.droppedLights;
     scene["lights"] = std::move(lights);
+    Json shadows = Json::object();
+    shadows["maps"] = statistics.scene.shadowMaps;
+    shadows["lightsWithout"] = statistics.scene.lightsWithoutShadows;
+    shadows["atlasBytes"] = statistics.scene.shadowAtlasBytes;
+    scene["shadows"] = std::move(shadows);
     Json passes = Json::object();
+    passes["shadow"] = describePass(statistics.scene.shadowPass);
     passes["depth"] = describePass(statistics.scene.depthPass);
     passes["base"] = describePass(statistics.scene.basePass);
     passes["forward"] = describePass(statistics.scene.forwardPass);
@@ -83,9 +89,9 @@ void StatisticsPanel::draw(const FrameStatistics& statistics, bool& open) {
 
         const SceneRenderStatistics& scene = statistics.scene;
         row("Views", fmt::format("{}", scene.views));
-        row("Draw calls",
-            fmt::format("{} ({} depth, {} base, {} forward)", scene.meshes.drawCalls, scene.depthPass.drawCalls,
-                        scene.basePass.drawCalls, scene.forwardPass.drawCalls));
+        row("Draw calls", fmt::format("{} ({} shadow, {} depth, {} base, {} forward)", scene.meshes.drawCalls,
+                                      scene.shadowPass.drawCalls, scene.depthPass.drawCalls, scene.basePass.drawCalls,
+                                      scene.forwardPass.drawCalls));
         row("Instances", fmt::format("{}", scene.meshes.instances));
         row("Triangles", fmt::format("{}", scene.meshes.triangles));
         row("Mesh renderers", fmt::format("{} ({} out of view)", scene.meshRenderers, scene.culled));
@@ -93,6 +99,11 @@ void StatisticsPanel::draw(const FrameStatistics& statistics, bool& open) {
                           ? fmt::format("{} ({} in cluster lists)", scene.lights, scene.lightListEntries)
                           : fmt::format("{} ({} in cluster lists, {} left out)", scene.lights, scene.lightListEntries,
                                         scene.droppedLights));
+        const double atlasMebibytes = static_cast<double>(scene.shadowAtlasBytes) / kBytesPerMebibyte;
+        row("Shadow maps", scene.lightsWithoutShadows == 0
+                               ? fmt::format("{} (atlas of {:.1f} MiB)", scene.shadowMaps, atlasMebibytes)
+                               : fmt::format("{} (atlas of {:.1f} MiB, {} lights without)", scene.shadowMaps,
+                                             atlasMebibytes, scene.lightsWithoutShadows));
 
         const RenderResourceStatistics& resources = statistics.resources;
         row("Meshes", fmt::format("{} ({:.1f} MiB)", resources.meshCount,

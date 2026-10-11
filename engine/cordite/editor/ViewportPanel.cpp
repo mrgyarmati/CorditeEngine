@@ -218,6 +218,7 @@ Status ViewportPanel::render(nvrhi::IDevice* device, nvrhi::ICommandList* comman
     SceneRenderSettings settings;
     settings.backgroundColor = srgbToLinear(kBackgroundColor);
     settings.debugView = m_debugView;
+    settings.shadowQuality = m_shadowQuality;
     // A scene that is being started has no lights yet, and would be black.
     settings.defaultLighting = true;
     m_sceneRenderer->render(commandList, context.world(), m_view, m_targets, settings);

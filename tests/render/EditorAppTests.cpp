@@ -539,6 +539,17 @@ TEST_SUITE("EditorApp") {
         CHECK(scene["lights"]["count"] == 4);
         CHECK(scene["lights"]["listEntries"].get<uint32_t>() > 3);
         CHECK(scene["lights"]["dropped"] == 0);
+        // Three cascades for the sun, one map for the lamp, six for the wall light.
+        CHECK(scene["shadows"]["maps"] == 10);
+        CHECK(scene["shadows"]["lightsWithout"] == 0);
+        // The atlas of the medium quality: 4096 texels a side, four bytes each.
+        CHECK(scene["shadows"]["atlasBytes"] == 67108864);
+        CHECK(scene["passes"]["shadow"]["drawCalls"].get<uint32_t>() > 10);
+        // All passes together are what was drawn.
+        CHECK(scene["drawCalls"].get<uint32_t>() == scene["passes"]["shadow"]["drawCalls"].get<uint32_t>() +
+                                                        scene["passes"]["depth"]["drawCalls"].get<uint32_t>() +
+                                                        scene["passes"]["base"]["drawCalls"].get<uint32_t>() +
+                                                        scene["passes"]["forward"]["drawCalls"].get<uint32_t>());
 
         const Json& resources = statistics["resources"];
         CHECK(resources["meshes"].get<uint32_t>() >= 9);
@@ -593,6 +604,49 @@ TEST_SUITE("EditorApp") {
         // Back to the picture: the same as before.
         run(*editor, "viewport.debugView", R"({"view": "none"})");
         CHECK(unwrap(compareImages(lit, unwrap(editor->captureViewport(UVec2(320, 180))))).differingPixels == 0);
+        checkNoValidationIssues(editor->engine().graphics());
+    }
+
+    TEST_CASE("the viewport draws shadows at the quality it is told to") {
+        EditorAppDesc desc = headlessDesc(UVec2(640, 360));
+        desc.project = showcaseProject();
+        const std::unique_ptr<EditorApp> editor = createEditor(desc);
+
+        // Asking changes nothing, and lists what there is.
+        Json answer = run(*editor, "viewport.shadowQuality");
+        CHECK(answer["quality"] == "medium");
+        CHECK(answer["qualities"] == json(R"(["off", "low", "medium", "high"])"));
+        CHECK(editor->viewport().shadowQuality() == ShadowQuality::Medium);
+        const Image medium = unwrap(editor->captureViewport(UVec2(320, 180)));
+
+        // Without shadows the picture is another one: the showcase has three lights
+        // that cast them.
+        answer = run(*editor, "viewport.shadowQuality", R"({"quality": "off"})");
+        CHECK(answer["quality"] == "off");
+        CHECK(editor->viewport().shadowQuality() == ShadowQuality::Off);
+        const Image without = unwrap(editor->captureViewport(UVec2(320, 180)));
+        CHECK(unwrap(compareImages(medium, without)).differingPixels > 500);
+
+        // Every quality draws without complaint; with shadows, the picture is nearly the
+        // same at each: the same shadows, with softer or sharper edges.
+        for (const char* quality : {"low", "high", "medium"}) {
+            CAPTURE(quality);
+            answer = run(*editor, "viewport.shadowQuality", fmt::format(R"({{"quality": "{}"}})", quality));
+            CHECK(answer["quality"] == std::string(quality));
+            const Image shown = unwrap(editor->captureViewport(UVec2(320, 180)));
+            const ImageComparison difference =
+                unwrap(compareImages(medium, shown, {.channelTolerance = 16, .maxDifferingRatio = 0.03}));
+            CHECK(difference.matches);
+        }
+
+        // Names are not case-sensitive; an unknown one is refused and changes nothing.
+        CHECK(run(*editor, "viewport.shadowQuality", R"({"quality": "LOW"})")["quality"] == "low");
+        const Result<Json> unknown =
+            editor->commands().execute("viewport.shadowQuality", json(R"({"quality": "ultra"})"));
+        REQUIRE_FALSE(unknown.has_value());
+        CHECK(unknown.error().code == ErrorCode::InvalidArgument);
+        CHECK(unknown.error().message.find("ultra") != std::string::npos);
+        CHECK(editor->viewport().shadowQuality() == ShadowQuality::Low);
         checkNoValidationIssues(editor->engine().graphics());
     }
 

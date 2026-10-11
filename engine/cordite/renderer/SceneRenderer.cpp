@@ -6,6 +6,9 @@
 #include "cordite/renderer/RenderComponents.h"
 #include "cordite/world/Components.h"
 
+#include <algorithm>
+#include <cstddef>
+#include <cstdint>
 #include <utility>
 
 namespace cordite {
@@ -72,6 +75,10 @@ SceneRenderStatistics& SceneRenderStatistics::operator+=(const SceneRenderStatis
     lights += other.lights;
     lightListEntries += other.lightListEntries;
     droppedLights += other.droppedLights;
+    shadowMaps += other.shadowMaps;
+    lightsWithoutShadows += other.lightsWithoutShadows;
+    shadowAtlasBytes = std::max(shadowAtlasBytes, other.shadowAtlasBytes);
+    shadowPass += other.shadowPass;
     depthPass += other.depthPass;
     basePass += other.basePass;
     forwardPass += other.forwardPass;
@@ -81,7 +88,8 @@ SceneRenderStatistics& SceneRenderStatistics::operator+=(const SceneRenderStatis
 
 SceneRenderer::SceneRenderer(nvrhi::IDevice* device, std::unique_ptr<RenderResources> resources,
                              ViewBindings viewBindings, Passes passes, bool supportsWireframe)
-    : m_resources(std::move(resources)),
+    : m_device(device),
+      m_resources(std::move(resources)),
       m_viewBindings(std::move(viewBindings)),
       m_drawList(device),
       m_passes(std::move(passes)),
@@ -108,6 +116,7 @@ Result<std::unique_ptr<SceneRenderer>> SceneRenderer::create(nvrhi::IDevice* dev
     CORDITE_TRY_ASSIGN(DeferredLightingPass lighting, DeferredLightingPass::create(device, shaders, viewLayout));
     CORDITE_TRY_ASSIGN(DebugViewPass debugView, DebugViewPass::create(device, shaders, viewLayout));
     CORDITE_TRY_ASSIGN(DisplayEncodePass encode, DisplayEncodePass::create(device, shaders));
+    CORDITE_TRY_ASSIGN(ShadowAtlas shadows, ShadowAtlas::create(device, shaders, materialLayout));
 
     Passes passes{.depth = std::move(depth),
                   .base = std::move(base),
@@ -116,12 +125,15 @@ Result<std::unique_ptr<SceneRenderer>> SceneRenderer::create(nvrhi::IDevice* dev
                   .overdraw = std::move(overdraw),
                   .lighting = std::move(lighting),
                   .debugView = std::move(debugView),
-                  .encode = std::move(encode)};
+                  .encode = std::move(encode),
+                  .shadows = std::move(shadows)};
     return std::unique_ptr<SceneRenderer>(new SceneRenderer(device, std::move(resources), std::move(viewBindings),
                                                             std::move(passes), desc.supportsWireframe));
 }
 
 void SceneRenderer::collectDraws(const World& world, const CameraView& view) {
+    m_sceneMeshes.clear();
+    m_sceneDraws.clear();
     m_draws.clear();
     const Frustum frustum = Frustum::fromViewProjection(view.viewProjection);
     const auto renderers = world.registry().view<const MeshRendererComponent, const WorldTransform>();
@@ -136,21 +148,94 @@ void SceneRenderer::collectDraws(const World& world, const CameraView& view) {
         ++m_statistics.meshRenderers;
 
         // Materials are resolved for everything in the scene, in view or not, so that
-        // turning the camera does not stall on loading what comes into sight.
-        const size_t firstDraw = m_draws.size();
+        // turning the camera does not stall on loading what comes into sight. What the
+        // camera does not see may also throw a shadow into what it sees.
+        const size_t firstDraw = m_sceneDraws.size();
         for (uint32_t submesh = 0; submesh < mesh->submeshes.size(); ++submesh) {
             const Uuid material = submesh < renderer.materials.size() ? renderer.materials[submesh] : Uuid();
-            m_draws.push_back({.mesh = mesh,
-                               .submesh = submesh,
-                               .material = &m_resources->material(material),
-                               .localToWorld = placement.matrix,
-                               .lightChannels = renderer.lightChannels});
+            m_sceneDraws.push_back({.mesh = mesh,
+                                    .submesh = submesh,
+                                    .material = &m_resources->material(material),
+                                    .localToWorld = placement.matrix,
+                                    .lightChannels = renderer.lightChannels});
         }
-        if (!frustum.intersects(mesh->bounds.transformed(placement.matrix))) {
+        const Aabb bounds = mesh->bounds.transformed(placement.matrix);
+        m_sceneMeshes.push_back({.bounds = bounds,
+                                 .firstDraw = static_cast<uint32_t>(firstDraw),
+                                 .drawCount = static_cast<uint32_t>(m_sceneDraws.size() - firstDraw),
+                                 .lightChannels = renderer.lightChannels & kAllLightChannels,
+                                 .castsShadows = renderer.castsShadows});
+        if (frustum.intersects(bounds)) {
+            m_draws.insert(m_draws.end(), m_sceneDraws.begin() + static_cast<std::ptrdiff_t>(firstDraw),
+                           m_sceneDraws.end());
+        } else {
             ++m_statistics.culled;
-            m_draws.resize(firstDraw);
         }
     }
+}
+
+void SceneRenderer::drawShadows(nvrhi::ICommandList* commandList, const ShadowSettings& settings) {
+    m_statistics.lightsWithoutShadows = m_shadowPlan.lightsWithoutRoom;
+    if (m_shadowPlan.lightsWithoutRoom > 0 && !m_reportedShadowRoom) {
+        CORDITE_LOG_WARN("Renderer",
+                         "{} lights that are to cast shadows cast none: the shadow atlas of {} texels a side "
+                         "is full, a view has its {} shadow maps, or they are directional lights other than "
+                         "the brightest",
+                         m_shadowPlan.lightsWithoutRoom, settings.atlasSize, kMaxShadowViews);
+        m_reportedShadowRoom = true;
+    }
+    // With shadows switched off, the atlas gives its memory back: what stays is as
+    // small as an atlas can be, to have something to bind. A view that merely has no
+    // shadow to draw leaves the atlas as it is, for the next view that has.
+    const bool switchedOff = settings.atlasSize < kMinShadowTileSize;
+    if (m_shadowPlan.views.empty() && !switchedOff) {
+        return;
+    }
+
+    const uint32_t atlasSize = switchedOff ? kMinShadowTileSize : settings.atlasSize;
+    if (const Status resized = m_passes.shadows.resize(atlasSize); !resized) {
+        // Without an atlas there are no shadows; the lights shine as if nothing stood
+        // in them, which is wrong but shows the scene.
+        if (!m_reportedShadowAtlas) {
+            CORDITE_LOG_ERROR("Renderer", "no shadows are drawn: {}", resized.error().describe());
+            m_reportedShadowAtlas = true;
+        }
+        for (GpuLight& light : m_clusters.lights) {
+            light.shadowView = -1;
+        }
+        m_shadowPlan.views.clear();
+        m_shadowPlan.cascades = {};
+        return;
+    }
+    if (m_shadowPlan.views.empty()) {
+        return;
+    }
+
+    m_passes.shadows.clear(commandList);
+    while (m_shadowDrawLists.size() < m_shadowPlan.views.size()) {
+        m_shadowDrawLists.emplace_back(m_device);
+    }
+    for (size_t index = 0; index < m_shadowPlan.views.size(); ++index) {
+        const ShadowView& shadow = m_shadowPlan.views[index];
+        // What the light sees, of what stands in its light at all: a mesh that shares
+        // no lighting channel with a light is not lit by it and blocks none of it.
+        const Frustum frustum = Frustum::fromViewProjection(shadow.viewProjection);
+        const uint32_t channels = (m_clusters.lights[shadow.light].typeAndChannels >> 8u) & kAllLightChannels;
+        m_shadowDraws.clear();
+        for (const SceneMesh& mesh : m_sceneMeshes) {
+            if (mesh.castsShadows && (mesh.lightChannels & channels) != 0 && frustum.intersects(mesh.bounds)) {
+                const auto first = m_sceneDraws.begin() + static_cast<std::ptrdiff_t>(mesh.firstDraw);
+                m_shadowDraws.insert(m_shadowDraws.end(), first, first + static_cast<std::ptrdiff_t>(mesh.drawCount));
+            }
+        }
+        // Only solid surfaces are drawn: what lets light through casts no shadow. Where
+        // the list is seen from matters for blended surfaces alone.
+        MeshDrawList& list = m_shadowDrawLists[index];
+        list.build(commandList, m_shadowDraws, Vec3(0.0f), kWorldForward);
+        m_statistics.shadowPass +=
+            m_passes.shadows.draw(commandList, shadow, list.solidBatches(), list.instanceBuffer());
+    }
+    m_statistics.shadowMaps = static_cast<uint32_t>(m_shadowPlan.views.size());
 }
 
 void SceneRenderer::render(nvrhi::ICommandList* commandList, const World& world, const CameraView& view,
@@ -180,16 +265,6 @@ void SceneRenderer::render(nvrhi::ICommandList* commandList, const World& world,
         m_reportedDroppedLights = true;
     }
 
-    m_viewBindings.update(commandList,
-                          {.camera = view,
-                           .targetSize = targets.size(),
-                           .skyColor = m_lights.skyColor(),
-                           .groundColor = m_lights.groundColor()},
-                          m_clusters);
-    m_drawList.build(commandList, m_draws, view.position, view.forward);
-    nvrhi::IBindingSet* viewBindings = m_viewBindings.bindings();
-    nvrhi::IBuffer* instances = m_drawList.instanceBuffer();
-
     RenderDebugView debugView = settings.debugView;
     if (debugView == RenderDebugView::Wireframe && !m_supportsWireframe) {
         if (!m_reportedWireframe) {
@@ -198,6 +273,26 @@ void SceneRenderer::render(nvrhi::ICommandList* commandList, const World& world,
         }
         debugView = RenderDebugView::None;
     }
+
+    // The shadows of those lights: planned for every view, drawn for the views that
+    // are lit - the others show something else in place of the light.
+    const ShadowSettings shadowSettings = shadowSettingsFor(settings.shadowQuality);
+    planShadows(view, m_lights.lights(), m_clusters, shadowSettings, m_shadowPlan);
+    if (debugView == RenderDebugView::None || debugView == RenderDebugView::LightingOnly) {
+        drawShadows(commandList, shadowSettings);
+    }
+
+    m_viewBindings.update(
+        commandList,
+        {.camera = view,
+         .targetSize = targets.size(),
+         .skyColor = m_lights.skyColor(),
+         .groundColor = m_lights.groundColor()},
+        m_clusters,
+        {.plan = &m_shadowPlan, .atlas = m_passes.shadows.texture(), .filterRadius = shadowSettings.filterRadius});
+    m_drawList.build(commandList, m_draws, view.position, view.forward);
+    nvrhi::IBindingSet* viewBindings = m_viewBindings.bindings();
+    nvrhi::IBuffer* instances = m_drawList.instanceBuffer();
 
     targets.clear(commandList, settings.backgroundColor);
     if (debugView == RenderDebugView::Wireframe) {
@@ -227,7 +322,9 @@ void SceneRenderer::render(nvrhi::ICommandList* commandList, const World& world,
     m_passes.encode.draw(commandList, targets.sceneColor(), targets.displayFramebuffer());
 
     m_statistics.views = 1;
-    m_statistics.meshes = m_statistics.depthPass;
+    m_statistics.shadowAtlasBytes = m_passes.shadows.byteSize();
+    m_statistics.meshes = m_statistics.shadowPass;
+    m_statistics.meshes += m_statistics.depthPass;
     m_statistics.meshes += m_statistics.basePass;
     m_statistics.meshes += m_statistics.forwardPass;
     m_frameStatistics += m_statistics;

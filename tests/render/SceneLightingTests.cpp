@@ -30,7 +30,9 @@ using cordite::test::checkNoValidationIssues;
 using cordite::test::checkPixel;
 using cordite::test::checkShown;
 using cordite::test::displayed;
+using cordite::test::lightOn;
 using cordite::test::LogCapture;
+using cordite::test::PlacedLight;
 using cordite::test::SceneFixture;
 using cordite::test::unwrap;
 
@@ -49,49 +51,6 @@ Vec3 onWall(uint32_t x, uint32_t y) {
     const float half = 0.5f * static_cast<float>(kPictureSize);
     return {(static_cast<float>(x) + 0.5f - half) * metresPerPixel,
             (half - (static_cast<float>(y) + 0.5f)) * metresPerPixel, 0.0f};
-}
-
-/// A light and where it is, for tests that work out themselves what it must light.
-struct PlacedLight {
-    LightComponent light;
-    Vec3 position{0.0f};
-    /// Unit vector along which a directional or a spot light shines.
-    Vec3 direction{0.0f, 0.0f, -1.0f};
-};
-
-/// What a white, perfectly matte surface at `point` that faces `normal` shows of a
-/// light: the lighting the engine documents (RenderComponents.h, Lights.slang), written
-/// down a second time, in the plainest way.
-Vec3 lightOn(const Vec3& point, const Vec3& normal, const PlacedLight& placed) {
-    const LightComponent& light = placed.light;
-    // An intensity of one lights such a surface to the color of the light when the
-    // surface faces it: head-on at any distance for a directional light, ...
-    const Vec3 color = light.color * light.intensity;
-    if (light.type == LightType::Directional) {
-        return color * std::max(glm::dot(normal, -placed.direction), 0.0f);
-    }
-
-    // ... and one metre away for the others, which thin out with the square of the
-    // distance and are brought to nothing at their range.
-    const Vec3 offset = placed.position - point;
-    const float distanceSquared = glm::dot(offset, offset);
-    if (distanceSquared >= light.range * light.range) {
-        return Vec3(0.0f);
-    }
-    const Vec3 toLight = offset / std::sqrt(distanceSquared);
-    const float ratio = distanceSquared / (light.range * light.range);
-    const float window = std::clamp(1.0f - ratio * ratio, 0.0f, 1.0f);
-    float brightness = window * window / distanceSquared;
-
-    if (light.type == LightType::Spot) {
-        // All of it inside the inner cone, none outside the outer one.
-        const float cosInner = std::cos(toRadians(light.innerConeDegrees));
-        const float cosOuter = std::cos(toRadians(light.outerConeDegrees));
-        const float amount =
-            std::clamp((glm::dot(-toLight, placed.direction) - cosOuter) / (cosInner - cosOuter), 0.0f, 1.0f);
-        brightness *= amount * amount;
-    }
-    return color * (brightness * std::max(glm::dot(normal, toLight), 0.0f));
 }
 
 /// A white, matte wall that fills the view of a camera looking at it head-on.

@@ -19,7 +19,7 @@ Cordite is under active development. Milestones follow the brief:
 | 4 | Static mesh rendering: projects and asset ids, glTF import, textures, materials, instanced forward pass | Done |
 | 5 | Deferred G-buffer: depth pre-pass, base pass, deferred lighting, forward translucency, debug views | Done |
 | 6 | Lighting: directional, point and spot lights, ambient light, clustered light culling, lighting channels | Done |
-| 7 | Shadows | Planned |
+| 7 | Shadows: shadow maps in an atlas for directional, point and spot lights, cascades for the sun, soft filtered edges | Done |
 | 8 | HDR and post-processing | Planned |
 | 9 | Screen-space effects | Planned |
 | 10 | Physics and gameplay | Planned |
@@ -63,9 +63,8 @@ A Vulkan 1.3 capable GPU and driver are required.
 
 The picture is one of the reference images the rendering tests compare against. It
 shows the showcase project, [samples/showcase](samples/showcase), which uses every
-feature the engine has so far: here a sun, a street lamp (a spot light), a wall light
-and a light that shines on the ball alone. Nothing casts a shadow yet; shadows are
-milestone 7.
+feature the engine has so far: here a sun, a street lamp (a spot light) and a wall
+light, all three casting shadows, and a light that shines on the ball alone.
 
 In the viewport, hold the right mouse button to look around and fly with W A S D, Q and
 E; hold the middle button to slide; turn the wheel to move forwards and backwards.
@@ -100,6 +99,12 @@ clusters, and a pixel only asks the lights near it. Every mesh and every light i
 some of eight lighting channels, and a light shines on a mesh when the two share one.
 A scene without lights is black in a game; the editor lights it until it has lights of
 its own. The "Light count" view of the editor shows how many lights each pixel asks.
+
+A light casts shadows when it is told to (`castsShadows`): the sun through up to four
+cascades that reach as far as its shadow distance, a spot light through one shadow map,
+a point light through six. All of them share one atlas, whose size - and with it how
+sharp the shadows are - is the shadow quality of the view: off, low, medium or high.
+Meshes throw shadows unless told not to; what lets light through throws none.
 
 ## Automation
 

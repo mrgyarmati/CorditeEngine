@@ -153,6 +153,7 @@ inline Json describeScene(const SceneRenderStatistics& statistics) {
     Json scene = describePass(statistics.meshes);
     scene["meshRenderers"] = statistics.meshRenderers;
     scene["culled"] = statistics.culled;
+    scene["shadowPass"] = describePass(statistics.shadowPass);
     scene["depthPass"] = describePass(statistics.depthPass);
     scene["basePass"] = describePass(statistics.basePass);
     scene["forwardPass"] = describePass(statistics.forwardPass);
@@ -161,6 +162,11 @@ inline Json describeScene(const SceneRenderStatistics& statistics) {
     lights["listEntries"] = statistics.lightListEntries;
     lights["dropped"] = statistics.droppedLights;
     scene["lights"] = std::move(lights);
+    Json shadows = Json::object();
+    shadows["maps"] = statistics.shadowMaps;
+    shadows["lightsWithout"] = statistics.lightsWithoutShadows;
+    shadows["atlasBytes"] = statistics.shadowAtlasBytes;
+    scene["shadows"] = std::move(shadows);
     return scene;
 }
 
@@ -219,8 +225,10 @@ inline Json loadBudgets(std::string_view scenario) {
 /// Checks `value` against the budget of the same name, which must exist.
 inline void checkBudget(const Json& budgets, const char* name, double value) {
     const auto budget = budgets.find(name);
-    REQUIRE_MESSAGE(budget != budgets.end(), "tests/perf/budgets.json has no budget for " << std::string(name));
-    CAPTURE(name);
+    // As a string: doctest shows a `const char*` as a number.
+    const std::string budgetName(name);
+    REQUIRE_MESSAGE(budget != budgets.end(), "tests/perf/budgets.json has no budget for " << budgetName);
+    CAPTURE(budgetName);
     CHECK(value <= budget->get<double>());
 }
 

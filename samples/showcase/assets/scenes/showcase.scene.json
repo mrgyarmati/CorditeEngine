@@ -99,7 +99,8 @@
             }
         },
         {
-            // A light fitting on the wall: its material gives off light.
+            // A light fitting on the wall: its material gives off light. It is the lamp, so
+            // it throws no shadow; everything else does unless it says otherwise.
             "id": "10000000-0000-4000-8000-000000000010",
             "name": "Wall light",
             "enabled": true,
@@ -108,14 +109,17 @@
                 "Transform": { "position": [1.5, 0.9, 0.2], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [1.4, 0.5, 0.08] },
                 "MeshRenderer": {
                     "mesh": "0a56c2f1-21e0-819d-8bac-567d1e1c4345",
-                    "materials": ["e28e9b08-11cd-8b2a-996d-73b6e1c43746"]
+                    "materials": ["e28e9b08-11cd-8b2a-996d-73b6e1c43746"],
+                    "lightChannels": 1,
+                    "castsShadows": false
                 }
             }
         },
         {
             // A material that glows lights nothing but itself. What the fitting throws on the
             // wall and the floor is a light of its own, in front of it: a point light, which
-            // shines in all directions as far as its range.
+            // shines in all directions as far as its range. It casts shadows, which for a
+            // point light means six shadow maps, one to each side.
             "id": "10000000-0000-4000-8000-000000000021",
             "name": "Wall light glow",
             "enabled": true,
@@ -129,7 +133,9 @@
                     "range": 7.0,
                     "innerConeDegrees": 25.0,
                     "outerConeDegrees": 35.0,
-                    "channels": 1
+                    "channels": 1,
+                    "castsShadows": true,
+                    "shadowResolution": "low"
                 }
             }
         },
@@ -281,7 +287,9 @@
                     "range": 6.0,
                     "innerConeDegrees": 28.0,
                     "outerConeDegrees": 44.0,
-                    "channels": 1
+                    "channels": 1,
+                    "castsShadows": true,
+                    "shadowResolution": "high"
                 }
             }
         },
@@ -507,6 +515,12 @@
             // entity's -Z axis, here 53 degrees downwards and 48 degrees about the vertical
             // axis. An intensity of 1 lights a white, matte surface that faces the light to
             // white. Range and cone angles are for the other kinds of light.
+            //
+            // It casts shadows, as far as 40 metres from the camera, in three shadow maps
+            // (cascades) that share that distance: sharp ones near the camera, coarse ones
+            // far away. Bias and normal offset say how far, in texels of a shadow map, a
+            // surface is looked up towards the light and along its normal, so that it does
+            // not shadow itself; the defaults seldom need changing.
             "id": "10000000-0000-4000-8000-00000000001f",
             "name": "Sun",
             "enabled": true,
@@ -524,7 +538,14 @@
                     "range": 10.0,
                     "innerConeDegrees": 25.0,
                     "outerConeDegrees": 35.0,
-                    "channels": 1
+                    "channels": 1,
+                    "castsShadows": true,
+                    "shadowBias": 1.0,
+                    "shadowNormalOffset": 1.0,
+                    "shadowResolution": "medium",
+                    "shadowDistance": 40.0,
+                    "shadowCascades": 3,
+                    "shadowCascadeDistribution": 0.75
                 }
             }
         },

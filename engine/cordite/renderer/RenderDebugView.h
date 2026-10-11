@@ -50,6 +50,9 @@ enum class RenderDebugView : uint8_t {
     /// How many point and spot lights each pixel has to ask: dark where none reaches,
     /// blue for one, through green to red for eight and more.
     LightCount,
+    /// Which cascade of the sun's shadow each pixel is looked up in: red, green, blue
+    /// and yellow from the nearest on; grey where the sun casts no shadow.
+    ShadowCascades,
 
     /// The light alone: every surface a plain matte grey. Translucent surfaces are left out.
     LightingOnly,
@@ -59,11 +62,12 @@ enum class RenderDebugView : uint8_t {
     Overdraw,
 };
 
-inline constexpr std::array<RenderDebugView, 13> kRenderDebugViews = {
-    RenderDebugView::None,     RenderDebugView::BaseColor,  RenderDebugView::Normals,      RenderDebugView::Roughness,
-    RenderDebugView::Metallic, RenderDebugView::Specular,   RenderDebugView::Occlusion,    RenderDebugView::Emissive,
-    RenderDebugView::Depth,    RenderDebugView::LightCount, RenderDebugView::LightingOnly, RenderDebugView::Wireframe,
-    RenderDebugView::Overdraw,
+inline constexpr std::array<RenderDebugView, 14> kRenderDebugViews = {
+    RenderDebugView::None,       RenderDebugView::BaseColor,      RenderDebugView::Normals,
+    RenderDebugView::Roughness,  RenderDebugView::Metallic,       RenderDebugView::Specular,
+    RenderDebugView::Occlusion,  RenderDebugView::Emissive,       RenderDebugView::Depth,
+    RenderDebugView::LightCount, RenderDebugView::ShadowCascades, RenderDebugView::LightingOnly,
+    RenderDebugView::Wireframe,  RenderDebugView::Overdraw,
 };
 
 /// The name used in files and by tools: "none", "baseColor", "lightingOnly", ...
@@ -76,9 +80,9 @@ std::string_view displayNameOf(RenderDebugView view);
 [[nodiscard]] std::optional<RenderDebugView> renderDebugViewFromName(std::string_view name);
 
 /// True for the views that are drawn from the G-buffer and the depth, in place of the
-/// lighting: BaseColor to LightCount.
+/// lighting: BaseColor to ShadowCascades.
 [[nodiscard]] constexpr bool isDrawnFromGBuffer(RenderDebugView view) {
-    return view >= RenderDebugView::BaseColor && view <= RenderDebugView::LightCount;
+    return view >= RenderDebugView::BaseColor && view <= RenderDebugView::ShadowCascades;
 }
 
 } // namespace cordite

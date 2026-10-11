@@ -129,7 +129,7 @@ by accident.
 | `rhi` | `core`, `math`, `platform` | Vulkan device, swapchain and texture readback over NVRHI |
 | `shaders` | `core` | Shader requests and permutation keys, disk cache, `ShaderLibrary` |
 | `shader_compiler` | `core`, `shaders` | Slang to SPIR-V compiler (not linked into exported games) |
-| `renderer` | `core`, `math`, `assets`, `world`, `rhi`, `shaders` | The scene renderer and what it is made of: GPU copies of assets, the mesh passes, the G-buffer and its lighting, the lights of a world and the clusters they are sorted into, the debug views, scene targets, the `MeshRenderer`, `Light` and `AmbientLight` components; camera views, debug lines, GPU timing, GPU shader management |
+| `renderer` | `core`, `math`, `assets`, `world`, `rhi`, `shaders` | The scene renderer and what it is made of: GPU copies of assets, the mesh passes, the G-buffer and its lighting, the lights of a world and the clusters they are sorted into, their shadow maps and the atlas those share, the debug views, scene targets, the `MeshRenderer`, `Light` and `AmbientLight` components; camera views, debug lines, GPU timing, GPU shader management |
 | `ui` | `core`, `math`, `platform`, `rhi`, `shaders`, `renderer` | The immediate-mode interface: the Dear ImGui context and its NVRHI renderer |
 | `engine` | all of the above | `Engine`: owns the subsystems, the assets, the world and the interface, and runs the frame loop; projects; placing models; checking the assets a scene uses |
 | `editor` | `engine` and below | The editor: the scene document, undoable actions, scene and asset commands, panels, `EditorApp` (not linked into exported games) |
@@ -266,10 +266,10 @@ Vulkan directly. Step-by-step guide for adding a pass:
   frame's interface has been rendered: ImGui only remembers a pointer. Replace such a
   texture before the widget that shows it, never after.
 - **Meshes are drawn by `SceneRenderer`**, into a `SceneTargets` per view, in this
-  order: depth pre-pass, base pass (fills the G-buffer), deferred lighting, forward
-  pass, display encoding. Solid surfaces - opaque and masked - go through the G-buffer;
-  only translucent ones are drawn forward. Front faces wind counter-clockwise; depth is
-  reversed. Draws that share mesh, submesh and material are instanced, and sorted by
+  order: shadow maps, depth pre-pass, base pass (fills the G-buffer), deferred lighting,
+  forward pass, display encoding. Solid surfaces - opaque and masked - go through the
+  G-buffer; only translucent ones are drawn forward. Front faces wind counter-clockwise;
+  depth is reversed. Draws that share mesh, submesh and material are instanced, and sorted by
   the serial numbers of their GPU resources, never by address, so that two runs issue
   the same draw calls in the same order (`MeshDrawList`).
 - **A pass that draws meshes is a `MeshPassDesc`**, not a new class: `MeshPass` owns
@@ -279,10 +279,11 @@ Vulkan directly. Step-by-step guide for adding a pass:
   compute positions with the same code. Never give a mesh pass a vertex shader of its
   own.
 - **Binding sets:** register space 0 is the view's (`ViewBindings`: the constants of
-  `common/View.slang` at `b0` and the lights of `common/Lights.slang` at `t0` to `t2`),
-  space 1 the material's in a mesh pass (`materials/Material.slang`; call
-  `evaluateSurface`, never sample material textures directly) or the G-buffer's in a
-  pass that reads it (`GBufferBindings`).
+  `common/View.slang` at `b0`, the lights of `common/Lights.slang` at `t0` to `t2`, and
+  the shadow maps of `common/Shadows.slang` at `t3`, `t4` and `s0`), space 1 the
+  material's in a mesh pass (`materials/Material.slang`; call `evaluateSurface`, never
+  sample material textures directly) or the G-buffer's in a pass that reads it
+  (`GBufferBindings`). The C++ side of the constants is `ViewConstants.h`.
 - **The G-buffer layout is written down twice**: `common/GBuffer.slang` and
   `GBufferTarget` in `SceneTargets.h`. Change both, and only through
   `encodeGBuffer`/`decodeGBuffer`; `SceneRendererTests` checks every channel through
@@ -315,6 +316,39 @@ Vulkan directly. Step-by-step guide for adding a pass:
 - **Lights are taken in the order of their entities' ids**, and ambient lights add up:
   neither a sum nor the choice of which lights are left out when a view has too many
   (`kMaxDirectionalLights`, `kMaxLocalLights`) may depend on how components are stored.
+  Where one light has to be picked for a person to see - the sun whose shadows are
+  drawn - it is picked by something they can set: the brightest.
+- **Shadows are maps in one atlas.** `planShadows` (`ShadowPlan.h`, plain arithmetic,
+  tested without a GPU) gives every light of a view that casts shadows its maps - up
+  to four cascades for the sun, one for a spot light, six for a point light - and each
+  a tile of the `ShadowAtlas`, which is drawn anew for every view. A light that finds
+  no room gets smaller maps, then none, and is counted
+  (`SceneRenderStatistics::lightsWithoutShadows`); the sun, which is served first,
+  leaves a quarter of the atlas to the others. Planning runs for every view of every
+  frame and allocates nothing: keep it so.
+- **Depth in a shadow map is not reversed:** 0 at the light, 1 at the far end. NVRHI's
+  comparison sampler passes what is smaller than the stored depth and cannot be told
+  otherwise. `MeshPassDesc::conventionalDepth` is for this pass alone; every other
+  depth buffer of the engine is reversed.
+- **The shadow pass has a binding set of its own**, with the constants alone. The
+  view's set holds the atlas as something to read, which a texture cannot be while it
+  is drawn into.
+- **A surface is kept out of its own shadow by where it is looked up**, not by biasing
+  the depth that is drawn (`shadowLookupPosition` in `common/Shadows.slang`): a little
+  towards the light and along the normal, in texels of the map, per light. The filter
+  that softens the edges reads the map beside the point *on the point's own plane*,
+  so a wider filter needs no larger offset. Offsets cost: they make shadows end short.
+  `SceneShadowTests` holds both ends - no stripes on a floor lit at three degrees, and
+  a shadow that begins at the foot of what casts it.
+- **Shadows ask where a surface is, light asks which way it faces.** A normal map
+  changes the second and not the first, so a `Surface` has two normals: `normal` for
+  light, `geometricNormal` - the triangle's own - for anything that is looked up in a
+  shadow map. The forward pass has it from the triangle; the G-buffer has no room for
+  it, so deferred lighting works it out from the depth of the pixels around
+  (`geometricNormalAt`), and only in views that have shadow maps at all.
+- **Cascades do not shimmer** because each is a sphere around its slice of the view,
+  as large whichever way the camera looks, moved in whole texels of its map. Keep both
+  when changing `cascadeView`; a test moves the camera about and checks them.
 - **A pass that samples the depth buffer cannot draw into a framebuffer that has it
   attached.** Use `SceneTargets::lightingFramebuffer()`, which has color only.
 - **Every renderer feature gets a debug view** (`RenderDebugView`) when there is
@@ -594,6 +628,21 @@ body explaining what changed and why. One logical change per commit.
   computes its last column from index zero instead, or the seam is a crack.
 - `-0.0f` and `0.0f` compare equal but differ in their bits; code that compares
   vertices by bytes (`meshopt_generateVertexRemap`) must normalize it first.
+- No 8-bit number is one half. A "flat" normal map of (128, 128, 255) tilts every
+  normal by a third of a degree, which showed as a floor seven percent too dark or too
+  bright under a low sun, depending on where the sun stood. The default normal
+  texture is in half floats for that reason; a default that is to mean "nothing"
+  must decode to exactly nothing.
+- A texture cannot be read by a binding set while it is the target being drawn into,
+  even by shaders that never touch it. A pass that draws into something other passes
+  read gets a binding set without it (`ShadowAtlas`).
+- A texel of a shadow map with perspective grows with the depth along the way the map
+  looks, not with the distance to the light. Measured by the distance, the offsets and
+  the filter come out eleven times too wide at the edge of a wide spot light, which
+  no test of lights that shine straight at a surface shows.
+- A test that says "the first light" must say first by what: entity ids are random,
+  and lights come in their order. A rule that depends on it passes or fails by the
+  run.
 - Turning a float that is infinite, negative or not a number into an unsigned integer
   is undefined in C++ and left open in shaders: an infinite depth became slice 0.
   Bring the value into range as a float first, then convert

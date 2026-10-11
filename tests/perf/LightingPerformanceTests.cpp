@@ -1,5 +1,6 @@
 /// @file
-/// What hundreds of lights cost: measured, written down, and held against budgets.
+/// What hundreds of lights cost, and what dozens of shadow maps cost: measured, written
+/// down, and held against budgets.
 ///
 /// The scene is made here, the same on every run: a floor with a field of crates and
 /// balls on it, a sun, and six hundred point and spot lights spread over it at random,
@@ -7,10 +8,16 @@
 /// is likely to have in view, and what the clustered lighting is for: a pixel asks the
 /// few lights near it, not all of them.
 ///
-/// Besides the frame times it measures the two things the CPU does for the lights every
-/// frame and view - gathering them from the world and sorting them into the clusters -
-/// and counts the entries of the cluster lists, which says how well the lights are told
-/// apart: a change that puts lights into lists they do not belong in shows there first.
+/// Two scenarios are run on it:
+///
+/// - "lights": no light casts a shadow. Besides the frame times it measures what the
+///   CPU does for the lights every frame and view - gathering them from the world,
+///   sorting them into the clusters and planning their shadow maps - and counts the
+///   entries of the cluster lists, which says how well the lights are told apart: a
+///   change that puts lights into lists they do not belong in shows there first.
+/// - "shadows": the sun and a dozen of the lights cast shadows, most of them point
+///   lights with six shadow maps each - more than fifty maps, each of which draws the
+///   part of the field its light reaches once more.
 ///
 /// How the numbers are reported and checked is described in PerformanceTestSupport.h.
 
@@ -24,6 +31,7 @@
 #include "cordite/renderer/LightClusters.h"
 #include "cordite/renderer/RenderComponents.h"
 #include "cordite/renderer/SceneLights.h"
+#include "cordite/renderer/ShadowPlan.h"
 #include "cordite/world/Components.h"
 #include "cordite/world/World.h"
 
@@ -53,9 +61,12 @@ constexpr uint32_t kLightingRounds = 200;
 constexpr uint32_t kLightCount = 600;
 constexpr int32_t kFieldSize = 20;
 constexpr float kFieldSpacing = 3.0f;
+/// With shadows, every so-many-th light casts them: twelve of the six hundred, four of
+/// them spot lights.
+constexpr uint32_t kShadowLightEvery = 50;
 
 /// Fills the world with the scene described at the top of the file.
-void buildScene(World& world) {
+void buildScene(World& world, bool withShadows) {
     const Entity floor = world.createEntity("Floor");
     world.transform(floor).scale = Vec3(90.0f, 1.0f, 90.0f);
     world.add<MeshRendererComponent>(floor).mesh = builtinMeshId(BuiltinMesh::Plane);
@@ -88,11 +99,12 @@ void buildScene(World& world) {
         light.range = random.range(3.0f, 8.0f);
         light.innerConeDegrees = random.range(15.0f, 30.0f);
         light.outerConeDegrees = light.innerConeDegrees + random.range(5.0f, 20.0f);
+        light.castsShadows = withShadows && index % kShadowLightEvery == 0;
     }
 
     const Entity sun = world.createEntity("Sun");
     world.transform(sun).rotation = lookRotation(Vec3(-0.4f, -0.8f, -0.4f));
-    world.add<LightComponent>(sun) = {.type = LightType::Directional, .intensity = 0.3f};
+    world.add<LightComponent>(sun) = {.type = LightType::Directional, .intensity = 0.3f, .castsShadows = withShadows};
     const Entity sky = world.createEntity("Sky");
     world.add<AmbientLightComponent>(sky);
 
@@ -105,95 +117,120 @@ void buildScene(World& world) {
     lens.primary = true;
 }
 
+/// Runs the scene as the scenario `name`, with or without shadows: measures it, writes
+/// the report and checks it against the scenario's budgets.
+void runScenario(const std::string& name, bool withShadows) {
+    // Nothing but built-in meshes and the default material: no assets to load.
+    const TempDirectory assets;
+    REQUIRE(ensureDirectory(assets.path()).has_value());
+    const TempDirectory cache;
+    const EngineDesc desc = test::measuredEngineDesc("Lights", assets.path(), cache.path());
+    std::unique_ptr<Engine> engine = test::startEngine(desc);
+    const std::string adapter = engine->graphics().adapter().name;
+
+    World& world = engine->world();
+    buildScene(world, withShadows);
+    for (uint32_t frame = 0; frame < kWarmUpFrames; ++frame) {
+        REQUIRE(unwrap(engine->runFrame()));
+    }
+
+    // --- Frames like any other ---------------------------------------------------------------
+    Json milliseconds = Json::object();
+    const FrameTimes times = test::measureFrames(*engine, kSteadyFrames);
+    test::describeFrameTimes(milliseconds, times);
+    const FrameStatistics statistics = engine->statistics();
+
+    // --- The work for the lights on its own, as the renderer does it for every view --------
+    const Entity camera = findPrimaryCamera(world);
+    REQUIRE_FALSE(camera.isNull());
+    const CameraView view =
+        makeCameraView(world.worldMatrix(camera), *world.tryGet<CameraComponent>(camera),
+                       static_cast<float>(desc.renderSize.x) / static_cast<float>(desc.renderSize.y));
+    SceneLights lights;
+    LightClusterBuilder builder;
+    LightClusters clusters;
+    ShadowPlan shadowPlan;
+    const ShadowSettings shadowSettings = shadowSettingsFor(engine->renderSettings().shadowQuality);
+    std::vector<double> collectSamples;
+    std::vector<double> clusterSamples;
+    std::vector<double> planSamples;
+    for (uint32_t round = 0; round < kLightingRounds; ++round) {
+        collectSamples.push_back(millisecondsFor([&] { lights.collect(world); }));
+        clusterSamples.push_back(millisecondsFor([&] { builder.build(view, lights.lights(), clusters); }));
+        planSamples.push_back(
+            millisecondsFor([&] { planShadows(view, lights.lights(), clusters, shadowSettings, shadowPlan); }));
+    }
+    const test::Distribution collectTime = test::distributionOf(collectSamples);
+    const test::Distribution clusterTime = test::distributionOf(clusterSamples);
+    const test::Distribution planTime = test::distributionOf(planSamples);
+    milliseconds["lightCollect"] = toJson(collectTime);
+    milliseconds["lightClusters"] = toJson(clusterTime);
+    milliseconds["shadowPlan"] = toJson(planTime);
+
+    const std::vector<std::string> deviceIssues = engine->graphics().validationIssues();
+    engine.reset();
+
+    // --- The report -----------------------------------------------------------------------------
+    Json report = test::startReport(name, adapter, desc.renderSize, kSteadyFrames);
+    report["milliseconds"] = milliseconds;
+    report["scene"] = test::describeScene(statistics.scene);
+    report["resources"] = test::describeResources(statistics.resources);
+    test::writeReport(report);
+
+    MESSAGE(name << " on " << adapter << ": CPU " << times.cpu.median << " ms, GPU " << times.gpu.median << " ms; "
+                 << statistics.scene.lights << " lights in " << statistics.scene.lightListEntries
+                 << " list entries, collected in " << collectTime.median << " ms and sorted into clusters in "
+                 << clusterTime.median << " ms; " << statistics.scene.shadowMaps << " shadow maps, planned in "
+                 << planTime.median << " ms, with " << statistics.scene.shadowPass.drawCalls << " draw calls");
+
+    // --- The budgets ----------------------------------------------------------------------------
+    const Json budgets = test::loadBudgets(name);
+
+    for (const std::string& issue : deviceIssues) {
+        FAIL_CHECK("the graphics device reported: " << issue);
+    }
+
+    // The scene is what it is meant to be: the whole field in two draw calls a pass
+    // and the floor in one, and every light either in view or out of it, none left out.
+    CHECK(statistics.scene.views == 1);
+    CHECK(statistics.scene.meshRenderers == kFieldSize * kFieldSize + 1);
+    CHECK(statistics.scene.basePass.drawCalls == 3);
+    CHECK(statistics.scene.droppedLights == 0);
+    CHECK(statistics.scene.lights > kLightCount / 2);
+    CHECK(statistics.scene.lights <= kLightCount + 1);
+    // What was measured on its own is what the renderer did.
+    CHECK(clusters.lights.size() == statistics.scene.lights);
+    CHECK(clusters.indices.size() == statistics.scene.lightListEntries);
+    CHECK(shadowPlan.views.size() == statistics.scene.shadowMaps);
+    // Every light that is to cast shadows got its maps.
+    CHECK(statistics.scene.lightsWithoutShadows == 0);
+    CHECK((statistics.scene.shadowMaps > 0) == withShadows);
+
+    checkBudget(budgets, "drawCalls", statistics.scene.meshes.drawCalls);
+    checkBudget(budgets, "triangles", static_cast<double>(statistics.scene.meshes.triangles));
+    checkBudget(budgets, "lights", statistics.scene.lights);
+    checkBudget(budgets, "lightListEntries", statistics.scene.lightListEntries);
+    checkBudget(budgets, "shadowMaps", statistics.scene.shadowMaps);
+    checkBudget(budgets, "shadowAtlasBytes", static_cast<double>(statistics.scene.shadowAtlasBytes));
+
+    REQUIRE(budgets.contains("milliseconds"));
+    const Json& timeBudgets = budgets["milliseconds"];
+#if defined(NDEBUG)
+    checkBudget(timeBudgets, "lightCollectMedian", collectTime.median);
+    checkBudget(timeBudgets, "lightClustersMedian", clusterTime.median);
+    checkBudget(timeBudgets, "shadowPlanMedian", planTime.median);
+#endif
+    test::checkFrameTimeBudgets(timeBudgets, times);
+}
+
 } // namespace
 
 TEST_SUITE("Performance") {
     TEST_CASE("a scene with hundreds of lights stays within its budgets") {
-        // Nothing but built-in meshes and the default material: no assets to load.
-        const TempDirectory assets;
-        REQUIRE(ensureDirectory(assets.path()).has_value());
-        const TempDirectory cache;
-        const EngineDesc desc = test::measuredEngineDesc("Lights", assets.path(), cache.path());
-        std::unique_ptr<Engine> engine = test::startEngine(desc);
-        const std::string adapter = engine->graphics().adapter().name;
+        runScenario("lights", false);
+    }
 
-        World& world = engine->world();
-        buildScene(world);
-        for (uint32_t frame = 0; frame < kWarmUpFrames; ++frame) {
-            REQUIRE(unwrap(engine->runFrame()));
-        }
-
-        // --- Frames like any other -----------------------------------------------------------
-        Json milliseconds = Json::object();
-        const FrameTimes times = test::measureFrames(*engine, kSteadyFrames);
-        test::describeFrameTimes(milliseconds, times);
-        const FrameStatistics statistics = engine->statistics();
-
-        // --- The work for the lights on its own, as the renderer does it for every view ----
-        const Entity camera = findPrimaryCamera(world);
-        REQUIRE_FALSE(camera.isNull());
-        const CameraView view =
-            makeCameraView(world.worldMatrix(camera), *world.tryGet<CameraComponent>(camera),
-                           static_cast<float>(desc.renderSize.x) / static_cast<float>(desc.renderSize.y));
-        SceneLights lights;
-        LightClusterBuilder builder;
-        LightClusters clusters;
-        std::vector<double> collectSamples;
-        std::vector<double> clusterSamples;
-        for (uint32_t round = 0; round < kLightingRounds; ++round) {
-            collectSamples.push_back(millisecondsFor([&] { lights.collect(world); }));
-            clusterSamples.push_back(millisecondsFor([&] { builder.build(view, lights.lights(), clusters); }));
-        }
-        const test::Distribution collectTime = test::distributionOf(collectSamples);
-        const test::Distribution clusterTime = test::distributionOf(clusterSamples);
-        milliseconds["lightCollect"] = toJson(collectTime);
-        milliseconds["lightClusters"] = toJson(clusterTime);
-
-        const std::vector<std::string> deviceIssues = engine->graphics().validationIssues();
-        engine.reset();
-
-        // --- The report -------------------------------------------------------------------------
-        Json report = test::startReport("lights", adapter, desc.renderSize, kSteadyFrames);
-        report["milliseconds"] = milliseconds;
-        report["scene"] = test::describeScene(statistics.scene);
-        report["resources"] = test::describeResources(statistics.resources);
-        test::writeReport(report);
-
-        MESSAGE("lights on " << adapter << ": CPU " << times.cpu.median << " ms, GPU " << times.gpu.median << " ms; "
-                             << statistics.scene.lights << " lights in " << statistics.scene.lightListEntries
-                             << " list entries, collected in " << collectTime.median << " ms and sorted into "
-                             << "clusters in " << clusterTime.median << " ms");
-
-        // --- The budgets ------------------------------------------------------------------------
-        const Json budgets = test::loadBudgets("lights");
-
-        for (const std::string& issue : deviceIssues) {
-            FAIL_CHECK("the graphics device reported: " << issue);
-        }
-
-        // The scene is what it is meant to be: the whole field in two draw calls a pass
-        // and the floor in one, and every light either in view or out of it, none left out.
-        CHECK(statistics.scene.views == 1);
-        CHECK(statistics.scene.meshRenderers == kFieldSize * kFieldSize + 1);
-        CHECK(statistics.scene.basePass.drawCalls == 3);
-        CHECK(statistics.scene.droppedLights == 0);
-        CHECK(statistics.scene.lights > kLightCount / 2);
-        CHECK(statistics.scene.lights <= kLightCount + 1);
-        // What was measured on its own is what the renderer did.
-        CHECK(clusters.lights.size() == statistics.scene.lights);
-        CHECK(clusters.indices.size() == statistics.scene.lightListEntries);
-
-        checkBudget(budgets, "drawCalls", statistics.scene.meshes.drawCalls);
-        checkBudget(budgets, "triangles", static_cast<double>(statistics.scene.meshes.triangles));
-        checkBudget(budgets, "lights", statistics.scene.lights);
-        checkBudget(budgets, "lightListEntries", statistics.scene.lightListEntries);
-
-        REQUIRE(budgets.contains("milliseconds"));
-        const Json& timeBudgets = budgets["milliseconds"];
-#if defined(NDEBUG)
-        checkBudget(timeBudgets, "lightCollectMedian", collectTime.median);
-        checkBudget(timeBudgets, "lightClustersMedian", clusterTime.median);
-#endif
-        test::checkFrameTimeBudgets(timeBudgets, times);
+    TEST_CASE("a scene with dozens of shadow maps stays within its budgets") {
+        runScenario("shadows", true);
     }
 }

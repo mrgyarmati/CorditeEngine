@@ -22,16 +22,20 @@
 ///     "frame": 412,
 ///     "cpuMilliseconds": 0.61,
 ///     "gpuMilliseconds": 0.24,          // null where the GPU cannot time its work
-///     "scene": {"views": 1, "meshRenderers": 21, "culled": 0,
-///               "drawCalls": 37, "instances": 45, "triangles": 5436,   // all passes together
+///     "scene": {"views": 1, "meshRenderers": 21, "culled": 1,
+///               "drawCalls": 115, "instances": 137, "triangles": 17470,   // all passes together
 ///               // The lights in view, the entries of the cluster lists they are in, and
 ///               // the lights left out because a view holds only so many.
-///               "lights": {"count": 4, "listEntries": 310, "dropped": 0},
-///               "passes": {"depth":   {"drawCalls": 18, "instances": 22, "triangles": 2712},
-///                          "base":    {"drawCalls": 18, "instances": 22, "triangles": 2712},
+///               "lights": {"count": 4, "listEntries": 1106, "dropped": 0},
+///               // The shadow maps drawn, the lights that are to cast shadows but found
+///               // no room for a map, and the memory of the atlas the maps share.
+///               "shadows": {"maps": 10, "lightsWithout": 0, "atlasBytes": 67108864},
+///               "passes": {"shadow":  {"drawCalls": 78, "instances": 94, "triangles": 12034},
+///                          "depth":   {"drawCalls": 18, "instances": 21, "triangles": 2712},
+///                          "base":    {"drawCalls": 18, "instances": 21, "triangles": 2712},
 ///                          "forward": {"drawCalls": 1, "instances": 1, "triangles": 12}}},
-///     "resources": {"meshes": 10, "textures": 22, "materials": 13,
-///                   "meshBytes": 251904, "textureBytes": 7340032}
+///     "resources": {"meshes": 11, "textures": 24, "materials": 14,
+///                   "meshBytes": 118348, "textureBytes": 7689540}
 /// }
 /// @endcode
 

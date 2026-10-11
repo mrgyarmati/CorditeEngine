@@ -29,10 +29,14 @@ namespace cordite {
 [[nodiscard]] Mat4 orthographicReverseZ(float left, float right, float bottom, float top, float nearPlane,
                                         float farPlane);
 
-/// Orthographic projection with conventional depth (near = 0, far = 1), used for shadow maps.
+/// Orthographic projection with conventional depth (near = 0, far = 1). Shadow maps use
+/// it: they are read through a comparison sampler, which passes what is nearer than the
+/// stored depth by being smaller. `nearPlane` may be negative: the volume then begins
+/// behind the eye.
 [[nodiscard]] Mat4 orthographic(float left, float right, float bottom, float top, float nearPlane, float farPlane);
 
-/// Perspective projection with conventional depth (near = 0, far = 1), used for shadow maps.
+/// Perspective projection with conventional depth (near = 0, far = 1), for the shadow
+/// maps of point and spot lights. `verticalFov` is in radians.
 [[nodiscard]] Mat4 perspective(float verticalFov, float aspect, float nearPlane, float farPlane);
 
 /// World-to-view matrix for a camera at `eye` looking at `target`.

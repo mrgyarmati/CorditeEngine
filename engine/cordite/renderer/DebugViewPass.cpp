@@ -23,7 +23,7 @@ static_assert(sizeof(DebugViewConstants) == 16, "must match the cbuffer layout i
 
 // The shader tells the views apart by these numbers.
 static_assert(static_cast<uint32_t>(RenderDebugView::BaseColor) == 1 &&
-                  static_cast<uint32_t>(RenderDebugView::LightCount) == 9,
+                  static_cast<uint32_t>(RenderDebugView::ShadowCascades) == 10,
               "must match the kView constants in DebugView.slang");
 
 /// The constants are rewritten for every view that shows a debug view, every frame.

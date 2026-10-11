@@ -847,11 +847,13 @@ TEST_SUITE("SceneRenderer") {
         scene.writeMaterial("b", fmt::format(R"("baseColorTexture": "{}")", scene.asset("checker.png").toString()));
         REQUIRE(scene.assets->refresh().has_value());
 
-        // Only what every renderer has from the start: two 1x1 textures and the default material.
+        // Only what every renderer has from the start: two 1x1 textures and the default
+        // material. The white one is four bytes; the flat normal map is eight, in half
+        // floats, in which "no tilt" is exact.
         const RenderResourceStatistics before = scene.renderer->resources().statistics();
         CHECK(before.meshCount == 0);
         CHECK(before.textureCount == 2);
-        CHECK(before.textureBytes == 8);
+        CHECK(before.textureBytes == 12);
         CHECK(before.materialCount == 1);
 
         scene.add(BuiltinMesh::Cube, scene.material("a"), at(Vec3(-0.5f, 0.0f, 0.0f), Vec3(0.4f)));
@@ -868,7 +870,7 @@ TEST_SUITE("SceneRenderer") {
         // One image, used as a color in two slots and as data in one: two textures.
         CHECK(after.textureCount == 4);
         // 8x8, 4x4, 2x2 and 1x1 pixels of four bytes, twice.
-        CHECK(after.textureBytes == 8 + 2 * (64 + 16 + 4 + 1) * 4);
+        CHECK(after.textureBytes == 12 + 2 * (64 + 16 + 4 + 1) * 4);
 
         // Further frames create nothing.
         (void)scene.render(view);
@@ -887,7 +889,7 @@ TEST_SUITE("SceneRenderer") {
         (void)scene.render(scene.orthographicView(Vec3(0.0f, 0.0f, 5.0f), Vec3(0.0f), 2.0f));
 
         // 4x4, 2x2 and 1x1 instead of starting at 16x16; plus the two default textures.
-        CHECK(scene.renderer->resources().statistics().textureBytes == 8 + (16 + 4 + 1) * 4);
+        CHECK(scene.renderer->resources().statistics().textureBytes == 12 + (16 + 4 + 1) * 4);
         checkNoValidationIssues(*scene.context.graphics);
     }
 

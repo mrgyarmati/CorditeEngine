@@ -138,6 +138,7 @@ private:
     void drawMainMenu();
     void drawEntityMenu();
     void drawAssetMenu();
+    void drawViewMenu();
     void drawFileDialog();
     void handleShortcuts();
     void updateWindowTitle();

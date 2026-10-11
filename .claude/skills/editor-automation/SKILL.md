@@ -74,7 +74,7 @@ Do not guess command or property names; ask the editor.
 | `asset.list` | Every asset with its id, type, name and path; optionally of one type |
 | `asset.get` | One asset: dependencies, import warnings, and its content (size, properties, nodes) |
 | `scene.validate` | References to assets that are missing or of the wrong kind |
-| `editor.statistics` | What the last frame cost: CPU and GPU time, draw calls, triangles, lights, memory on the GPU |
+| `editor.statistics` | What the last frame cost: CPU and GPU time, draw calls, triangles, lights, shadow maps, memory on the GPU |
 
 ## Refer to entities
 
@@ -126,13 +126,14 @@ scene black. Lights are components like any other:
 [
     {"command": "entity.create", "params": {"name": "Sun", "components": {
         "Transform": {"rotation": [-0.40762199, 0.3640026, 0.181485, 0.81756322]},
-        "Light": {"type": "directional", "color": [1, 0.95, 0.87], "intensity": 0.9}}}},
+        "Light": {"type": "directional", "color": [1, 0.95, 0.87], "intensity": 0.6,
+                  "castsShadows": true, "shadowDistance": 40}}}},
     {"command": "entity.create", "params": {"name": "Sky", "components": {
         "AmbientLight": {"skyColor": [0.26, 0.31, 0.4], "groundColor": [0.1, 0.09, 0.08]}}}},
     {"command": "entity.create", "params": {"name": "Lamp", "components": {
         "Transform": {"position": [0, 3, 0], "rotation": [-0.70710677, 0, 0, 0.70710677]},
-        "Light": {"type": "spot", "intensity": 12, "range": 6,
-                  "innerConeDegrees": 25, "outerConeDegrees": 40}}}}
+        "Light": {"type": "spot", "intensity": 4, "range": 6,
+                  "innerConeDegrees": 25, "outerConeDegrees": 40, "castsShadows": true}}}}
 ]
 ```
 
@@ -145,9 +146,22 @@ scene black. Lights are components like any other:
 - `channels` on a light and `lightChannels` on a mesh renderer are numbers with one
   bit per lighting channel (1, 2, 4 ... 128). A light shines on a mesh when they share
   a bit; left alone, everything is in channel 1.
+- A light throws shadows when `castsShadows` is set; a mesh renderer throws them unless
+  its own `castsShadows` is switched off, and what is drawn with a blended material
+  never does. Of several directional lights only the brightest casts shadows. A
+  point light costs six shadow maps, a spot light one, the sun `shadowCascades` (1 to
+  4) that share its `shadowDistance`. Stripes on lit surfaces: raise `shadowBias` or
+  `shadowNormalOffset` a little. Shadows that start away from what casts them: lower
+  them.
+- `viewport.shadowQuality {"quality": "low"}` sets how much the shadows of the viewport
+  may cost (`off`, `low`, `medium`, `high`); it is the editor's view, not a setting of
+  the scene.
 - `viewport.debugView {"view": "lightCount"}` shows how many point and spot lights
-  each pixel has to ask, and `editor.statistics` how many lights are in view and how
-  many were left out because a view holds only so many.
+  each pixel has to ask, `{"view": "shadowCascades"}` which cascade of the sun's shadow
+  each pixel is looked up in, and `editor.statistics` how many lights are in view, how
+  many were left out because a view holds only so many, how many shadow maps were
+  drawn, how many lights found no room for theirs, and how much memory the atlas they
+  share takes (`shadows.atlasBytes`: 16, 64 or 256 MiB at low, medium or high quality).
 
 ## See the result
 
@@ -160,9 +174,9 @@ scene black. Lights are components like any other:
 - `viewport.debugView {"view": "normals"}` makes the viewport show something the
   renderer works with instead of the lit picture: `baseColor`, `normals`, `roughness`,
   `metallic`, `specular`, `occlusion`, `emissive`, `depth`, `lightCount`,
-  `lightingOnly`, `wireframe`, `overdraw`; `none` brings the picture back. When a
-  surface looks wrong, a screenshot of the right view says whether the material, the
-  normals or the light is at fault.
+  `shadowCascades`, `lightingOnly`, `wireframe`, `overdraw`; `none` brings the picture
+  back. When a surface looks wrong, a screenshot of the right view says whether the
+  material, the normals or the light is at fault.
 
 Then read the image file. Looking at the picture is the only way to know that a change
 is visible and looks right; a passing command only says that the data changed.
@@ -173,8 +187,9 @@ is visible and looks right; a passing command only says that the data changed.
 (`editor.runFrames`): the frame that loads a scene is not typical, and the time the
 GPU took arrives a few frames late (`gpuMilliseconds` is null until then, and on
 adapters that cannot time their work). The counts - `drawCalls`, `instances`,
-`triangles`, `lights`, `meshBytes`, `textureBytes` - are exact and the same on every
-machine, which makes them the numbers to compare before and after a change to a scene.
+`triangles`, `lights`, `shadows`, `meshBytes`, `textureBytes` - are exact and the same
+on every machine, which makes them the numbers to compare before and after a change to
+a scene.
 `editor.showPanel {"panel": "statistics"}` opens the same numbers as a window, for
 screenshots.
 

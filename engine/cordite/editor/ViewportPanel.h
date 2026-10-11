@@ -30,6 +30,7 @@
 #include "cordite/renderer/RenderDebugView.h"
 #include "cordite/renderer/SceneRenderer.h"
 #include "cordite/renderer/SceneTargets.h"
+#include "cordite/renderer/ShadowPlan.h"
 
 #include <memory>
 
@@ -60,6 +61,11 @@ public:
 
     void setDebugView(RenderDebugView view) { m_debugView = view; }
 
+    /// How much the shadows the viewport shows may cost.
+    [[nodiscard]] ShadowQuality shadowQuality() const { return m_shadowQuality; }
+
+    void setShadowQuality(ShadowQuality quality) { m_shadowQuality = quality; }
+
     [[nodiscard]] EditorCamera& camera() { return m_camera; }
 
     [[nodiscard]] const EditorCamera& camera() const { return m_camera; }
@@ -79,6 +85,7 @@ private:
     SceneTargets m_targets;
     EditorCamera m_camera;
     RenderDebugView m_debugView = RenderDebugView::None;
+    ShadowQuality m_shadowQuality = ShadowQuality::Medium;
     /// The view render() last used, for pick().
     CameraView m_view;
     /// Rebuilt every frame; members so that their memory is reused. Grid and scene

@@ -38,6 +38,10 @@ cordite_add_module(renderer
         RenderTarget.h
         SceneLights.cpp
         SceneLights.h
+        ShadowAtlas.cpp
+        ShadowAtlas.h
+        ShadowPlan.cpp
+        ShadowPlan.h
         SceneRenderer.cpp
         SceneRenderer.h
         SceneTargets.cpp
@@ -48,6 +52,7 @@ cordite_add_module(renderer
         TestPatternPass.h
         ViewBindings.cpp
         ViewBindings.h
+        ViewConstants.h
     DEPENDS
         core
         math

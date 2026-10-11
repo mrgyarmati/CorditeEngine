@@ -183,6 +183,7 @@ void LightClusterBuilder::updateBounds(const CameraView& view, const ClusterDept
 
 void LightClusterBuilder::build(const CameraView& view, std::span<const SceneLight> lights, LightClusters& clusters) {
     clusters.lights.clear();
+    clusters.sources.clear();
     clusters.indices.clear();
     clusters.grid.assign(kClusterCount, ClusterRange());
     clusters.directionalCount = 0;
@@ -202,6 +203,7 @@ void LightClusterBuilder::build(const CameraView& view, std::span<const SceneLig
             }
         } else if (clusters.directionalCount < kMaxDirectionalLights) {
             clusters.lights.push_back(toGpuLight(light));
+            clusters.sources.push_back(static_cast<uint32_t>(&light - lights.data()));
             ++clusters.directionalCount;
         } else {
             ++clusters.droppedLights;
@@ -234,6 +236,7 @@ void LightClusterBuilder::build(const CameraView& view, std::span<const SceneLig
             continue;
         }
         clusters.lights.push_back(toGpuLight(*light));
+        clusters.sources.push_back(static_cast<uint32_t>(light - lights.data()));
         ++localCount;
     }
     writeLists(clusters);

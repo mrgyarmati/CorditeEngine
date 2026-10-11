@@ -141,6 +141,9 @@ private:
     [[nodiscard]] nvrhi::ITexture* texture(const Uuid& id, ColorSpace colorSpace, nvrhi::ITexture* fallback);
     [[nodiscard]] Result<nvrhi::ISampler*> sampler(const MaterialData& material);
     [[nodiscard]] Result<nvrhi::TextureHandle> createSolidTexture(const Vec4& color, const std::string& name);
+    /// The normal map of a material that has none: one texel that leaves the surface
+    /// normal exactly as it is.
+    [[nodiscard]] Result<nvrhi::TextureHandle> createFlatNormalTexture();
 
     nvrhi::IDevice* m_device;
     AssetManager& m_assets;

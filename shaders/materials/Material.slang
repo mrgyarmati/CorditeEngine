@@ -105,6 +105,15 @@ Surface evaluateSurface(SurfaceInput input)
     {
         surface.normal = -surface.normal;
     }
+    // The triangle's own normal: at right angles to how the position changes from one
+    // pixel to the next, on the side the interpolated normal is on. The two changes are
+    // brought to unit length first: up close they are fractions of a millimetre, and
+    // their cross product would be too short to tell from nothing.
+    const float3 outward = input.isFrontFace ? normal : -normal;
+    const float3 face = normalizeOr(cross(normalizeOr(ddx(input.position), float3(0.0)),
+                                          normalizeOr(ddy(input.position), float3(0.0))),
+                                    outward);
+    surface.geometricNormal = dot(face, outward) < 0.0 ? -face : face;
 
     const float occlusion = occlusionTexture.Sample(materialSampler, occlusionUv).r;
     surface.occlusion = lerp(1.0, occlusion, occlusionStrength);

@@ -12,6 +12,7 @@
 #pragma once
 
 #include "common/Brdf.slang"
+#include "common/Shadows.slang"
 #include "common/View.slang"
 
 // Matches GpuLightType.
@@ -37,13 +38,17 @@ struct Light
     uint typeAndChannels;
     // Unit vector along which a directional or spot light shines.
     float3 direction;
-    float lightPadding0;
+    // The first of the light's shadow views (common/Shadows.slang), or -1 when it
+    // casts no shadows.
+    int shadowView;
     // A spot light's brightness at an angle from its axis whose cosine is c:
     // saturate(c * spotScale + spotOffset).
     float spotScale;
     float spotOffset;
-    float lightPadding1;
-    float lightPadding2;
+    // Shadow-map texels by which a surface is looked up nearer the light, and along
+    // its normal.
+    float shadowBias;
+    float shadowNormalOffset;
 };
 
 // Where the list of a cluster is in lightIndices. Matches ClusterRange.
@@ -103,12 +108,20 @@ float coneFalloff(Light light, float3 toLight)
     return amount * amount;
 }
 
-// The light leaving a surface towards the viewer that comes from one light.
+// The light leaving a surface towards the viewer that comes from one light. Shadows
+// are looked up last, and only for what would be lit: they are the costly part.
 float3 shadeLight(Surface surface, float3 toViewer, Light light)
 {
     if (lightType(light) == kLightDirectional)
     {
-        return shadeDirect(surface, toViewer, -light.direction, light.color);
+        const float3 toSun = -light.direction;
+        if (dot(surface.normal, toSun) <= 0.0)
+        {
+            return float3(0.0);
+        }
+        const float reaching =
+            sunVisibility(light.shadowView, light.shadowBias, light.shadowNormalOffset, surface, toSun);
+        return shadeDirect(surface, toViewer, toSun, light.color * reaching);
     }
 
     const float3 offset = light.position - surface.position;
@@ -117,12 +130,20 @@ float3 shadeLight(Surface surface, float3 toViewer, Light light)
     {
         return float3(0.0);
     }
-    const float3 toLight = offset * rsqrt(max(distanceSquared, 1.0e-8));
+    const float distance = sqrt(max(distanceSquared, 1.0e-8));
+    const float3 toLight = offset / distance;
     float brightness = distanceFalloff(distanceSquared, light.range);
-    if (lightType(light) == kLightSpot)
+    const bool isSpot = lightType(light) == kLightSpot;
+    if (isSpot)
     {
         brightness *= coneFalloff(light, toLight);
     }
+    if (brightness <= 0.0 || dot(surface.normal, toLight) <= 0.0)
+    {
+        return float3(0.0);
+    }
+    brightness *= localLightVisibility(light.shadowView, !isSpot, light.position, light.direction, light.shadowBias,
+                                       light.shadowNormalOffset, surface, toLight);
     return shadeDirect(surface, toViewer, toLight, light.color * brightness);
 }
 

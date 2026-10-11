@@ -116,12 +116,14 @@ one per view:
 
 ```
 lights of the world ──> light clusters: which lights reach which part of the view
+                    ──> shadow plan: which lights get which shadow maps
+what casts shadows ──> shadow pass ──> shadow atlas: depth as each of those lights sees it
 solid surfaces ──> depth pre-pass ──> depth
                ──> base pass      ──> G-buffer: base color and lighting channels, normal,
                                                roughness / metallic / specular / occlusion,
                                                emissive
-G-buffer + depth + clusters ──> deferred lighting ──> scene color (linear, float)
-translucent surfaces + clusters ──> forward pass ──> scene color, blended over it, far to near
+G-buffer + depth + clusters + shadow atlas ──> deferred lighting ──> scene color (linear, float)
+translucent surfaces + clusters + shadow atlas ──> forward pass ──> scene color, blended over it
 scene color ──> display encoding ──> display image (sRGB, 8 bit)
                                       ^ overlays: debug lines, gizmos
 ```
@@ -129,8 +131,8 @@ scene color ──> display encoding ──> display image (sRGB, 8 bit)
 The deferred path is what makes many lights affordable: every solid surface is written
 down once, and each light then costs the pixels it reaches, not the geometry. What
 cannot be written down that way - a surface through which another shows - is drawn by
-the forward pass, with the same shading code. Shadows and post-processing of the next
-milestones go between the G-buffer and the display encoding.
+the forward pass, with the same shading code. The post-processing of the next
+milestones goes between the scene color and the display encoding.
 
 A scene is lit by components: `Light` (directional, point or spot) and `AmbientLight`
 (a sky above and a ground below). For every view, `SceneLights` gathers the enabled
@@ -142,10 +144,17 @@ reach everywhere. The lights, the grid and the lists are three buffers in the bi
 set of the view, next to its constants, so that the deferred lighting and the forward
 pass read the same ones.
 
+A light that casts shadows gets shadow maps: pictures of the scene's depth as the light
+sees it, all of them tiles of one texture, the shadow atlas. The sun - the brightest
+directional light that casts shadows - gets up to four, the cascades, each covering a
+slice of the view; a spot light one; a point light six. The maps are drawn before
+anything else, with the same vertex shader as every other mesh pass, and the lighting
+looks a surface up in them to find out how much of each light reaches it.
+
 A debug view (`RenderDebugView`) replaces the lighting, or the passes altogether, by a
 picture of something the renderer works with: a channel of the G-buffer, how many
-lights each pixel asks, the light without the materials, the edges of the triangles,
-how often each pixel is drawn.
+lights each pixel asks, which cascade of the sun's shadow it is looked up in, the light
+without the materials, the edges of the triangles, how often each pixel is drawn.
 
 ### The editor
 
@@ -579,6 +588,84 @@ editor showing a scene that is being started would show nothing at all, so a vie
 can ask for stand-ins (`SceneRenderSettings::defaultLighting`): a key light and
 ambient light, used only while the world has no light component whatsoever. One
 light, even switched off, ends that - a scene that was made dark stays dark.
+
+### All shadow maps of a view share one atlas
+
+A texture for every light that casts shadows would mean an array of textures in the
+shaders, or a draw call's worth of bindings for each light. One atlas is one texture
+and one sampler in the binding set of the view, whatever the lights are, and a light's
+maps are rectangles in it that a small buffer describes. Sizes are powers of two and
+handed out by cutting squares in four, so tiles never overlap and never leave a gap
+that could not be used; a light can ask for half or twice the usual size, and when
+the atlas is full the lights farthest from the camera get smaller maps and then none.
+The sun is served first, and so could take everything: four cascades at twice the
+usual size are the whole atlas. It gets three quarters at most. If its cascades would
+take more, the far ones are halved - their texels are looked at from farthest away -
+until they fit, so that asking more for the sun never costs a lamp its shadow.
+
+The atlas is drawn anew for every view of every frame. Keeping the maps of lights and
+things that did not move is the obvious next step, and is not taken yet: it needs to
+know what moved, which nothing in the engine tracks so far.
+
+The quality of shadows is a setting of the view (`SceneRenderSettings::shadowQuality`):
+the size of the atlas and of the maps in it, and how far the filter reaches. Lower
+qualities make the same shadows coarser, not different ones. The atlas is four bytes a
+texel - 16, 64 or 256 MiB - which is most of what shadows cost in memory, so the
+statistics report it, and switching shadows off gives it back.
+
+### Depth in a shadow map is the conventional way round
+
+Every depth buffer of a view is reversed - 1 at the near plane, 0 far away - for the
+precision that gives. Shadow maps are not: they are read through a comparison sampler,
+which answers "is this depth smaller than what is stored?", and NVRHI fixes that
+question for Vulkan. With 0 at the light, "smaller" is "nearer the light", which is
+"lit". The alternative, comparing by hand in the shader, gives up the four-texel
+blend the hardware does for each lookup. The loss of precision does not matter here:
+a directional light's map is linear in depth either way, and the maps of point and
+spot lights end at the light's range, a few metres away.
+
+### A surface is kept out of its own shadow by where it is looked up
+
+A shadow map knows the depth at the middle of each texel; a surface that the light
+strikes at an angle is nearer than that on one side of a texel and farther on the
+other, and without help shadows itself in stripes. The usual help is a depth bias
+when the map is drawn, which is a state of the pipeline: the same for every light, or
+a pipeline for every setting. Here the map is drawn as it is, and the surface is
+looked up a little off: towards the light, and along its normal by more the flatter
+the light strikes it, both measured in texels of the map and set per light.
+
+The filter that softens the edge of a shadow reads the map at several places around
+the point. Read at the same depth, each place further out would need a larger offset -
+the first version did, and shadows under a low sun ended a hand's breadth short. The
+places are therefore taken beside the point on the point's own plane, each as far
+from the light as a flat surface would be there. A flat surface then agrees with the
+map at every one of them, and the offsets only have to cover the one texel the
+hardware blends across.
+
+All of this is about where the surface is, so it is done with the surface's own
+normal - that of the triangle - and not with the one the lighting uses, which a normal
+map has bent. The first version used the bent one, and the grooves between the tiles
+of a floor lay in shadows of their own making under a low sun. A blended surface has
+its triangle's normal at hand when it is drawn. The G-buffer does not store a second
+normal: deferred lighting works it out from the depth buffer, from where the surface
+is in the pixels to the side and above or below - of each pair, the one nearer in
+depth, since at the edge of an object the other shows something else. That is four
+more reads of the depth buffer for every pixel, which a view without shadow maps
+does not make.
+
+### Cascades are spheres, moved in whole texels
+
+A cascade has to cover a slice of what the camera sees. Fitted tightly, its size
+would change as the camera turns, and its texels would slide over the world as the
+camera moves: shadow edges would crawl with every step. A sphere around the slice is
+as large whichever way the camera looks, so a texel always covers the same piece of
+the world, and the map is moved by whole texels in the light's own frame, so a point
+of the world stays in the same place within its texel. That wastes some of the map -
+the sphere is larger than the slice - and buys shadows that hold still.
+
+Where two cascades meet, the shaders go over from one to the next across the last
+tenth of the nearer one, and each cascade's map starts that much earlier, so that no
+line shows.
 
 ### Debug views are part of the renderer
 

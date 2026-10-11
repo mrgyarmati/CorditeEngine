@@ -57,6 +57,22 @@ enum class GpuLightType : uint8_t {
     Spot = 2,
 };
 
+/// How a light casts shadows; see LightComponent, which these come from.
+struct SceneLightShadow {
+    bool enabled = false;
+    /// Shadow-map texels by which a surface is looked up nearer the light, and along
+    /// its normal.
+    float bias = 1.0f;
+    float normalOffset = 1.0f;
+    /// The size of the shadow map against what a light usually gets: 0.5, 1 or 2.
+    float resolutionScale = 1.0f;
+    /// Directional: how far the shadows reach from the camera in metres, into how many
+    /// cascades that is divided, and how (0: evenly, 1: by a constant factor).
+    float distance = 60.0f;
+    uint32_t cascades = 4;
+    float cascadeDistribution = 0.75f;
+};
+
 /// A light as the renderer collects it from the scene. All of it is in world space.
 struct SceneLight {
     GpuLightType type = GpuLightType::Point;
@@ -73,6 +89,7 @@ struct SceneLight {
     float outerConeAngle = 0.5f;
     /// The lighting channels the light belongs to, one bit each.
     uint32_t channels = 1;
+    SceneLightShadow shadow;
 };
 
 /// A light as the shaders read it: `Light` in shaders/common/Lights.slang.
@@ -83,12 +100,17 @@ struct GpuLight {
     /// The GpuLightType in the low 8 bits, the channels in the 8 above.
     uint32_t typeAndChannels = 0;
     Vec3 direction{0.0f, -1.0f, 0.0f};
-    float padding0 = 0.0f;
+    /// The first of the light's shadow views (ShadowPlan::views), or -1 when it casts
+    /// no shadows: one view for a spot light, six for a point light, one for each
+    /// cascade of a directional light.
+    int32_t shadowView = -1;
     /// A spot light's brightness at an angle whose cosine is c: saturate(c * scale + offset).
     float spotScale = 0.0f;
     float spotOffset = 1.0f;
-    float padding1 = 0.0f;
-    float padding2 = 0.0f;
+    /// Shadow-map texels by which a surface is looked up nearer the light, and along
+    /// its normal.
+    float shadowBias = 0.0f;
+    float shadowNormalOffset = 0.0f;
 };
 
 static_assert(sizeof(GpuLight) == 64, "must match Light in shaders/common/Lights.slang");
@@ -137,6 +159,8 @@ struct LightClusters {
     /// Directional lights first - they reach everywhere and are in no list - then the
     /// point and spot lights.
     std::vector<GpuLight> lights;
+    /// For each of `lights`, which of the lights given to the builder it was made from.
+    std::vector<uint32_t> sources;
     uint32_t directionalCount = 0;
     /// One per cluster, indexed by clusterIndex().
     std::vector<ClusterRange> grid;

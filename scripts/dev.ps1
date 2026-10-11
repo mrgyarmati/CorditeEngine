@@ -173,6 +173,7 @@ function Get-PerformanceMetrics {
         'GPU frame, median (ms)' = 'milliseconds.gpuFrame.median'
         'collect lights (ms)'    = 'milliseconds.lightCollect.median'
         'cluster lights (ms)'    = 'milliseconds.lightClusters.median'
+        'plan shadows (ms)'      = 'milliseconds.shadowPlan.median'
         'first frame (ms)'       = 'milliseconds.firstFrame'
         'cold start (ms)'        = 'milliseconds.coldStart'
         'warm start (ms)'        = 'milliseconds.warmStart'
@@ -183,6 +184,9 @@ function Get-PerformanceMetrics {
         'triangles'              = 'scene.triangles'
         'lights'                 = 'scene.lights.count'
         'light list entries'     = 'scene.lights.listEntries'
+        'shadow maps'            = 'scene.shadows.maps'
+        'shadow draw calls'      = 'scene.shadowPass.drawCalls'
+        'shadow atlas (KiB)'     = 'scene.shadows.atlasBytes'
         'mesh memory (KiB)'      = 'resources.meshBytes'
         'texture memory (KiB)'   = 'resources.textureBytes'
     }

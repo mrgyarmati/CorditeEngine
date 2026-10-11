@@ -1,11 +1,13 @@
 #include "cordite/engine/Engine.h"
 
 #include "cordite/assets/ImageCompare.h"
+#include "cordite/math/Transform.h"
 #include "cordite/renderer/RenderComponents.h"
 #include "cordite/world/Components.h"
 #include "cordite/world/SceneSerializer.h"
 
 #include "render/RenderTestSupport.h"
+#include "support/MathTestSupport.h"
 
 #include <memory>
 
@@ -324,6 +326,41 @@ TEST_SUITE("Engine") {
         world.setEnabled(camera, false);
         runFrames(*engine, 1);
         CHECK(test::unwrap(engine->captureFrame()).pixel(10, 10) == pattern.pixel(10, 10));
+        checkNoValidationIssues(engine->graphics());
+    }
+
+    TEST_CASE("the engine draws the world with render settings a game can change") {
+        const std::unique_ptr<Engine> engine = createEngine(headlessDesc(UVec2(160, 90)));
+        World& world = engine->world();
+        const Entity camera = world.createEntity("Camera");
+        world.transform(camera).position = Vec3(0.0f, 1.0f, 6.0f);
+        world.add<CameraComponent>(camera);
+        const Entity floor = world.createEntity("Floor");
+        world.transform(floor).scale = Vec3(20.0f, 1.0f, 20.0f);
+        world.add<MeshRendererComponent>(floor).mesh = builtinMeshId(BuiltinMesh::Plane);
+        const Entity sun = world.createEntity("Sun");
+        world.transform(sun).rotation = lookRotation(Vec3(-0.3f, -1.0f, -0.2f));
+        world.add<LightComponent>(sun) = {.type = LightType::Directional, .castsShadows = true};
+
+        // As it comes: shadows of medium quality, one map for each cascade of the sun.
+        CHECK(engine->renderSettings().shadowQuality == ShadowQuality::Medium);
+        runFrames(*engine, 1);
+        CHECK(engine->statistics().scene.shadowMaps == 4);
+        CHECK(engine->statistics().scene.shadowPass.drawCalls == 4);
+        const Vec4 lit = test::unwrap(engine->captureFrame()).pixel(80, 80);
+
+        // A player who switches shadows off gets none from the next frame on.
+        engine->renderSettings().shadowQuality = ShadowQuality::Off;
+        runFrames(*engine, 1);
+        CHECK(engine->statistics().scene.shadowMaps == 0);
+        CHECK(engine->statistics().scene.shadowPass.drawCalls == 0);
+        // The floor is lit as before: nothing stands in the sun.
+        CHECK_NEAR(test::unwrap(engine->captureFrame()).pixel(80, 80), lit, 2.0f / 255.0f);
+
+        // The background is one of the settings too.
+        engine->renderSettings().backgroundColor = Vec3(1.0f, 0.0f, 0.0f);
+        runFrames(*engine, 1);
+        CHECK_NEAR(test::unwrap(engine->captureFrame()).pixel(80, 3), Vec4(1.0f, 0.0f, 0.0f, 1.0f), 2.0f / 255.0f);
         checkNoValidationIssues(engine->graphics());
     }
 
