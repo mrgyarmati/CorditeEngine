@@ -8,16 +8,28 @@ cordite_add_module(renderer
         DebugDraw.h
         DebugLinePass.cpp
         DebugLinePass.h
+        DebugViewPass.cpp
+        DebugViewPass.h
+        DeferredLightingPass.cpp
+        DeferredLightingPass.h
         DisplayEncodePass.cpp
         DisplayEncodePass.h
+        FramePacer.cpp
+        FramePacer.h
         FullscreenPass.cpp
         FullscreenPass.h
+        GBufferBindings.cpp
+        GBufferBindings.h
         GpuTimer.cpp
         GpuTimer.h
-        MeshForwardPass.cpp
-        MeshForwardPass.h
+        MeshDrawList.cpp
+        MeshDrawList.h
+        MeshPass.cpp
+        MeshPass.h
         RenderComponents.cpp
         RenderComponents.h
+        RenderDebugView.cpp
+        RenderDebugView.h
         RenderResources.cpp
         RenderResources.h
         RenderTarget.cpp
@@ -30,6 +42,8 @@ cordite_add_module(renderer
         ShaderManager.h
         TestPatternPass.cpp
         TestPatternPass.h
+        ViewBindings.cpp
+        ViewBindings.h
     DEPENDS
         core
         math

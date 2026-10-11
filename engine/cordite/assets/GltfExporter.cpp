@@ -453,8 +453,9 @@ private:
         return indexOrAppend(m_textures, std::move(texture));
     }
 
-    /// A reference to a texture from a material. Every texture but occlusion carries
-    /// the material's coordinate set, scale and offset.
+    /// A reference to a texture from a material. Every texture carries the material's
+    /// coordinate set, scale and offset - except an occlusion texture that uses the
+    /// other set of coordinates, which is used as it is.
     Json textureReference(uint32_t image, const MaterialData& material, bool isOcclusion) {
         Json reference = Json::object();
         reference["index"] = textureFor(image, material);
@@ -462,7 +463,8 @@ private:
         if (channel != 0) {
             reference["texCoord"] = channel;
         }
-        if (!isOcclusion && (material.uvScale != Vec2(1.0f) || material.uvOffset != Vec2(0.0f))) {
+        const bool laidOutLikeTheOthers = channel == material.uvChannel;
+        if (laidOutLikeTheOthers && (material.uvScale != Vec2(1.0f) || material.uvOffset != Vec2(0.0f))) {
             useExtension("KHR_texture_transform");
             Json transform = Json::object();
             transform["offset"] = floats({material.uvOffset.x, material.uvOffset.y});

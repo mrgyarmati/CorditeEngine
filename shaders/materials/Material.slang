@@ -7,6 +7,7 @@
 
 #include "common/Brdf.slang"
 #include "common/Math.slang"
+#include "common/MeshVaryings.slang"
 
 cbuffer MaterialConstants : register(b0, space1)
 {
@@ -51,12 +52,29 @@ struct SurfaceInput
     bool isFrontFace;
 };
 
-// Evaluates the material at a point. With ALPHA_TEST defined, pixels whose opacity is
-// below the cutoff are discarded.
+// Where the material's textures are read: the set of coordinates it uses, scaled and
+// shifted as it says.
+float2 materialUv(float2 uv0, float2 uv1)
+{
+    return (uvChannel == 0 ? uv0 : uv1) * uvScale + uvOffset;
+}
+
+// The material's opacity at a point, which is all a pass that only writes depth has to
+// know of it: a masked material is there where this is at least `alphaCutoff`.
+float evaluateOpacity(float2 uv0, float2 uv1)
+{
+    return baseColorTexture.Sample(materialSampler, materialUv(uv0, uv1)).a * baseColor.a;
+}
+
+// Evaluates the material at a point.
 Surface evaluateSurface(SurfaceInput input)
 {
-    const float2 uv = (uvChannel == 0 ? input.uv0 : input.uv1) * uvScale + uvOffset;
-    const float2 occlusionUv = occlusionUvChannel == 0 ? input.uv0 : input.uv1;
+    const float2 uv = materialUv(input.uv0, input.uv1);
+    // The occlusion texture is laid out like the others where it uses their set of
+    // coordinates - it is usually packed into one image with roughness and metallic -
+    // and used as it is where it has a set of its own.
+    const float2 occlusionUv =
+        occlusionUvChannel == uvChannel ? uv : (occlusionUvChannel == 0 ? input.uv0 : input.uv1);
 
     Surface surface;
     surface.position = input.position;
@@ -64,12 +82,6 @@ Surface evaluateSurface(SurfaceInput input)
     const float4 color = baseColorTexture.Sample(materialSampler, uv) * baseColor;
     surface.baseColor = color.rgb;
     surface.opacity = color.a;
-#if defined(ALPHA_TEST)
-    if (surface.opacity < alphaCutoff)
-    {
-        discard;
-    }
-#endif
 
     const float4 metallicRoughness = metallicRoughnessTexture.Sample(materialSampler, uv);
     surface.metallic = saturate(metallicRoughness.b * metallic);
@@ -96,4 +108,17 @@ Surface evaluateSurface(SurfaceInput input)
     surface.occlusion = lerp(1.0, occlusion, occlusionStrength);
     surface.emissive = emissiveTexture.Sample(materialSampler, uv).rgb * emissive;
     return surface;
+}
+
+// Evaluates the material at the point a mesh pass is shading.
+Surface evaluateSurface(MeshVaryings input, bool isFrontFace)
+{
+    SurfaceInput surfaceInput;
+    surfaceInput.position = input.position;
+    surfaceInput.normal = input.normal;
+    surfaceInput.tangent = input.tangent;
+    surfaceInput.uv0 = input.uv0;
+    surfaceInput.uv1 = input.uv1;
+    surfaceInput.isFrontFace = isFrontFace;
+    return evaluateSurface(surfaceInput);
 }

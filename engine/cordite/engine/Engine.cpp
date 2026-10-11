@@ -8,6 +8,7 @@
 #include "cordite/engine/EngineComponents.h"
 #include "cordite/renderer/BlitPass.h"
 #include "cordite/renderer/CameraView.h"
+#include "cordite/renderer/FramePacer.h"
 #include "cordite/renderer/GpuTimer.h"
 #include "cordite/renderer/TestPatternPass.h"
 #include "cordite/rhi/Swapchain.h"
@@ -75,6 +76,8 @@ struct Engine::Impl {
     nvrhi::CommandListHandle commandList;
     /// Times the frame's command list on the GPU.
     std::unique_ptr<GpuTimer> gpuTimer;
+    /// Keeps frames from piling up where no display holds the loop back.
+    std::unique_ptr<FramePacer> framePacer;
     std::unique_ptr<TestPatternPass> testPattern;
     std::unique_ptr<BlitPass> blit;
 
@@ -145,6 +148,7 @@ Status Engine::Impl::initialize() {
     nvrhi::IDevice* device = graphics->device();
     commandList = device->createCommandList();
     gpuTimer = std::make_unique<GpuTimer>(device, graphics->adapter().supportsTimerQueries);
+    framePacer = std::make_unique<FramePacer>(device);
     CORDITE_TRY_ASSIGN(TestPatternPass createdTestPattern, TestPatternPass::create(device, *shaderManager));
     testPattern = std::make_unique<TestPatternPass>(std::move(createdTestPattern));
     CORDITE_TRY_ASSIGN(BlitPass createdBlit, BlitPass::create(device, *shaderManager));
@@ -158,7 +162,9 @@ Status Engine::Impl::initialize() {
 
     CORDITE_TRY_ASSIGN(assets, AssetManager::create(
                                    {.rootDirectory = desc.assetDirectory, .writeMetaFiles = desc.writeAssetMetaFiles}));
-    CORDITE_TRY_ASSIGN(sceneRenderer, SceneRenderer::create(device, *shaderManager, *assets));
+    CORDITE_TRY_ASSIGN(sceneRenderer,
+                       SceneRenderer::create(device, *shaderManager, *assets,
+                                             {.supportsWireframe = graphics->adapter().supportsWireframe}));
 
     CORDITE_TRY(registerEngineComponents(components));
     frameClock.restart();
@@ -264,6 +270,10 @@ Status Engine::endFrame() {
     impl.statistics.gpuMilliseconds = impl.gpuTimer->latestMilliseconds();
     impl.statistics.scene = impl.sceneRenderer->takeFrameStatistics();
     impl.statistics.resources = impl.sceneRenderer->resources().statistics();
+
+    // Without a display to wait for, a loop would hand the GPU frames faster than it
+    // draws them. This waits only when it is several frames behind.
+    impl.framePacer->frameSubmitted();
 
     if (hasBackBuffer) {
         CORDITE_TRY(impl.swapchain->present());

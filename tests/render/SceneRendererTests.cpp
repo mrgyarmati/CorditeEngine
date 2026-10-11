@@ -1,6 +1,7 @@
 #include "cordite/renderer/SceneRenderer.h"
 
 #include "cordite/assets/AssetManager.h"
+#include "cordite/assets/ImageCompare.h"
 #include "cordite/core/FileSystem.h"
 #include "cordite/math/Color.h"
 #include "cordite/math/Projection.h"
@@ -87,7 +88,9 @@ public:
     /// Indexes the files written so far and creates the renderer.
     void open(const RenderResourcesDesc& resources = {}) {
         assets = unwrap(AssetManager::create({.rootDirectory = m_directory.path()}));
-        renderer = unwrap(SceneRenderer::create(context.device(), *context.shaders, *assets, resources));
+        renderer = unwrap(SceneRenderer::create(
+            context.device(), *context.shaders, *assets,
+            {.resources = resources, .supportsWireframe = context.graphics->adapter().supportsWireframe}));
         targets = unwrap(SceneTargets::create(context.device(), m_size, "Test"));
     }
 
@@ -163,6 +166,14 @@ void checkPixel(const Image& image, uint32_t x, uint32_t y, const Vec3& linear) 
     CHECK_NEAR(Vec3(image.pixel(x, y)), displayed(linear), 2.5f / 255.0f);
 }
 
+/// Checks one pixel against the value the image itself is to hold there, as the debug
+/// views show numbers: 0.25 as the grey a quarter of the way to white.
+void checkShown(const Image& image, uint32_t x, uint32_t y, const Vec3& value) {
+    CAPTURE(x);
+    CAPTURE(y);
+    CHECK_NEAR(Vec3(image.pixel(x, y)), value, 2.5f / 255.0f);
+}
+
 Transform at(const Vec3& position, const Vec3& scale = Vec3(1.0f), const Quat& rotation = kIdentityQuat) {
     return {.position = position, .rotation = rotation, .scale = scale};
 }
@@ -217,6 +228,26 @@ TEST_SUITE("SceneTargets") {
             CHECK(targets.sceneColor()->getDesc().width == 320);
             CHECK(targets.display()->getDesc().height == 180);
             CHECK(targets.sceneColor()->getDesc().debugName == "View scene color");
+
+            // The G-buffer, in the layout the base pass and the lighting agree on.
+            CHECK(targets.gbuffer(GBufferTarget::BaseColor)->getDesc().format == nvrhi::Format::SRGBA8_UNORM);
+            CHECK(targets.gbuffer(GBufferTarget::Normal)->getDesc().format == nvrhi::Format::RG16_UNORM);
+            CHECK(targets.gbuffer(GBufferTarget::Parameters)->getDesc().format == nvrhi::Format::RGBA8_UNORM);
+            CHECK(targets.gbuffer(GBufferTarget::Emissive)->getDesc().format == nvrhi::Format::R11G11B10_FLOAT);
+            CHECK(targets.gbuffer(GBufferTarget::Normal)->getDesc().width == 320);
+            CHECK(targets.gbuffer(GBufferTarget::Normal)->getDesc().debugName == "View G-buffer normal");
+            const nvrhi::FramebufferDesc& gbuffer = targets.gbufferFramebuffer()->getDesc();
+            REQUIRE(gbuffer.colorAttachments.size() == kGBufferTargetCount);
+            CHECK(gbuffer.colorAttachments[0].texture == targets.gbuffer(GBufferTarget::BaseColor));
+            CHECK(gbuffer.colorAttachments[3].texture == targets.gbuffer(GBufferTarget::Emissive));
+            CHECK(gbuffer.depthAttachment.texture == targets.depth());
+
+            // The pre-pass draws depth alone; the lighting reads the depth, so the
+            // framebuffer it draws into has none.
+            CHECK(targets.depthFramebuffer()->getDesc().colorAttachments.empty());
+            CHECK(targets.depthFramebuffer()->getDesc().depthAttachment.texture == targets.depth());
+            CHECK(targets.lightingFramebuffer()->getDesc().colorAttachments[0].texture == targets.sceneColor());
+            CHECK_FALSE(targets.lightingFramebuffer()->getDesc().depthAttachment.valid());
 
             // The overlay framebuffer shares the display image and the scene's depth.
             CHECK(targets.overlayFramebuffer()->getDesc().colorAttachments[0].texture == targets.display());
@@ -313,9 +344,11 @@ TEST_SUITE("SceneRenderer") {
         const SceneRenderStatistics& statistics = scene.renderer->statistics();
         CHECK(statistics.meshRenderers == 1);
         CHECK(statistics.culled == 0);
-        CHECK(statistics.meshes.drawCalls == 1);
-        CHECK(statistics.meshes.instances == 1);
-        CHECK(statistics.meshes.triangles == 12);
+        // A solid surface is drawn twice: its depth first, then what it is made of.
+        CHECK(statistics.depthPass == MeshPassStatistics{.drawCalls = 1, .instances = 1, .triangles = 12});
+        CHECK(statistics.basePass == statistics.depthPass);
+        CHECK(statistics.forwardPass == MeshPassStatistics{});
+        CHECK(statistics.meshes == MeshPassStatistics{.drawCalls = 2, .instances = 2, .triangles = 24});
         checkNoValidationIssues(*scene.context.graphics);
     }
 
@@ -428,8 +461,9 @@ TEST_SUITE("SceneRenderer") {
         // Red cubes, red spheres, one blue cube.
         const SceneRenderStatistics& statistics = scene.renderer->statistics();
         CHECK(statistics.meshRenderers == 9);
-        CHECK(statistics.meshes.drawCalls == 3);
-        CHECK(statistics.meshes.instances == 9);
+        CHECK(statistics.basePass.drawCalls == 3);
+        CHECK(statistics.basePass.instances == 9);
+        CHECK(statistics.depthPass == statistics.basePass);
 
         // Every instance is where its own transform puts it.
         for (int index = 0; index < 5; ++index) {
@@ -455,7 +489,7 @@ TEST_SUITE("SceneRenderer") {
         const SceneRenderStatistics& statistics = scene.renderer->statistics();
         CHECK(statistics.meshRenderers == 3);
         CHECK(statistics.culled == 2);
-        CHECK(statistics.meshes.instances == 1);
+        CHECK(statistics.basePass.instances == 1);
         checkPixel(image, 32, 32, kRed);
         checkNoValidationIssues(*scene.context.graphics);
     }
@@ -745,6 +779,48 @@ TEST_SUITE("SceneRenderer") {
         checkNoValidationIssues(*scene.context.graphics);
     }
 
+    TEST_CASE("an occlusion texture is laid out like the others, unless it has coordinates of its own") {
+        SceneFixture scene(UVec2(128, 128));
+        // Occlusion in red: none in the top-left and bottom-right quarters, full in the others.
+        scene.writeImage("shade", makeChecker(64, 2, Vec4(1.0f), Vec4(0.0f, 0.0f, 0.0f, 1.0f)));
+        scene.open();
+        // White and matte, the textures repeated twice each way.
+        const auto shaded = [&](std::string_view more) {
+            return fmt::format(R"("specular": 0, "roughness": 1, "uvScale": [2, 2], "occlusionTexture": "{}"{})",
+                               scene.asset("shade.png").toString(), more);
+        };
+        scene.writeMaterial("packed", shaded(""));
+        scene.writeMaterial("own", shaded(R"(, "occlusionUvChannel": 1)"));
+        REQUIRE(scene.assets->refresh().has_value());
+
+        // Ambient light alone, the same from everywhere: what is seen is the occlusion.
+        SceneRenderSettings settings = SceneFixture::flatSettings();
+        settings.skyColor = Vec3(1.0f);
+        settings.groundColor = Vec3(1.0f);
+        const Entity cube = scene.add(BuiltinMesh::Cube, scene.material("packed"), at(Vec3(0.0f), Vec3(2.0f)));
+        const CameraView view = scene.orthographicView(Vec3(0.0f, 0.0f, 5.0f), Vec3(0.0f), 2.0f);
+
+        // Sharing the coordinates of the other textures, it repeats with them: four by
+        // four squares of 32 pixels.
+        const Image packed = scene.render(view, settings);
+        checkPixel(packed, 16, 16, Vec3(1.0f));
+        checkPixel(packed, 48, 16, Vec3(0.0f));
+        checkPixel(packed, 80, 16, Vec3(1.0f));
+        checkPixel(packed, 48, 48, Vec3(1.0f));
+        checkPixel(packed, 112, 112, Vec3(1.0f));
+
+        // In the other set of coordinates - the same ones, on a built-in mesh, but its
+        // own - it is used as it is: two by two squares of 64.
+        scene.world.tryGet<MeshRendererComponent>(cube)->materials = {scene.material("own")};
+        const Image own = scene.render(view, settings);
+        checkPixel(own, 16, 16, Vec3(1.0f));
+        checkPixel(own, 48, 16, Vec3(1.0f));
+        checkPixel(own, 80, 16, Vec3(0.0f));
+        checkPixel(own, 48, 80, Vec3(0.0f));
+        checkPixel(own, 112, 112, Vec3(1.0f));
+        checkNoValidationIssues(*scene.context.graphics);
+    }
+
     TEST_CASE("a masked material has holes where its opacity is below the cutoff") {
         SceneFixture scene(UVec2(128, 128));
         // Opaque on the left, transparent on the right. The color is the same everywhere.
@@ -1012,6 +1088,250 @@ TEST_SUITE("SceneRenderer") {
         checkNoValidationIssues(*scene.context.graphics);
     }
 
+    TEST_CASE("each kind of surface goes through the passes made for it") {
+        SceneFixture scene;
+        scene.writeFlatMaterial("solid", kRed);
+        scene.writeFlatMaterial("holes", kGreen, R"("alphaMode": "masked")");
+        scene.writeFlatMaterial("glass", kBlue, R"("alphaMode": "blended")");
+        scene.open();
+        scene.add(BuiltinMesh::Cube, scene.material("solid"), at(Vec3(-0.6f, 0.0f, 0.0f), Vec3(0.3f)));
+        scene.add(BuiltinMesh::Cube, scene.material("holes"), at(Vec3(0.0f), Vec3(0.3f)));
+        scene.add(BuiltinMesh::Cube, scene.material("glass"), at(Vec3(0.6f, 0.0f, 0.0f), Vec3(0.3f)));
+        const Image image = scene.render(scene.orthographicView(Vec3(0.0f, 0.0f, 5.0f), Vec3(0.0f), 2.0f));
+
+        checkPixel(image, 13, 32, kRed);
+        checkPixel(image, 32, 32, kGreen);
+        checkPixel(image, 51, 32, kBlue);
+
+        // Opaque and masked surfaces: depth first, then the G-buffer. Blended ones: forward.
+        const SceneRenderStatistics& statistics = scene.renderer->statistics();
+        CHECK(statistics.depthPass == MeshPassStatistics{.drawCalls = 2, .instances = 2, .triangles = 24});
+        CHECK(statistics.basePass == statistics.depthPass);
+        CHECK(statistics.forwardPass == MeshPassStatistics{.drawCalls = 1, .instances = 1, .triangles = 12});
+        CHECK(statistics.meshes == MeshPassStatistics{.drawCalls = 5, .instances = 5, .triangles = 60});
+        checkNoValidationIssues(*scene.context.graphics);
+    }
+
+    TEST_CASE("the debug views show what the G-buffer holds of a surface") {
+        SceneFixture scene;
+        scene.writeMaterial("probe", R"("baseColor": [0.2, 0.4, 0.6, 1], "roughness": 0.25, "metallic": 1,
+                                        "specular": 0.75, "emissiveColor": [0.5, 0.25, 0.125])");
+        scene.open();
+        scene.add(BuiltinMesh::Cube, scene.material("probe"));
+
+        const auto shown = [&](RenderDebugView debugView, const CameraView& view) {
+            SceneRenderSettings settings = SceneFixture::flatSettings();
+            settings.debugView = debugView;
+            return scene.render(view, settings);
+        };
+        // Head-on, from four and a half metres in front of the face that looks along +Z.
+        const CameraView front = scene.orthographicView(Vec3(0.0f, 0.0f, 5.0f), Vec3(0.0f), 2.0f);
+
+        // Colors are shown as colors ...
+        checkPixel(shown(RenderDebugView::BaseColor, front), 32, 32, Vec3(0.2f, 0.4f, 0.6f));
+        checkPixel(shown(RenderDebugView::Emissive, front), 32, 32, Vec3(0.5f, 0.25f, 0.125f));
+        // ... and numbers as the grey that has their value.
+        checkShown(shown(RenderDebugView::Roughness, front), 32, 32, Vec3(0.25f));
+        checkShown(shown(RenderDebugView::Metallic, front), 32, 32, Vec3(1.0f));
+        checkShown(shown(RenderDebugView::Specular, front), 32, 32, Vec3(0.75f));
+        // The material has no occlusion texture: nothing is occluded.
+        checkShown(shown(RenderDebugView::Occlusion, front), 32, 32, Vec3(1.0f));
+        // A normal is shown with each axis from -1 to 1 as a color from 0 to 1.
+        checkShown(shown(RenderDebugView::Normals, front), 32, 32, Vec3(0.5f, 0.5f, 1.0f));
+        // Depth: white at the camera, half as bright every four metres. 1 / (1 + 4.5 / 4).
+        checkShown(shown(RenderDebugView::Depth, front), 32, 32, Vec3(1.0f / 2.125f));
+
+        // The other sides of the cube face the other ways.
+        const CameraView above =
+            scene.orthographicView(Vec3(0.0f, 5.0f, 0.0f), Vec3(0.0f), 2.0f, Vec3(0.0f, 0.0f, -1.0f));
+        checkShown(shown(RenderDebugView::Normals, above), 32, 32, Vec3(0.5f, 1.0f, 0.5f));
+        const CameraView left = scene.orthographicView(Vec3(-5.0f, 0.0f, 0.0f), Vec3(0.0f), 2.0f);
+        checkShown(shown(RenderDebugView::Normals, left), 32, 32, Vec3(0.0f, 0.5f, 0.5f));
+
+        // Where nothing is drawn, every view shows the background.
+        for (const RenderDebugView debugView :
+             {RenderDebugView::BaseColor, RenderDebugView::Normals, RenderDebugView::Depth}) {
+            CAPTURE(nameOf(debugView));
+            checkPixel(shown(debugView, front), 4, 4, kBackground);
+        }
+        checkNoValidationIssues(*scene.context.graphics);
+    }
+
+    TEST_CASE("the normals view shows normals as the lighting uses them, bent by the normal map") {
+        SceneFixture scene;
+        // A normal map that leans every normal towards the right of the image.
+        const Vec3 encoded = glm::normalize(Vec3(1.0f, 0.0f, 1.0f)) * 0.5f + 0.5f;
+        scene.writeImage("lean", makeChecker(8, 1, Vec4(encoded, 1.0f), Vec4(encoded, 1.0f)));
+        scene.open();
+        scene.writeMaterial("bent", fmt::format(R"("normalTexture": "{}")", scene.asset("lean.png").toString()));
+        REQUIRE(scene.assets->refresh().has_value());
+        scene.add(BuiltinMesh::Cube, scene.material("bent"), at(Vec3(0.0f), Vec3(2.0f)));
+
+        SceneRenderSettings settings = SceneFixture::flatSettings();
+        settings.debugView = RenderDebugView::Normals;
+        // On the +Z face the right of the image is +X: the normal is (1, 0, 1), normalized.
+        const Image image = scene.render(scene.orthographicView(Vec3(0.0f, 0.0f, 5.0f), Vec3(0.0f), 2.0f), settings);
+        const float lean = 0.5f + 0.5f * std::sqrt(0.5f);
+        checkShown(image, 32, 32, Vec3(lean, 0.5f, lean));
+        checkNoValidationIssues(*scene.context.graphics);
+    }
+
+    TEST_CASE("a surface looks the same whether it is lit from the G-buffer or drawn forward") {
+        SceneFixture scene(UVec2(96, 96));
+        scene.writeImage("colors", makeChecker(64, 4, Vec4(0.8f, 0.3f, 0.1f, 1.0f), Vec4(0.1f, 0.3f, 0.7f, 1.0f)));
+        scene.writeImage("bumps", makeBumpNormalMap(64, 4));
+        scene.open();
+        // One material twice: solid, which is lit deferred, and blended with full
+        // opacity, which is drawn forward and covers what is behind it just the same.
+        const std::string surface = fmt::format(
+            R"("baseColorTexture": "{}", "normalTexture": "{}", "roughness": 0.4, "metallic": 0.5,
+               "specular": 0.8, "emissiveColor": [0.02, 0.05, 0.01])",
+            scene.asset("colors.png").toString(), scene.asset("bumps.png").toString());
+        scene.writeMaterial("deferred", surface);
+        scene.writeMaterial("forward", surface + R"(, "alphaMode": "blended")");
+        REQUIRE(scene.assets->refresh().has_value());
+
+        const Entity ball = scene.add(BuiltinMesh::Sphere, scene.material("deferred"), at(Vec3(0.0f), Vec3(1.6f)));
+        const CameraView view = scene.perspectiveView(Vec3(1.5f, 1.0f, 2.5f), Vec3(0.0f));
+        // Lit the way a scene is: a key light and light from the sky and the ground.
+        const SceneRenderSettings settings;
+
+        const Image deferred = scene.render(view, settings);
+        CHECK(scene.renderer->statistics().forwardPass.drawCalls == 0);
+        scene.world.tryGet<MeshRendererComponent>(ball)->materials = {scene.material("forward")};
+        const Image forward = scene.render(view, settings);
+        CHECK(scene.renderer->statistics().basePass.drawCalls == 0);
+
+        // The picture is not flat: there is something to compare.
+        CHECK(glm::distance(Vec3(deferred.pixel(40, 40)), Vec3(deferred.pixel(60, 60))) > 0.05f);
+        // The G-buffer stores what the forward pass has in full precision in eight bits
+        // a channel; that is all the difference there may be.
+        const ImageComparison difference = unwrap(compareImages(deferred, forward, {.channelTolerance = 3}));
+        CHECK(difference.maxChannelDifference <= 3);
+        CHECK(difference.differingPixels == 0);
+        checkNoValidationIssues(*scene.context.graphics);
+    }
+
+    TEST_CASE("the lighting-only view lights every surface as plain matte grey") {
+        SceneFixture scene;
+        scene.writeMaterial("loud", R"("baseColor": [0.9, 0.1, 0.1, 1], "metallic": 1, "roughness": 0.3,
+                                       "emissiveColor": [0, 0.5, 0])");
+        scene.writeMaterial("grey", R"("baseColor": [0.5, 0.5, 0.5, 1], "metallic": 0, "roughness": 0.3)");
+        scene.writeFlatMaterial("glass", kBlue, R"("alphaMode": "blended")");
+        scene.open();
+        const Entity ball = scene.add(BuiltinMesh::Sphere, scene.material("loud"), at(Vec3(0.0f), Vec3(1.6f)));
+        const CameraView view = scene.perspectiveView(Vec3(1.0f, 1.5f, 2.5f), Vec3(0.0f));
+
+        SceneRenderSettings lightingOnly;
+        lightingOnly.debugView = RenderDebugView::LightingOnly;
+        const Image shown = scene.render(view, lightingOnly);
+
+        // The same ball made of grey, in the ordinary view: the same picture.
+        scene.world.tryGet<MeshRendererComponent>(ball)->materials = {scene.material("grey")};
+        const Image grey = scene.render(view, SceneRenderSettings());
+        const ImageComparison difference = unwrap(compareImages(shown, grey, {.channelTolerance = 2}));
+        CHECK(difference.differingPixels == 0);
+        // And grey it is: no trace of the red, of the metal or of the glow.
+        const Vec4 pixel = shown.pixel(32, 28);
+        CHECK(pixel.r == doctest::Approx(pixel.g).epsilon(0.1));
+        CHECK(pixel.g > 0.2f);
+
+        // Translucent surfaces are left out of this view.
+        scene.add(BuiltinMesh::Cube, scene.material("glass"), at(Vec3(0.0f, 0.0f, 1.2f), Vec3(0.5f)));
+        scene.render(view, lightingOnly);
+        CHECK(scene.renderer->statistics().forwardPass.drawCalls == 0);
+        checkNoValidationIssues(*scene.context.graphics);
+    }
+
+    TEST_CASE("the wireframe view draws the edges of the triangles and nothing between them") {
+        SceneFixture scene;
+        scene.writeFlatMaterial("red", kRed);
+        scene.open();
+        if (!scene.context.graphics->adapter().supportsWireframe) {
+            MESSAGE("this adapter cannot draw wireframes; nothing to test");
+            return;
+        }
+        scene.add(BuiltinMesh::Cube, scene.material("red"));
+        SceneRenderSettings settings = SceneFixture::flatSettings();
+        settings.debugView = RenderDebugView::Wireframe;
+        const Image image = scene.render(scene.orthographicView(Vec3(0.0f, 0.0f, 5.0f), Vec3(0.0f), 2.0f), settings);
+
+        // Lines are drawn: some pixels are neither background nor the material's red.
+        const Vec3 background = displayed(kBackground);
+        uint32_t linePixels = 0;
+        for (uint32_t y = 0; y < image.height(); ++y) {
+            for (uint32_t x = 0; x < image.width(); ++x) {
+                const Vec3 pixel(image.pixel(x, y));
+                CHECK(glm::distance(pixel, displayed(kRed)) > 0.2f);
+                if (glm::distance(pixel, background) > 0.05f) {
+                    ++linePixels;
+                }
+            }
+        }
+        // The face is 32 pixels square: four sides and a diagonal come to some 170 pixels,
+        // and the edges of the faces behind it lie exactly behind those.
+        CHECK(linePixels > 120);
+        CHECK(linePixels < 260);
+        // Inside a triangle, away from its edges, the background shows through.
+        checkPixel(image, 40, 26, kBackground);
+        checkPixel(image, 24, 38, kBackground);
+
+        // Every triangle is drawn once, front and back alike, by the pass that stands in
+        // for the forward pass.
+        const SceneRenderStatistics& statistics = scene.renderer->statistics();
+        CHECK(statistics.forwardPass == MeshPassStatistics{.drawCalls = 1, .instances = 1, .triangles = 12});
+        CHECK(statistics.depthPass.drawCalls == 0);
+        CHECK(statistics.basePass.drawCalls == 0);
+        checkNoValidationIssues(*scene.context.graphics);
+    }
+
+    TEST_CASE("a renderer told that wireframes cannot be drawn shows the lit picture and says so once") {
+        SceneFixture scene;
+        scene.writeFlatMaterial("red", kRed);
+        scene.open();
+        scene.renderer = unwrap(SceneRenderer::create(scene.context.device(), *scene.context.shaders, *scene.assets,
+                                                      {.supportsWireframe = false}));
+        scene.add(BuiltinMesh::Cube, scene.material("red"));
+        SceneRenderSettings settings = SceneFixture::flatSettings();
+        settings.debugView = RenderDebugView::Wireframe;
+        const CameraView view = scene.orthographicView(Vec3(0.0f, 0.0f, 5.0f), Vec3(0.0f), 2.0f);
+
+        const LogCapture log(LogLevel::Warn);
+        checkPixel(scene.render(view, settings), 32, 32, kRed);
+        checkPixel(scene.render(view, settings), 32, 32, kRed);
+        CHECK(log.count(LogLevel::Warn) == 1);
+        CHECK(log.contains("cannot draw wireframes"));
+        checkNoValidationIssues(*scene.context.graphics);
+    }
+
+    TEST_CASE("the overdraw view is the brighter the more often a pixel is drawn, hidden surfaces included") {
+        SceneFixture scene;
+        scene.writeFlatMaterial("red", kRed);
+        scene.writeFlatMaterial("glass", kBlue, R"("alphaMode": "blended")");
+        scene.open();
+        // A small cube in front of a large one: in the middle two surfaces are drawn,
+        // around it one, though the eye would see one everywhere.
+        scene.add(BuiltinMesh::Cube, scene.material("red"), at(Vec3(0.0f, 0.0f, -1.0f), Vec3(1.5f)));
+        scene.add(BuiltinMesh::Cube, scene.material("red"), at(Vec3(0.0f, 0.0f, 1.0f), Vec3(0.5f)));
+        SceneRenderSettings settings = SceneFixture::flatSettings();
+        settings.debugView = RenderDebugView::Overdraw;
+        const CameraView view = scene.orthographicView(Vec3(0.0f, 0.0f, 5.0f), Vec3(0.0f), 2.0f);
+        const Image image = scene.render(view, settings);
+
+        // Each layer adds (1/4, 1/8, 1/16) to black.
+        const Vec3 layer(0.25f, 0.125f, 0.0625f);
+        checkPixel(image, 32, 32, 2.0f * layer);
+        checkPixel(image, 12, 32, layer);
+        // Nothing drawn: black, whatever the background of the scene is.
+        checkPixel(image, 2, 2, Vec3(0.0f));
+
+        // Translucent surfaces count like any other.
+        scene.add(BuiltinMesh::Cube, scene.material("glass"), at(Vec3(0.0f, 0.0f, 2.0f), Vec3(0.25f)));
+        checkPixel(scene.render(view, settings), 32, 32, 3.0f * layer);
+        CHECK(scene.renderer->statistics().forwardPass.drawCalls == 2);
+        checkNoValidationIssues(*scene.context.graphics);
+    }
+
     TEST_CASE("one renderer serves several views of different sizes") {
         SceneFixture scene;
         scene.writeFlatMaterial("red", kRed);
@@ -1043,13 +1363,13 @@ TEST_SUITE("SceneRenderer") {
 
         // The last view on its own, and both together as what the frame cost.
         CHECK(scene.renderer->statistics().views == 1);
-        CHECK(scene.renderer->statistics().meshes.triangles == 12);
+        CHECK(scene.renderer->statistics().basePass.triangles == 12);
         const SceneRenderStatistics frame = scene.renderer->takeFrameStatistics();
         CHECK(frame.views == 2);
         CHECK(frame.meshRenderers == 2);
-        CHECK(frame.meshes.drawCalls == 2);
-        CHECK(frame.meshes.instances == 2);
-        CHECK(frame.meshes.triangles == 24);
+        CHECK(frame.basePass == MeshPassStatistics{.drawCalls = 2, .instances = 2, .triangles = 24});
+        CHECK(frame.depthPass == frame.basePass);
+        CHECK(frame.meshes.triangles == 48);
         // Taking the numbers starts the count afresh.
         CHECK(scene.renderer->takeFrameStatistics().views == 0);
         CHECK(scene.renderer->statistics().views == 1);

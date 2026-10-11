@@ -74,6 +74,10 @@ A material is a JSON file. Only what differs from the defaults has to be stated:
   `roughness` to 1 and let the texture decide.
 - `metallicRoughnessTexture` reads roughness from green and metallic from blue;
   `occlusionTexture` reads red. One packed "ORM" texture serves both slots.
+- `uvScale` and `uvOffset` lay out all the textures of the material together,
+  occlusion included. Only an occlusion texture that was baked for the whole mesh,
+  into its second set of coordinates (`"occlusionUvChannel": 1` while the others use
+  0), is used as it is.
 - Normal maps have +Y up (the OpenGL convention, as in glTF).
 - `"parent": "<material id>"` starts from another material and changes only what is
   stated. See `samples/showcase/assets/materials/painted_metal_red.material.json`.
@@ -150,6 +154,9 @@ stay as they are, so ids do not change.
   (the Direct3D convention). Invert its green channel; the engine expects +Y up.
 - **A texture looks washed out or too dark:** it is in a slot of the wrong kind. Color
   goes in `baseColorTexture` or `emissiveTexture`; everything else is data.
+- **Not sure what a material ends up as:** look at it channel by channel with the
+  debug views (`viewport.debugView`, or View > Render view in the editor): base color,
+  normals, roughness, metallic, occlusion, emissive.
 - **Ids changed after moving files:** the `.meta` files were left behind. Move them
   back next to their assets.
 - **"it has the same id as ..."** in `problems`: an asset was copied together with its

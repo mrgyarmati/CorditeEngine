@@ -295,8 +295,9 @@ TEST_SUITE("GltfExporter") {
         CHECK(paint["normalTexture"]["scale"] == 1.5);
         CHECK(paint["occlusionTexture"]["strength"] == 0.75);
         CHECK(paint["occlusionTexture"]["texCoord"] == 1);
-        // Occlusion is not scaled or shifted, the other textures are.
-        CHECK_FALSE(paint["occlusionTexture"].contains("extensions"));
+        // Occlusion uses the same set of coordinates as the other textures here, and so is
+        // scaled and shifted with them.
+        CHECK(paint["occlusionTexture"]["extensions"]["KHR_texture_transform"]["scale"] == Json::array({4.0, 2.0}));
         CHECK(paint["pbrMetallicRoughness"]["baseColorTexture"]["extensions"]["KHR_texture_transform"]["scale"] ==
               Json::array({4.0, 2.0}));
         CHECK(paint["extensions"]["KHR_materials_emissive_strength"]["emissiveStrength"] == 4.0);
@@ -457,6 +458,29 @@ TEST_SUITE("GltfExporter") {
         const GltfDocument imported = unwrap(importGltf(path));
         CHECK(imported.images[0].uri == "my textures/wall #1 50%.png");
         CHECK(imported.meshes[0].mesh.triangleCount() == 12);
+    }
+
+    TEST_CASE("an occlusion texture in a set of coordinates of its own is written as it is") {
+        const TempDirectory directory;
+        GltfDocument document = makeDocument();
+        MaterialData& paint = document.materials[0].material;
+        paint.uvChannel = 0;
+        paint.occlusionUvChannel = 1;
+        REQUIRE(paint.uvScale != Vec2(1.0f));
+        REQUIRE(document.materials[0].images.occlusion.has_value());
+
+        const std::filesystem::path path = directory.path() / "own.gltf";
+        REQUIRE(exportGltf(document, path).has_value());
+        const Json json = unwrap(readJsonFile(path));
+        const Json& written = json["materials"][0];
+        CHECK(written["occlusionTexture"]["texCoord"] == 1);
+        CHECK_FALSE(written["occlusionTexture"].contains("extensions"));
+        CHECK(written["pbrMetallicRoughness"]["baseColorTexture"].contains("extensions"));
+
+        // And it reads back as it was, with nothing to remark on.
+        const GltfDocument imported = unwrap(importGltf(path));
+        CHECK(imported.warnings.empty());
+        CHECK(imported.materials[0].material == paint);
     }
 
     TEST_CASE("a part without triangles is left out") {

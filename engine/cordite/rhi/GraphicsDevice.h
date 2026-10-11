@@ -61,6 +61,9 @@ struct AdapterInfo {
     /// The device can time its own work (see GpuTimer). Nearly every GPU can; software
     /// implementations sometimes cannot.
     bool supportsTimerQueries = false;
+    /// The device can draw the edges of triangles instead of filling them, which the
+    /// wireframe debug view needs.
+    bool supportsWireframe = false;
 };
 
 struct GraphicsDeviceDesc {
@@ -111,7 +114,9 @@ public:
     /// Releases GPU resources whose last use has finished executing. Call once per frame.
     void collectGarbage();
 
-    /// Blocks until the GPU has finished all submitted work.
+    /// Blocks until the GPU has finished all submitted work and the device has taken
+    /// note of it: whatever is polled for right afterwards - a timer query, an event
+    /// query - is there.
     void waitIdle();
 
     /// Raw Vulkan handles, for the rhi module's own implementation files only.

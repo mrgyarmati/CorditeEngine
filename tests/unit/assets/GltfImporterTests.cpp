@@ -475,7 +475,7 @@ TEST_SUITE("GltfImporter") {
                     "extensions": {"KHR_texture_transform": {"scale": [4, 2], "offset": [0.5, 0.25], "texCoord": 1}}
                 }
             },
-            "occlusionTexture": {"index": 2, "texCoord": 1}
+            "occlusionTexture": {"index": 2, "texCoord": 0}
         })",
                                                      kTwoTextures);
 
@@ -487,7 +487,8 @@ TEST_SUITE("GltfImporter") {
         CHECK(data.uvOffset == Vec2(0.5f, 0.25f));
         // The extension's own coordinate set wins over the texture's.
         CHECK(data.uvChannel == 1);
-        CHECK(data.occlusionUvChannel == 1);
+        // The occlusion texture has the other set to itself, and no layout of its own.
+        CHECK(data.occlusionUvChannel == 0);
         CHECK(document.materials[0].images.baseColor == 0u);
         CHECK(document.materials[0].images.occlusion == 1u);
         CHECK(document.warnings.empty());
@@ -511,6 +512,46 @@ TEST_SUITE("GltfImporter") {
         const GltfDocument document = unwrap(importGltf(path));
         CHECK(document.materials[0].material.uvScale == Vec2(1.0f, 2.0f));
         CHECK(document.materials[0].material.uvOffset == Vec2(0.25f, 0.0f));
+    }
+
+    TEST_CASE("an occlusion texture shares the layout of the textures whose coordinates it uses") {
+        const TempDirectory directory;
+        constexpr std::string_view kScaled = R"("extensions": {"KHR_texture_transform": {"scale": [4, 2]}})";
+
+        SUBCASE("packed with the others and laid out like them") {
+            const GltfDocument document = importMaterial(
+                directory,
+                fmt::format(R"({{"pbrMetallicRoughness": {{"metallicRoughnessTexture": {{"index": 0, {0}}}}},
+                                "occlusionTexture": {{"index": 0, {0}}}}})",
+                            kScaled),
+                kTwoTextures);
+            CHECK(document.warnings.empty());
+            CHECK(document.materials[0].material.uvScale == Vec2(4.0f, 2.0f));
+            CHECK(document.materials[0].material.uvChannel == 0);
+            CHECK(document.materials[0].material.occlusionUvChannel == 0);
+        }
+        SUBCASE("the only texture there is") {
+            const GltfDocument document = importMaterial(
+                directory, fmt::format(R"({{"occlusionTexture": {{"index": 0, "texCoord": 1, {}}}}})", kScaled),
+                kTwoTextures);
+            CHECK(document.warnings.empty());
+            // Its layout is the material's, so that it applies.
+            CHECK(document.materials[0].material.uvScale == Vec2(4.0f, 2.0f));
+            CHECK(document.materials[0].material.uvChannel == 1);
+            CHECK(document.materials[0].material.occlusionUvChannel == 1);
+        }
+        SUBCASE("in a set of coordinates of its own, as it is") {
+            const GltfDocument document =
+                importMaterial(directory,
+                               fmt::format(R"({{"pbrMetallicRoughness": {{"baseColorTexture": {{"index": 0, {}}}}},
+                                "occlusionTexture": {{"index": 0, "texCoord": 1}}}})",
+                                           kScaled),
+                               kTwoTextures);
+            CHECK(document.warnings.empty());
+            CHECK(document.materials[0].material.uvScale == Vec2(4.0f, 2.0f));
+            CHECK(document.materials[0].material.uvChannel == 0);
+            CHECK(document.materials[0].material.occlusionUvChannel == 1);
+        }
     }
 
     TEST_CASE("what the material model cannot express is reported") {
@@ -543,12 +584,25 @@ TEST_SUITE("GltfImporter") {
                                                          kTwoTextures);
             CHECK(hasWarning(document, "rotates a texture"));
         }
-        SUBCASE("a scaled occlusion texture") {
+        SUBCASE("an occlusion texture laid out differently from the others it shares coordinates with") {
             const GltfDocument document = importMaterial(directory, R"({
+                "pbrMetallicRoughness": {"baseColorTexture": {"index": 0}},
                 "occlusionTexture": {"index": 0, "extensions": {"KHR_texture_transform": {"scale": [2, 2]}}}
             })",
                                                          kTwoTextures);
-            CHECK(hasWarning(document, "scales or shifts its occlusion texture"));
+            CHECK(hasWarning(document, "lays its textures out differently"));
+            CHECK(document.materials[0].material.uvScale == Vec2(1.0f));
+        }
+        SUBCASE("a scaled occlusion texture in a set of coordinates of its own") {
+            const GltfDocument document = importMaterial(directory, R"({
+                "pbrMetallicRoughness": {"baseColorTexture": {"index": 0}},
+                "occlusionTexture": {"index": 0, "texCoord": 1,
+                                     "extensions": {"KHR_texture_transform": {"scale": [2, 2]}}}
+            })",
+                                                         kTwoTextures);
+            CHECK(
+                hasWarning(document, "scales or shifts an occlusion texture that has texture coordinates of its own"));
+            CHECK(document.materials[0].material.occlusionUvChannel == 1);
         }
         SUBCASE("a third set of texture coordinates") {
             const GltfDocument document = importMaterial(

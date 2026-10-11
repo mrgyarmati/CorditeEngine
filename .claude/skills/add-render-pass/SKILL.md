@@ -111,29 +111,92 @@ Look at the screenshot. Then run `./scripts/dev.ps1 verify` before committing.
   repository; a Release build reads the copy beside the executable, refreshed on build.
   The shader cache is keyed by content, so it never serves a stale shader.
 
-## A pass that draws meshes
+## The passes of a scene
 
-`MeshForwardPass` (`engine/cordite/renderer/MeshForwardPass.*` with
-`shaders/passes/MeshForward.slang`) is the template for a geometry pass: a depth
-pre-pass, a G-buffer pass and a shadow pass all take the same input.
+`SceneRenderer::render` runs these for every view, in this order (the table in
+`SceneRenderer.h` is the reference):
 
-- **Input:** a list of `MeshDraw` (GPU mesh, submesh, GPU material, placement), which
-  `SceneRenderer` collects once per view. A new pass is another consumer of that list,
-  called from `SceneRenderer::render`; it does not walk the world itself.
-- **Vertex layout:** buffer 0 holds `MeshVertex` (position, normal, tangent, two sets of
-  texture coordinates), buffer 1 the per-instance placement as three rows of a 3x4
-  matrix. Copy the attribute list and the `MeshVertexInput` struct together: their order
-  is what connects them.
-- **Bindings:** two binding sets. Space 0 is the pass's own (view constants); space 1
-  is the material's and comes from `GpuMaterial::bindings`. Both layouts set
-  `registerSpaceIsDescriptorSet`. In the shader, `#include "materials/Material.slang"`
-  and call `evaluateSurface` to get the surface at a pixel; never sample material
-  textures directly.
-- **Pipelines:** one per combination that changes raster or blend state - masked,
-  blended, double-sided, mirrored instance - created on first use, like the variants in
-  `MeshForwardPass::pipelineFor`. Front faces wind counter-clockwise; a mirrored
-  instance needs the opposite winding.
-- **Order:** sort and batch by `GpuMesh::serial` and `GpuMaterial::serial`, not by
-  pointer, so that runs are repeatable.
-- **Test** it in `tests/render/SceneRendererTests.cpp` with `SceneFixture`: flat
-  emissive materials and an orthographic camera make pixel values exact.
+```
+depth pre-pass -> base pass (G-buffer) -> deferred lighting -> forward pass -> display encoding
+```
+
+Decide where a new pass belongs before writing it: does it draw meshes, read the
+G-buffer, or work on the lit picture?
+
+### A pass that draws meshes
+
+Do not write a class. A mesh pass is a `MeshPassDesc` given to `MeshPass`
+(`engine/cordite/renderer/MeshPass.h`); the five that exist are at the top of
+`SceneRenderer.cpp`:
+
+```cpp
+MeshPassDesc desc;
+desc.debugName = "Shadow pass";
+desc.maskedPixelShader = {.path = "passes/MeshDepth.slang", .entryPoint = "meshDepthMaskedPixel",
+                          .stage = ShaderStage::Pixel};        // no pixel shader for solid surfaces
+desc.depth = MeshPassDepth::TestAndWrite;
+```
+
+- **Never write a vertex shader for it.** Every mesh pass uses `meshVertex` in
+  `passes/MeshVertex.slang`, and the pixel shader takes a `MeshVaryings`
+  (`common/MeshVaryings.slang`). The base pass depends on getting exactly the depth the
+  pre-pass wrote, which only the same code gives.
+- **Input** is the batches of the view's `MeshDrawList`: `solidBatches()` (opaque and
+  masked, grouped for instancing), `blendedBatches()` (far to near) or `batches()`.
+  The list is built once per view; a pass never walks the world or sorts.
+- **The material** comes through `#include "materials/Material.slang"`:
+  `evaluateSurface(input, isFrontFace)` gives the `Surface` at the pixel, and
+  `evaluateOpacity` is enough for a pass that only needs to cut holes. Never sample
+  material textures directly.
+- **Call it** from `SceneRenderer::render`, add it to `SceneRenderer::Passes`, and
+  count what it draws in `SceneRenderStatistics`.
+
+### A pass that reads the G-buffer
+
+`DeferredLightingPass` is the template: a `FullscreenPass` with two binding sets, the
+view's and the G-buffer's.
+
+```slang
+#include "common/Fullscreen.slang"
+#include "common/GBuffer.slang"
+#include "common/View.slang"
+
+Texture2D<float4> gbufferBaseColor : register(t0, space1);
+Texture2D<float4> gbufferNormal : register(t1, space1);
+Texture2D<float4> gbufferParameters : register(t2, space1);
+Texture2D<float4> gbufferEmissive : register(t3, space1);
+Texture2D<float4> sceneDepth : register(t4, space1);
+```
+
+- Get the layout and the set from `createGBufferLayout` / `createGBufferBindings`
+  (`GBufferBindings.h`); pass `withConstants` for a constant buffer of the pass's own
+  at `b0, space1`.
+- Read with `Load`, not `Sample`: one pixel of the G-buffer belongs to one surface.
+  `decodeGBuffer` turns the four values into a `Surface`, and
+  `worldPositionFromDepth` gives its position.
+- Skip pixels whose depth is 0 - nothing was drawn there.
+- Draw into `targets.lightingFramebuffer()`. A framebuffer with the depth attached
+  cannot be used while the depth is being read as a texture.
+- Anything that lights a surface calls `shadeSurface` (`common/SceneLighting.slang`),
+  which the forward pass calls too; extend that function, not one of its callers.
+
+### A debug view
+
+1. Add the value to `RenderDebugView` (`RenderDebugView.h`): the enumerator, its place
+   in `kRenderDebugViews`, `nameOf` and `displayNameOf`. The editor's menu and
+   `viewport.debugView` pick it up from the list.
+2. If it shows something the G-buffer holds, keep it between `BaseColor` and `Depth`,
+   and add a `case` with the same number to `passes/DebugView.slang`. Write colors as
+   they are and numbers through `asShown`, so that 0.5 comes out as mid-grey.
+3. Otherwise handle it in `SceneRenderer::render`, as wireframe and overdraw are.
+4. Test it in `SceneRendererTests`: what a known surface must look like in the view.
+
+### Testing a scene pass
+
+`tests/render/SceneRendererTests.cpp` with `SceneFixture`. State what a pixel must be
+wherever that is possible:
+
+- flat emissive materials (`writeFlatMaterial`), an orthographic camera and
+  `flatSettings()` (no light) make colors exact: `checkPixel(image, x, y, linearColor)`;
+- a debug view makes a number visible: `checkShown(image, x, y, Vec3(0.25f))`;
+- `scene.renderer->statistics()` says which pass drew what.

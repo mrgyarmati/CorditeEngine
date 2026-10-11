@@ -6,8 +6,11 @@
         // Counts and sizes are the same on every machine. They leave room for a small
         // addition to the showcase and no more: a change that exceeds one either has a
         // reason, and raises the budget in the same commit, or has a mistake.
-        "drawCalls": 24,
-        "triangles": 3500,
+        //
+        // Draw calls and triangles are those of all passes together: a solid surface is
+        // drawn by the depth pre-pass and again by the base pass, a translucent one once.
+        "drawCalls": 44,
+        "triangles": 6500,
         "meshBytes": 160000,
         "textureBytes": 9437184,
 

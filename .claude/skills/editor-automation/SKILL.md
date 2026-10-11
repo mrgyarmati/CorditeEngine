@@ -124,6 +124,12 @@ set it like any other property:
   saves the scene alone, at any size.
 - `viewport.lookAt {"position": [x,y,z], "target": [x,y,z]}` and
   `viewport.frame {"entity": ...}` place the viewport camera first.
+- `viewport.debugView {"view": "normals"}` makes the viewport show something the
+  renderer works with instead of the lit picture: `baseColor`, `normals`, `roughness`,
+  `metallic`, `specular`, `occlusion`, `emissive`, `depth`, `lightingOnly`,
+  `wireframe`, `overdraw`; `none` brings the picture back. When a surface looks wrong,
+  a screenshot of the right view says whether the material, the normals or the light
+  is at fault.
 
 Then read the image file. Looking at the picture is the only way to know that a change
 is visible and looks right; a passing command only says that the data changed.

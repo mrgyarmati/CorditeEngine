@@ -181,15 +181,26 @@ TEST_SUITE("Performance") {
         milliseconds["gpuFrame"] = measurements > 0 ? toJson(gpuFrame) : Json(nullptr);
 
         const FrameStatistics statistics = engine->statistics();
+        // Validation is off, but the device still reports what it cannot do - running
+        // out of versions of a buffer because frames pile up, for one.
+        const std::vector<std::string> deviceIssues = engine->graphics().validationIssues();
         engine.reset();
 
         // --- The report -------------------------------------------------------------------------
-        Json scene = Json::object();
+        const auto describePass = [](const MeshPassStatistics& pass) {
+            Json description = Json::object();
+            description["drawCalls"] = pass.drawCalls;
+            description["instances"] = pass.instances;
+            description["triangles"] = pass.triangles;
+            return description;
+        };
+        // All passes together, and each on its own.
+        Json scene = describePass(statistics.scene.meshes);
         scene["meshRenderers"] = statistics.scene.meshRenderers;
         scene["culled"] = statistics.scene.culled;
-        scene["drawCalls"] = statistics.scene.meshes.drawCalls;
-        scene["instances"] = statistics.scene.meshes.instances;
-        scene["triangles"] = statistics.scene.meshes.triangles;
+        scene["depthPass"] = describePass(statistics.scene.depthPass);
+        scene["basePass"] = describePass(statistics.scene.basePass);
+        scene["forwardPass"] = describePass(statistics.scene.forwardPass);
 
         Json resources = Json::object();
         resources["meshes"] = statistics.resources.meshCount;
@@ -232,6 +243,10 @@ TEST_SUITE("Performance") {
         const Json allBudgets = unwrap(readJsonFile(perfDirectory / "budgets.json"));
         REQUIRE(allBudgets.contains("showcase"));
         const Json& budgets = allBudgets["showcase"];
+
+        for (const std::string& issue : deviceIssues) {
+            FAIL_CHECK("the graphics device reported: " << issue);
+        }
 
         // The showcase is drawn completely: nothing failed to load, nothing was left out.
         CHECK(statistics.scene.views == 1);

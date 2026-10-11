@@ -38,7 +38,7 @@
 /// Besides the scene-editing and asset commands (see EditorCommands.h) the application
 /// adds the ones that need a running editor: `editor.screenshot`, `editor.runFrames`,
 /// `editor.statistics`, `editor.showPanel`, `editor.exit`, `viewport.lookAt`,
-/// `viewport.frame` and `viewport.camera`.
+/// `viewport.frame`, `viewport.camera` and `viewport.debugView`.
 
 #include "cordite/assets/Image.h"
 #include "cordite/core/Base.h"

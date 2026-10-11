@@ -201,6 +201,8 @@ struct GraphicsDevice::Impl final : public nvrhi::IMessageCallback {
     VkDebugUtilsMessengerEXT debugMessenger = VK_NULL_HANDLE;
     nvrhi::vulkan::DeviceHandle vulkanDevice;
     nvrhi::DeviceHandle device;
+    /// Used by waitIdle() to wait for the last submission by name.
+    nvrhi::EventQueryHandle idleQuery;
     AdapterInfo adapter;
     bool vulkanValidation = false;
 
@@ -215,6 +217,7 @@ struct GraphicsDevice::Impl final : public nvrhi::IMessageCallback {
             device->waitForIdle();
             device->runGarbageCollection();
         }
+        idleQuery = nullptr;
         device = nullptr;
         vulkanDevice = nullptr;
 
@@ -448,6 +451,7 @@ Status GraphicsDevice::Impl::initialize(const GraphicsDeviceDesc& desc) {
         adapter.vendorId = properties.vendorID;
         adapter.deviceId = properties.deviceID;
         adapter.apiVersion = formatVersion(properties.apiVersion);
+        adapter.supportsWireframe = vulkan.physicalDevice.getFeatures().fillModeNonSolid != VK_FALSE;
         // Timestamps have to be supported by the device and by the queue that is used.
         const std::vector<vk::QueueFamilyProperties> families = vulkan.physicalDevice.getQueueFamilyProperties();
         adapter.supportsTimerQueries = properties.limits.timestampComputeAndGraphics != VK_FALSE &&
@@ -550,7 +554,21 @@ void GraphicsDevice::collectGarbage() {
 }
 
 void GraphicsDevice::waitIdle() {
-    m_impl->device->waitForIdle();
+    nvrhi::IDevice* device = m_impl->device;
+    device->waitForIdle();
+
+    // "Nothing is running" and "the last piece of work is recorded as finished" are two
+    // things, and a driver may be a moment late with the second. Whoever polls for a
+    // result right after this call would then be told, now and then, that it is not
+    // there yet. Waiting for the last submission by name closes the gap.
+    if (!m_impl->idleQuery) {
+        m_impl->idleQuery = device->createEventQuery();
+    }
+    if (m_impl->idleQuery) {
+        device->resetEventQuery(m_impl->idleQuery);
+        device->setEventQuery(m_impl->idleQuery, nvrhi::CommandQueue::Graphics);
+        device->waitEventQuery(m_impl->idleQuery);
+    }
 }
 
 const VulkanContext& GraphicsDevice::vulkan() const {

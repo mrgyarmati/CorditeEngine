@@ -171,6 +171,7 @@ Status ViewportPanel::render(nvrhi::IDevice* device, nvrhi::ICommandList* comman
 
     SceneRenderSettings settings;
     settings.backgroundColor = srgbToLinear(kBackgroundColor);
+    settings.debugView = m_debugView;
     m_sceneRenderer->render(commandList, context.world(), m_view, m_targets, settings);
 
     // Over the finished image, in display colors, but still behind what is nearer.

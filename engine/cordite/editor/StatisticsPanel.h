@@ -23,7 +23,10 @@
 ///     "cpuMilliseconds": 0.61,
 ///     "gpuMilliseconds": 0.24,          // null where the GPU cannot time its work
 ///     "scene": {"views": 1, "meshRenderers": 21, "culled": 0,
-///               "drawCalls": 16, "instances": 21, "triangles": 5032},
+///               "drawCalls": 37, "instances": 45, "triangles": 5436,   // all passes together
+///               "passes": {"depth":   {"drawCalls": 18, "instances": 22, "triangles": 2712},
+///                          "base":    {"drawCalls": 18, "instances": 22, "triangles": 2712},
+///                          "forward": {"drawCalls": 1, "instances": 1, "triangles": 12}}},
 ///     "resources": {"meshes": 10, "textures": 22, "materials": 13,
 ///                   "meshBytes": 251904, "textureBytes": 7340032}
 /// }

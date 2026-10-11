@@ -140,6 +140,32 @@ TEST_SUITE("GraphicsDevice") {
         CHECK_NOTHROW(graphics->collectGarbage());
         checkNoValidationIssues(*graphics);
     }
+
+    TEST_CASE("after waitIdle, everything that was submitted counts as finished") {
+        const std::unique_ptr<GraphicsDevice> graphics = createTestDevice();
+        nvrhi::IDevice* device = graphics->device();
+        {
+            const nvrhi::TextureHandle target = test::createColorTarget(device, 1024, 1024);
+            const nvrhi::EventQueryHandle finished = device->createEventQuery();
+            // A driver may take note a moment late that its last piece of work is done.
+            // Many rounds, so that a wait which leaves that gap open is caught here and
+            // not once in a while by whichever test polls for a result first.
+            for (int round = 0; round < 200; ++round) {
+                const nvrhi::CommandListHandle commandList = device->createCommandList();
+                commandList->open();
+                commandList->clearTextureFloat(target, nvrhi::AllSubresources, nvrhi::Color(0.5f));
+                commandList->close();
+                device->executeCommandList(commandList);
+                device->resetEventQuery(finished);
+                device->setEventQuery(finished, nvrhi::CommandQueue::Graphics);
+
+                graphics->waitIdle();
+                CAPTURE(round);
+                REQUIRE(device->pollEventQuery(finished));
+            }
+        }
+        checkNoValidationIssues(*graphics);
+    }
 }
 
 TEST_SUITE("TextureReadback") {

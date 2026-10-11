@@ -17,7 +17,7 @@ Cordite is under active development. Milestones follow the brief:
 | 2 | Window and renderer skeleton: GLFW, Vulkan via NVRHI, swapchain, Slang shaders | Done |
 | 3 | Scene and ECS: entities, components, hierarchy, scene files, editor with viewport and command automation | Done |
 | 4 | Static mesh rendering: projects and asset ids, glTF import, textures, materials, instanced forward pass | Done |
-| 5 | Deferred G-buffer | Planned |
+| 5 | Deferred G-buffer: depth pre-pass, base pass, deferred lighting, forward translucency, debug views | Done |
 | 6 | Lighting | Planned |
 | 7 | Shadows | Planned |
 | 8 | HDR and post-processing | Planned |

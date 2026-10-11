@@ -127,16 +127,18 @@ TEST_SUITE("Engine") {
         {
             const std::unique_ptr<Engine> engine = createEngine(desc);
             runFrames(*engine, 1);
-            // The fullscreen triangle, the test pattern, the blit, the two interface
-            // shaders, the three mesh shaders and the display encoding.
-            CHECK(engine->shaders().stats().compilations == 9);
+            // The fullscreen triangle, the test pattern, the blit and the two interface
+            // shaders; of the scene renderer the mesh vertex shader, the pixel shaders of
+            // its five mesh passes, the lighting in its two forms, the debug view and
+            // the display encoding.
+            CHECK(engine->shaders().stats().compilations == 15);
             CHECK(engine->shaders().stats().diskHits == 0);
         }
 
         const std::unique_ptr<Engine> engine = createEngine(desc);
         runFrames(*engine, 1);
         CHECK(engine->shaders().stats().compilations == 0);
-        CHECK(engine->shaders().stats().diskHits == 9);
+        CHECK(engine->shaders().stats().diskHits == 15);
         checkNoValidationIssues(engine->graphics());
     }
 
@@ -312,7 +314,7 @@ TEST_SUITE("Engine") {
         CHECK(corner.r < 0.2f);
         CHECK(middle.r > corner.r + 0.3f);
         CHECK(engine->sceneRenderer().statistics().meshRenderers == 1);
-        CHECK(engine->sceneRenderer().statistics().meshes.triangles == 12);
+        CHECK(engine->sceneRenderer().statistics().basePass.triangles == 12);
 
         // A camera that is switched off is no camera.
         world.setEnabled(camera, false);
@@ -346,9 +348,10 @@ TEST_SUITE("Engine") {
         CHECK(first.scene.views == 1);
         CHECK(first.scene.meshRenderers == 2);
         CHECK(first.scene.culled == 0);
-        CHECK(first.scene.meshes.drawCalls == 1);
-        CHECK(first.scene.meshes.instances == 2);
-        CHECK(first.scene.meshes.triangles == 24);
+        CHECK(first.scene.basePass == MeshPassStatistics{.drawCalls = 1, .instances = 2, .triangles = 24});
+        // Depth first, then the base pass: two draw calls in all.
+        CHECK(first.scene.depthPass == first.scene.basePass);
+        CHECK(first.scene.meshes.drawCalls == 2);
         CHECK(first.resources.meshCount == 1);
         // 24 vertices of 56 bytes and 36 indices of two.
         CHECK(first.resources.meshBytes == 24 * 56 + 36 * 2);
@@ -406,7 +409,9 @@ TEST_SUITE("Engine") {
         const SceneRenderStatistics& statistics = engine->sceneRenderer().statistics();
         CHECK(statistics.meshRenderers == 21);
         // The four wall panels, the two beams and the two barrels are drawn as groups.
-        CHECK(statistics.meshes.drawCalls < statistics.meshes.instances);
+        CHECK(statistics.basePass.drawCalls < statistics.basePass.instances);
+        // The glass pane is the one surface that is blended over the rest.
+        CHECK(statistics.forwardPass.drawCalls == 1);
         checkNoValidationIssues(engine->graphics());
     }
 

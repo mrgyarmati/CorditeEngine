@@ -405,6 +405,35 @@ Status EditorApp::registerApplicationCommands() {
         },
     }));
 
+    CORDITE_TRY(m_commands.add({
+        .name = "viewport.debugView",
+        .description = "Chooses what the viewport shows: the lit picture (\"none\") or a debug view of the "
+                       "renderer - one thing the G-buffer holds (baseColor, normals, roughness, metallic, "
+                       "specular, occlusion, emissive, depth), the light without the materials "
+                       "(lightingOnly), the edges of the triangles (wireframe) or how often each pixel is "
+                       "drawn (overdraw). Returns the view now shown and all there are; without a parameter "
+                       "it changes nothing.",
+        .parameters = {{"view", Type::String, "The view to show, by one of the names above.", false}},
+        .handler = [this](const Json& parameters) -> Result<Json> {
+            if (const auto name = jsonGetOr<std::string>(parameters, "view", ""); !name.empty()) {
+                const std::optional<RenderDebugView> view = renderDebugViewFromName(name);
+                if (!view) {
+                    return makeError(ErrorCode::InvalidArgument,
+                                     "'{}' is not a view; viewport.debugView without parameters lists them", name);
+                }
+                m_viewport->setDebugView(*view);
+            }
+            Json views = Json::array();
+            for (const RenderDebugView view : kRenderDebugViews) {
+                views.push_back(nameOf(view));
+            }
+            Json result = Json::object();
+            result["view"] = nameOf(m_viewport->debugView());
+            result["views"] = std::move(views);
+            return result;
+        },
+    }));
+
     return m_commands.add({
         .name = "viewport.camera",
         .description = "Returns where the viewport camera is and which way it looks.",
@@ -537,6 +566,16 @@ void EditorApp::drawMainMenu() {
     drawAssetMenu();
 
     if (ImGui::BeginMenu("View")) {
+        // What the viewport shows: the picture, or a look into the renderer.
+        if (ImGui::BeginMenu("Render view")) {
+            for (const RenderDebugView view : kRenderDebugViews) {
+                const std::string label(displayNameOf(view));
+                if (ImGui::MenuItem(label.c_str(), nullptr, m_viewport->debugView() == view)) {
+                    m_viewport->setDebugView(view);
+                }
+            }
+            ImGui::EndMenu();
+        }
         ImGui::MenuItem("Statistics", nullptr, &m_showStatistics);
         ImGui::EndMenu();
     }

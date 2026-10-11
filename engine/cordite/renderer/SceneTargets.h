@@ -3,9 +3,11 @@
 /// @file
 /// The textures one view of a scene is rendered through.
 ///
-/// A scene is drawn in linear light with a depth buffer, and the result is then turned
-/// into the display-ready image that is shown, captured or drawn over. Each view - the
-/// game's, an editor viewport's - has a SceneTargets of its own, sized to what it shows.
+/// Solid surfaces are first written down in the G-buffer - what they are made of, which
+/// way they face - and lit from there into the scene color; translucent ones are then
+/// drawn over it. The result is turned into the display-ready image that is shown,
+/// captured or drawn over. Each view - the game's, an editor viewport's - has a
+/// SceneTargets of its own, sized to what it shows.
 ///
 /// @code
 /// CORDITE_TRY_ASSIGN(SceneTargets targets, SceneTargets::create(device, {1280, 720}, "Game view"));
@@ -19,20 +21,50 @@
 /// CORDITE_TRY(targets.resize(device, newSize));
 /// @endcode
 ///
-/// | Texture      | Format       | Holds                                               |
-/// |--------------|--------------|-----------------------------------------------------|
-/// | scene color  | RGBA16_FLOAT | Linear light, not limited to the range of a display |
-/// | depth        | D32          | Reversed depth: 1 at the near plane, 0 far away     |
-/// | display      | RGBA8_UNORM  | sRGB-encoded color, as a screen expects it          |
+/// | Texture         | Format        | Holds                                               |
+/// |-----------------|---------------|-----------------------------------------------------|
+/// | G-buffer 0      | SRGBA8_UNORM  | rgb: base color                                     |
+/// | G-buffer 1      | RG16_UNORM    | The world-space normal, octahedrally mapped         |
+/// | G-buffer 2      | RGBA8_UNORM   | Roughness, metallic, specular, occlusion            |
+/// | G-buffer 3      | R11G11B10F    | Emissive light                                      |
+/// | depth           | D32           | Reversed depth: 1 at the near plane, 0 far away     |
+/// | scene color     | RGBA16_FLOAT  | Linear light, not limited to the range of a display |
+/// | display         | RGBA8_UNORM   | sRGB-encoded color, as a screen expects it          |
+///
+/// The shader side of the G-buffer is shaders/common/GBuffer.slang.
 
 #include "cordite/core/Result.h"
 #include "cordite/math/Math.h"
 
 #include <nvrhi/nvrhi.h>
 
+#include <array>
+#include <cstddef>
+#include <cstdint>
 #include <string>
+#include <string_view>
 
 namespace cordite {
+
+/// The color targets of the G-buffer, in the order the base pass writes them.
+enum class GBufferTarget : uint8_t {
+    /// rgb: base color. Stored sRGB-encoded, which spends the eight bits where the eye
+    /// tells shades apart; reads and writes are in linear values.
+    BaseColor,
+    /// rg: the unit normal in world space, as a point of an unfolded octahedron.
+    Normal,
+    /// r: roughness, g: metallic, b: specular, a: occlusion.
+    Parameters,
+    /// rgb: the light the surface gives off, linear and not limited to one.
+    Emissive,
+};
+
+inline constexpr size_t kGBufferTargetCount = 4;
+
+std::string_view nameOf(GBufferTarget target);
+
+/// The format of a G-buffer target.
+[[nodiscard]] nvrhi::Format formatOf(GBufferTarget target);
 
 class SceneTargets {
 public:
@@ -48,13 +80,27 @@ public:
 
     [[nodiscard]] UVec2 size() const { return m_size; }
 
+    [[nodiscard]] nvrhi::ITexture* gbuffer(GBufferTarget target) const {
+        return m_gbuffer[static_cast<size_t>(target)];
+    }
+
     [[nodiscard]] nvrhi::ITexture* sceneColor() const { return m_sceneColor; }
 
     [[nodiscard]] nvrhi::ITexture* depth() const { return m_depth; }
 
     [[nodiscard]] nvrhi::ITexture* display() const { return m_display; }
 
-    /// Scene color and depth: what meshes are drawn into.
+    /// Depth alone: what the depth pre-pass draws into.
+    [[nodiscard]] nvrhi::IFramebuffer* depthFramebuffer() const { return m_depthFramebuffer; }
+
+    /// The G-buffer targets with depth: what the base pass draws into.
+    [[nodiscard]] nvrhi::IFramebuffer* gbufferFramebuffer() const { return m_gbufferFramebuffer; }
+
+    /// Scene color alone: what the passes that read the depth as a texture draw into,
+    /// the lighting first of all.
+    [[nodiscard]] nvrhi::IFramebuffer* lightingFramebuffer() const { return m_lightingFramebuffer; }
+
+    /// Scene color and depth: what the forward pass draws into.
     [[nodiscard]] nvrhi::IFramebuffer* sceneFramebuffer() const { return m_sceneFramebuffer; }
 
     /// The display image alone: what the scene color is encoded into.
@@ -64,8 +110,8 @@ public:
     /// picture but belongs in the scene, such as debug lines and editor gizmos.
     [[nodiscard]] nvrhi::IFramebuffer* overlayFramebuffer() const { return m_overlayFramebuffer; }
 
-    /// Fills scene color with `background` (linear) and depth with "far". The command
-    /// list must be open.
+    /// Fills scene color with `background` (linear), depth with "far" and the G-buffer
+    /// with zeros. The command list must be open.
     void clear(nvrhi::ICommandList* commandList, const Vec3& background) const;
 
     /// Replaces the textures with ones of a new size. Does nothing when the size is
@@ -76,9 +122,13 @@ public:
 private:
     UVec2 m_size{0, 0};
     std::string m_debugName;
+    std::array<nvrhi::TextureHandle, kGBufferTargetCount> m_gbuffer;
     nvrhi::TextureHandle m_sceneColor;
     nvrhi::TextureHandle m_depth;
     nvrhi::TextureHandle m_display;
+    nvrhi::FramebufferHandle m_depthFramebuffer;
+    nvrhi::FramebufferHandle m_gbufferFramebuffer;
+    nvrhi::FramebufferHandle m_lightingFramebuffer;
     nvrhi::FramebufferHandle m_sceneFramebuffer;
     nvrhi::FramebufferHandle m_displayFramebuffer;
     nvrhi::FramebufferHandle m_overlayFramebuffer;

@@ -31,13 +31,23 @@ void row(const char* label, const std::string& value) {
 } // namespace
 
 Json describeFrameStatistics(const FrameStatistics& statistics) {
-    Json scene = Json::object();
+    const auto describePass = [](const MeshPassStatistics& pass) {
+        Json description = Json::object();
+        description["drawCalls"] = pass.drawCalls;
+        description["instances"] = pass.instances;
+        description["triangles"] = pass.triangles;
+        return description;
+    };
+
+    Json scene = describePass(statistics.scene.meshes);
     scene["views"] = statistics.scene.views;
     scene["meshRenderers"] = statistics.scene.meshRenderers;
     scene["culled"] = statistics.scene.culled;
-    scene["drawCalls"] = statistics.scene.meshes.drawCalls;
-    scene["instances"] = statistics.scene.meshes.instances;
-    scene["triangles"] = statistics.scene.meshes.triangles;
+    Json passes = Json::object();
+    passes["depth"] = describePass(statistics.scene.depthPass);
+    passes["base"] = describePass(statistics.scene.basePass);
+    passes["forward"] = describePass(statistics.scene.forwardPass);
+    scene["passes"] = std::move(passes);
 
     Json resources = Json::object();
     resources["meshes"] = statistics.resources.meshCount;
@@ -68,7 +78,9 @@ void StatisticsPanel::draw(const FrameStatistics& statistics, bool& open) {
 
         const SceneRenderStatistics& scene = statistics.scene;
         row("Views", fmt::format("{}", scene.views));
-        row("Draw calls", fmt::format("{}", scene.meshes.drawCalls));
+        row("Draw calls",
+            fmt::format("{} ({} depth, {} base, {} forward)", scene.meshes.drawCalls, scene.depthPass.drawCalls,
+                        scene.basePass.drawCalls, scene.forwardPass.drawCalls));
         row("Instances", fmt::format("{}", scene.meshes.instances));
         row("Triangles", fmt::format("{}", scene.meshes.triangles));
         row("Mesh renderers", fmt::format("{} ({} out of view)", scene.meshRenderers, scene.culled));

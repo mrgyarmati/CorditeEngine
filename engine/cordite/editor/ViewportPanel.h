@@ -7,7 +7,8 @@
 /// result as an image. Over the scene it draws what only an editor needs: the ground
 /// grid, a marker for every entity that has nothing to be seen by, the view volumes of
 /// cameras, and a frame around what is selected. Clicking a mesh or a marker selects its
-/// entity; see EditorCamera for how to move around.
+/// entity; see EditorCamera for how to move around. It can show any of the renderer's
+/// debug views in place of the lit picture (setDebugView).
 ///
 /// @code
 /// CORDITE_TRY_ASSIGN(auto viewport, ViewportPanel::create(engine));
@@ -26,6 +27,7 @@
 #include "cordite/engine/Engine.h"
 #include "cordite/renderer/DebugDraw.h"
 #include "cordite/renderer/DebugLinePass.h"
+#include "cordite/renderer/RenderDebugView.h"
 #include "cordite/renderer/SceneRenderer.h"
 #include "cordite/renderer/SceneTargets.h"
 
@@ -52,6 +54,12 @@ public:
     /// What render() drew into. The display image holds the finished picture.
     [[nodiscard]] const SceneTargets& targets() const { return m_targets; }
 
+    /// What the viewport shows instead of the finished picture: a debug view of the
+    /// renderer, or RenderDebugView::None for the picture itself.
+    [[nodiscard]] RenderDebugView debugView() const { return m_debugView; }
+
+    void setDebugView(RenderDebugView view) { m_debugView = view; }
+
     [[nodiscard]] EditorCamera& camera() { return m_camera; }
 
     [[nodiscard]] const EditorCamera& camera() const { return m_camera; }
@@ -70,6 +78,7 @@ private:
     DebugLinePass m_linePass;
     SceneTargets m_targets;
     EditorCamera m_camera;
+    RenderDebugView m_debugView = RenderDebugView::None;
     /// The view render() last used, for pick().
     CameraView m_view;
     /// Rebuilt every frame; members so that their memory is reused. Grid and scene

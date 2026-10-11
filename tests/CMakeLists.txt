@@ -99,6 +99,7 @@ cordite_add_test_suite(renderer
     SOURCES
         unit/renderer/CameraViewTests.cpp
         unit/renderer/DebugDrawTests.cpp
+        unit/renderer/RenderDebugViewTests.cpp
     LIBRARIES
         cordite::renderer)
 
@@ -147,6 +148,7 @@ cordite_add_test_suite(render
         render/DebugLineTests.cpp
         render/EditorAppTests.cpp
         render/EngineTests.cpp
+        render/FramePacerTests.cpp
         render/GpuTimerTests.cpp
         render/GraphicsDeviceTests.cpp
         render/RenderPassTests.cpp

@@ -37,7 +37,7 @@ of slowly turning the code base into a ball of mud.
 | `rhi` | `core`, `math`, `platform` | The GPU: Vulkan instance and device creation, the NVRHI device the renderer programs against, the swapchain, and texture readback. The only module that calls Vulkan. |
 | `shaders` | `core` | What a shader *is* to the engine: requests and their permutation keys, compiled binaries, the on-disk cache, and the `ShaderLibrary` that resolves a request from memory, disk or a compiler. |
 | `shader_compiler` | `core`, `shaders` | The Slang-based implementation of `IShaderCompiler`. Kept separate so exported games do not link a compiler. |
-| `renderer` | `core`, `math`, `assets`, `world`, `rhi`, `shaders` | Drawing: the scene renderer, the GPU copies of assets it draws with, the mesh pass, the targets of a view, the component that makes an entity visible; the view a camera gives, debug line drawing, and the `ShaderManager` that turns shader binaries into GPU shader objects. |
+| `renderer` | `core`, `math`, `assets`, `world`, `rhi`, `shaders` | Drawing: the scene renderer and its passes (depth, G-buffer, deferred lighting, forward, debug views), the GPU copies of assets it draws with, the targets of a view, the component that makes an entity visible; the view a camera gives, debug line drawing, and the `ShaderManager` that turns shader binaries into GPU shader objects. |
 | `ui` | `core`, `math`, `platform`, `rhi`, `shaders`, `renderer` | The immediate-mode user interface: the Dear ImGui context, its input, and the renderer that draws it with NVRHI. |
 | `engine` | all of the above | `Engine`: creates and owns the subsystems, the assets, the world and the interface, and runs the frame loop. Also what needs several of the modules below at once: projects, placing a model in a world, checking the assets a scene refers to. |
 | `editor` | `engine` and below | The editor: the scene document, undoable actions, the command registry, the panels, and `EditorApp`. Not part of exported games. |
@@ -109,20 +109,31 @@ shared by two models exists once.
 
 `SceneRenderer` draws a world as a camera sees it. It walks the entities that have a
 `MeshRenderer`, asks `RenderResources` for the GPU copy of each mesh and material
-(created on first use from what the asset manager loads), leaves out what is outside
-the view, and hands the rest to the mesh pass, which groups equal draws into instanced
-draw calls. The picture is built in a `SceneTargets`, one per view:
+(created on first use from what the asset manager loads) and leaves out what is outside
+the view. A `MeshDrawList` puts the rest in order and groups equal draws into instanced
+batches, once for all the passes that follow. The picture is built in a `SceneTargets`,
+one per view:
 
 ```
-meshes -> scene color (linear, float) + depth -> display encoding -> display image (sRGB, 8 bit)
-                                                                      ^ overlays: debug lines, gizmos
+solid surfaces ──> depth pre-pass ──> depth
+               ──> base pass      ──> G-buffer: base color, normal, roughness / metallic /
+                                               specular / occlusion, emissive
+G-buffer + depth ──> deferred lighting ──> scene color (linear, float)
+translucent surfaces ──> forward pass ──> scene color, blended over it, far to near
+scene color ──> display encoding ──> display image (sRGB, 8 bit)
+                                      ^ overlays: debug lines, gizmos
 ```
 
-Today the mesh pass shades every surface in one go, with a fixed key light and ambient
-light. The stages around it are the permanent ones: the deferred G-buffer, lights,
-shadows and post-processing of the next milestones slot in between "meshes" and
-"display encoding", and the forward pass stays for what deferred shading cannot do
-(blended surfaces).
+The deferred path is what makes many lights affordable: every solid surface is written
+down once, and each light then costs the pixels it reaches, not the geometry. What
+cannot be written down that way - a surface through which another shows - is drawn by
+the forward pass, with the same shading code. Lights, shadows and post-processing of
+the next milestones go between the G-buffer and the display encoding; for now the
+lighting is a fixed key light and ambient light.
+
+A debug view (`RenderDebugView`) replaces the lighting, or the passes altogether, by a
+picture of something the renderer works with: a channel of the G-buffer, the light
+without the materials, the edges of the triangles, how often each pixel is drawn.
 
 ### The editor
 
@@ -453,6 +464,62 @@ Drawing a range of that buffer is an ordinary instanced draw call with a start
 instance. The alternative, a structured buffer indexed by the instance id, depends on
 whether the shading language adds the start instance to that id - which differs between
 Direct3D and Vulkan conventions and between compilers.
+
+### Solid surfaces are shaded deferred, translucent ones forward
+
+The look the engine is after needs many lights - practical lamps, muzzle flashes, rim
+lights - on dense, normal-mapped scenes. Shading forward, every light costs every
+surface it might touch; shading from a G-buffer, it costs the pixels it reaches.
+Blended surfaces cannot be in a G-buffer, which holds one surface per pixel, so they
+are drawn forward afterwards. Both paths call the same `shadeSurface`, and a test
+draws one surface both ways and compares the pictures.
+
+### The G-buffer is four targets and depth
+
+| Target | Format | Holds | Why this format |
+|--------|--------|-------|-----------------|
+| 0 | SRGBA8 | Base color | Eight bits are enough when they are spent as the eye sees |
+| 1 | RG16_UNORM | World-space normal, octahedrally mapped | Two channels, the same precision in every direction, no banding on smooth highlights |
+| 2 | RGBA8 | Roughness, metallic, specular, occlusion | Four numbers between 0 and 1 |
+| 3 | R11G11B10F | Emissive | Light is not limited to 1; no alpha is needed |
+| depth | D32 | Reversed depth | The position of a pixel follows from it, so none is stored |
+
+Fourteen bytes a pixel, plus depth. Emissive has a target of its own rather than being
+added to the scene color by the base pass, so that it stays a thing that can be looked
+at and that later passes can tell from reflected light. Motion vectors will join when
+something needs them (temporal anti-aliasing, motion blur); nothing does yet.
+
+### A depth pre-pass, then a base pass on equal depth
+
+Solid surfaces are drawn twice: first their depth alone, then what they are made of,
+only where their depth is exactly the one in the buffer. The material - five texture
+reads and a normal-map transform - is then evaluated once per pixel however many
+surfaces overlap, masked materials get their holes cut in the cheap pass, and the
+depth is complete before anything that wants to read it. The price is that the
+geometry is transformed twice.
+
+"Exactly the same depth" is only true when both passes compute positions with the
+same code, so every pass that draws meshes shares one vertex shader, and a mesh pass
+is a description (`MeshPassDesc`) rather than a class with shaders of its own.
+
+### Debug views are part of the renderer
+
+Looking at a single channel is how rendering bugs are found - the first time the
+occlusion view was looked at, it showed the floor's occlusion texture stretched over
+the whole floor. The views are therefore not editor code that pokes at the renderer's
+textures, but settings of the renderer (`SceneRenderSettings::debugView`) that a game,
+a test and the editor all reach the same way, and the tests of the G-buffer read it
+through them.
+
+### The engine never gets more than three frames ahead of the GPU
+
+Recording a frame is usually quicker than drawing it. With a window, waiting for the
+display holds the loop back; without one - tests, automation, a build server - nothing
+does, and a loop would queue frames without limit, each holding on to its buffers.
+`FramePacer` bounds that: when three frames are waiting, handing over a fourth waits
+for the oldest. Three keeps the GPU busy without making what the user does show up
+late, and it gives everything that is "one per frame in flight" - timer queries,
+versions of constant buffers - a number to be sized by.
 
 ### What a frame costs is measured by the engine itself
 

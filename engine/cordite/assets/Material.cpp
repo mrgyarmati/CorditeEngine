@@ -72,16 +72,14 @@ TypeInfo describeMaterial() {
                   {.description = "Opacity below which a masked surface is not drawn", .minimum = 0.0, .maximum = 1.0})
         .property("doubleSided", &MaterialData::doubleSided, {.description = "Draw the back of each triangle too"})
         .property("uvChannel", &MaterialData::uvChannel,
-                  {.description = "Texture coordinate set used by every texture but occlusion",
+                  {.description = "Texture coordinate set the textures use", .minimum = 0.0, .maximum = 1.0})
+        .property("occlusionUvChannel", &MaterialData::occlusionUvChannel,
+                  {.description = "Texture coordinate set the occlusion texture uses; if it is not uvChannel, uvScale "
+                                  "and uvOffset do not apply to it",
                    .minimum = 0.0,
                    .maximum = 1.0})
-        .property(
-            "occlusionUvChannel", &MaterialData::occlusionUvChannel,
-            {.description = "Texture coordinate set used by the occlusion texture", .minimum = 0.0, .maximum = 1.0})
-        .property("uvScale", &MaterialData::uvScale,
-                  {.description = "Repeats of the textures across the unit square (not applied to occlusion)"})
-        .property("uvOffset", &MaterialData::uvOffset,
-                  {.description = "Shift of the textures, in texture coordinates (not applied to occlusion)"})
+        .property("uvScale", &MaterialData::uvScale, {.description = "Repeats of the textures across the unit square"})
+        .property("uvOffset", &MaterialData::uvOffset, {.description = "Shift of the textures, in texture coordinates"})
         .enumProperty("wrapU", &MaterialData::wrapU, wrapOptions,
                       {.description = "What happens beyond the left and right edges of the textures"})
         .enumProperty("wrapV", &MaterialData::wrapV, wrapOptions,

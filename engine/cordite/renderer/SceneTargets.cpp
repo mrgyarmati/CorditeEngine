@@ -10,6 +10,9 @@ namespace {
 /// The largest texture dimension every supported GPU can create.
 constexpr uint32_t kMaxDimension = 16384;
 
+constexpr std::array<GBufferTarget, kGBufferTargetCount> kGBufferTargets = {
+    GBufferTarget::BaseColor, GBufferTarget::Normal, GBufferTarget::Parameters, GBufferTarget::Emissive};
+
 nvrhi::TextureHandle createTexture(nvrhi::IDevice* device, UVec2 size, nvrhi::Format format, std::string name,
                                    nvrhi::ResourceStates state) {
     nvrhi::TextureDesc desc;
@@ -27,6 +30,34 @@ nvrhi::TextureHandle createTexture(nvrhi::IDevice* device, UVec2 size, nvrhi::Fo
 
 } // namespace
 
+std::string_view nameOf(GBufferTarget target) {
+    switch (target) {
+        case GBufferTarget::BaseColor:
+            return "base color";
+        case GBufferTarget::Normal:
+            return "normal";
+        case GBufferTarget::Parameters:
+            return "parameters";
+        case GBufferTarget::Emissive:
+            return "emissive";
+    }
+    return "unknown";
+}
+
+nvrhi::Format formatOf(GBufferTarget target) {
+    switch (target) {
+        case GBufferTarget::BaseColor:
+            return nvrhi::Format::SRGBA8_UNORM;
+        case GBufferTarget::Normal:
+            return nvrhi::Format::RG16_UNORM;
+        case GBufferTarget::Parameters:
+            return nvrhi::Format::RGBA8_UNORM;
+        case GBufferTarget::Emissive:
+            return nvrhi::Format::R11G11B10_FLOAT;
+    }
+    return nvrhi::Format::UNKNOWN;
+}
+
 Result<SceneTargets> SceneTargets::create(nvrhi::IDevice* device, UVec2 size, std::string debugName) {
     if (size.x == 0 || size.y == 0 || size.x > kMaxDimension || size.y > kMaxDimension) {
         return makeError(ErrorCode::InvalidArgument, "scene targets must be between 1 and {} pixels a side, got {}x{}",
@@ -38,23 +69,42 @@ Result<SceneTargets> SceneTargets::create(nvrhi::IDevice* device, UVec2 size, st
     targets.m_debugName = std::move(debugName);
     const std::string& name = targets.m_debugName;
 
+    bool created = true;
+    for (const GBufferTarget target : kGBufferTargets) {
+        nvrhi::TextureHandle& texture = targets.m_gbuffer[static_cast<size_t>(target)];
+        texture = createTexture(device, size, formatOf(target), fmt::format("{} G-buffer {}", name, nameOf(target)),
+                                nvrhi::ResourceStates::ShaderResource);
+        created = created && texture != nullptr;
+    }
     targets.m_sceneColor = createTexture(device, size, nvrhi::Format::RGBA16_FLOAT, name + " scene color",
                                          nvrhi::ResourceStates::ShaderResource);
     targets.m_depth =
         createTexture(device, size, nvrhi::Format::D32, name + " depth", nvrhi::ResourceStates::DepthWrite);
     targets.m_display = createTexture(device, size, nvrhi::Format::RGBA8_UNORM, name + " display",
                                       nvrhi::ResourceStates::ShaderResource);
-    if (!targets.m_sceneColor || !targets.m_depth || !targets.m_display) {
+    if (!created || !targets.m_sceneColor || !targets.m_depth || !targets.m_display) {
         return makeError(ErrorCode::DeviceError, "cannot create the {}x{} textures of '{}'", size.x, size.y, name);
     }
 
+    nvrhi::FramebufferDesc gbufferDesc;
+    for (const nvrhi::TextureHandle& texture : targets.m_gbuffer) {
+        gbufferDesc.addColorAttachment(texture);
+    }
+    gbufferDesc.setDepthAttachment(targets.m_depth);
+
+    targets.m_depthFramebuffer =
+        device->createFramebuffer(nvrhi::FramebufferDesc().setDepthAttachment(targets.m_depth));
+    targets.m_gbufferFramebuffer = device->createFramebuffer(gbufferDesc);
+    targets.m_lightingFramebuffer =
+        device->createFramebuffer(nvrhi::FramebufferDesc().addColorAttachment(targets.m_sceneColor));
     targets.m_sceneFramebuffer = device->createFramebuffer(
         nvrhi::FramebufferDesc().addColorAttachment(targets.m_sceneColor).setDepthAttachment(targets.m_depth));
     targets.m_displayFramebuffer =
         device->createFramebuffer(nvrhi::FramebufferDesc().addColorAttachment(targets.m_display));
     targets.m_overlayFramebuffer = device->createFramebuffer(
         nvrhi::FramebufferDesc().addColorAttachment(targets.m_display).setDepthAttachment(targets.m_depth));
-    if (!targets.m_sceneFramebuffer || !targets.m_displayFramebuffer || !targets.m_overlayFramebuffer) {
+    if (!targets.m_depthFramebuffer || !targets.m_gbufferFramebuffer || !targets.m_lightingFramebuffer ||
+        !targets.m_sceneFramebuffer || !targets.m_displayFramebuffer || !targets.m_overlayFramebuffer) {
         return makeError(ErrorCode::DeviceError, "cannot create the framebuffers of '{}'", name);
     }
     return targets;
@@ -64,6 +114,12 @@ void SceneTargets::clear(nvrhi::ICommandList* commandList, const Vec3& backgroun
     CORDITE_ASSERT(isValid() && commandList != nullptr, "clear needs valid targets and a command list");
     if (!isValid() || commandList == nullptr) {
         return;
+    }
+    // The G-buffer is only ever read where something was drawn, but a pixel that was
+    // not written although it should have been then shows as black rather than as
+    // whatever the last frame left there.
+    for (const nvrhi::TextureHandle& texture : m_gbuffer) {
+        commandList->clearTextureFloat(texture, nvrhi::AllSubresources, nvrhi::Color(0.0f));
     }
     commandList->clearTextureFloat(m_sceneColor, nvrhi::AllSubresources,
                                    nvrhi::Color(background.r, background.g, background.b, 1.0f));

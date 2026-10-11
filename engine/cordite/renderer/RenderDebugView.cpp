@@ -1,0 +1,76 @@
+#include "cordite/renderer/RenderDebugView.h"
+
+#include "cordite/core/StringUtils.h"
+
+namespace cordite {
+
+std::string_view nameOf(RenderDebugView view) {
+    switch (view) {
+        case RenderDebugView::None:
+            return "none";
+        case RenderDebugView::BaseColor:
+            return "baseColor";
+        case RenderDebugView::Normals:
+            return "normals";
+        case RenderDebugView::Roughness:
+            return "roughness";
+        case RenderDebugView::Metallic:
+            return "metallic";
+        case RenderDebugView::Specular:
+            return "specular";
+        case RenderDebugView::Occlusion:
+            return "occlusion";
+        case RenderDebugView::Emissive:
+            return "emissive";
+        case RenderDebugView::Depth:
+            return "depth";
+        case RenderDebugView::LightingOnly:
+            return "lightingOnly";
+        case RenderDebugView::Wireframe:
+            return "wireframe";
+        case RenderDebugView::Overdraw:
+            return "overdraw";
+    }
+    return "unknown";
+}
+
+std::string_view displayNameOf(RenderDebugView view) {
+    switch (view) {
+        case RenderDebugView::None:
+            return "Lit";
+        case RenderDebugView::BaseColor:
+            return "Base color";
+        case RenderDebugView::Normals:
+            return "Normals";
+        case RenderDebugView::Roughness:
+            return "Roughness";
+        case RenderDebugView::Metallic:
+            return "Metallic";
+        case RenderDebugView::Specular:
+            return "Specular";
+        case RenderDebugView::Occlusion:
+            return "Occlusion";
+        case RenderDebugView::Emissive:
+            return "Emissive";
+        case RenderDebugView::Depth:
+            return "Depth";
+        case RenderDebugView::LightingOnly:
+            return "Lighting only";
+        case RenderDebugView::Wireframe:
+            return "Wireframe";
+        case RenderDebugView::Overdraw:
+            return "Overdraw";
+    }
+    return "Unknown";
+}
+
+std::optional<RenderDebugView> renderDebugViewFromName(std::string_view name) {
+    for (const RenderDebugView view : kRenderDebugViews) {
+        if (equalsIgnoreCase(name, nameOf(view))) {
+            return view;
+        }
+    }
+    return std::nullopt;
+}
+
+} // namespace cordite

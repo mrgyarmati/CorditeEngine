@@ -533,6 +533,46 @@ TEST_SUITE("EditorApp") {
         checkNoValidationIssues(editor->engine().graphics());
     }
 
+    TEST_CASE("the viewport shows the debug view it is told to") {
+        EditorAppDesc desc = headlessDesc(UVec2(640, 360));
+        desc.project = showcaseProject();
+        const std::unique_ptr<EditorApp> editor = createEditor(desc);
+
+        // Asking changes nothing, and lists what there is.
+        Json views = run(*editor, "viewport.debugView");
+        CHECK(views["view"] == "none");
+        REQUIRE(views["views"].size() == kRenderDebugViews.size());
+        CHECK(views["views"][0] == "none");
+        CHECK(views["views"][2] == "normals");
+        CHECK(editor->viewport().debugView() == RenderDebugView::None);
+        const Image lit = unwrap(editor->captureViewport(UVec2(320, 180)));
+
+        // Every view can be shown, draws without complaint and differs from the picture.
+        for (const RenderDebugView view : kRenderDebugViews) {
+            if (view == RenderDebugView::None) {
+                continue;
+            }
+            CAPTURE(nameOf(view));
+            views = run(*editor, "viewport.debugView", fmt::format(R"({{"view": "{}"}})", nameOf(view)));
+            CHECK(views["view"] == std::string(nameOf(view)));
+            CHECK(editor->viewport().debugView() == view);
+            const Image shown = unwrap(editor->captureViewport(UVec2(320, 180)));
+            CHECK(unwrap(compareImages(lit, shown)).differingPixels > 1000);
+        }
+
+        // Names are not case-sensitive; an unknown one is refused and changes nothing.
+        CHECK(run(*editor, "viewport.debugView", R"({"view": "BaseColor"})")["view"] == "baseColor");
+        const Result<Json> unknown = editor->commands().execute("viewport.debugView", json(R"({"view": "xray"})"));
+        REQUIRE_FALSE(unknown.has_value());
+        CHECK(unknown.error().code == ErrorCode::InvalidArgument);
+        CHECK(editor->viewport().debugView() == RenderDebugView::BaseColor);
+
+        // Back to the picture: the same as before.
+        run(*editor, "viewport.debugView", R"({"view": "none"})");
+        CHECK(unwrap(compareImages(lit, unwrap(editor->captureViewport(UVec2(320, 180))))).differingPixels == 0);
+        checkNoValidationIssues(editor->engine().graphics());
+    }
+
     TEST_CASE("optional windows are opened and closed by command") {
         const std::unique_ptr<EditorApp> editor = createEditor(headlessDesc(UVec2(640, 360)));
         REQUIRE(editor->runFrames(2).has_value());
@@ -560,9 +600,9 @@ TEST_SUITE("EditorApp") {
 
     TEST_CASE("the application adds its commands to the catalogue") {
         const std::unique_ptr<EditorApp> editor = createEditor(headlessDesc(UVec2(640, 360)));
-        for (const char* name :
-             {"editor.runFrames", "editor.screenshot", "editor.statistics", "editor.showPanel", "editor.exit",
-              "viewport.lookAt", "viewport.frame", "viewport.camera", "entity.create", "scene.save"}) {
+        for (const char* name : {"editor.runFrames", "editor.screenshot", "editor.statistics", "editor.showPanel",
+                                 "editor.exit", "viewport.lookAt", "viewport.frame", "viewport.camera",
+                                 "viewport.debugView", "entity.create", "scene.save"}) {
             CAPTURE(name);
             const CommandDesc* command = editor->commands().find(name);
             REQUIRE(command != nullptr);

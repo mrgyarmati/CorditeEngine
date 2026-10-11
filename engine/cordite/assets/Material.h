@@ -116,9 +116,13 @@ struct MaterialData {
 
     /// Which set of texture coordinates the textures use: 0 or 1.
     int32_t uvChannel = 0;
-    /// The occlusion texture is often laid out differently and has a setting of its own.
+    /// The set the occlusion texture uses. It is the others' when occlusion is packed
+    /// into one image with roughness and metallic, and the other set when occlusion
+    /// was baked for the whole mesh, into a layout of its own.
     int32_t occlusionUvChannel = 0;
-    /// Applied to the coordinates of every texture but occlusion: `uv * uvScale + uvOffset`.
+    /// Applied to the coordinates of every texture that uses `uvChannel`:
+    /// `uv * uvScale + uvOffset`. That includes the occlusion texture unless
+    /// `occlusionUvChannel` names the other set, which is used as it is.
     Vec2 uvScale{1.0f};
     Vec2 uvOffset{0.0f};
 

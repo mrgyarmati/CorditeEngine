@@ -560,6 +560,91 @@ TextureUse describeUse(const cgltf_texture_view& view) {
     return use;
 }
 
+/// Fills in which images a material uses and how it samples them. The engine samples
+/// all of a material's textures with one sampler and one layout (occlusion may use the
+/// other set of coordinates); the first texture decides, and what the others do
+/// differently is reported.
+void convertMaterialTextures(const cgltf_data& data, const cgltf_material& source,
+                             const cgltf_texture_view* baseColorView, const cgltf_texture_view* metallicRoughnessView,
+                             GltfMaterial& result, Warnings& warnings) {
+    const std::string& name = result.name;
+    MaterialData& material = result.material;
+
+    struct Slot {
+        const cgltf_texture_view* view;
+        std::optional<uint32_t>* image;
+        bool isOcclusion;
+    };
+
+    const std::array<Slot, 5> slots = {{
+        {baseColorView, &result.images.baseColor, false},
+        {metallicRoughnessView, &result.images.metallicRoughness, false},
+        {&source.normal_texture, &result.images.normal, false},
+        {&source.emissive_texture, &result.images.emissive, false},
+        {&source.occlusion_texture, &result.images.occlusion, true},
+    }};
+
+    std::optional<TextureUse> mainUse;
+    std::optional<TextureUse> samplerUse;
+    for (const Slot& slot : slots) {
+        if (slot.view == nullptr || slot.view->texture == nullptr) {
+            continue;
+        }
+        if (slot.view->texture->image == nullptr) {
+            warnings.add(fmt::format("material '{}' uses a texture in a format that is not supported", name));
+            continue;
+        }
+        *slot.image = static_cast<uint32_t>(cgltf_image_index(&data, slot.view->texture->image));
+
+        TextureUse use = describeUse(*slot.view);
+        if (use.uvChannel < 0 || use.uvChannel > 1) {
+            warnings.add(fmt::format("material '{}' uses texture coordinate set {}; only sets 0 and 1 are imported",
+                                     name, use.uvChannel));
+            use.uvChannel = 0;
+        }
+        if (use.rotated) {
+            warnings.add(fmt::format("material '{}' rotates a texture, which is not supported", name));
+        }
+
+        if (!samplerUse) {
+            samplerUse = use;
+        } else if (!samplerUse->sameSampler(use)) {
+            warnings.add(fmt::format(
+                "material '{}' wraps or filters its textures differently; the first one's way is used", name));
+        }
+
+        // The occlusion texture comes last, when it is known how the others are laid
+        // out. In their set of coordinates it shares their layout; in a set of its own
+        // it is used as it is.
+        if (slot.isOcclusion) {
+            material.occlusionUvChannel = use.uvChannel;
+        }
+        if (!mainUse) {
+            mainUse = use;
+        } else if (slot.isOcclusion && use.uvChannel != mainUse->uvChannel) {
+            if (use.uvScale != Vec2(1.0f) || use.uvOffset != Vec2(0.0f)) {
+                warnings.add(fmt::format("material '{}' scales or shifts an occlusion texture that has texture "
+                                         "coordinates of its own, which is not supported",
+                                         name));
+            }
+        } else if (!mainUse->sameCoordinates(use)) {
+            warnings.add(fmt::format(
+                "material '{}' lays its textures out differently from each other; the first one's layout is used",
+                name));
+        }
+    }
+    if (mainUse) {
+        material.uvChannel = mainUse->uvChannel;
+        material.uvScale = mainUse->uvScale;
+        material.uvOffset = mainUse->uvOffset;
+    }
+    if (samplerUse) {
+        material.wrapU = samplerUse->wrapU;
+        material.wrapV = samplerUse->wrapV;
+        material.filter = samplerUse->filter;
+    }
+}
+
 GltfMaterial convertMaterial(const cgltf_data& data, const cgltf_material& source, size_t materialIndex,
                              Warnings& warnings) {
     GltfMaterial result;
@@ -629,75 +714,7 @@ GltfMaterial convertMaterial(const cgltf_data& data, const cgltf_material& sourc
         warnings.add(fmt::format("material '{}' is unlit, which is not supported; it is imported as lit", name));
     }
 
-    // Textures. The engine samples all of a material's textures with one sampler and
-    // one set of coordinates (occlusion may use the other set); the first texture decides.
-    struct Slot {
-        const cgltf_texture_view* view;
-        std::optional<uint32_t>* image;
-        bool isOcclusion;
-    };
-
-    const std::array<Slot, 5> slots = {{
-        {baseColorView, &result.images.baseColor, false},
-        {metallicRoughnessView, &result.images.metallicRoughness, false},
-        {&source.normal_texture, &result.images.normal, false},
-        {&source.emissive_texture, &result.images.emissive, false},
-        {&source.occlusion_texture, &result.images.occlusion, true},
-    }};
-
-    std::optional<TextureUse> mainUse;
-    std::optional<TextureUse> samplerUse;
-    for (const Slot& slot : slots) {
-        if (slot.view == nullptr || slot.view->texture == nullptr) {
-            continue;
-        }
-        if (slot.view->texture->image == nullptr) {
-            warnings.add(fmt::format("material '{}' uses a texture in a format that is not supported", name));
-            continue;
-        }
-        *slot.image = static_cast<uint32_t>(cgltf_image_index(&data, slot.view->texture->image));
-
-        TextureUse use = describeUse(*slot.view);
-        if (use.uvChannel < 0 || use.uvChannel > 1) {
-            warnings.add(fmt::format("material '{}' uses texture coordinate set {}; only sets 0 and 1 are imported",
-                                     name, use.uvChannel));
-            use.uvChannel = 0;
-        }
-        if (use.rotated) {
-            warnings.add(fmt::format("material '{}' rotates a texture, which is not supported", name));
-        }
-
-        if (!samplerUse) {
-            samplerUse = use;
-        } else if (!samplerUse->sameSampler(use)) {
-            warnings.add(fmt::format(
-                "material '{}' wraps or filters its textures differently; the first one's way is used", name));
-        }
-
-        if (slot.isOcclusion) {
-            material.occlusionUvChannel = use.uvChannel;
-            if (use.uvScale != Vec2(1.0f) || use.uvOffset != Vec2(0.0f)) {
-                warnings.add(
-                    fmt::format("material '{}' scales or shifts its occlusion texture, which is not supported", name));
-            }
-        } else if (!mainUse) {
-            mainUse = use;
-        } else if (!mainUse->sameCoordinates(use)) {
-            warnings.add(fmt::format(
-                "material '{}' lays its textures out differently from each other; the first one's layout is used",
-                name));
-        }
-    }
-    if (mainUse) {
-        material.uvChannel = mainUse->uvChannel;
-        material.uvScale = mainUse->uvScale;
-        material.uvOffset = mainUse->uvOffset;
-    }
-    if (samplerUse) {
-        material.wrapU = samplerUse->wrapU;
-        material.wrapV = samplerUse->wrapV;
-        material.filter = samplerUse->filter;
-    }
+    convertMaterialTextures(data, source, baseColorView, metallicRoughnessView, result, warnings);
     return result;
 }
 

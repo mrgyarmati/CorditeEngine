@@ -129,7 +129,7 @@ by accident.
 | `rhi` | `core`, `math`, `platform` | Vulkan device, swapchain and texture readback over NVRHI |
 | `shaders` | `core` | Shader requests and permutation keys, disk cache, `ShaderLibrary` |
 | `shader_compiler` | `core`, `shaders` | Slang to SPIR-V compiler (not linked into exported games) |
-| `renderer` | `core`, `math`, `assets`, `world`, `rhi`, `shaders` | The scene renderer and what it is made of: GPU copies of assets, the mesh pass, scene targets, the `MeshRenderer` component; camera views, debug lines, GPU shader management |
+| `renderer` | `core`, `math`, `assets`, `world`, `rhi`, `shaders` | The scene renderer and what it is made of: GPU copies of assets, the mesh passes, the G-buffer and its lighting, the debug views, scene targets, the `MeshRenderer` component; camera views, debug lines, GPU timing, GPU shader management |
 | `ui` | `core`, `math`, `platform`, `rhi`, `shaders`, `renderer` | The immediate-mode interface: the Dear ImGui context and its NVRHI renderer |
 | `engine` | all of the above | `Engine`: owns the subsystems, the assets, the world and the interface, and runs the frame loop; projects; placing models; checking the assets a scene uses |
 | `editor` | `engine` and below | The editor: the scene document, undoable actions, scene and asset commands, panels, `EditorApp` (not linked into exported games) |
@@ -265,14 +265,37 @@ Vulkan directly. Step-by-step guide for adding a pass:
 - **A texture shown in the interface** (`ImGui::Image`) must stay alive until the
   frame's interface has been rendered: ImGui only remembers a pointer. Replace such a
   texture before the widget that shows it, never after.
-- **Meshes are drawn by `SceneRenderer`**, into a `SceneTargets` per view: linear scene
-  color and depth first, then the display image. Front faces wind counter-clockwise;
-  depth is reversed. Draws that share mesh, submesh and material are instanced, and
-  sorted by the serial numbers of their GPU resources, never by address, so that two
-  runs issue the same draw calls in the same order.
-- **Binding sets of a mesh pass:** register space 0 is the view's, space 1 the
-  material's (`shaders/materials/Material.slang`). A new mesh pass includes that file
-  and calls `evaluateSurface`, so every pass sees a material the same way.
+- **Meshes are drawn by `SceneRenderer`**, into a `SceneTargets` per view, in this
+  order: depth pre-pass, base pass (fills the G-buffer), deferred lighting, forward
+  pass, display encoding. Solid surfaces - opaque and masked - go through the G-buffer;
+  only translucent ones are drawn forward. Front faces wind counter-clockwise; depth is
+  reversed. Draws that share mesh, submesh and material are instanced, and sorted by
+  the serial numbers of their GPU resources, never by address, so that two runs issue
+  the same draw calls in the same order (`MeshDrawList`).
+- **A pass that draws meshes is a `MeshPassDesc`**, not a new class: `MeshPass` owns
+  what such passes share. All of them use the one vertex shader in
+  `passes/MeshVertex.slang`. That is not a convenience: the base pass keeps only pixels
+  whose depth *equals* what the depth pre-pass wrote, which holds only while both
+  compute positions with the same code. Never give a mesh pass a vertex shader of its
+  own.
+- **Binding sets:** register space 0 is the view's (`ViewBindings`,
+  `common/View.slang`), space 1 the material's in a mesh pass
+  (`materials/Material.slang`; call `evaluateSurface`, never sample material textures
+  directly) or the G-buffer's in a pass that reads it (`GBufferBindings`).
+- **The G-buffer layout is written down twice**: `common/GBuffer.slang` and
+  `GBufferTarget` in `SceneTargets.h`. Change both, and only through
+  `encodeGBuffer`/`decodeGBuffer`; `SceneRendererTests` checks every channel through
+  the debug views.
+- **Light is computed in one place**, `shadeSurface` (`common/SceneLighting.slang`),
+  which the deferred lighting and the forward pass both call. A test renders the same
+  surface both ways and compares the pictures; a lighting feature that only one path
+  has fails it.
+- **A pass that samples the depth buffer cannot draw into a framebuffer that has it
+  attached.** Use `SceneTargets::lightingFramebuffer()`, which has color only.
+- **Every renderer feature gets a debug view** (`RenderDebugView`) when there is
+  something to look at: a channel, a mask, a count. A view of the G-buffer is a `case`
+  in `passes/DebugView.slang`; the editor's menu and `viewport.debugView` list them all
+  from `kRenderDebugViews`.
 - **Uploads go through `RenderResources`.** It records them on a command list of its
   own, created with `setEnableImmediateExecution(false)` - NVRHI allows only one
   immediate command list to be open at a time, and the frame's is. That list is dropped
@@ -287,6 +310,10 @@ Vulkan directly. Step-by-step guide for adding a pass:
 - **A view is perspective or orthographic** (`CameraView::orthographic`). Whatever
   needs the direction to the viewer must ask: with perspective it points at the
   camera's position, without it is the opposite of the camera's direction, everywhere.
+- **At most a few frames wait for the GPU** (`FramePacer`, called by `Engine::endFrame`).
+  Without a window nothing else holds a render loop back, and frames that pile up use
+  up the versions of every per-view constant buffer. Code that submits frames of its
+  own in a loop paces them the same way.
 - **Shader permutations** are `ShaderRequest`s: path, entry point, stage and sorted
   defines. Their key is deterministic and pinned by a test; changing how it is computed
   orphans every shader cache. Every engine shader entry point is listed in
@@ -352,6 +379,9 @@ Step-by-step guide: [work-with-assets](.claude/skills/work-with-assets/SKILL.md)
 - **The slot decides the color space, not the texture.** Base color and emissive are
   sRGB, everything else is data. There is no per-texture setting to get wrong.
 - **Sampling belongs to the material:** wrap modes, filter, tiling. A texture is pixels.
+  All textures of a material share one layout (`uvChannel`, `uvScale`, `uvOffset`); the
+  occlusion texture is the one exception, and only when `occlusionUvChannel` gives it
+  the other set of coordinates, which is then used as it is.
 - **Files are untrusted.** Every count and offset of a glTF file is checked before use,
   with arithmetic that cannot overflow, before cgltf's own validation runs (which
   can be made to overflow). A mesh is limited by `kMaxMeshVertices` and
@@ -512,6 +542,12 @@ body explaining what changed and why. One logical change per commit.
 - NVRHI's validation layer rejects a second *immediate* command list opened while
   another is open. Anything that records while a frame is being recorded needs
   `CommandListParameters().setEnableImmediateExecution(false)`.
+- "The device is idle" does not mean the device has recorded its last submission as
+  finished: on at least one driver, polling an event or timer query right after
+  `vkDeviceWaitIdle` says "not yet" one time in four. `GraphicsDevice::waitIdle` waits
+  for the last submission by name as well; use it rather than NVRHI's `waitForIdle`
+  wherever something is polled for afterwards. A test that passed once has not shown
+  that it is not flaky - when timing is involved, run it forty times.
 - A GPU timer query must not be read while the command list that fills it is still
   executing: the driver can hand out the new start time together with the end time of
   the measurement before, which gives a duration of seconds for a frame of
