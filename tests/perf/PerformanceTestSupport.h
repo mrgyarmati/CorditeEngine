@@ -168,6 +168,10 @@ inline Json describeScene(const SceneRenderStatistics& statistics) {
     shadows["lightsWithout"] = statistics.lightsWithoutShadows;
     shadows["atlasBytes"] = statistics.shadowAtlasBytes;
     scene["shadows"] = std::move(shadows);
+    Json environment = Json::object();
+    environment["made"] = statistics.environmentsMade;
+    environment["bytes"] = statistics.environmentBytes;
+    scene["environment"] = std::move(environment);
     return scene;
 }
 

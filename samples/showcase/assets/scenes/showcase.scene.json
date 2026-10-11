@@ -582,15 +582,44 @@
             }
         },
         {
-            // Light from all around: from the sky above, and what the ground throws back from
-            // below. It reaches everything, whatever its lighting channels.
+            // Light from all around, as two colors: one from above and one from below. It
+            // reaches everything, whatever its lighting channels, and adds to the light of
+            // the sky below - here a little, for what the ground around the stage throws
+            // back. A scene without an image of its surroundings can be lit by this alone.
             "id": "10000000-0000-4000-8000-000000000020",
-            "name": "Sky",
+            "name": "Ambient",
             "enabled": true,
             "parent": "10000000-0000-4000-8000-00000000001e",
             "components": {
                 "Transform": { "position": [0.0, 8.0, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [1.0, 1.0, 1.0] },
-                "AmbientLight": { "skyColor": [0.13, 0.17, 0.25], "groundColor": [0.06, 0.05, 0.045], "intensity": 1.0 }
+                "AmbientLight": { "skyColor": [0.02, 0.025, 0.035], "groundColor": [0.05, 0.042, 0.036], "intensity": 1.0 }
+            }
+        },
+        {
+            // Everything far away: an image of all there is around the scene, which lights
+            // it and is its sky (textures/sky.hdr, made by tools/sample-assets). The image
+            // holds light, not colors: its sun is many times brighter than white. Matte
+            // surfaces are lit by all of it at once, shiny ones reflect it, and where
+            // nothing is in the way it is what is seen ("visible"). Nothing in the scene
+            // blocks it, and where its entity is does not matter.
+            //
+            // The image has its sun straight ahead, along -Z. "rotationDegrees" turns it
+            // about the vertical axis, counter-clockwise seen from above, to where the Sun
+            // above shines from: that light is turned by 48 degrees and shines away from
+            // the sun, so the sun stands at 48 - 180. Of several environments, the one
+            // whose entity has the lowest id is used.
+            "id": "10000000-0000-4000-8000-000000000027",
+            "name": "Sky",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-00000000001e",
+            "components": {
+                "Transform": { "position": [0.0, 10.0, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [1.0, 1.0, 1.0] },
+                "Environment": {
+                    "texture": "0c40bfdd-8a6c-8590-95e3-3128fea948a7",
+                    "intensity": 1.0,
+                    "rotationDegrees": -132.0,
+                    "visible": true
+                }
             }
         },
         {

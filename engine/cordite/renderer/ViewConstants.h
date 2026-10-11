@@ -16,6 +16,7 @@
 
 #include "cordite/math/Math.h"
 
+#include <array>
 #include <cstdint>
 
 namespace cordite {
@@ -50,11 +51,22 @@ struct ViewConstants {
     uint32_t shadowViewCount;
     /// How far the filter that softens shadows reaches, in texels.
     uint32_t shadowFilterRadius;
+    /// The environment (shaders/common/Environment.slang): how bright it is - 0 when
+    /// there is none -, the last level of its cube map, and 1 when its sky is drawn
+    /// where nothing else is.
+    float environmentIntensity;
+    float environmentLastLevel;
+    float environmentVisible;
+    /// The sine and the cosine of the angle the environment is turned by about the
+    /// vertical axis.
+    Vec2 environmentTurn;
     float padding0;
     float padding1;
-    float padding2;
+    /// What the environment lights a matte surface with, as nine spherical harmonics
+    /// (rgb; the fourth number is not used).
+    std::array<Vec4, 9> environmentDiffuse;
 };
 
-static_assert(sizeof(ViewConstants) == 256, "must match the cbuffer layout in View.slang");
+static_assert(sizeof(ViewConstants) == 416, "must match the cbuffer layout in View.slang");
 
 } // namespace cordite

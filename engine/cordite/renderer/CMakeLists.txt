@@ -14,6 +14,10 @@ cordite_add_module(renderer
         DeferredLightingPass.h
         DisplayEncodePass.cpp
         DisplayEncodePass.h
+        EnvironmentLight.cpp
+        EnvironmentLight.h
+        EnvironmentMaps.cpp
+        EnvironmentMaps.h
         FramePacer.cpp
         FramePacer.h
         FullscreenPass.cpp

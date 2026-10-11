@@ -16,6 +16,11 @@
 /// holds: colors are converted from sRGB before they are averaged and back afterwards,
 /// and weighted by their alpha so that transparent pixels do not bleed in; data (normals,
 /// roughness) is averaged as it is, channel by channel.
+///
+/// An image of floating-point numbers holds light, which is linear already and has no
+/// upper limit. Its levels are plain averages of the pixels they cover: the sharper
+/// filter the other images get would overshoot beside a pixel thousands of times
+/// brighter than its neighbours - a sun in a sky - and leave less than no light there.
 
 #include "cordite/assets/Image.h"
 #include "cordite/core/Result.h"

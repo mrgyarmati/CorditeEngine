@@ -1,8 +1,8 @@
 #pragma once
 
 /// @file
-/// The components that make an entity visible, the ones that light it, and the one
-/// that says how the picture is finished.
+/// The components that make an entity visible, the ones that light it, the one that
+/// surrounds a scene with a sky, and the one that says how the picture is finished.
 ///
 /// @code
 /// const Entity crate = world.createEntity("Crate");
@@ -25,6 +25,8 @@
 /// },
 /// "Light": {"type": "spot", "color": [1, 0.8, 0.6], "intensity": 5, "range": 8,
 ///           "innerConeDegrees": 20, "outerConeDegrees": 30, "castsShadows": true},
+/// "Environment": {"texture": "3f0c8d5e-6f0a-4f38-9d3b-1b2a7c0de481", "intensity": 1.5,
+///                 "rotationDegrees": 90, "visible": true},
 /// "PostProcess": {"global": true, "toneMapper": "filmic", "exposure": 0.5, "saturation": 0.85,
 ///                 "vignette": 0.3}
 /// @endcode
@@ -152,6 +154,32 @@ struct AmbientLightComponent {
     float intensity = 1.0f;
 };
 
+/// Everything far away, as an image that lights the scene: a sky with its sun, a
+/// horizon, a ground. It reaches every surface, whatever its lighting channels - matte
+/// ones with the light of all it shows, shiny ones with its reflection - and it is what
+/// is seen where nothing else is. Nothing in the scene blocks it: it lights the inside
+/// of a room as it lights a field.
+///
+/// A world is lit by one environment: of several that are enabled, by the one whose
+/// entity has the lowest id. Where the entity is does not matter. AmbientLights add to it.
+struct EnvironmentComponent {
+    /// The image asset: all there is around, twice as wide as high, the way HDR images
+    /// of skies come (.hdr; an image of 8-bit colors does too, as sRGB). Its top row is
+    /// straight up, its middle what is seen looking along -Z, and +X a quarter of its
+    /// width to the right of that. Nil is no environment.
+    Uuid texture;
+    /// Scales its light. With 1, a white, matte surface under an image of even
+    /// brightness is as bright as the image.
+    float intensity = 1.0f;
+    /// Turns the image about the vertical axis, counter-clockwise seen from above, in
+    /// degrees: 90 brings what was straight ahead (-Z) to the left (-X).
+    float rotationDegrees = 0.0f;
+    /// Whether the image is drawn where nothing else is, as the sky. Without, it lights
+    /// the scene and shows in reflections, and the background stays what the view is
+    /// cleared to.
+    bool visible = true;
+};
+
 /// How the picture is finished - exposure, bloom, tone mapping, grading and the rest of
 /// PostProcessSettings - and where.
 ///
@@ -174,8 +202,8 @@ struct PostProcessComponent : PostProcessSettings {
     float weight = 1.0f;
 };
 
-/// Registers the renderer's components: "MeshRenderer", "Light", "AmbientLight" and
-/// "PostProcess".
+/// Registers the renderer's components: "MeshRenderer", "Light", "AmbientLight",
+/// "Environment" and "PostProcess".
 [[nodiscard]] Status registerRendererComponents(ComponentRegistry& registry);
 
 } // namespace cordite

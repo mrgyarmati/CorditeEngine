@@ -16,13 +16,18 @@
 /// | t2       | The lists: indices into the lights                                |
 /// | t3       | The shadow views: where each shadow map is in the atlas           |
 /// | t4       | The shadow atlas (shaders/common/Shadows.slang)                   |
+/// | t5       | The environment's cube map (shaders/common/Environment.slang)     |
+/// | t6       | The environment's image, for the sky                              |
 /// | s0       | The sampler that compares a depth with the atlas                  |
+/// | s1       | The sampler of the cube map                                       |
+/// | s2       | The sampler of the sky: it wraps around from left to right        |
 ///
 /// @code
 /// CORDITE_TRY_ASSIGN(ViewBindings view, ViewBindings::create(device));
 ///
 /// view.update(commandList, {.camera = cameraView, .targetSize = targets.size()}, lightClusters,
-///             {.plan = &shadowPlan, .atlas = shadowAtlas.texture(), .filterRadius = 1});
+///             {.plan = &shadowPlan, .atlas = shadowAtlas.texture(), .filterRadius = 1},
+///             {.environment = &environments.none()});
 /// depthPass.draw(commandList, targets.depthFramebuffer(), batches, view.bindings(), instances);
 /// lightingPass.draw(commandList, targets, view.bindings());
 /// @endcode
@@ -30,11 +35,12 @@
 /// update() may be called any number of times in a command list: what is recorded after
 /// a call sees that call's values, what was recorded before keeps its own. Ask for
 /// bindings() after update(), not before: the set is replaced when a buffer has to grow
-/// or the atlas is another texture.
+/// or the atlas or the environment is another texture.
 
 #include "cordite/core/Result.h"
 #include "cordite/math/Math.h"
 #include "cordite/renderer/CameraView.h"
+#include "cordite/renderer/EnvironmentMaps.h"
 #include "cordite/renderer/LightClusters.h"
 #include "cordite/renderer/ShadowPlan.h"
 
@@ -67,6 +73,20 @@ struct ViewShadows {
     uint32_t filterRadius = 1;
 };
 
+/// The environment of a view, as its passes read it.
+struct ViewEnvironment {
+    /// What lights the view from all around (EnvironmentMaps::environment()), or
+    /// EnvironmentMaps::none(). Never null: a view without an environment still binds
+    /// one, and gets no light from it.
+    const GpuEnvironment* environment = nullptr;
+    /// Scales its light: what it lights, and what is seen of it.
+    float intensity = 0.0f;
+    /// Turns it about the vertical axis, counter-clockwise seen from above, in radians.
+    float rotation = 0.0f;
+    /// Whether it is drawn as the sky, where nothing else is.
+    bool visible = false;
+};
+
 class ViewBindings {
 public:
     /// An empty object; assign one made by create() before use.
@@ -74,11 +94,11 @@ public:
 
     [[nodiscard]] static Result<ViewBindings> create(nvrhi::IDevice* device);
 
-    /// Makes `view`, `lights` and `shadows` what passes recorded from here on are told.
-    /// `lights` must have been built for the camera of `view`, and `shadows` planned
-    /// for them. The command list must be open.
+    /// Makes `view`, `lights`, `shadows` and `environment` what passes recorded from
+    /// here on are told. `lights` must have been built for the camera of `view`, and
+    /// `shadows` planned for them. The command list must be open.
     void update(nvrhi::ICommandList* commandList, const SceneView& view, const LightClusters& lights,
-                const ViewShadows& shadows);
+                const ViewShadows& shadows, const ViewEnvironment& environment);
 
     /// The layout of bindings(), for pipelines: register space 0, visible to every
     /// shader stage.
@@ -99,8 +119,13 @@ private:
     nvrhi::BufferHandle m_lightIndices;
     nvrhi::BufferHandle m_shadowViews;
     nvrhi::SamplerHandle m_shadowSampler;
-    /// The atlas the binding set holds; a view may come with another one.
+    nvrhi::SamplerHandle m_environmentSampler;
+    nvrhi::SamplerHandle m_skySampler;
+    /// The atlas and the environment the binding set holds; a view may come with
+    /// others.
     nvrhi::TextureHandle m_atlas;
+    nvrhi::TextureHandle m_environmentRadiance;
+    nvrhi::TextureHandle m_environmentSky;
     nvrhi::BindingLayoutHandle m_layout;
     nvrhi::BindingSetHandle m_bindings;
     /// True when a buffer was replaced and the binding set has to follow.

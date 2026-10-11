@@ -17,7 +17,9 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
 
-#define STBI_WRITE_NO_STDIO
+// The writer keeps its functions that take a file name (they are never called: files
+// are written through FileSystem.h, which knows about UTF-8 paths). Leaving them out
+// with STBI_WRITE_NO_STDIO would leave the Radiance HDR writer out with them.
 #define STB_IMAGE_WRITE_STATIC
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb_image_write.h>
@@ -172,6 +174,43 @@ Result<std::vector<std::byte>> Image::encodePng() const {
 
 Status Image::savePng(const std::filesystem::path& path) const {
     CORDITE_TRY_ASSIGN(const std::vector<std::byte> encoded, encodePng());
+    return writeBinaryFile(path, encoded);
+}
+
+Result<std::vector<std::byte>> Image::encodeHdr() const {
+    if (isEmpty()) {
+        return makeError(ErrorCode::InvalidState, "cannot encode an empty image");
+    }
+    if (m_format != ImageFormat::Rgba32F) {
+        return makeError(ErrorCode::Unsupported, "Radiance HDR stores Rgba32F images, not {}", nameOf(m_format));
+    }
+
+    // The format has no way to write "not a number" or "without end", and nothing
+    // below zero: the first two are refused, the last is written as nothing.
+    constexpr size_t kChannels = 4;
+    std::vector<float> values(static_cast<size_t>(m_width) * m_height * kChannels);
+    std::memcpy(values.data(), m_pixels.data(), m_pixels.size());
+    for (size_t index = 0; index < values.size(); ++index) {
+        if (!std::isfinite(values[index])) {
+            const size_t pixelIndex = index / kChannels;
+            return makeError(ErrorCode::InvalidArgument,
+                             "the pixel at ({}, {}) holds a value that is not finite, which Radiance HDR cannot store",
+                             pixelIndex % m_width, pixelIndex / m_width);
+        }
+        values[index] = std::max(values[index], 0.0f);
+    }
+
+    std::vector<std::byte> encoded;
+    const int result = stbi_write_hdr_to_func(&appendToVector, &encoded, static_cast<int>(m_width),
+                                              static_cast<int>(m_height), static_cast<int>(kChannels), values.data());
+    if (result == 0 || encoded.empty()) {
+        return makeError(ErrorCode::IoError, "Radiance HDR encoding failed");
+    }
+    return encoded;
+}
+
+Status Image::saveHdr(const std::filesystem::path& path) const {
+    CORDITE_TRY_ASSIGN(const std::vector<std::byte> encoded, encodeHdr());
     return writeBinaryFile(path, encoded);
 }
 

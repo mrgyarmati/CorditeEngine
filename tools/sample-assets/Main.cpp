@@ -8,9 +8,10 @@
 ///     cordite-sample-assets samples/showcase/assets
 ///
 /// It writes `textures/*.png` - the textures of the materials, and the lookup table that
-/// grades the picture - and `models/*`. The materials and the scene of the showcase
-/// are written by hand and refer to these files by the ids in their `.meta` files, which
-/// the editor creates and which stay the same when the files are regenerated.
+/// grades the picture -, `textures/sky.hdr` - the sky that surrounds the scene and
+/// lights it - and `models/*`. The materials and the scene of the showcase are written
+/// by hand and refer to these files by the ids in their `.meta` files, which the editor
+/// creates and which stay the same when the files are regenerated.
 
 #include "cordite/assets/GltfExporter.h"
 #include "cordite/assets/Image.h"
@@ -21,6 +22,7 @@
 #include "cordite/core/FileSystem.h"
 #include "cordite/core/Log.h"
 #include "cordite/math/Color.h"
+#include "cordite/math/Equirectangular.h"
 
 #include <algorithm>
 #include <cmath>
@@ -543,6 +545,70 @@ Image makeGradeLut() {
     return image;
 }
 
+// --- The sky -----------------------------------------------------------------------------
+
+/// The image of the sky is this many pixels all the way round, and half as many from
+/// straight up to straight down.
+constexpr uint32_t kSkyWidth = 512;
+
+/// How high the sun stands in the image of the sky, in degrees. It is in the middle of
+/// the image - straight ahead, along -Z - and as high as the sun of the showcase's scene
+/// shines from; the scene turns the image until the two are in the same place.
+constexpr float kSunElevationDegrees = 53.0f;
+
+/// The light of the showcase's sky from one direction, a unit vector: the end of a
+/// day under broken cloud. Dull blue overhead, a warm haze along the horizon, clouds
+/// that are dark underneath and lit where they face the sun, and the sun itself many
+/// times brighter than white - which is what an image of light can hold and a
+/// picture cannot. Below the horizon is the ground far away, darker than any sky.
+Vec3 skyLight(const Vec3& direction) {
+    const float elevation = toRadians(kSunElevationDegrees);
+    const Vec3 towardsSun(0.0f, std::sin(elevation), -std::cos(elevation));
+    const float height = direction.y;
+    const float facingSun = std::max(glm::dot(direction, towardsSun), 0.0f);
+
+    // Clear air: thicker towards the horizon, and bright around the sun.
+    const float towardsHorizon = std::pow(1.0f - std::clamp(height, 0.0f, 1.0f), 5.0f);
+    Vec3 air = glm::mix(Vec3(0.10f, 0.15f, 0.25f), Vec3(0.50f, 0.40f, 0.30f), towardsHorizon);
+    air += Vec3(1.0f, 0.72f, 0.42f) * (0.30f * std::pow(facingSun, 8.0f) + 2.0f * std::pow(facingSun, 96.0f));
+
+    // A sheet of cloud high above, seen from below: where a direction meets it. Towards
+    // the horizon the sheet is far away, its clouds small and close together.
+    const Vec2 onSheet = Vec2(direction.x, direction.z) / std::max(height, 0.05f);
+    const float density = fractalNoise(onSheet * 0.11f + Vec2(0.37f, 0.81f), IVec2(4, 4), 5, 91);
+    const float cover = glm::smoothstep(0.46f, 0.66f, density);
+    // Dark where the sun is behind the viewer, lit where it shines through from ahead.
+    const Vec3 cloud =
+        glm::mix(Vec3(0.09f, 0.095f, 0.105f), Vec3(0.80f, 0.62f, 0.44f), 0.12f + 0.88f * std::pow(facingSun, 3.0f));
+    // The haze swallows the clouds near the horizon, and around the sun they are thin:
+    // it is seen, whatever the clouds are like elsewhere.
+    const float clouded = cover * (1.0f - towardsHorizon) * (1.0f - std::pow(facingSun, 24.0f)) * 0.9f;
+    Vec3 sky = glm::mix(air, cloud, clouded);
+    // The sun, where no cloud is in front of it: a disc of two or three pixels.
+    sky += Vec3(1.0f, 0.86f, 0.62f) * (24.0f * std::pow(facingSun, 3000.0f) * (1.0f - clouded));
+
+    const Vec3 ground =
+        glm::mix(Vec3(0.085f, 0.075f, 0.065f), Vec3(0.030f, 0.028f, 0.026f), glm::smoothstep(0.0f, 0.4f, -height));
+    // No line where they meet: the haze hides it.
+    return glm::mix(ground, sky, glm::smoothstep(-0.015f, 0.015f, height));
+}
+
+/// The sky as an image of everything around (cordite/math/Equirectangular.h says which
+/// direction is where in it). An Environment component takes it as `texture`.
+Image makeSky() {
+    Result<Image> created = Image::create(kSkyWidth, kSkyWidth / 2, ImageFormat::Rgba32F);
+    CORDITE_VERIFY(created.has_value(), "cannot allocate the image of the sky");
+    Image image = std::move(*created);
+    for (uint32_t y = 0; y < image.height(); ++y) {
+        for (uint32_t x = 0; x < image.width(); ++x) {
+            const Vec2 uv((static_cast<float>(x) + 0.5f) / static_cast<float>(image.width()),
+                          (static_cast<float>(y) + 0.5f) / static_cast<float>(image.height()));
+            image.setPixel(x, y, Vec4(skyLight(equirectDirection(uv)), 1.0f));
+        }
+    }
+    return image;
+}
+
 // --- Output ------------------------------------------------------------------------------
 
 Status writeTextures(const std::filesystem::path& directory, std::string_view name, const TextureSet& textures,
@@ -572,6 +638,7 @@ Status generate(const std::filesystem::path& assetDirectory) {
     CORDITE_TRY(writeTextures(textureDirectory, "grating", bake(grating), false));
     CORDITE_TRY(writeTextures(textureDirectory, "lamp", bake(lampPanel), true));
     CORDITE_TRY(makeGradeLut().savePng(textureDirectory / "grade_lut.png"));
+    CORDITE_TRY(makeSky().saveHdr(textureDirectory / "sky.hdr"));
 
     CORDITE_TRY(exportGltf(makeCrate(), modelDirectory / "crate.gltf"));
     CORDITE_TRY(exportGltf(makeLampPost(), modelDirectory / "lamp_post.gltf"));

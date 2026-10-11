@@ -21,6 +21,7 @@ Cordite is under active development. Milestones follow the brief:
 | 6 | Lighting: directional, point and spot lights, ambient light, clustered light culling, lighting channels | Done |
 | 7 | Shadows: shadow maps in an atlas for directional, point and spot lights, cascades for the sun, soft filtered edges | Done |
 | 8 | HDR and post-processing: exposure by hand or automatic, bloom, filmic and ACES tone mapping, color grading with lookup tables, vignette, grain, quality presets | Done |
+| - | Image-based lighting: HDR images of the sky as environments - the sky itself, its light on matte surfaces, its reflection on shiny ones | Done |
 | 9 | Screen-space effects | Planned |
 | 10 | Physics and gameplay | Planned |
 | 11 | Editor maturity | Planned |
@@ -63,8 +64,9 @@ A Vulkan 1.3 capable GPU and driver are required.
 
 The picture is one of the reference images the rendering tests compare against. It
 shows the showcase project, [samples/showcase](samples/showcase), which uses every
-feature the engine has so far: here a sun, a street lamp (a spot light) and a wall
-light, all three casting shadows, and a light that shines on the ball alone.
+feature the engine has so far: here a sky that lights the scene, a sun, a street lamp
+(a spot light) and a wall light, all three casting shadows, and a light that shines on
+the ball alone.
 
 In the viewport, hold the right mouse button to look around and fly with W A S D, Q and
 E; hold the middle button to slide; turn the wheel to move forwards and backwards.
@@ -93,6 +95,16 @@ from all around, from a sky above and a ground below. An intensity of 1 lights a
 matte surface that faces the light to white - at any distance for a directional light,
 one metre away for a point or a spot light, which thin out with the square of the
 distance and end at their range.
+
+`Environment` surrounds the scene with an image of everything far away: an HDR image
+of a sky, twice as wide as high, such as those of [Poly Haven](https://polyhaven.com/hdris).
+Put the `.hdr` file among the project's assets and name it as the component's
+`texture`. It is the sky that is seen, it lights matte surfaces with all it shows, and
+shiny surfaces reflect it - sharply or blurred, as rough as they are. `intensity`
+scales its light, `rotationDegrees` turns it about the vertical axis (to line its sun
+up with a directional light that casts the shadows), and without `visible` it lights
+the scene and stays unseen. The "Reflections" view of the editor makes a mirror of
+every surface, to show what there is to reflect.
 
 A view can hold hundreds of point and spot lights: they are sorted into a grid of
 clusters, and a pixel only asks the lights near it. Every mesh and every light is in

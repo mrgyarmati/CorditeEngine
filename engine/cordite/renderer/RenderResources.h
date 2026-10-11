@@ -18,6 +18,11 @@
 /// drawIndexed(mesh->vertexBuffer, mesh->indexBuffer, material.bindings);
 /// @endcode
 ///
+/// Textures have the format of their images, and all their mip levels. An image of
+/// floating-point numbers - light, from an `.hdr` file - is kept as half floats, which
+/// every GPU can filter and which take half the memory; what is more than a half float
+/// holds (65504) is cut off there.
+///
 /// An asset that cannot be loaded is reported in the log once, not once per frame: a
 /// mesh is then left out and a material or texture replaced by the default, so a broken
 /// asset never stops a scene from rendering.
@@ -111,6 +116,12 @@ public:
     /// when the id is nil or the image cannot be loaded, which is reported once. The
     /// pointer is valid until the next beginFrame().
     [[nodiscard]] nvrhi::ITexture* dataTexture(const Uuid& id) { return texture(id, ColorSpace::Linear, nullptr); }
+
+    /// The texture of an image asset as colors, for what is not a material's, such as
+    /// an environment: an image of 8-bit numbers is taken as sRGB, one of floating-point
+    /// numbers as the light it holds. Null when the id is nil or the image cannot be
+    /// loaded, which is reported once. The pointer is valid until the next beginFrame().
+    [[nodiscard]] nvrhi::ITexture* colorTexture(const Uuid& id) { return texture(id, ColorSpace::Srgb, nullptr); }
 
     /// Sends everything created since the last call to the GPU. Must happen before a
     /// command list that draws with it is executed.

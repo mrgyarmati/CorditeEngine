@@ -2,6 +2,7 @@
 
 #include "cordite/core/Json.h"
 #include "cordite/core/Reflection.h"
+#include "cordite/core/Uuid.h"
 #include "cordite/world/ComponentRegistry.h"
 
 #include "support/MathTestSupport.h"
@@ -39,11 +40,12 @@ struct Components {
 TEST_SUITE("RenderComponents") {
     TEST_CASE("the renderer registers its components under the names scene files use") {
         const Components components;
-        REQUIRE(components.registry.components().size() == 4);
+        REQUIRE(components.registry.components().size() == 5);
         CHECK(components.registry.components()[0]->type.name() == "MeshRenderer");
         CHECK(components.registry.components()[1]->type.name() == "Light");
         CHECK(components.registry.components()[2]->type.name() == "AmbientLight");
-        CHECK(components.registry.components()[3]->type.name() == "PostProcess");
+        CHECK(components.registry.components()[3]->type.name() == "Environment");
+        CHECK(components.registry.components()[4]->type.name() == "PostProcess");
         for (const ComponentDescriptor* descriptor : components.registry.components()) {
             CAPTURE(descriptor->type.name());
             CHECK(descriptor->traits.optional);
@@ -274,6 +276,57 @@ TEST_SUITE("RenderComponents") {
         CHECK_FALSE(type.fromJson(&loaded, json(R"({"skyColor": [0.0, -0.1, 0.0]})")).has_value());
         CHECK_FALSE(type.fromJson(&loaded, json(R"({"horizonColor": [0.0, 0.0, 0.0]})")).has_value());
         CHECK(loaded.intensity == 1.5f);
+    }
+
+    TEST_CASE("an environment is saved as an image, how bright and how turned it is, and whether it is seen") {
+        const Components components;
+        const TypeInfo& type = components.type("Environment");
+
+        // A new one has no image yet, and shows the one it gets as it is.
+        const EnvironmentComponent fresh;
+        CHECK(fresh.texture.isNil());
+        CHECK(fresh.intensity == 1.0f);
+        CHECK(fresh.rotationDegrees == 0.0f);
+        CHECK(fresh.visible);
+
+        const EnvironmentComponent environment{.texture = *Uuid::parse("3f0c8d5e-6f0a-4f38-9d3b-1b2a7c0de481"),
+                                               .intensity = 2.5f,
+                                               .rotationDegrees = -45.0f,
+                                               .visible = false};
+        const Json saved = type.toJson(&environment);
+        CHECK(saved == json(R"({"texture": "3f0c8d5e-6f0a-4f38-9d3b-1b2a7c0de481", "intensity": 2.5,
+                                "rotationDegrees": -45.0, "visible": false})"));
+
+        EnvironmentComponent loaded;
+        REQUIRE(type.fromJson(&loaded, saved).has_value());
+        CHECK(loaded.texture == environment.texture);
+        CHECK(loaded.intensity == 2.5f);
+        CHECK(loaded.rotationDegrees == -45.0f);
+        CHECK_FALSE(loaded.visible);
+
+        // The image is a reference to a texture asset, which is what an editor offers
+        // and what a scene is checked for.
+        const PropertyInfo* texture = type.findProperty("texture");
+        REQUIRE(texture != nullptr);
+        CHECK(texture->attributes().semantic == PropertySemantic::AssetReference);
+        CHECK(texture->attributes().referenceType == "Texture");
+
+        for (const char* text : {
+                 R"({"intensity": -0.5})",
+                 R"({"intensity": 1001.0})",
+                 R"({"rotationDegrees": 400.0})",
+                 R"({"rotationDegrees": -361.0})",
+                 R"({"texture": "sky.hdr"})",
+                 R"({"texture": 7})",
+                 R"({"visible": "yes"})",
+                 R"({"exposure": 1.0})",
+                 R"({"intensity": 3.0, "rotationDegrees": 1000.0})",
+             }) {
+            CAPTURE(std::string(text));
+            CHECK_FALSE(type.fromJson(&loaded, json(text)).has_value());
+            CHECK(loaded.intensity == 2.5f);
+            CHECK(loaded.rotationDegrees == -45.0f);
+        }
     }
 
     TEST_CASE("a new post-process component applies everywhere and changes little") {

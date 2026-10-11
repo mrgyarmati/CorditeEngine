@@ -31,7 +31,12 @@
         // the atlas of the medium shadow quality: 4096 texels a side, four bytes each.
         "shadowMaps": 12,
         "shadowAtlasBytes": 67108864,
+        // The cube map made of the sky, for reflections: six faces of 256 texels a side
+        // and five smaller levels of them, eight bytes a texel. One environment, one
+        // cube map.
+        "environmentBytes": 4193280,
         "meshBytes": 160000,
+        // The image of the sky is 1.4 MiB of this.
         "textureBytes": 9437184,
 
         "milliseconds": {

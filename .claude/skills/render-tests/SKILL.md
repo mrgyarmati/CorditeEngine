@@ -91,6 +91,12 @@ TEST_CASE("the vignette darkens the corners") {
   sets `PostProcessQuality::Off`): the light as it was worked out, and nothing done
   to it. What finishing does - exposure, bloom, the curves, grading - is tested in
   `PostProcessTests.cpp`, against the functions of `PostProcessSettings.h`.
+- Images a test needs are made in the test and written with `writeImage` or, for
+  light, `writeHdrImage`; `EnvironmentTests.cpp` builds its skies from a function of
+  the direction (`makeEnvironment`). A world in which every direction has a color of
+  its own leaves nothing about orientation to chance.
+- A value that is not 8 bits - scene color, a level of a cube map - is read back with
+  `readTexture` (`rhi/TextureReadback.h`), which takes a mip level and an array slice.
 - Make sure the test can fail: break the code on purpose once (leave a light out,
   shrink a bound) and see the test notice.
 - Everything that influences the image must be fixed: sizes, times, seeds. Use

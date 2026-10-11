@@ -3,8 +3,13 @@
 #include "cordite/core/Assert.h"
 #include "cordite/core/Log.h"
 
+#include <glm/gtc/packing.hpp>
+
 #include <algorithm>
 #include <array>
+#include <cmath>
+#include <cstddef>
+#include <cstdint>
 #include <cstring>
 #include <span>
 #include <string>
@@ -56,9 +61,27 @@ nvrhi::Format textureFormat(ImageFormat format, ColorSpace colorSpace) {
         case ImageFormat::Rgba8:
             return colorSpace == ColorSpace::Srgb ? nvrhi::Format::SRGBA8_UNORM : nvrhi::Format::RGBA8_UNORM;
         case ImageFormat::Rgba32F:
-            return nvrhi::Format::RGBA32_FLOAT;
+            // Sent as half floats (see halfFloatsOf).
+            return nvrhi::Format::RGBA16_FLOAT;
     }
     return nvrhi::Format::RGBA8_UNORM;
+}
+
+/// The pixels of an image of 32-bit floats as half floats, which is how such images are
+/// kept on the GPU: every GPU can filter half floats, which is not so for 32-bit ones,
+/// and they take half the memory. What a half float cannot hold - more than 65504, or
+/// no number at all - becomes the most it can hold, or nothing.
+std::vector<uint16_t> halfFloatsOf(const Image& image) {
+    constexpr float kLargestHalf = 65504.0f;
+    const std::span<const std::byte> bytes = image.pixels();
+    std::vector<uint16_t> halves(bytes.size() / sizeof(float));
+    for (size_t index = 0; index < halves.size(); ++index) {
+        float value = 0.0f;
+        std::memcpy(&value, bytes.data() + index * sizeof(float), sizeof(float));
+        value = std::isnan(value) ? 0.0f : std::clamp(value, -kLargestHalf, kLargestHalf);
+        halves[index] = glm::packHalf1x16(value);
+    }
+    return halves;
 }
 
 /// The first level of a mip chain to upload, so that no side exceeds `limit`.
@@ -264,6 +287,13 @@ Result<nvrhi::TextureHandle> RenderResources::createTexture(const Image& image, 
     nvrhi::ICommandList* commandList = uploadCommandList();
     for (uint32_t index = firstLevel; index < levelCount; ++index) {
         const Image& pixels = level(index);
+        if (pixels.format() == ImageFormat::Rgba32F) {
+            const std::vector<uint16_t> halves = halfFloatsOf(pixels);
+            const size_t byteSize = halves.size() * sizeof(uint16_t);
+            commandList->writeTexture(texture, 0, index - firstLevel, halves.data(), byteSize / pixels.height());
+            m_statistics.textureBytes += byteSize;
+            continue;
+        }
         commandList->writeTexture(texture, 0, index - firstLevel, pixels.pixels().data(), pixels.rowBytes());
         m_statistics.textureBytes += pixels.pixels().size();
     }

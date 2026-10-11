@@ -451,6 +451,25 @@ TEST_SUITE("AssetCommands") {
               "MeshRenderer.mesh refers to textures/wall.png, which is a texture, not a mesh");
         CHECK(result["problems"][1]["problem"].get<std::string>().find("which does not exist") != std::string::npos);
         CHECK(result["problems"][1]["id"] == fixture.world.id(fixture.world.findByName("Bad")).toString());
+
+        // The image of an environment is checked like any other reference: a texture is
+        // one of the assets the scene uses, a mesh is no image.
+        fixture.run("entity.delete", R"({"entities": ["Good/Bad"]})");
+        fixture.run("entity.create",
+                    fmt::format(R"({{"name": "Sky", "components": {{"Environment": {{"texture": "{}"}}}}}})", wall));
+        result = fixture.run("scene.validate");
+        CHECK(result["valid"] == true);
+        CHECK(pathsOf(result["assets"]) ==
+              std::vector<std::string>{"builtin#mesh/cube", "materials/paint.material.json", "textures/wall.png"});
+        fixture.run("component.set", fmt::format(R"({{"entity": "Sky", "component": "Environment",
+            "properties": {{"texture": "{}"}}}})",
+                                                 cube));
+        result = fixture.run("scene.validate");
+        CHECK(result["valid"] == false);
+        REQUIRE(result["problems"].size() == 1);
+        CHECK(result["problems"][0]["entity"] == "Sky");
+        CHECK(result["problems"][0]["problem"] ==
+              "Environment.texture refers to builtin#mesh/cube, which is a mesh, not a texture");
     }
 
     TEST_CASE("asset references are set like any other property") {

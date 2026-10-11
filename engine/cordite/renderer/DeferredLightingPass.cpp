@@ -26,11 +26,13 @@ Result<FullscreenPass> createPass(nvrhi::IDevice* device, ShaderManager& shaders
 } // namespace
 
 DeferredLightingPass::DeferredLightingPass(nvrhi::IDevice* device, nvrhi::BindingLayoutHandle gbufferLayout,
-                                           FullscreenPass pass, FullscreenPass lightingOnlyPass)
+                                           FullscreenPass pass, FullscreenPass lightingOnlyPass,
+                                           FullscreenPass reflectionsPass)
     : m_device(device),
       m_gbufferLayout(std::move(gbufferLayout)),
       m_pass(std::move(pass)),
-      m_lightingOnlyPass(std::move(lightingOnlyPass)) {}
+      m_lightingOnlyPass(std::move(lightingOnlyPass)),
+      m_reflectionsPass(std::move(reflectionsPass)) {}
 
 Result<DeferredLightingPass> DeferredLightingPass::create(nvrhi::IDevice* device, ShaderManager& shaders,
                                                           nvrhi::IBindingLayout* viewLayout) {
@@ -50,11 +52,18 @@ Result<DeferredLightingPass> DeferredLightingPass::create(nvrhi::IDevice* device
                                                                     .stage = ShaderStage::Pixel,
                                                                     .defines = {{"LIGHTING_ONLY", "1"}}},
                                                                    viewLayout, gbufferLayout));
-    return DeferredLightingPass(device, std::move(gbufferLayout), std::move(pass), std::move(lightingOnlyPass));
+    CORDITE_TRY_ASSIGN(FullscreenPass reflectionsPass, createPass(device, shaders, "Reflections",
+                                                                  {.path = kShaderPath,
+                                                                   .entryPoint = kEntryPoint,
+                                                                   .stage = ShaderStage::Pixel,
+                                                                   .defines = {{"REFLECTIONS_ONLY", "1"}}},
+                                                                  viewLayout, gbufferLayout));
+    return DeferredLightingPass(device, std::move(gbufferLayout), std::move(pass), std::move(lightingOnlyPass),
+                                std::move(reflectionsPass));
 }
 
 void DeferredLightingPass::draw(nvrhi::ICommandList* commandList, const SceneTargets& targets,
-                                nvrhi::IBindingSet* viewBindings, bool lightingOnly) {
+                                nvrhi::IBindingSet* viewBindings, DeferredLightingMode mode) {
     CORDITE_ASSERT(commandList != nullptr && targets.isValid() && viewBindings != nullptr,
                    "lighting needs a command list, valid targets and the view");
     if (commandList == nullptr || !targets.isValid() || viewBindings == nullptr) {
@@ -66,7 +75,13 @@ void DeferredLightingPass::draw(nvrhi::ICommandList* commandList, const SceneTar
         return;
     }
     const std::array<nvrhi::IBindingSet*, 2> bindingSets = {viewBindings, gbuffer.Get()};
-    (lightingOnly ? m_lightingOnlyPass : m_pass).draw(commandList, targets.lightingFramebuffer(), bindingSets);
+    FullscreenPass* pass = &m_pass;
+    if (mode == DeferredLightingMode::LightingOnly) {
+        pass = &m_lightingOnlyPass;
+    } else if (mode == DeferredLightingMode::Reflections) {
+        pass = &m_reflectionsPass;
+    }
+    pass->draw(commandList, targets.lightingFramebuffer(), bindingSets);
 }
 
 } // namespace cordite

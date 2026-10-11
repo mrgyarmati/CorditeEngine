@@ -41,12 +41,14 @@ cordite_add_test_suite(math
         unit/math/ColorTests.cpp
         unit/math/CurveTests.cpp
         unit/math/EncodingTests.cpp
+        unit/math/EquirectangularTests.cpp
         unit/math/FrustumTests.cpp
         unit/math/GeometryTests.cpp
         unit/math/MathJsonTests.cpp
         unit/math/MathReflectionTests.cpp
         unit/math/ProjectionTests.cpp
         unit/math/RandomTests.cpp
+        unit/math/SphericalHarmonicsTests.cpp
         unit/math/TransformTests.cpp
     LIBRARIES
         cordite::math)
@@ -100,6 +102,7 @@ cordite_add_test_suite(renderer
     SOURCES
         unit/renderer/CameraViewTests.cpp
         unit/renderer/DebugDrawTests.cpp
+        unit/renderer/EnvironmentLightTests.cpp
         unit/renderer/LightClustersTests.cpp
         unit/renderer/PostProcessSettingsTests.cpp
         unit/renderer/RenderComponentsTests.cpp
@@ -156,6 +159,7 @@ cordite_add_test_suite(render
         render/DebugLineTests.cpp
         render/EditorAppTests.cpp
         render/EngineTests.cpp
+        render/EnvironmentTests.cpp
         render/FramePacerTests.cpp
         render/GpuTimerTests.cpp
         render/GraphicsDeviceTests.cpp

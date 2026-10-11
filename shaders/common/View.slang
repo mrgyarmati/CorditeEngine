@@ -44,9 +44,18 @@ cbuffer ViewConstants : register(b0, space0)
     uint shadowViewCount;
     // How far the filter that softens the edges of shadows reaches, in texels.
     uint shadowFilterRadius;
+    // The environment (common/Environment.slang): how bright it is - zero when there
+    // is none -, the last level of its cube map, and 1 when its sky is drawn where
+    // nothing else is.
+    float environmentIntensity;
+    float environmentLastLevel;
+    float environmentVisible;
+    // The sine and the cosine of the angle it is turned by about the vertical axis.
+    float2 environmentTurn;
     float viewPadding0;
     float viewPadding1;
-    float viewPadding2;
+    // What it lights a matte surface with: nine spherical harmonics, in rgb.
+    float4 environmentDiffuse[9];
 };
 
 // The unit vector from a point in the world towards the viewer. With perspective that
@@ -54,6 +63,23 @@ cbuffer ViewConstants : register(b0, space0)
 float3 directionToViewer(float3 position)
 {
     return orthographic > 0.5 ? -cameraForward : normalizeOr(cameraPosition - position, -cameraForward);
+}
+
+// The unit vector along which the pixel at `uv` - (0, 0) at the top left of the picture,
+// (1, 1) at its bottom right - looks out into the world. With perspective that is away
+// from the camera, through the pixel; without, it is the same direction everywhere.
+float3 viewDirectionAt(float2 uv)
+{
+    if (orthographic > 0.5)
+    {
+        return cameraForward;
+    }
+    // The far end of what the pixel shows, as a point that may be infinitely far away:
+    // its fourth number is zero then, and the other three are the direction. Taking
+    // the camera away like this is exact for both, and stays so far from the origin,
+    // where the difference of two points near the camera would not.
+    const float4 farPoint = mul(inverseViewProjection, float4(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, 0.0, 1.0));
+    return normalizeOr(farPoint.xyz - cameraPosition * farPoint.w, cameraForward);
 }
 
 // How far a point is from the camera, measured along the direction it looks in.

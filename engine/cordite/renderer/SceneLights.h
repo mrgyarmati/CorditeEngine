@@ -30,11 +30,24 @@
 namespace cordite {
 
 struct SceneLightsDesc {
-    /// Light a world that has no light components at all - not one Light or
-    /// AmbientLight, switched on or off - with a key light from above and soft light
+    /// Light a world that has no light components at all - not one Light, AmbientLight
+    /// or Environment, switched on or off - with a key light from above and soft light
     /// from all around, so that what is in it can be seen. Editors do, for a scene that
     /// is being started; a game shows what its scene says.
     bool defaultLighting = false;
+};
+
+/// The environment of a world, as the renderer works with it.
+struct SceneEnvironment {
+    /// The image of everything around. Nil when the world has no environment.
+    Uuid texture;
+    /// Scales its light: a number that is not less than nothing.
+    float intensity = 0.0f;
+    /// How far it is turned about the vertical axis, counter-clockwise seen from above,
+    /// in radians.
+    float rotation = 0.0f;
+    /// Whether it is drawn as the sky.
+    bool visible = false;
 };
 
 /// A light as the renderer works with it: `placement` is the world matrix of its
@@ -62,6 +75,10 @@ public:
 
     [[nodiscard]] const Vec3& groundColor() const { return m_groundColor; }
 
+    /// The environment: that of the enabled Environment whose entity has the lowest id,
+    /// which is the same on every run. Without one, an environment without an image.
+    [[nodiscard]] const SceneEnvironment& environment() const { return m_environment; }
+
     /// True when the lights are the stand-ins of SceneLightsDesc::defaultLighting.
     [[nodiscard]] bool isDefault() const { return m_isDefault; }
 
@@ -73,6 +90,7 @@ private:
     std::vector<std::pair<Uuid, uint32_t>> m_order;
     Vec3 m_skyColor{0.0f};
     Vec3 m_groundColor{0.0f};
+    SceneEnvironment m_environment;
     bool m_isDefault = false;
 };
 

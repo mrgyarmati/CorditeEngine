@@ -3,10 +3,13 @@
 // The base pass has written down what each visible surface is; this pass reads that
 // back, works out where the surface is from its depth, and computes the light that
 // leaves it towards the viewer. Output is linear light. Pixels in which nothing was
-// drawn are left alone: they keep the background.
+// drawn show the sky of the environment, when the view has one that is to be seen;
+// otherwise they are left alone and keep the background.
 //
 // Compiled a second time with LIGHTING_ONLY, for the debug view that shows the light
-// without the materials' colors: every surface a plain, matte grey.
+// without the materials' colors: every surface a plain, matte grey. And a third time
+// with REFLECTIONS_ONLY, for the one that shows what there is to reflect: every surface
+// a perfect mirror, lit by its surroundings alone.
 
 #include "common/Fullscreen.slang"
 #include "common/GBuffer.slang"
@@ -71,13 +74,23 @@ float4 deferredLightingPixel(FullscreenVaryings input) : SV_Target0
 {
     const int3 pixel = int3(int2(input.position.xy), 0);
     const float depth = sceneDepth.Load(pixel).r;
+    const float2 uv = input.position.xy * inverseTargetSize;
     // Depth is reversed: zero is as far as the view reaches, where nothing was drawn.
     if (depth <= 0.0)
     {
-        discard;
+        if (environmentVisible < 0.5)
+        {
+            discard;
+        }
+        // The sky. How far the view turns from this pixel to the ones beside and below
+        // it tells how much of the sky the pixel covers.
+        const float3 direction = viewDirectionAt(uv);
+        const float3 beside = viewDirectionAt(uv + float2(inverseTargetSize.x, 0.0));
+        const float3 below = viewDirectionAt(uv + float2(0.0, inverseTargetSize.y));
+        const float turn = max(length(beside - direction), length(below - direction));
+        return float4(storableLight(environmentSkyLight(direction, turn)), 1.0);
     }
 
-    const float2 uv = input.position.xy * inverseTargetSize;
     const float3 position = worldPositionFromDepth(uv, depth, inverseViewProjection);
     Surface surface = decodeGBuffer(gbufferBaseColor.Load(pixel), gbufferNormal.Load(pixel).xy,
                                     gbufferParameters.Load(pixel), gbufferEmissive.Load(pixel).rgb, position);
@@ -93,5 +106,14 @@ float4 deferredLightingPixel(FullscreenVaryings input) : SV_Target0
     surface.metallic = 0.0;
     surface.emissive = float3(0.0);
 #endif
+#if defined(REFLECTIONS_ONLY)
+    // A mirror throws back all the light of one direction, and nothing else.
+    surface.baseColor = float3(1.0);
+    surface.metallic = 1.0;
+    surface.roughness = 0.0;
+    surface.occlusion = 1.0;
+    return float4(storableLight(shadeSurroundings(surface, directionToViewer(position))), 1.0);
+#else
     return float4(shadeSurface(surface, uv), 1.0);
+#endif
 }

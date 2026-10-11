@@ -6,9 +6,12 @@
 /// exists but is not used in samples/showcase: adding a feature includes showing it.
 
 #include "cordite/assets/AssetManager.h"
+#include "cordite/assets/Image.h"
 #include "cordite/engine/EngineComponents.h"
 #include "cordite/engine/Project.h"
 #include "cordite/engine/SceneAssets.h"
+#include "cordite/math/Color.h"
+#include "cordite/math/Equirectangular.h"
 #include "cordite/renderer/CameraView.h"
 #include "cordite/renderer/RenderComponents.h"
 #include "cordite/world/SceneSerializer.h"
@@ -16,6 +19,8 @@
 #include "support/TestSupport.h"
 
 #include <algorithm>
+#include <cmath>
+#include <cstdint>
 #include <memory>
 #include <set>
 #include <string>
@@ -308,6 +313,54 @@ TEST_SUITE("Showcase") {
         REQUIRE(stage.has_value());
         CHECK(stage->x == doctest::Approx(800.0f).epsilon(0.2));
         CHECK(stage->y == doctest::Approx(450.0f).epsilon(0.2));
+    }
+
+    TEST_CASE("the sun in the showcase's image of the sky stands where its sun shines from") {
+        Showcase showcase;
+        World& world = showcase.world;
+        world.updateWorldTransforms();
+
+        // The directional light that casts the shadows, and the environment.
+        Vec3 towardsSun(0.0f);
+        const auto lights = world.registry().view<const LightComponent>();
+        for (const auto [handle, light] : lights.each()) {
+            if (light.type == LightType::Directional && light.castsShadows) {
+                // A light shines along the -Z axis of its entity.
+                towardsSun = glm::normalize(Vec3(world.worldMatrix(Entity{handle}) * Vec4(0.0f, 0.0f, 1.0f, 0.0f)));
+            }
+        }
+        REQUIRE(glm::length(towardsSun) == doctest::Approx(1.0f));
+        const EnvironmentComponent* environment = nullptr;
+        const auto environments = world.registry().view<const EnvironmentComponent>();
+        for (const auto [handle, component] : environments.each()) {
+            environment = &component;
+        }
+        REQUIRE(environment != nullptr);
+        CHECK(environment->visible);
+
+        // The brightest pixel of the image is its sun: an image of light, in which
+        // the sun is many times brighter than white.
+        const std::shared_ptr<const Image> sky = test::unwrap(showcase.assets->loadTexture(environment->texture));
+        REQUIRE(sky->format() == ImageFormat::Rgba32F);
+        CHECK(sky->width() == 2 * sky->height());
+        float brightest = 0.0f;
+        Vec2 where(0.0f);
+        for (uint32_t y = 0; y < sky->height(); ++y) {
+            for (uint32_t x = 0; x < sky->width(); ++x) {
+                const float brightness = luminance(Vec3(sky->pixel(x, y)));
+                if (brightness > brightest) {
+                    brightest = brightness;
+                    where = Vec2((static_cast<float>(x) + 0.5f) / static_cast<float>(sky->width()),
+                                 (static_cast<float>(y) + 0.5f) / static_cast<float>(sky->height()));
+                }
+            }
+        }
+        CHECK(brightest > 8.0f);
+
+        // Turned as the scene turns the image, it is where the light comes from, to
+        // within a pixel or two of the image.
+        const Vec3 inTheWorld = turnedAboutVertical(equirectDirection(where), toRadians(environment->rotationDegrees));
+        CHECK(glm::degrees(std::acos(std::min(glm::dot(inTheWorld, towardsSun), 1.0f))) < 2.0f);
     }
 
     TEST_CASE("saving the showcase keeps everything that is in the file") {

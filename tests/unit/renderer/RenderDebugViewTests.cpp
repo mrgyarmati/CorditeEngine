@@ -39,12 +39,16 @@ TEST_SUITE("RenderDebugView") {
         CHECK(nameOf(RenderDebugView::Emissive) == "emissive");
         CHECK(nameOf(RenderDebugView::Depth) == "depth");
         CHECK(nameOf(RenderDebugView::LightCount) == "lightCount");
+        CHECK(nameOf(RenderDebugView::ShadowCascades) == "shadowCascades");
         CHECK(nameOf(RenderDebugView::LightingOnly) == "lightingOnly");
+        CHECK(nameOf(RenderDebugView::Reflections) == "reflections");
         CHECK(nameOf(RenderDebugView::Wireframe) == "wireframe");
         CHECK(nameOf(RenderDebugView::Overdraw) == "overdraw");
 
         CHECK(displayNameOf(RenderDebugView::None) == "Lit");
         CHECK(displayNameOf(RenderDebugView::LightingOnly) == "Lighting only");
+        CHECK(displayNameOf(RenderDebugView::Reflections) == "Reflections");
+        CHECK(kRenderDebugViews.size() == 15);
     }
 
     TEST_CASE("a view is found by its name, whatever the case, and nothing else is") {
@@ -53,6 +57,7 @@ TEST_SUITE("RenderDebugView") {
         }
         CHECK(renderDebugViewFromName("BASECOLOR") == RenderDebugView::BaseColor);
         CHECK(renderDebugViewFromName("lightingonly") == RenderDebugView::LightingOnly);
+        CHECK(renderDebugViewFromName("Reflections") == RenderDebugView::Reflections);
 
         CHECK_FALSE(renderDebugViewFromName("").has_value());
         CHECK_FALSE(renderDebugViewFromName("base color").has_value());
@@ -70,6 +75,7 @@ TEST_SUITE("RenderDebugView") {
             CHECK(isDrawnFromGBuffer(view));
         }
         CHECK_FALSE(isDrawnFromGBuffer(RenderDebugView::LightingOnly));
+        CHECK_FALSE(isDrawnFromGBuffer(RenderDebugView::Reflections));
         CHECK_FALSE(isDrawnFromGBuffer(RenderDebugView::Wireframe));
         CHECK_FALSE(isDrawnFromGBuffer(RenderDebugView::Overdraw));
 

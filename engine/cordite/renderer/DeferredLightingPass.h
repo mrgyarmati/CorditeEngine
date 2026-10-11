@@ -10,11 +10,12 @@
 /// lighting.draw(commandList, targets, view.bindings());
 /// @endcode
 ///
-/// The pass writes linear light into the scene color of the targets and leaves pixels
-/// alone in which nothing was drawn, so the background stays what it was cleared to.
-/// The lights are those of the view (see ViewBindings): its directional lights, the
-/// point and spot lights of the cluster each pixel is in, and ambient light from a sky
-/// and a ground.
+/// The pass writes linear light into the scene color of the targets. Pixels in which
+/// nothing was drawn show the sky of the view's environment, when it has one that is
+/// to be seen; otherwise they are left alone, so the background stays what it was
+/// cleared to. The lights are those of the view (see ViewBindings): its directional
+/// lights, the point and spot lights of the cluster each pixel is in, ambient light
+/// from a sky and a ground, and its environment.
 
 #include "cordite/core/Result.h"
 #include "cordite/renderer/FullscreenPass.h"
@@ -23,7 +24,20 @@
 
 #include <nvrhi/nvrhi.h>
 
+#include <cstdint>
+
 namespace cordite {
+
+/// What the lighting pass makes of the surfaces in the G-buffer.
+enum class DeferredLightingMode : uint8_t {
+    /// The surfaces as they are, in all the light of the view.
+    Lit,
+    /// Every surface plain matte grey: the light without the materials.
+    LightingOnly,
+    /// Every surface a perfect mirror, lit by its surroundings alone - the environment
+    /// and the ambient light: what there is to reflect.
+    Reflections,
+};
 
 class DeferredLightingPass {
 public:
@@ -31,20 +45,20 @@ public:
     [[nodiscard]] static Result<DeferredLightingPass> create(nvrhi::IDevice* device, ShaderManager& shaders,
                                                              nvrhi::IBindingLayout* viewLayout);
 
-    /// Lights the G-buffer of `targets` into their scene color. With `lightingOnly`,
-    /// every surface is lit as if it were plain matte grey: the light without the
-    /// materials. The command list must be open.
+    /// Lights the G-buffer of `targets` into their scene color, as `mode` says. The
+    /// command list must be open.
     void draw(nvrhi::ICommandList* commandList, const SceneTargets& targets, nvrhi::IBindingSet* viewBindings,
-              bool lightingOnly = false);
+              DeferredLightingMode mode = DeferredLightingMode::Lit);
 
 private:
     DeferredLightingPass(nvrhi::IDevice* device, nvrhi::BindingLayoutHandle gbufferLayout, FullscreenPass pass,
-                         FullscreenPass lightingOnlyPass);
+                         FullscreenPass lightingOnlyPass, FullscreenPass reflectionsPass);
 
     nvrhi::IDevice* m_device;
     nvrhi::BindingLayoutHandle m_gbufferLayout;
     FullscreenPass m_pass;
     FullscreenPass m_lightingOnlyPass;
+    FullscreenPass m_reflectionsPass;
 };
 
 } // namespace cordite

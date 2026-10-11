@@ -150,6 +150,43 @@ TEST_SUITE("Mipmaps") {
         }
     }
 
+    TEST_CASE("a sun in a floating-point image leaves no ring of less than no light around it") {
+        // A dim sky with one pixel tens of thousands of times brighter: a sharpening
+        // filter would overshoot beside it.
+        Image image = unwrap(Image::create(64, 32, ImageFormat::Rgba32F));
+        for (uint32_t y = 0; y < image.height(); ++y) {
+            for (uint32_t x = 0; x < image.width(); ++x) {
+                image.setPixel(x, y, Vec4(0.01f, 0.02f, 0.04f, 1.0f));
+            }
+        }
+        image.setPixel(21, 9, Vec4(60000.0f, 50000.0f, 40000.0f, 1.0f));
+        const double total = 60000.0 + 0.01 * (64.0 * 32.0 - 1.0);
+
+        for (const ColorSpace colorSpace : {ColorSpace::Linear, ColorSpace::Srgb}) {
+            CAPTURE(nameOf(colorSpace));
+            uint32_t levelNumber = 1;
+            for (const Image& level : unwrap(generateMipChain(image, colorSpace))) {
+                CAPTURE(levelNumber);
+                double sum = 0.0;
+                for (uint32_t y = 0; y < level.height(); ++y) {
+                    for (uint32_t x = 0; x < level.width(); ++x) {
+                        const Vec4 pixel = level.pixel(x, y);
+                        // Nowhere darker than the sky.
+                        CHECK(pixel.r >= 0.01f * 0.999f);
+                        CHECK(pixel.g >= 0.02f * 0.999f);
+                        CHECK(pixel.b >= 0.04f * 0.999f);
+                        sum += pixel.r;
+                    }
+                }
+                // And none of the light is lost: a pixel of a level stands for four,
+                // sixteen, ... of the image.
+                const double pixelsEach = (64.0 * 32.0) / (static_cast<double>(level.width()) * level.height());
+                CHECK(sum * pixelsEach == doctest::Approx(total).epsilon(1.0e-4));
+                ++levelNumber;
+            }
+        }
+    }
+
     TEST_CASE("a single channel is always data") {
         const Image image = makeColumns(ImageFormat::R8, Vec4(0.0f), Vec4(1.0f));
         const float asColor = unwrap(generateMipChain(image, ColorSpace::Srgb))[0].pixel(0, 0).r;

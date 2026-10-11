@@ -278,6 +278,88 @@ TEST_SUITE("SceneLights") {
         CHECK_NEAR(lights.skyColor(), Vec3(0.0f, 0.5f, 0.0f), 1.0e-6f);
     }
 
+    TEST_CASE("a world has the environment of the enabled entity with the lowest id, or none") {
+        World world;
+        SceneLights lights;
+        lights.collect(world);
+        CHECK(lights.environment().texture.isNil());
+        CHECK(lights.environment().intensity == 0.0f);
+        CHECK_FALSE(lights.environment().visible);
+
+        const Uuid dusk = id("11111111-1111-4111-8111-111111111111");
+        const Uuid noon = id("22222222-2222-4222-8222-222222222222");
+        // Made in the order of their ids turned round.
+        const Entity second = unwrap(world.createEntityWithId(id("00000000-0000-4000-8000-0000000000b0"), "Noon"));
+        world.add<EnvironmentComponent>(second) = {
+            .texture = noon, .intensity = 3.0f, .rotationDegrees = 180.0f, .visible = false};
+        lights.collect(world);
+        CHECK(lights.environment().texture == noon);
+        CHECK(lights.environment().intensity == 3.0f);
+        CHECK(lights.environment().rotation == doctest::Approx(kPi));
+        CHECK_FALSE(lights.environment().visible);
+        // An environment is no light among the lights, and no ambient light.
+        CHECK(lights.lights().empty());
+        CHECK(lights.skyColor() == Vec3(0.0f));
+
+        const Entity first = unwrap(world.createEntityWithId(id("00000000-0000-4000-8000-0000000000a0"), "Dusk"));
+        world.add<EnvironmentComponent>(first) = {.texture = dusk, .intensity = 0.5f, .rotationDegrees = -90.0f};
+        lights.collect(world);
+        CHECK(lights.environment().texture == dusk);
+        CHECK(lights.environment().intensity == 0.5f);
+        CHECK(lights.environment().rotation == doctest::Approx(-kHalfPi));
+        CHECK(lights.environment().visible);
+
+        // Switched off - itself or something above it - it gives way to the next.
+        world.setEnabled(first, false);
+        lights.collect(world);
+        CHECK(lights.environment().texture == noon);
+        world.setEnabled(first, true);
+        const Entity group = world.createEntity("Group");
+        REQUIRE(world.setParent(first, group).has_value());
+        lights.collect(world);
+        CHECK(lights.environment().texture == dusk);
+        world.setEnabled(group, false);
+        lights.collect(world);
+        CHECK(lights.environment().texture == noon);
+
+        // One without an image is one all the same: the world has no environment then.
+        world.setEnabled(group, true);
+        world.tryGet<EnvironmentComponent>(first)->texture = Uuid();
+        lights.collect(world);
+        CHECK(lights.environment().texture.isNil());
+
+        // With all of them off there is none, and what was collected before is gone.
+        world.setEnabled(group, false);
+        world.setEnabled(second, false);
+        lights.collect(world);
+        CHECK(lights.environment().texture.isNil());
+        CHECK(lights.environment().intensity == 0.0f);
+        CHECK(lights.environment().rotation == 0.0f);
+    }
+
+    TEST_CASE("an environment's numbers reach the renderer as numbers") {
+        World world;
+        const Entity sky = world.createEntity("Sky");
+        EnvironmentComponent& environment = world.add<EnvironmentComponent>(sky);
+        environment.texture = id("11111111-1111-4111-8111-111111111111");
+        SceneLights lights;
+
+        // Less than no light is none; what is no number is none, and no turn.
+        environment.intensity = -2.0f;
+        lights.collect(world);
+        CHECK(lights.environment().intensity == 0.0f);
+        environment.intensity = std::numeric_limits<float>::quiet_NaN();
+        environment.rotationDegrees = std::numeric_limits<float>::infinity();
+        lights.collect(world);
+        CHECK(lights.environment().intensity == 0.0f);
+        CHECK(lights.environment().rotation == 0.0f);
+        environment.intensity = 4.0f;
+        environment.rotationDegrees = 45.0f;
+        lights.collect(world);
+        CHECK(lights.environment().intensity == 4.0f);
+        CHECK(lights.environment().rotation == doctest::Approx(kPi / 4.0f));
+    }
+
     TEST_CASE("a world without light components gets the default lighting, and only when asked") {
         World world;
         world.createEntity("Crate");
@@ -337,11 +419,25 @@ TEST_SUITE("SceneLights") {
         CHECK(lights.skyColor() == Vec3(0.5f));
         CHECK_FALSE(lights.isDefault());
 
-        // With the last light component gone, the stand-ins are back.
+        // So does an environment, with an image or without, switched on or off.
         world.destroyEntity(sky);
+        const Entity surroundings = world.createEntity("Surroundings");
+        world.add<EnvironmentComponent>(surroundings);
+        lights.collect(world, {.defaultLighting = true});
+        CHECK(lights.lights().empty());
+        CHECK(lights.skyColor() == Vec3(0.0f));
+        CHECK_FALSE(lights.isDefault());
+        world.setEnabled(surroundings, false);
+        lights.collect(world, {.defaultLighting = true});
+        CHECK_FALSE(lights.isDefault());
+
+        // With the last light component gone, the stand-ins are back, and they come
+        // without an environment.
+        world.destroyEntity(surroundings);
         lights.collect(world, {.defaultLighting = true});
         CHECK(lights.isDefault());
         CHECK(lights.lights().size() == 1);
+        CHECK(lights.environment().texture.isNil());
     }
 
     TEST_CASE("values that are not numbers are handed on for the clusters to leave out") {

@@ -144,6 +144,32 @@ again, save it as PNG in the project. To make one from a formula, see `gradeColo
 `tools/sample-assets/Main.cpp`, which makes the showcase's. A table of another shape
 is left out, and the renderer says so once.
 
+## Light a scene with an image of the sky
+
+An `Environment` component takes an image of everything around the scene as `texture`:
+twice as wide as high, the top row straight up, the middle what is seen looking along
+-Z (`cordite/math/Equirectangular.h`). That is the form HDR images of skies come in;
+put the `.hdr` file into the project like any other texture.
+
+- An `.hdr` file holds light: numbers without an upper limit, in which a sun is
+  thousands of times brighter than the sky around it. That is what makes it light a
+  scene like a sky does. An image of 8-bit colors (PNG, JPEG) works too, as sRGB, but
+  holds no more than white: use it for a backdrop, not for light.
+- If the sky is far too bright or too dark for the scene, set `intensity` on the
+  component, or the exposure of the view (`PostProcess`), rather than changing the
+  file.
+- A sun in the image lights the scene softly, from all of its disc and the glow
+  around it, and casts no shadow. For shadows, add a directional light and turn the
+  image (`rotationDegrees`) until its sun is where that light shines from; an image
+  with a very bright sun and a directional light together light the scene twice.
+- The first frame an environment is seen in makes what the renderer needs of it
+  (`EnvironmentMaps`): a few megabytes on the GPU, nothing on disk. Large images
+  take their time to load; 2048 by 1024 is plenty for light and reflections, and a
+  sky that is seen sharply wants 4096 by 2048 (`RenderResourcesDesc::maxTextureDimension`
+  is where larger ones are cut down).
+- To make one from a formula, see `skyLight` in `tools/sample-assets/Main.cpp`, which
+  makes the showcase's, and `Image::saveHdr`.
+
 ## Regenerate the showcase's textures and models
 
 They are made by `tools/sample-assets/Main.cpp`, from formulas:
@@ -152,7 +178,7 @@ They are made by `tools/sample-assets/Main.cpp`, from formulas:
 ./scripts/dev.ps1 run -Target cordite-sample-assets -- samples/showcase/assets
 ```
 
-Then look at what changed (the PNG files, and the showcase in the editor), run the tests
+Then look at what changed (the image files, and the showcase in the editor), run the tests
 - the reference images of the showcase will differ and have to be reviewed (skill:
 `render-tests`) - and commit the generator together with its output. The `.meta` files
 stay as they are, so ids do not change.
@@ -167,6 +193,11 @@ stay as they are, so ids do not change.
   (the Direct3D convention). Invert its green channel; the engine expects +Y up.
 - **A texture looks washed out or too dark:** it is in a slot of the wrong kind. Color
   goes in `baseColorTexture` or `emissiveTexture`; everything else is data.
+- **The sky is the wrong way round, or its light comes from the wrong side:** look at
+  it with the `reflections` debug view, and turn it with `rotationDegrees`. An image
+  that is mirrored - text in it reads backwards - was made for looking at a sphere
+  from outside; flip it left to right.
+- **Metal looks black:** it has nothing to reflect. Give the scene an `Environment`.
 - **Not sure what a material ends up as:** look at it channel by channel with the
   debug views (`viewport.debugView`, or View > Render view in the editor): base color,
   normals, roughness, metallic, occlusion, emissive.

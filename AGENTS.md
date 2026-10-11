@@ -122,14 +122,14 @@ by accident.
 | Module | Depends on | Contains |
 |--------|-----------|----------|
 | `core` | -         | Logging, assertions, `Result`, hashing, UUIDs, JSON, reflection, binary streams, file I/O, config, job system, allocators, timing |
-| `math` | `core`    | glm aliases, `Transform`, bounds, rays, frustum, projections, color, curves, random, reflection of math types |
+| `math` | `core`    | glm aliases, `Transform`, bounds, rays, frustum, projections, color, curves, random, spherical harmonics, directions in images of everything around, reflection of math types |
 | `platform` | `core`, `math` | Windows (GLFW), keyboard / mouse / gamepad input |
 | `assets` | `core`, `math` | Assets as data: images and mipmaps, meshes and what prepares them, materials, glTF import and export, the asset database (ids, `.meta` files) and the asset manager (loading by id) |
 | `world` | `core`, `math` | Entities, components and their hierarchy (EnTT), the component registry, scene files |
 | `rhi` | `core`, `math`, `platform` | Vulkan device, swapchain and texture readback over NVRHI |
 | `shaders` | `core` | Shader requests and permutation keys, disk cache, `ShaderLibrary` |
 | `shader_compiler` | `core`, `shaders` | Slang to SPIR-V compiler (not linked into exported games) |
-| `renderer` | `core`, `math`, `assets`, `world`, `rhi`, `shaders` | The scene renderer and what it is made of: GPU copies of assets, the mesh passes, the G-buffer and its lighting, the lights of a world and the clusters they are sorted into, their shadow maps and the atlas those share, what finishes the picture (exposure, bloom, tone mapping, grading), the debug views, scene targets, the `MeshRenderer`, `Light`, `AmbientLight` and `PostProcess` components; camera views, debug lines, GPU timing, GPU shader management |
+| `renderer` | `core`, `math`, `assets`, `world`, `rhi`, `shaders` | The scene renderer and what it is made of: GPU copies of assets, the mesh passes, the G-buffer and its lighting, the lights of a world and the clusters they are sorted into, their shadow maps and the atlas those share, what finishes the picture (exposure, bloom, tone mapping, grading), the environment (the sky and what it lights), the debug views, scene targets, the `MeshRenderer`, `Light`, `AmbientLight`, `Environment` and `PostProcess` components; camera views, debug lines, GPU timing, GPU shader management |
 | `ui` | `core`, `math`, `platform`, `rhi`, `shaders`, `renderer` | The immediate-mode interface: the Dear ImGui context and its NVRHI renderer |
 | `engine` | all of the above | `Engine`: owns the subsystems, the assets, the world and the interface, and runs the frame loop; projects; placing models; checking the assets a scene uses |
 | `editor` | `engine` and below | The editor: the scene document, undoable actions, scene and asset commands, panels, `EditorApp` (not linked into exported games) |
@@ -279,8 +279,9 @@ Vulkan directly. Step-by-step guide for adding a pass:
   compute positions with the same code. Never give a mesh pass a vertex shader of its
   own.
 - **Binding sets:** register space 0 is the view's (`ViewBindings`: the constants of
-  `common/View.slang` at `b0`, the lights of `common/Lights.slang` at `t0` to `t2`, and
-  the shadow maps of `common/Shadows.slang` at `t3`, `t4` and `s0`), space 1 the
+  `common/View.slang` at `b0`, the lights of `common/Lights.slang` at `t0` to `t2`,
+  the shadow maps of `common/Shadows.slang` at `t3`, `t4` and `s0`, and the
+  environment of `common/Environment.slang` at `t5`, `t6`, `s1` and `s2`), space 1 the
   material's in a mesh pass (`materials/Material.slang`; call `evaluateSurface`, never
   sample material textures directly) or the G-buffer's in a pass that reads it
   (`GBufferBindings`). The C++ side of the constants is `ViewConstants.h`.
@@ -292,15 +293,15 @@ Vulkan directly. Step-by-step guide for adding a pass:
   which the deferred lighting and the forward pass both call. Tests render the same
   surface both ways and compare the pictures; a lighting feature that only one path
   has fails them.
-- **A scene is lit by components:** `Light` (directional, point or spot) and
-  `AmbientLight` (`RenderComponents.h`). A light shines from where its entity is, along
-  the entity's -Z axis. An intensity of 1 lights a white, matte surface that faces the
-  light to white - at any distance for a directional light, one metre away for the
-  others. ("White" is a brightness of one in the scene; what a screen shows of it
-  is for the tone mapper to say.) `SceneLights` turns that into what shaders compute
-  with (times pi); nothing else converts brightness. A world without light components
-  is black, as a game shows it; only an editor view asks for stand-ins
-  (`SceneRenderSettings::defaultLighting`).
+- **A scene is lit by components:** `Light` (directional, point or spot),
+  `AmbientLight` and `Environment` (`RenderComponents.h`). A light shines from where
+  its entity is, along the entity's -Z axis. An intensity of 1 lights a white, matte
+  surface that faces the light to white - at any distance for a directional light,
+  one metre away for the others. ("White" is a brightness of one in the scene; what a
+  screen shows of it is for the tone mapper to say.) `SceneLights` turns that into
+  what shaders compute with (times pi); nothing else converts brightness. A world
+  without light components is black, as a game shows it; only an editor view asks for
+  stand-ins (`SceneRenderSettings::defaultLighting`).
 - **Point and spot lights are found through clusters** (`LightClusters.h`,
   `common/Lights.slang`): a grid of 16 x 9 x 24 boxes over what the camera sees, each
   with the list of the lights that touch it, built on the CPU for every view. The size
@@ -319,7 +320,9 @@ Vulkan directly. Step-by-step guide for adding a pass:
   neither a sum nor the choice of which lights are left out when a view has too many
   (`kMaxDirectionalLights`, `kMaxLocalLights`) may depend on how components are stored.
   Where one light has to be picked for a person to see - the sun whose shadows are
-  drawn - it is picked by something they can set: the brightest.
+  drawn - it is picked by something they can set: the brightest. Environments have
+  nothing of the kind to go by: of several, the one whose entity has the lowest id
+  is the world's.
 - **Shadows are maps in one atlas.** `planShadows` (`ShadowPlan.h`, plain arithmetic,
   tested without a GPU) gives every light of a view that casts shadows its maps - up
   to four cascades for the sun, one for a spot light, six for a point light - and each
@@ -351,6 +354,21 @@ Vulkan directly. Step-by-step guide for adding a pass:
 - **Cascades do not shimmer** because each is a sphere around its slice of the view,
   as large whichever way the camera looks, moved in whole texels of its map. Keep both
   when changing `cascadeView`; a test moves the camera about and checks them.
+- **An environment is one image, used three ways** (`EnvironmentMaps`,
+  `common/Environment.slang`): nine spherical harmonics light matte surfaces; a cube
+  map blurred level by level - one level for each step of roughness, drawn on the GPU
+  the first time the image is used - is what surfaces reflect; and the image itself is
+  the sky, which the deferred lighting draws where the depth says nothing was drawn.
+  A view without an environment binds `EnvironmentMaps::none()` and an intensity of
+  zero. Nothing in a scene blocks the light of its environment; everything that comes
+  from all around goes through `shadeSurroundings`, which is where what does block it
+  will be asked.
+- **Which direction is where in an image of everything around is written down twice**:
+  `equirectUv` in `math/Equirectangular.h` and in `common/Math.slang`. The middle of the
+  image is -Z, +X a quarter of the width to its right, the top row +Y.
+  `EnvironmentTests` holds every direction of the sky, and of mirror balls of several
+  roughnesses seen from six sides, against the first: a face of the cube map that is
+  the wrong way round does not pass.
 - **A pass that samples the depth buffer cannot draw into a framebuffer that has it
   attached.** Use `SceneTargets::lightingFramebuffer()`, which has color only.
 - **The renderer works out light; `PostProcessPass` makes a picture of it.** Scene
@@ -389,7 +407,10 @@ Vulkan directly. Step-by-step guide for adding a pass:
 - **No pixel may become "not a number".** One such pixel spreads through every pass
   that blurs. Shaders use `normalizeOr` (`shaders/common/Math.slang`) for anything
   interpolated or computed that can have no length, and C++ makes values finite
-  before they are sorted or sent to the GPU.
+  before they are sorted or sent to the GPU. Whatever writes scene color ends in
+  `storableLight` (`common/SceneLighting.slang`): more light than a half float holds -
+  a sun in an image of the sky, times the brightness of the environment - is kept as
+  infinity by some GPUs, and the bloom makes "not a number" of that.
 - **A view is perspective or orthographic** (`CameraView::orthographic`). Whatever
   needs the direction to the viewer must ask: with perspective it points at the
   camera's position, without it is the opposite of the camera's direction, everywhere.
@@ -473,6 +494,11 @@ Step-by-step guide: [work-with-assets](.claude/skills/work-with-assets/SKILL.md)
   color lookup table (`PostProcess.colorLut`) is data too: an image of N * N by N
   pixels - N slices side by side, red across each, green down it, blue from slice to
   slice - that holds the colors of a display as an image editor has them.
+- **An image of floating-point numbers is light** (`.hdr`), whatever uses it. It goes
+  to the GPU as half floats - every GPU can filter those - with what is more than
+  65504 cut off, and its mip levels are plain averages: the sharper filter that 8-bit
+  images get leaves a ring of less than no light around a sun. As an environment, an
+  image of 8-bit colors is sRGB.
 - **Sampling belongs to the material:** wrap modes, filter, tiling. A texture is pixels.
   All textures of a material share one layout (`uvChannel`, `uvScale`, `uvOffset`); the
   occlusion texture is the one exception, and only when `occlusionUvChannel` gives it
@@ -702,3 +728,18 @@ body explaining what changed and why. One logical change per commit.
   `REQUIRE_MESSAGE(found, "no budget for " << std::string(name))`.
 - A braced list inside the braced list of a range-for (`for (auto [a, b] : {{1, 2}})`)
   has no type to deduce. Name the type: `std::initializer_list<std::pair<...>>{...}`.
+- The arc tangent of nothing over nothing is undefined in a shader, and straight up has
+  no place round the horizon. `equirectUv` asks before it divides the circle.
+- What a GPU stores for a value too large for a half-float target is its own choice:
+  the largest half float on some, infinity on others. A test of it cannot fail on a GPU
+  of the first kind - the one this was written on is one - so that test passing does
+  not show that the clamp in the shader was not needed.
+- A sum over an image that takes one sample at the middle of each pixel makes a
+  spotlight of an image of one pixel, which is an even sky. `projectEnvironment` brings
+  every image to a grid of its own first, by area.
+- Blurring an environment with few, wide reads (filtered importance sampling) blurs it
+  more than asked: at 64 reads the roughest level of the cube map let several percent
+  of the light from below the horizon through to what faces up. The small levels
+  can afford 1024 reads, and take them (`sampleCountOf`).
+- stb_image_write compiles its `.hdr` writer only with stdio enabled:
+  `STBI_WRITE_NO_STDIO` removes it, callbacks and all.

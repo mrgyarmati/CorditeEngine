@@ -126,6 +126,9 @@ TEST_SUITE("Performance") {
         CHECK(statistics.scene.meshRenderers > 0);
         CHECK(statistics.scene.droppedLights == 0);
         CHECK(statistics.scene.lightsWithoutShadows == 0);
+        // The sky was made ready in the first frame; a frame that makes it again has
+        // lost it in between.
+        CHECK(statistics.scene.environmentsMade == 0);
         CHECK(assetCount > 0);
 
         checkBudget(budgets, "drawCalls", statistics.scene.meshes.drawCalls);
@@ -135,6 +138,7 @@ TEST_SUITE("Performance") {
         checkBudget(budgets, "lightListEntries", statistics.scene.lightListEntries);
         checkBudget(budgets, "shadowMaps", statistics.scene.shadowMaps);
         checkBudget(budgets, "shadowAtlasBytes", static_cast<double>(statistics.scene.shadowAtlasBytes));
+        checkBudget(budgets, "environmentBytes", static_cast<double>(statistics.scene.environmentBytes));
         checkBudget(budgets, "meshBytes", static_cast<double>(statistics.resources.meshBytes));
         checkBudget(budgets, "textureBytes", static_cast<double>(statistics.resources.textureBytes));
 

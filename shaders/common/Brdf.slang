@@ -8,7 +8,7 @@
 
 #pragma once
 
-static const float kPi = 3.14159265358979;
+#include "common/Math.slang"
 
 // Below this, a perfectly smooth surface would turn a point light into a single
 // infinitely bright pixel.

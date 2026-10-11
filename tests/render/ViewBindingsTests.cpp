@@ -2,6 +2,7 @@
 
 #include "cordite/core/Assert.h"
 #include "cordite/renderer/CameraView.h"
+#include "cordite/renderer/EnvironmentMaps.h"
 #include "cordite/renderer/LightClusters.h"
 #include "cordite/renderer/ShadowPlan.h"
 #include "cordite/world/Components.h"
@@ -34,6 +35,30 @@ nvrhi::TextureHandle createAtlasTexture(nvrhi::IDevice* device, const char* name
     return texture;
 }
 
+/// An environment that a view can bind: one texel of a cube map, and one of a sky.
+GpuEnvironment createEnvironment(nvrhi::IDevice* device, const char* name) {
+    GpuEnvironment environment;
+    environment.radiance = device->createTexture(nvrhi::TextureDesc()
+                                                     .setDimension(nvrhi::TextureDimension::TextureCube)
+                                                     .setWidth(1)
+                                                     .setHeight(1)
+                                                     .setArraySize(6)
+                                                     .setFormat(nvrhi::Format::RGBA16_FLOAT)
+                                                     .setDebugName(name)
+                                                     .setInitialState(nvrhi::ResourceStates::ShaderResource)
+                                                     .setKeepInitialState(true));
+    environment.sky = device->createTexture(nvrhi::TextureDesc()
+                                                .setWidth(1)
+                                                .setHeight(1)
+                                                .setFormat(nvrhi::Format::RGBA16_FLOAT)
+                                                .setDebugName(name)
+                                                .setInitialState(nvrhi::ResourceStates::ShaderResource)
+                                                .setKeepInitialState(true));
+    REQUIRE(environment.radiance != nullptr);
+    REQUIRE(environment.sky != nullptr);
+    return environment;
+}
+
 /// A view, and lights sorted into its clusters: none to begin with.
 struct ViewFixture {
     ViewFixture() {
@@ -56,44 +81,69 @@ TEST_SUITE("ViewBindings") {
             REQUIRE(bindings.layout() != nullptr);
             const nvrhi::TextureHandle atlas = createAtlasTexture(context.device(), "First atlas");
             const nvrhi::TextureHandle otherAtlas = createAtlasTexture(context.device(), "Second atlas");
+            const GpuEnvironment environment = createEnvironment(context.device(), "First environment");
+            const GpuEnvironment otherEnvironment = createEnvironment(context.device(), "Second environment");
             ViewFixture fixture;
 
             // The sets are held on to, so that a new one cannot be at the address of an
             // old one that has gone.
             nvrhi::BindingSetHandle first;
             nvrhi::BindingSetHandle withOtherAtlas;
+            nvrhi::BindingSetHandle withOtherEnvironment;
             nvrhi::BindingSetHandle withManyLights;
             recordAndExecute(context, [&](nvrhi::ICommandList* commandList) {
-                bindings.update(commandList, fixture.view, fixture.clusters, {.atlas = atlas});
+                bindings.update(commandList, fixture.view, fixture.clusters, {.atlas = atlas},
+                                {.environment = &environment});
                 first = bindings.bindings();
                 REQUIRE(first != nullptr);
 
                 // Another view of the same kind: new values, the same set.
                 fixture.view.targetSize = UVec2(128, 32);
-                bindings.update(commandList, fixture.view, fixture.clusters, {.atlas = atlas});
+                bindings.update(commandList, fixture.view, fixture.clusters, {.atlas = atlas},
+                                {.environment = &environment});
                 CHECK(bindings.bindings() == first.Get());
 
                 // A view may come with another atlas.
-                bindings.update(commandList, fixture.view, fixture.clusters, {.atlas = otherAtlas});
+                bindings.update(commandList, fixture.view, fixture.clusters, {.atlas = otherAtlas},
+                                {.environment = &environment});
                 withOtherAtlas = bindings.bindings();
                 REQUIRE(withOtherAtlas != nullptr);
                 CHECK(withOtherAtlas != first);
 
+                // And with another environment; how bright it is, how it is turned and
+                // whether it is seen are numbers, which need no new set.
+                bindings.update(commandList, fixture.view, fixture.clusters, {.atlas = otherAtlas},
+                                {.environment = &otherEnvironment});
+                withOtherEnvironment = bindings.bindings();
+                REQUIRE(withOtherEnvironment != nullptr);
+                CHECK(withOtherEnvironment != withOtherAtlas);
+                bindings.update(
+                    commandList, fixture.view, fixture.clusters, {.atlas = otherAtlas},
+                    {.environment = &otherEnvironment, .intensity = 2.0f, .rotation = 1.0f, .visible = true});
+                CHECK(bindings.bindings() == withOtherEnvironment.Get());
+                bindings.update(commandList, fixture.view, fixture.clusters, {.atlas = otherAtlas},
+                                {.environment = &environment});
+                CHECK(bindings.bindings() != withOtherEnvironment.Get());
+
                 // More lights than the buffer was made for: it grows, and the set follows.
                 fixture.clusters.lights.resize(500);
-                bindings.update(commandList, fixture.view, fixture.clusters, {.atlas = otherAtlas});
+                bindings.update(commandList, fixture.view, fixture.clusters, {.atlas = otherAtlas},
+                                {.environment = &environment});
                 withManyLights = bindings.bindings();
                 REQUIRE(withManyLights != nullptr);
                 CHECK(withManyLights != withOtherAtlas);
+                CHECK(withManyLights != withOtherEnvironment);
                 // Fewer again: the buffer is large enough and stays.
                 fixture.clusters.lights.resize(3);
-                bindings.update(commandList, fixture.view, fixture.clusters, {.atlas = otherAtlas});
+                bindings.update(commandList, fixture.view, fixture.clusters, {.atlas = otherAtlas},
+                                {.environment = &environment});
                 CHECK(bindings.bindings() == withManyLights.Get());
 
                 // As many shadow maps as a view can have: their buffer grows as well.
                 ShadowPlan plan;
                 plan.views.resize(kMaxShadowViews);
-                bindings.update(commandList, fixture.view, fixture.clusters, {.plan = &plan, .atlas = otherAtlas});
+                bindings.update(commandList, fixture.view, fixture.clusters, {.plan = &plan, .atlas = otherAtlas},
+                                {.environment = &environment});
                 REQUIRE(bindings.bindings() != nullptr);
                 CHECK(bindings.bindings() != withManyLights.Get());
             });
@@ -106,29 +156,40 @@ TEST_SUITE("ViewBindings") {
         {
             ViewBindings bindings = unwrap(ViewBindings::create(context.device()));
             const nvrhi::TextureHandle atlas = createAtlasTexture(context.device(), "Atlas");
+            const GpuEnvironment environment = createEnvironment(context.device(), "Environment");
             ViewFixture fixture;
             ShadowPlan plan;
             plan.views.resize(static_cast<size_t>(kMaxShadowViews) + 1);
 
             recordAndExecute(context, [&](nvrhi::ICommandList* commandList) {
 #if defined(CORDITE_ENABLE_ASSERTS)
-                CHECK_THROWS_AS(
-                    bindings.update(commandList, fixture.view, fixture.clusters, {.plan = &plan, .atlas = atlas}),
-                    test::AssertionFailure);
+                CHECK_THROWS_AS(bindings.update(commandList, fixture.view, fixture.clusters,
+                                                {.plan = &plan, .atlas = atlas}, {.environment = &environment}),
+                                test::AssertionFailure);
 #else
                 // Without assertions the view is described as one without shadows.
-                bindings.update(commandList, fixture.view, fixture.clusters, {.plan = &plan, .atlas = atlas});
+                bindings.update(commandList, fixture.view, fixture.clusters, {.plan = &plan, .atlas = atlas},
+                                    {.environment = &environment});
                 CHECK(bindings.bindings() != nullptr);
 #endif
             });
 
 #if defined(CORDITE_ENABLE_ASSERTS)
-            // Without an atlas or a command list there is nothing to update.
+            // Without an atlas, an environment or a command list there is nothing to
+            // update.
             recordAndExecute(context, [&](nvrhi::ICommandList* commandList) {
-                CHECK_THROWS_AS(bindings.update(commandList, fixture.view, fixture.clusters, {}),
+                CHECK_THROWS_AS(
+                    bindings.update(commandList, fixture.view, fixture.clusters, {}, {.environment = &environment}),
+                    test::AssertionFailure);
+                CHECK_THROWS_AS(bindings.update(commandList, fixture.view, fixture.clusters, {.atlas = atlas}, {}),
+                                test::AssertionFailure);
+                const GpuEnvironment withoutTextures;
+                CHECK_THROWS_AS(bindings.update(commandList, fixture.view, fixture.clusters, {.atlas = atlas},
+                                                {.environment = &withoutTextures}),
                                 test::AssertionFailure);
             });
-            CHECK_THROWS_AS(bindings.update(nullptr, fixture.view, fixture.clusters, {.atlas = atlas}),
+            CHECK_THROWS_AS(bindings.update(nullptr, fixture.view, fixture.clusters, {.atlas = atlas},
+                                            {.environment = &environment}),
                             test::AssertionFailure);
 #endif
         }

@@ -204,6 +204,9 @@ void runScenario(const std::string& name, bool withShadows) {
     CHECK(shadowPlan.views.size() == statistics.scene.shadowMaps);
     // Every light that is to cast shadows got its maps.
     CHECK(statistics.scene.lightsWithoutShadows == 0);
+    // The field has no environment: nothing is made or held for one.
+    CHECK(statistics.scene.environmentsMade == 0);
+    CHECK(statistics.scene.environmentBytes == 0);
     CHECK((statistics.scene.shadowMaps > 0) == withShadows);
 
     checkBudget(budgets, "drawCalls", statistics.scene.meshes.drawCalls);

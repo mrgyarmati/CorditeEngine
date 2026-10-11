@@ -120,6 +120,29 @@ TypeInfo describeAmbientLight() {
         .build();
 }
 
+TypeInfo describeEnvironment() {
+    return TypeBuilder<EnvironmentComponent>("Environment")
+        .property("texture", &EnvironmentComponent::texture,
+                  {.description = "The image of everything around: twice as wide as high, the top row straight "
+                                  "up, the middle what is seen looking along -Z. An .hdr image of a sky, usually",
+                   .semantic = PropertySemantic::AssetReference,
+                   .referenceType = "Texture"})
+        .property("intensity", &EnvironmentComponent::intensity,
+                  {.description = "Scales the light of the image: what it lights, and how bright it is seen",
+                   .minimum = 0.0,
+                   .maximum = 1000.0,
+                   .step = 0.01})
+        .property("rotationDegrees", &EnvironmentComponent::rotationDegrees,
+                  {.description = "Turns the image about the vertical axis, counter-clockwise seen from above",
+                   .minimum = -360.0,
+                   .maximum = 360.0,
+                   .step = 1.0})
+        .property("visible", &EnvironmentComponent::visible,
+                  {.description = "Draws the image where nothing else is, as the sky; without, it only lights "
+                                  "the scene and shows in reflections"})
+        .build();
+}
+
 TypeInfo describePostProcess() {
     using Component = PostProcessComponent;
     return TypeBuilder<Component>("PostProcess")
@@ -293,6 +316,10 @@ Status registerRendererComponents(ComponentRegistry& registry) {
     CORDITE_TRY(registry.add<AmbientLightComponent>(
         describeAmbientLight(),
         {.description = "Light from all around, from a sky above and a ground below. Several add up."}));
+    CORDITE_TRY(registry.add<EnvironmentComponent>(
+        describeEnvironment(),
+        {.description = "Everything far away, as an image that lights the scene and is its sky. Of several, "
+                        "the one whose entity has the lowest id is used."}));
     CORDITE_TRY(registry.add<PostProcessComponent>(
         describePostProcess(),
         {.description = "How the picture is finished - exposure, bloom, tone mapping, grading - everywhere, in a "

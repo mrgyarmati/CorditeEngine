@@ -67,6 +67,17 @@ MeshPassDesc overdrawPassDesc() {
     return desc;
 }
 
+/// What the lighting pass makes of the G-buffer for a view that shows `debugView`.
+DeferredLightingMode lightingModeOf(RenderDebugView debugView) {
+    if (debugView == RenderDebugView::LightingOnly) {
+        return DeferredLightingMode::LightingOnly;
+    }
+    if (debugView == RenderDebugView::Reflections) {
+        return DeferredLightingMode::Reflections;
+    }
+    return DeferredLightingMode::Lit;
+}
+
 } // namespace
 
 std::string_view nameOf(RenderQuality quality) {
@@ -142,6 +153,8 @@ SceneRenderStatistics& SceneRenderStatistics::operator+=(const SceneRenderStatis
     shadowMaps += other.shadowMaps;
     lightsWithoutShadows += other.lightsWithoutShadows;
     shadowAtlasBytes = std::max(shadowAtlasBytes, other.shadowAtlasBytes);
+    environmentsMade += other.environmentsMade;
+    environmentBytes = std::max(environmentBytes, other.environmentBytes);
     shadowPass += other.shadowPass;
     depthPass += other.depthPass;
     basePass += other.basePass;
@@ -181,6 +194,7 @@ Result<std::unique_ptr<SceneRenderer>> SceneRenderer::create(nvrhi::IDevice* dev
     CORDITE_TRY_ASSIGN(DebugViewPass debugView, DebugViewPass::create(device, shaders, viewLayout));
     CORDITE_TRY_ASSIGN(DisplayEncodePass encode, DisplayEncodePass::create(device, shaders));
     CORDITE_TRY_ASSIGN(ShadowAtlas shadows, ShadowAtlas::create(device, shaders, materialLayout));
+    CORDITE_TRY_ASSIGN(EnvironmentMaps environments, EnvironmentMaps::create(device, shaders, assets));
     CORDITE_TRY_ASSIGN(PostProcessPass postProcess, PostProcessPass::create(device, shaders));
 
     Passes passes{.depth = std::move(depth),
@@ -192,6 +206,7 @@ Result<std::unique_ptr<SceneRenderer>> SceneRenderer::create(nvrhi::IDevice* dev
                   .debugView = std::move(debugView),
                   .encode = std::move(encode),
                   .shadows = std::move(shadows),
+                  .environments = std::move(environments),
                   .postProcess = std::move(postProcess)};
     return std::unique_ptr<SceneRenderer>(new SceneRenderer(device, std::move(resources), std::move(viewBindings),
                                                             std::move(passes), desc.supportsWireframe));
@@ -331,6 +346,16 @@ void SceneRenderer::render(nvrhi::ICommandList* commandList, const World& world,
         m_reportedDroppedLights = true;
     }
 
+    // What surrounds the scene. Its environment is made ready the first time it is
+    // used, by passes recorded here, ahead of the ones it lights.
+    const SceneEnvironment& surroundings = m_lights.environment();
+    const uint32_t environmentsBefore = m_passes.environments.bakeCount();
+    const GpuEnvironment* environment =
+        m_passes.environments.environment(commandList, surroundings.texture, *m_resources);
+    m_resources->flushUploads();
+    m_statistics.environmentsMade = m_passes.environments.bakeCount() - environmentsBefore;
+    m_statistics.environmentBytes = m_passes.environments.byteSize();
+
     RenderDebugView debugView = settings.debugView;
     if (debugView == RenderDebugView::Wireframe && !m_supportsWireframe) {
         if (!m_reportedWireframe) {
@@ -355,7 +380,12 @@ void SceneRenderer::render(nvrhi::ICommandList* commandList, const World& world,
          .skyColor = m_lights.skyColor(),
          .groundColor = m_lights.groundColor()},
         m_clusters,
-        {.plan = &m_shadowPlan, .atlas = m_passes.shadows.texture(), .filterRadius = shadowSettings.filterRadius});
+        {.plan = &m_shadowPlan, .atlas = m_passes.shadows.texture(), .filterRadius = shadowSettings.filterRadius},
+        // An environment whose image cannot be used lights nothing.
+        {.environment = environment != nullptr ? environment : &m_passes.environments.none(),
+         .intensity = environment != nullptr ? surroundings.intensity : 0.0f,
+         .rotation = surroundings.rotation,
+         .visible = surroundings.visible});
     m_drawList.build(commandList, m_draws, view.position, view.forward);
     nvrhi::IBindingSet* viewBindings = m_viewBindings.bindings();
     nvrhi::IBuffer* instances = m_drawList.instanceBuffer();
@@ -378,7 +408,7 @@ void SceneRenderer::render(nvrhi::ICommandList* commandList, const World& world,
         if (isDrawnFromGBuffer(debugView)) {
             m_passes.debugView.draw(commandList, targets, viewBindings, debugView);
         } else {
-            m_passes.lighting.draw(commandList, targets, viewBindings, debugView == RenderDebugView::LightingOnly);
+            m_passes.lighting.draw(commandList, targets, viewBindings, lightingModeOf(debugView));
         }
         ++m_statistics.screenPasses;
         if (debugView == RenderDebugView::None) {

@@ -131,8 +131,11 @@ scene black. Lights are components like any other:
         "Transform": {"rotation": [-0.40762199, 0.3640026, 0.181485, 0.81756322]},
         "Light": {"type": "directional", "color": [1, 0.95, 0.87], "intensity": 0.6,
                   "castsShadows": true, "shadowDistance": 40}}}},
-    {"command": "entity.create", "params": {"name": "Sky", "components": {
+    {"command": "entity.create", "params": {"name": "Ambient", "components": {
         "AmbientLight": {"skyColor": [0.26, 0.31, 0.4], "groundColor": [0.1, 0.09, 0.08]}}}},
+    {"command": "entity.create", "params": {"name": "Sky", "components": {
+        "Environment": {"texture": "0c40bfdd-8a6c-8590-95e3-3128fea948a7", "intensity": 1,
+                        "rotationDegrees": -132, "visible": true}}}},
     {"command": "entity.create", "params": {"name": "Lamp", "components": {
         "Transform": {"position": [0, 3, 0], "rotation": [-0.70710677, 0, 0, 0.70710677]},
         "Light": {"type": "spot", "intensity": 4, "range": 6,
@@ -146,6 +149,15 @@ scene black. Lights are components like any other:
 - `intensity` 1 lights a white, matte surface that faces the light to white: at any
   distance for a directional light, one metre away for a point or spot light, which
   thin out with the square of the distance and end at their `range`.
+- An `Environment` is an image of everything far away - an `.hdr` image of a sky,
+  twice as wide as high, named by the id `asset.list {"type": "texture"}` gives it. It
+  is the sky of the scene, lights matte surfaces and is what shiny ones reflect.
+  `intensity` scales it; `rotationDegrees` turns it about the vertical axis,
+  counter-clockwise seen from above. The middle of the image is seen along -Z: to
+  bring a sun that is there to where a directional light shines from, turn the
+  image by that light's turn about the vertical axis, less 180 degrees. Nothing
+  blocks its light, a world uses one (of several, the one whose entity has the lowest
+  id), and `"visible": false` keeps its light and leaves the background as it was.
 - `channels` on a light and `lightChannels` on a mesh renderer are numbers with one
   bit per lighting channel (1, 2, 4 ... 128). A light shines on a mesh when they share
   a bit; left alone, everything is in channel 1.
@@ -174,6 +186,9 @@ scene black. Lights are components like any other:
   many were left out because a view holds only so many, how many shadow maps were
   drawn, how many lights found no room for theirs, and how much memory the atlas they
   share takes (`shadows.atlasBytes`: 16, 64 or 256 MiB at low, medium or high quality).
+  `environment.bytes` is the memory of the cube maps made of environments (4 MiB
+  each), `environment.made` how many the frame had to make: one in the first frame an
+  environment is seen in, none after.
 
 ## See the result
 
@@ -186,9 +201,11 @@ scene black. Lights are components like any other:
 - `viewport.debugView {"view": "normals"}` makes the viewport show something the
   renderer works with instead of the lit picture: `baseColor`, `normals`, `roughness`,
   `metallic`, `specular`, `occlusion`, `emissive`, `depth`, `lightCount`,
-  `shadowCascades`, `lightingOnly`, `wireframe`, `overdraw`; `none` brings the picture
-  back. When a surface looks wrong, a screenshot of the right view says whether the
-  material, the normals or the light is at fault.
+  `shadowCascades`, `lightingOnly`, `reflections`, `wireframe`, `overdraw`; `none`
+  brings the picture back. When a surface looks wrong, a screenshot of the right view
+  says whether the material, the normals or the light is at fault. `reflections` makes
+  a mirror of every surface: it shows what the environment gives them to reflect, and
+  which way round it is.
 
 Then read the image file. Looking at the picture is the only way to know that a change
 is visible and looks right; a passing command only says that the data changed.

@@ -18,7 +18,7 @@ pinned in [cmake/CorditeDependencies.cmake](../cmake/CorditeDependencies.cmake) 
 | [GLFW](https://github.com/glfw/glfw) | 3.5.1 | zlib | Windows and input |
 | [NVRHI](https://github.com/NVIDIA-RTX/NVRHI) | commit `6b96fb0` (2026-10-05) | MIT | Rendering hardware interface over Vulkan |
 | [Vulkan-Headers](https://github.com/KhronosGroup/Vulkan-Headers) | 1.4.352 | Apache-2.0 OR MIT | Vulkan API declarations (headers only) |
-| [stb](https://github.com/nothings/stb) | commit `2c980bb` | MIT OR public domain | Image decoding (`stb_image`), PNG encoding (`stb_image_write`) and mipmap generation (`stb_image_resize2`) |
+| [stb](https://github.com/nothings/stb) | commit `2c980bb` | MIT OR public domain | Image decoding (`stb_image`), PNG and Radiance HDR encoding (`stb_image_write`) and mipmap generation (`stb_image_resize2`) |
 | [cgltf](https://github.com/jkuhlmann/cgltf) | 1.15 | MIT | Parsing glTF 2.0 files |
 | [meshoptimizer](https://github.com/zeux/meshoptimizer) | 1.3 | MIT | Welding vertices and ordering imported meshes for the GPU |
 | [MikkTSpace](https://github.com/mmikk/MikkTSpace) | commit `3e895b4` | zlib | Tangents for meshes that come without them |

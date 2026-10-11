@@ -7,13 +7,16 @@
 
 #include <algorithm>
 #include <cstring>
+#include <filesystem>
 #include <initializer_list>
+#include <limits>
 #include <string>
 #include <vector>
 
 using namespace cordite;
 using cordite::test::AssertionFailure;
 using cordite::test::TempDirectory;
+using cordite::test::unwrap;
 
 namespace {
 
@@ -25,7 +28,7 @@ std::vector<std::byte> bytesOf(std::string_view text) {
 
 /// A 4x3 image with a different value in every channel of every pixel.
 Image makeGradient(ImageFormat format) {
-    Image image = *Image::create(4, 3, format);
+    Image image = unwrap(Image::create(4, 3, format));
     for (uint32_t y = 0; y < image.height(); ++y) {
         for (uint32_t x = 0; x < image.width(); ++x) {
             image.setPixel(x, y, Vec4(static_cast<float>(x) / 3.0f, static_cast<float>(y) / 2.0f, 0.25f, 0.75f));
@@ -110,28 +113,28 @@ TEST_SUITE("Image") {
     }
 
     TEST_CASE("pixels round-trip through setPixel and pixel in every format") {
-        Image rgba = *Image::create(2, 2, ImageFormat::Rgba8);
+        Image rgba = unwrap(Image::create(2, 2, ImageFormat::Rgba8));
         rgba.setPixel(1, 0, Vec4(1.0f, 0.5f, 0.0f, 0.25f));
         CHECK_NEAR(rgba.pixel(1, 0), Vec4(1.0f, 128.0f / 255.0f, 0.0f, 64.0f / 255.0f), 1e-6f);
         CHECK(rgba.pixel(0, 0) == Vec4(0.0f));
 
         // Formats without blue or alpha read those channels as 0 and 1.
-        Image red = *Image::create(1, 1, ImageFormat::R8);
+        Image red = unwrap(Image::create(1, 1, ImageFormat::R8));
         red.setPixel(0, 0, Vec4(1.0f, 0.3f, 0.3f, 0.3f));
         CHECK(red.pixel(0, 0) == Vec4(1.0f, 0.0f, 0.0f, 1.0f));
 
-        Image redGreen = *Image::create(1, 1, ImageFormat::Rg8);
+        Image redGreen = unwrap(Image::create(1, 1, ImageFormat::Rg8));
         redGreen.setPixel(0, 0, Vec4(0.0f, 1.0f, 0.3f, 0.3f));
         CHECK(redGreen.pixel(0, 0) == Vec4(0.0f, 1.0f, 0.0f, 1.0f));
 
         // Float images keep values outside [0, 1].
-        Image hdr = *Image::create(1, 1, ImageFormat::Rgba32F);
+        Image hdr = unwrap(Image::create(1, 1, ImageFormat::Rgba32F));
         hdr.setPixel(0, 0, Vec4(12.5f, -1.0f, 0.001f, 2.0f));
         CHECK(hdr.pixel(0, 0) == Vec4(12.5f, -1.0f, 0.001f, 2.0f));
     }
 
     TEST_CASE("8-bit pixels are clamped") {
-        Image image = *Image::create(1, 1, ImageFormat::Rgba8);
+        Image image = unwrap(Image::create(1, 1, ImageFormat::Rgba8));
         image.setPixel(0, 0, Vec4(2.0f, -1.0f, 0.5f, 99.0f));
         CHECK_NEAR(image.pixel(0, 0), Vec4(1.0f, 0.0f, 128.0f / 255.0f, 1.0f), 1e-6f);
     }
@@ -153,7 +156,7 @@ TEST_SUITE("Image") {
     }
 
     TEST_CASE("one- and two-channel PNGs decode to grey and grey-alpha Rgba8") {
-        Image grey = *Image::create(2, 1, ImageFormat::R8);
+        Image grey = unwrap(Image::create(2, 1, ImageFormat::R8));
         grey.setPixel(0, 0, Vec4(0.0f));
         grey.setPixel(1, 0, Vec4(1.0f));
         const Image decodedGrey = *Image::decode(*grey.encodePng(), "grey.png");
@@ -161,7 +164,7 @@ TEST_SUITE("Image") {
         CHECK(decodedGrey.pixel(0, 0) == Vec4(0.0f, 0.0f, 0.0f, 1.0f));
         CHECK(decodedGrey.pixel(1, 0) == Vec4(1.0f));
 
-        Image greyAlpha = *Image::create(1, 1, ImageFormat::Rg8);
+        Image greyAlpha = unwrap(Image::create(1, 1, ImageFormat::Rg8));
         greyAlpha.setPixel(0, 0, Vec4(1.0f, 0.0f, 0.0f, 0.0f));
         const Image decodedGreyAlpha = *Image::decode(*greyAlpha.encodePng(), "grey-alpha.png");
         CHECK(decodedGreyAlpha.pixel(0, 0) == Vec4(1.0f, 1.0f, 1.0f, 0.0f));
@@ -195,12 +198,80 @@ TEST_SUITE("Image") {
         CHECK_NEAR(image->pixel(1, 0), Vec4(0.5f, 0.25f, 0.0f, 1.0f), 1e-5f);
     }
 
+    TEST_CASE("Radiance HDR encoding and decoding preserves light to within a part in a hundred") {
+        // From deep shadow to a sun, in every color: far more than eight bits hold.
+        Image image = unwrap(Image::create(4, 2, ImageFormat::Rgba32F));
+        const std::vector<Vec3> lights = {Vec3(0.0f),
+                                          Vec3(0.001f, 0.002f, 0.003f),
+                                          Vec3(0.18f),
+                                          Vec3(1.0f, 0.5f, 0.25f),
+                                          Vec3(12.5f, 3.0f, 0.75f),
+                                          Vec3(1000.0f, 800.0f, 600.0f),
+                                          Vec3(0.0f, 0.0f, 50000.0f),
+                                          Vec3(65000.0f)};
+        for (uint32_t index = 0; index < 8; ++index) {
+            image.setPixel(index % 4, index / 4, Vec4(lights[index], 0.5f));
+        }
+
+        const Result<std::vector<std::byte>> encoded = image.encodeHdr();
+        REQUIRE(encoded.has_value());
+        const Result<Image> decoded = Image::decode(*encoded, "light.hdr");
+        REQUIRE(decoded.has_value());
+        CHECK(decoded->width() == 4);
+        CHECK(decoded->height() == 2);
+        CHECK(decoded->format() == ImageFormat::Rgba32F);
+        for (uint32_t index = 0; index < 8; ++index) {
+            CAPTURE(index);
+            const Vec4 pixel = decoded->pixel(index % 4, index / 4);
+            // A pixel has one exponent for its three colors: each is right to a 256th of
+            // the largest of them.
+            const float largest = std::max({lights[index].r, lights[index].g, lights[index].b});
+            CHECK_NEAR(Vec3(pixel), lights[index], largest / 128.0f + 1.0e-6f);
+            // Alpha is not stored; it comes back as "all there".
+            CHECK(pixel.a == 1.0f);
+        }
+    }
+
+    TEST_CASE("Radiance HDR files are saved and loaded, and refuse what they cannot hold") {
+        const TempDirectory directory;
+        Image image = unwrap(Image::create(2, 1, ImageFormat::Rgba32F));
+        image.setPixel(0, 0, Vec4(4.0f, 2.0f, 1.0f, 1.0f));
+        // Less than nothing is stored as nothing.
+        image.setPixel(1, 0, Vec4(-3.0f, 0.5f, -0.25f, 1.0f));
+        const std::filesystem::path path = directory.path() / "sky.hdr";
+        REQUIRE(image.saveHdr(path).has_value());
+        const Result<Image> loaded = Image::load(path);
+        REQUIRE(loaded.has_value());
+        CHECK_NEAR(Vec3(loaded->pixel(0, 0)), Vec3(4.0f, 2.0f, 1.0f), 0.04f);
+        CHECK_NEAR(Vec3(loaded->pixel(1, 0)), Vec3(0.0f, 0.5f, 0.0f), 0.005f);
+
+        // Not an image of light, no image at all, and light that is no number.
+        const Result<std::vector<std::byte>> eightBit = unwrap(Image::create(2, 2, ImageFormat::Rgba8)).encodeHdr();
+        REQUIRE_FALSE(eightBit.has_value());
+        CHECK(eightBit.error().code == ErrorCode::Unsupported);
+        const Result<std::vector<std::byte>> empty = Image().encodeHdr();
+        REQUIRE_FALSE(empty.has_value());
+        CHECK(empty.error().code == ErrorCode::InvalidState);
+        for (const float broken : {std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::infinity(),
+                                   -std::numeric_limits<float>::infinity()}) {
+            Image bad = unwrap(Image::create(3, 2, ImageFormat::Rgba32F));
+            bad.setPixel(2, 1, Vec4(1.0f, broken, 1.0f, 1.0f));
+            const Result<std::vector<std::byte>> refused = bad.encodeHdr();
+            REQUIRE_FALSE(refused.has_value());
+            CHECK(refused.error().code == ErrorCode::InvalidArgument);
+            CHECK(refused.error().message.find("(2, 1)") != std::string::npos);
+            CHECK_FALSE(bad.saveHdr(directory.path() / "bad.hdr").has_value());
+        }
+        // Where a directory is, no file can be written.
+        CHECK_FALSE(image.saveHdr(directory.path()).has_value());
+    }
+
     TEST_CASE("encodePng refuses what PNG cannot store") {
         const Result<std::vector<std::byte>> empty = Image().encodePng();
         REQUIRE_FALSE(empty.has_value());
         CHECK(empty.error().code == ErrorCode::InvalidState);
 
-        const Image hdr = *Image::create(1, 1, ImageFormat::Rgba32F);
+        const Image hdr = unwrap(Image::create(1, 1, ImageFormat::Rgba32F));
         const Result<std::vector<std::byte>> floatImage = hdr.encodePng();
         REQUIRE_FALSE(floatImage.has_value());
         CHECK(floatImage.error().code == ErrorCode::Unsupported);
@@ -248,7 +319,7 @@ TEST_SUITE("Image") {
 
 #if defined(CORDITE_ENABLE_ASSERTS)
     TEST_CASE("out-of-range pixel access is a programmer error") {
-        Image image = *Image::create(2, 2, ImageFormat::Rgba8);
+        Image image = unwrap(Image::create(2, 2, ImageFormat::Rgba8));
         CHECK_THROWS_AS((void)image.pixel(2, 0), AssertionFailure);
         CHECK_THROWS_AS(image.setPixel(0, 2, Vec4(1.0f)), AssertionFailure);
     }

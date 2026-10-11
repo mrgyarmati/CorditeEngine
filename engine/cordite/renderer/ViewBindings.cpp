@@ -8,6 +8,8 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
+#include <cstddef>
 #include <span>
 #include <utility>
 #include <vector>
@@ -95,7 +97,11 @@ Result<ViewBindings> ViewBindings::create(nvrhi::IDevice* device) {
         nvrhi::BindingLayoutItem::StructuredBuffer_SRV(2),
         nvrhi::BindingLayoutItem::StructuredBuffer_SRV(3),
         nvrhi::BindingLayoutItem::Texture_SRV(4),
+        nvrhi::BindingLayoutItem::Texture_SRV(5),
+        nvrhi::BindingLayoutItem::Texture_SRV(6),
         nvrhi::BindingLayoutItem::Sampler(0),
+        nvrhi::BindingLayoutItem::Sampler(1),
+        nvrhi::BindingLayoutItem::Sampler(2),
     };
     view.m_layout = device->createBindingLayout(layoutDesc);
 
@@ -110,7 +116,17 @@ Result<ViewBindings> ViewBindings::create(nvrhi::IDevice* device) {
                                                      .setMipFilter(false)
                                                      .setAllAddressModes(nvrhi::SamplerAddressMode::Clamp)
                                                      .setReductionType(nvrhi::SamplerReductionType::Comparison));
-    if (!view.m_constants || !view.m_layout || !view.m_shadowSampler) {
+    // The cube map of an environment is read between its levels, by roughness; its
+    // image wraps around where the left and right edges meet, and ends at the poles.
+    view.m_environmentSampler = device->createSampler(
+        nvrhi::SamplerDesc().setAllFilters(true).setAllAddressModes(nvrhi::SamplerAddressMode::Clamp));
+    view.m_skySampler = device->createSampler(nvrhi::SamplerDesc()
+                                                  .setAllFilters(true)
+                                                  .setAddressU(nvrhi::SamplerAddressMode::Wrap)
+                                                  .setAddressV(nvrhi::SamplerAddressMode::Clamp)
+                                                  .setAddressW(nvrhi::SamplerAddressMode::Clamp));
+    if (!view.m_constants || !view.m_layout || !view.m_shadowSampler || !view.m_environmentSampler ||
+        !view.m_skySampler) {
         return makeError(ErrorCode::DeviceError, "cannot create the view constants");
     }
 
@@ -150,10 +166,12 @@ bool ViewBindings::reserve(nvrhi::BufferHandle& buffer, size_t byteSize, uint32_
 }
 
 void ViewBindings::update(nvrhi::ICommandList* commandList, const SceneView& view, const LightClusters& lights,
-                          const ViewShadows& shadows) {
-    CORDITE_ASSERT(commandList != nullptr && m_constants != nullptr && shadows.atlas != nullptr,
-                   "update needs a command list, created bindings and a shadow atlas");
-    if (commandList == nullptr || m_constants == nullptr || shadows.atlas == nullptr) {
+                          const ViewShadows& shadows, const ViewEnvironment& environment) {
+    const bool hasEnvironment = environment.environment != nullptr && environment.environment->radiance != nullptr &&
+                                environment.environment->sky != nullptr;
+    CORDITE_ASSERT(commandList != nullptr && m_constants != nullptr && shadows.atlas != nullptr && hasEnvironment,
+                   "update needs a command list, created bindings, a shadow atlas and an environment");
+    if (commandList == nullptr || m_constants == nullptr || shadows.atlas == nullptr || !hasEnvironment) {
         return;
     }
 
@@ -225,10 +243,26 @@ void ViewBindings::update(nvrhi::ICommandList* commandList, const SceneView& vie
         constants.shadowViewCount = static_cast<uint32_t>(shadowViewCount);
     }
     constants.shadowFilterRadius = std::min(shadows.filterRadius, 3u);
+
+    // The environment: nothing of it that is not a number reaches the shaders.
+    const GpuEnvironment& surroundings = *environment.environment;
+    const float intensity = std::isfinite(environment.intensity) ? std::max(environment.intensity, 0.0f) : 0.0f;
+    const float rotation = std::isfinite(environment.rotation) ? environment.rotation : 0.0f;
+    constants.environmentIntensity = intensity;
+    constants.environmentLastLevel = static_cast<float>(std::max(surroundings.levelCount, 1u) - 1);
+    constants.environmentVisible = environment.visible && intensity > 0.0f ? 1.0f : 0.0f;
+    constants.environmentTurn = Vec2(std::sin(rotation), std::cos(rotation));
+    for (size_t index = 0; index < surroundings.diffuse.size(); ++index) {
+        const Vec3& coefficient = surroundings.diffuse[index];
+        constants.environmentDiffuse[index] = Vec4(isFinite(coefficient) ? coefficient : Vec3(0.0f), 0.0f);
+    }
     commandList->writeBuffer(m_constants, &constants, sizeof(constants));
 
-    if (m_bindingsOutdated || !m_bindings || m_atlas != shadows.atlas) {
+    if (m_bindingsOutdated || !m_bindings || m_atlas != shadows.atlas ||
+        m_environmentRadiance != surroundings.radiance || m_environmentSky != surroundings.sky) {
         m_atlas = shadows.atlas;
+        m_environmentRadiance = surroundings.radiance;
+        m_environmentSky = surroundings.sky;
         nvrhi::BindingSetDesc setDesc;
         setDesc.bindings = {
             nvrhi::BindingSetItem::ConstantBuffer(0, m_constants),
@@ -237,7 +271,11 @@ void ViewBindings::update(nvrhi::ICommandList* commandList, const SceneView& vie
             nvrhi::BindingSetItem::StructuredBuffer_SRV(2, m_lightIndices),
             nvrhi::BindingSetItem::StructuredBuffer_SRV(3, m_shadowViews),
             nvrhi::BindingSetItem::Texture_SRV(4, m_atlas),
+            nvrhi::BindingSetItem::Texture_SRV(5, m_environmentRadiance),
+            nvrhi::BindingSetItem::Texture_SRV(6, m_environmentSky),
             nvrhi::BindingSetItem::Sampler(0, m_shadowSampler),
+            nvrhi::BindingSetItem::Sampler(1, m_environmentSampler),
+            nvrhi::BindingSetItem::Sampler(2, m_skySampler),
         };
         m_bindings = m_device->createBindingSet(setDesc, m_layout);
         CORDITE_VERIFY(m_bindings, "cannot create the view bindings");

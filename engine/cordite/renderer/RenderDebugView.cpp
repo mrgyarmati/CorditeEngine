@@ -30,6 +30,8 @@ std::string_view nameOf(RenderDebugView view) {
             return "shadowCascades";
         case RenderDebugView::LightingOnly:
             return "lightingOnly";
+        case RenderDebugView::Reflections:
+            return "reflections";
         case RenderDebugView::Wireframe:
             return "wireframe";
         case RenderDebugView::Overdraw:
@@ -64,6 +66,8 @@ std::string_view displayNameOf(RenderDebugView view) {
             return "Shadow cascades";
         case RenderDebugView::LightingOnly:
             return "Lighting only";
+        case RenderDebugView::Reflections:
+            return "Reflections";
         case RenderDebugView::Wireframe:
             return "Wireframe";
         case RenderDebugView::Overdraw:

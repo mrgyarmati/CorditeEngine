@@ -43,10 +43,14 @@ bool resizeInto(const Image& source, Image& target, ColorSpace colorSpace) {
     const stbir_pixel_layout layout = pixelLayout(source.format(), colorSpace);
 
     if (source.format() == ImageFormat::Rgba32F) {
-        // Floating-point images hold linear values whatever they are used for.
-        return stbir_resize_float_linear(reinterpret_cast<const float*>(source.pixels().data()), sourceWidth,
-                                         sourceHeight, sourceStride, reinterpret_cast<float*>(target.pixels().data()),
-                                         targetWidth, targetHeight, targetStride, layout) != nullptr;
+        // Floating-point images hold linear values whatever they are used for: light,
+        // without an upper limit. They are averaged plainly. The sharper filter that
+        // 8-bit images get overshoots beside a pixel thousands of times brighter than
+        // its neighbours - a sun in a sky - and leaves a ring of less than no light
+        // around it.
+        return stbir_resize(source.pixels().data(), sourceWidth, sourceHeight, sourceStride, target.pixels().data(),
+                            targetWidth, targetHeight, targetStride, layout, STBIR_TYPE_FLOAT, STBIR_EDGE_CLAMP,
+                            STBIR_FILTER_BOX) != nullptr;
     }
 
     const auto* input = reinterpret_cast<const unsigned char*>(source.pixels().data());

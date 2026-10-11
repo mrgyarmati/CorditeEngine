@@ -184,6 +184,31 @@ Texture2D<float4> sceneDepth : register(t4, space1);
   cannot be used while the depth is being read as a texture.
 - Anything that lights a surface calls `shadeSurface` (`common/SceneLighting.slang`),
   which the forward pass calls too; extend that function, not one of its callers.
+  Light that comes from all around - ambient light, the environment - is added in
+  `shadeSurroundings`, which is also what the `reflections` debug view shows.
+- Whatever a pass writes to scene color goes through `storableLight` first: the
+  target is made of half floats, and what a GPU keeps of more light than they hold
+  may be infinity. `shadeSurface` does it for what it returns.
+
+### Something about the environment
+
+The environment of a view is in its binding set too (`common/Environment.slang`,
+included by `common/SceneLighting.slang`): nine spherical harmonics in the constants,
+a cube map of blurred reflections at `t5`, the image itself at `t6`.
+
+- `shadeEnvironment(surface, toViewer)` is what `shadeSurface` adds. A pass of its
+  own that needs the light of a direction calls `environmentDiffuseLight(normal)`,
+  `environmentReflectedLight(direction, roughness)` or `environmentSkyLight(direction,
+  turn)`; all three take directions of the world and turn them themselves.
+- A view without an environment has `environmentIntensity` zero and a black texel
+  bound: the functions return nothing, and need no test for "is there one".
+- What is made of the image - the levels of the cube map, the nine numbers - is made
+  in `EnvironmentMaps` and `projectEnvironment`. Where a direction is in the image
+  (`equirectUv`) exists in C++ and in `common/Math.slang`: change both, and
+  `EnvironmentTests` says at once whether they still agree.
+- The mirror level of the cube map is 256 texels a side (`kEnvironmentFaceSize`), a
+  third of a degree a texel; something that must be sharper than that - the sky - reads
+  the image.
 
 ### Something about lights
 

@@ -3,6 +3,7 @@
 #include "cordite/world/Components.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace cordite {
 namespace {
@@ -71,6 +72,7 @@ void SceneLights::collect(const World& world, const SceneLightsDesc& desc) {
     m_order.clear();
     m_skyColor = Vec3(0.0f);
     m_groundColor = Vec3(0.0f);
+    m_environment = {};
     m_isDefault = false;
 
     // Found in whatever order the components are stored in, which depends on what the
@@ -100,11 +102,33 @@ void SceneLights::collect(const World& world, const SceneLightsDesc& desc) {
         }
     }
 
+    // One environment lights a world. Which of several is not left to the order they
+    // are stored in: the one whose entity has the lowest id.
+    Uuid chosen;
+    const auto environments = world.registry().view<const EnvironmentComponent>();
+    for (const auto [handle, environment] : environments.each()) {
+        const Entity entity{handle};
+        if (!world.isEnabledInHierarchy(entity)) {
+            continue;
+        }
+        const Uuid id = world.id(entity);
+        if (chosen.isNil() || id < chosen) {
+            chosen = id;
+            m_environment = {
+                .texture = environment.texture,
+                .intensity = std::isfinite(environment.intensity) ? std::max(environment.intensity, 0.0f) : 0.0f,
+                .rotation =
+                    std::isfinite(environment.rotationDegrees) ? glm::radians(environment.rotationDegrees) : 0.0f,
+                .visible = environment.visible};
+        }
+    }
+
     // A world whose lights are all switched off is dark on purpose; only one that has
     // none to switch gets the stand-ins.
     const auto lightComponents = world.registry().view<const LightComponent>();
-    const bool hasLightComponents =
-        lightComponents.begin() != lightComponents.end() || ambientLights.begin() != ambientLights.end();
+    const bool hasLightComponents = lightComponents.begin() != lightComponents.end() ||
+                                    ambientLights.begin() != ambientLights.end() ||
+                                    environments.begin() != environments.end();
     if (desc.defaultLighting && !hasLightComponents) {
         m_lights.push_back({.type = GpuLightType::Directional,
                             .direction = glm::normalize(kDefaultKeyDirection),

@@ -67,6 +67,13 @@ public:
     [[nodiscard]] Result<std::vector<std::byte>> encodePng() const;
     [[nodiscard]] Status savePng(const std::filesystem::path& path) const;
 
+    /// Encodes as Radiance HDR (`.hdr`), the format for images of light. Only Rgba32F
+    /// images can be saved this way. Alpha is not stored, negative values are stored as
+    /// nothing, and every value to about one part in 250 of the largest of its pixel's
+    /// three. Fails for an image that holds a value that is not finite.
+    [[nodiscard]] Result<std::vector<std::byte>> encodeHdr() const;
+    [[nodiscard]] Status saveHdr(const std::filesystem::path& path) const;
+
     [[nodiscard]] uint32_t width() const { return m_width; }
 
     [[nodiscard]] uint32_t height() const { return m_height; }

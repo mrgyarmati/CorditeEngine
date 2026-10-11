@@ -41,7 +41,9 @@
 /// A scene is lit by its Light and AmbientLight components (RenderComponents.h): the
 /// directional lights everywhere, the point and spot lights where they reach, found
 /// through a grid of clusters (LightClusters.h). Lights that cast shadows get shadow
-/// maps in an atlas (ShadowPlan.h), drawn anew for every view.
+/// maps in an atlas (ShadowPlan.h), drawn anew for every view. Its Environment is the
+/// image of everything far away: it lights every surface, and the deferred lighting
+/// draws it as the sky where nothing else was drawn (EnvironmentMaps.h).
 
 #include "cordite/assets/AssetManager.h"
 #include "cordite/core/Base.h"
@@ -51,6 +53,7 @@
 #include "cordite/renderer/DebugViewPass.h"
 #include "cordite/renderer/DeferredLightingPass.h"
 #include "cordite/renderer/DisplayEncodePass.h"
+#include "cordite/renderer/EnvironmentMaps.h"
 #include "cordite/renderer/LightClusters.h"
 #include "cordite/renderer/MeshDrawList.h"
 #include "cordite/renderer/MeshPass.h"
@@ -189,6 +192,15 @@ struct SceneRenderStatistics {
     /// up over the views of a frame: it is the largest the atlas was.
     uint64_t shadowAtlasBytes = 0;
 
+    /// The cube maps made of environments: one the first time a view is lit by an
+    /// environment, and none after that until its image changes. More than that, frame
+    /// after frame, means environments are taking turns that should not.
+    uint32_t environmentsMade = 0;
+    /// The memory of the cube maps of the environments held, in bytes
+    /// (kEnvironmentBytes each). The views of a renderer share them, so this is not
+    /// summed up over the views of a frame: it is the most there was.
+    uint64_t environmentBytes = 0;
+
     /// What each of the passes that draw meshes did. A debug view that draws the meshes
     /// itself - wireframe, overdraw - counts as the forward pass.
     MeshPassStatistics shadowPass;
@@ -244,6 +256,7 @@ private:
         DebugViewPass debugView;
         DisplayEncodePass encode;
         ShadowAtlas shadows;
+        EnvironmentMaps environments;
         PostProcessPass postProcess;
     };
 

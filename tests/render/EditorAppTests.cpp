@@ -547,6 +547,10 @@ TEST_SUITE("EditorApp") {
         CHECK(scene["screenPasses"] == 12);
         // The atlas of the medium quality: 4096 texels a side, four bytes each.
         CHECK(scene["shadows"]["atlasBytes"] == 67108864);
+        // The cube map of the showcase's sky, made in the first frame and in no frame
+        // since.
+        CHECK(scene["environment"]["bytes"] == 4193280);
+        CHECK(scene["environment"]["made"] == 0);
         CHECK(scene["passes"]["shadow"]["drawCalls"].get<uint32_t>() > 10);
         // All passes together are what was drawn.
         CHECK(scene["drawCalls"].get<uint32_t>() == scene["passes"]["shadow"]["drawCalls"].get<uint32_t>() +

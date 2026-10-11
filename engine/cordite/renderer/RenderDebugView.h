@@ -56,24 +56,28 @@ enum class RenderDebugView : uint8_t {
 
     /// The light alone: every surface a plain matte grey. Translucent surfaces are left out.
     LightingOnly,
+    /// What the surroundings give the surfaces to reflect: every surface a perfect
+    /// mirror, lit by the environment and the ambient light alone. Translucent surfaces
+    /// are left out.
+    Reflections,
     /// The edges of every triangle.
     Wireframe,
     /// How often each pixel is drawn, hidden surfaces included: the brighter, the more.
     Overdraw,
 };
 
-inline constexpr std::array<RenderDebugView, 14> kRenderDebugViews = {
-    RenderDebugView::None,       RenderDebugView::BaseColor,      RenderDebugView::Normals,
-    RenderDebugView::Roughness,  RenderDebugView::Metallic,       RenderDebugView::Specular,
-    RenderDebugView::Occlusion,  RenderDebugView::Emissive,       RenderDebugView::Depth,
-    RenderDebugView::LightCount, RenderDebugView::ShadowCascades, RenderDebugView::LightingOnly,
-    RenderDebugView::Wireframe,  RenderDebugView::Overdraw,
+inline constexpr std::array<RenderDebugView, 15> kRenderDebugViews = {
+    RenderDebugView::None,        RenderDebugView::BaseColor,      RenderDebugView::Normals,
+    RenderDebugView::Roughness,   RenderDebugView::Metallic,       RenderDebugView::Specular,
+    RenderDebugView::Occlusion,   RenderDebugView::Emissive,       RenderDebugView::Depth,
+    RenderDebugView::LightCount,  RenderDebugView::ShadowCascades, RenderDebugView::LightingOnly,
+    RenderDebugView::Reflections, RenderDebugView::Wireframe,      RenderDebugView::Overdraw,
 };
 
-/// The name used in files and by tools: "none", "baseColor", "lightingOnly", ...
+/// The name used in files and by tools: "none", "baseColor", "lightingOnly", "reflections", ...
 std::string_view nameOf(RenderDebugView view);
 
-/// The name to show a person: "Lit", "Base color", "Lighting only", ...
+/// The name to show a person: "Lit", "Base color", "Lighting only", "Reflections", ...
 std::string_view displayNameOf(RenderDebugView view);
 
 /// The view with the given nameOf(), or nothing. Upper and lower case are not told apart.

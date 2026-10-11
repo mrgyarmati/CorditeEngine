@@ -114,6 +114,11 @@ public:
         REQUIRE(image.savePng(file(fmt::format("{}.png", name))).has_value());
     }
 
+    /// Writes `<name>.hdr`: an image of light, which may be brighter than white.
+    void writeHdrImage(std::string_view name, const Image& image) const {
+        REQUIRE(image.saveHdr(file(fmt::format("{}.hdr", name))).has_value());
+    }
+
     /// Indexes the files written so far and creates the renderer.
     void open(const RenderResourcesDesc& resources = {}) {
         assets = unwrap(AssetManager::create({.rootDirectory = m_directory.path()}));
@@ -196,6 +201,22 @@ public:
         ambient.intensity = 1.0f;
     }
 
+    /// Surrounds the world with the image asset `texture`: seen as the sky, as bright
+    /// as it is, and not turned. Calling it again changes the same environment. The
+    /// reference is good until the next component is added or removed.
+    EnvironmentComponent& setEnvironment(const Uuid& texture) {
+        if (!world.isValid(m_environment)) {
+            m_environment = world.createEntity("Environment");
+            world.add<EnvironmentComponent>(m_environment);
+        }
+        EnvironmentComponent& environment = *world.tryGet<EnvironmentComponent>(m_environment);
+        environment = {.texture = texture};
+        return environment;
+    }
+
+    /// The entity setEnvironment() made; null before it was called.
+    [[nodiscard]] Entity environmentEntity() const { return m_environment; }
+
     /// A camera without perspective that looks from `eye` at `target` and sees
     /// `height` metres from top to bottom.
     [[nodiscard]] CameraView orthographicView(const Vec3& eye, const Vec3& target, float height,
@@ -227,6 +248,7 @@ private:
     UVec2 m_size;
     Entity m_sun;
     Entity m_ambient;
+    Entity m_environment;
 };
 
 /// A light and where it is, for tests that work out themselves what it must light.

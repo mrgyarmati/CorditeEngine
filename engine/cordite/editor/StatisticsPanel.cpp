@@ -54,6 +54,10 @@ Json describeFrameStatistics(const FrameStatistics& statistics) {
     shadows["lightsWithout"] = statistics.scene.lightsWithoutShadows;
     shadows["atlasBytes"] = statistics.scene.shadowAtlasBytes;
     scene["shadows"] = std::move(shadows);
+    Json environment = Json::object();
+    environment["made"] = statistics.scene.environmentsMade;
+    environment["bytes"] = statistics.scene.environmentBytes;
+    scene["environment"] = std::move(environment);
     Json passes = Json::object();
     passes["shadow"] = describePass(statistics.scene.shadowPass);
     passes["depth"] = describePass(statistics.scene.depthPass);
@@ -106,6 +110,11 @@ void StatisticsPanel::draw(const FrameStatistics& statistics, bool& open) {
                                ? fmt::format("{} (atlas of {:.1f} MiB)", scene.shadowMaps, atlasMebibytes)
                                : fmt::format("{} (atlas of {:.1f} MiB, {} lights without)", scene.shadowMaps,
                                              atlasMebibytes, scene.lightsWithoutShadows));
+
+        row("Environment", scene.environmentBytes == 0
+                               ? std::string("none")
+                               : fmt::format("{:.1f} MiB of cube maps",
+                                             static_cast<double>(scene.environmentBytes) / kBytesPerMebibyte));
 
         const RenderResourceStatistics& resources = statistics.resources;
         row("Meshes", fmt::format("{} ({:.1f} MiB)", resources.meshCount,

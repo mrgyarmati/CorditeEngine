@@ -30,14 +30,14 @@ of slowly turning the code base into a ball of mud.
 | Module | Depends on | Responsibility |
 |--------|-----------|----------------|
 | `core` | -         | Services every other module needs: logging, assertions, error handling, hashing, UUIDs, JSON and binary serialization, file I/O, configuration, the job system, memory allocators, timing, platform queries. |
-| `math` | `core`    | glm type aliases and conventions; `Transform`, bounding volumes, rays and intersection tests, frustum culling, projection matrices, color conversions, keyframed curves, deterministic random numbers. |
+| `math` | `core`    | glm type aliases and conventions; `Transform`, bounding volumes, rays and intersection tests, frustum culling, projection matrices, color conversions, keyframed curves, deterministic random numbers, spherical harmonics, and where a direction is in an image of everything around. |
 | `platform` | `core`, `math` | The window system and windows (GLFW), and per-window keyboard, mouse and gamepad state with an injection API for tests and automation. |
 | `assets` | `core`, `math` | Assets as data, and where they come from: images and mipmaps; meshes, primitives and mesh processing; materials; glTF import and export; the asset database, which knows what exists and under which id; the asset manager, which loads by id. Knows nothing of the GPU. |
 | `world` | `core`, `math` | The scene: entities, their components and their parent/child hierarchy, stored with EnTT; the registry of component types known by name; scene files. |
 | `rhi` | `core`, `math`, `platform` | The GPU: Vulkan instance and device creation, the NVRHI device the renderer programs against, the swapchain, and texture readback. The only module that calls Vulkan. |
 | `shaders` | `core` | What a shader *is* to the engine: requests and their permutation keys, compiled binaries, the on-disk cache, and the `ShaderLibrary` that resolves a request from memory, disk or a compiler. |
 | `shader_compiler` | `core`, `shaders` | The Slang-based implementation of `IShaderCompiler`. Kept separate so exported games do not link a compiler. |
-| `renderer` | `core`, `math`, `assets`, `world`, `rhi`, `shaders` | Drawing: the scene renderer and its passes (depth, G-buffer, deferred lighting, forward, debug views), the GPU copies of assets it draws with, the targets of a view, the components that make an entity visible or make it a light, the lights of a world sorted into the clusters of a view; the view a camera gives, debug line drawing, and the `ShaderManager` that turns shader binaries into GPU shader objects. |
+| `renderer` | `core`, `math`, `assets`, `world`, `rhi`, `shaders` | Drawing: the scene renderer and its passes (depth, G-buffer, deferred lighting, forward, debug views), the GPU copies of assets it draws with, the targets of a view, the components that make an entity visible or make it a light, the lights of a world sorted into the clusters of a view, the environment that surrounds a world made ready to light it; the view a camera gives, debug line drawing, and the `ShaderManager` that turns shader binaries into GPU shader objects. |
 | `ui` | `core`, `math`, `platform`, `rhi`, `shaders`, `renderer` | The immediate-mode user interface: the Dear ImGui context, its input, and the renderer that draws it with NVRHI. |
 | `engine` | all of the above | `Engine`: creates and owns the subsystems, the assets, the world and the interface, and runs the frame loop. Also what needs several of the modules below at once: projects, placing a model in a world, checking the assets a scene refers to. |
 | `editor` | `engine` and below | The editor: the scene document, undoable actions, the command registry, the panels, and `EditorApp`. Not part of exported games. |
@@ -122,8 +122,11 @@ solid surfaces ──> depth pre-pass ──> depth
                ──> base pass      ──> G-buffer: base color and lighting channels, normal,
                                                roughness / metallic / specular / occlusion,
                                                emissive
-G-buffer + depth + clusters + shadow atlas ──> deferred lighting ──> scene color (linear, float)
-translucent surfaces + clusters + shadow atlas ──> forward pass ──> scene color, blended over it
+image of the sky ──> (when first used) nine spherical harmonics: what it lights matte surfaces with
+                 ──> (when first used) a cube map, blurred level by level: what surfaces reflect
+G-buffer + depth + clusters + shadow atlas + environment ──> deferred lighting ──> scene color (linear, float)
+                                                             and the sky, where nothing was drawn
+translucent surfaces + clusters + shadow atlas + environment ──> forward pass ──> scene color, blended over it
 scene color ──> bloom levels, down ──> exposure: how many stops the view adds
                               └────> bloom levels, up again
 scene color + bloom + exposure + lookup table ──> post-processing ──> display image (sRGB, 8 bit)
@@ -141,9 +144,11 @@ brighter than white, tone mapped and graded - as the `PostProcess` components of
 scene say. A view that is asked not to finish its picture, and every debug view, skips
 that and only encodes the light for a display.
 
-A scene is lit by components: `Light` (directional, point or spot) and `AmbientLight`
-(a sky above and a ground below). For every view, `SceneLights` gathers the enabled
-ones and a `LightClusterBuilder` sorts the point and spot lights into a grid of
+A scene is lit by components: `Light` (directional, point or spot), `AmbientLight`
+(a sky above and a ground below, as two colors) and `Environment` (an image of
+everything far away, which lights the scene and is its sky). For every view,
+`SceneLights` gathers the enabled ones, and a `LightClusterBuilder` sorts the point
+and spot lights into a grid of
 clusters that fills what the camera sees - 16 columns, 9 rows, 24 slices into the
 depth. Each cluster gets the list of the lights that touch it; a pixel works out which
 cluster it is in and asks the lights of that list, and the directional lights, which
@@ -161,7 +166,8 @@ looks a surface up in them to find out how much of each light reaches it.
 A debug view (`RenderDebugView`) replaces the lighting, or the passes altogether, by a
 picture of something the renderer works with: a channel of the G-buffer, how many
 lights each pixel asks, which cascade of the sun's shadow it is looked up in, the light
-without the materials, the edges of the triangles, how often each pixel is drawn.
+without the materials, what the surroundings give every surface to reflect, the edges
+of the triangles, how often each pixel is drawn.
 
 ### The editor
 
@@ -595,6 +601,73 @@ editor showing a scene that is being started would show nothing at all, so a vie
 can ask for stand-ins (`SceneRenderSettings::defaultLighting`): a key light and
 ambient light, used only while the world has no light component whatsoever. One
 light, even switched off, ends that - a scene that was made dark stays dark.
+
+### An environment is one image, and three things are made of it
+
+What surrounds a scene - a sky with its sun, a horizon, a ground - is an asset like
+any other: one image of everything around, twice as wide as high, the way HDR images
+of skies come (Poly Haven's, for one). There is no cube map asset, no tool to run
+before a sky can be used, and nothing baked that could be out of date. The renderer
+makes what it needs of the image the first time a view is lit by it (`EnvironmentMaps`):
+
+- **Nine numbers per color for matte surfaces.** A matte surface adds up the light of
+  the whole half of the world it faces, and however rough the light is, that sum is
+  smooth: spherical harmonics up to the second band hold it to within a few percent
+  (Ramamoorthi and Hanrahan, 2001). Nine vectors in the constants of the view replace
+  a second cube map and a read from it. They are worked out on the CPU
+  (`projectEnvironment`), from every pixel of the image by the part of the sphere it
+  covers, so that a sun of one pixel among millions is not skipped.
+- **A cube map for reflections, blurred more from level to level.** A mirror reflects
+  one direction, a rough surface a blur around it, the wider the rougher. Each of the
+  six levels holds the image blurred for one roughness, and a pixel reads the level of
+  its own; how much of that light a surface throws back is the fitted curve the
+  ambient light uses already (the "split sum" of Karis, 2013, without its lookup
+  table). The levels are drawn on the GPU from the image itself - not from the level
+  above, which would add blur to blur - with reads spread the way a surface of that
+  roughness has its facets, each taken from the mip level of the image whose pixels
+  are as large as what the read stands for (Krivanek and Colbert, 2008). Three dozen
+  small passes, once: too little to show in the time the first frame of the showcase
+  takes on a desktop GPU.
+- **The image itself for the sky.** It is sharper than the cube map, and it is already
+  on the GPU. The deferred lighting draws it where the depth buffer says nothing was
+  drawn, so there is no sky pass and no sky geometry, and translucent surfaces blend
+  over it like over anything else. Which mip level a pixel reads follows from how far
+  the view turns from one pixel to the next, not from how fast the place in the image
+  changes - that jumps where the left and right edges of the image meet.
+
+Cube maps are kept while views ask for them and given back a while after the last one
+did (an image of a sky may be tens of megabytes). When the asset changes, the
+environment is made anew.
+
+### The environment lights everything, and nothing stands in its way
+
+The light of an environment reaches every surface, inside a room as in a field: there
+is nothing yet that knows how much of the sky a point can see. What dims it is what a
+material says about itself - its occlusion texture - and, from the milestone of the
+screen-space effects on, ambient occlusion. That is the usual order of things, and the
+reason it is one function, `shadeSurroundings`, that everything from all around goes
+through.
+
+A world has one environment - of several that are enabled, the one whose entity has
+the lowest id, which is the same on every run - while lights and ambient lights add
+up. It can be turned about the vertical axis only: that is what lines a sky up with a
+sun, and it keeps the horizon level.
+
+### Images of light are half floats on the GPU, averaged plainly
+
+A floating-point image is light, whatever it is used for. It is sent to the GPU as
+16-bit floats: every GPU can filter those, which the Vulkan specification does not
+promise for 32-bit ones, and they take half the memory. What a half float cannot
+hold - more than 65504 - is cut off there; a sun is still sixty thousand times white.
+
+The mip levels of such an image are plain averages. The sharper filter that 8-bit
+textures get overshoots beside a pixel thousands of times brighter than its
+neighbours, and leaves a ring of less than no light around a sun, which the blurred
+levels of a cube map would then spread.
+
+The same limit is why whatever writes scene color cuts off at 65504 itself
+(`storableLight`): what a GPU stores for more is its own choice, and the ones that
+store infinity turn it into "not a number" in the first pass that blurs.
 
 ### All shadow maps of a view share one atlas
 

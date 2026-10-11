@@ -332,8 +332,10 @@ Status EditorApp::registerApplicationCommands() {
                        "the GPU cannot time its work, and before its first measurement has arrived), what the "
                        "scene renderer drew, the lights it drew it with (their number, the entries of the "
                        "cluster lists they are in, and how many were left out because a view holds only so "
-                       "many), and what it holds on the GPU. Run a few frames first: a frame that loads "
-                       "assets is not typical.",
+                       "many), their shadow maps, the cube maps of environments (how many the frame had "
+                       "to make - none, but for the first frame an environment is seen in - and the "
+                       "memory of those held), and what it holds on the GPU. Run a few frames first: a "
+                       "frame that loads assets is not typical.",
         .parameters = {},
         .handler = [this](const Json& /*parameters*/) -> Result<Json> {
             return describeFrameStatistics(m_engine->statistics());
@@ -488,9 +490,11 @@ Status EditorApp::registerApplicationCommands() {
                        "has to ask (lightCount: dark for none, blue for one, through green to red for eight "
                        "and more), which cascade of the sun's shadow each pixel is looked up in "
                        "(shadowCascades: red, green, blue, yellow from the nearest on; grey where the sun "
-                       "casts none), the light without the materials (lightingOnly), the edges of the "
-                       "triangles (wireframe) or how often each pixel is drawn (overdraw). Returns the view "
-                       "now shown and all there are; without a parameter it changes nothing.",
+                       "casts none), the light without the materials (lightingOnly), what the surroundings "
+                       "give every surface to reflect, each of them made a perfect mirror (reflections), the "
+                       "edges of the triangles (wireframe) or how often each pixel is drawn (overdraw). "
+                       "Returns the view now shown and all there are; without a parameter it changes "
+                       "nothing.",
         .parameters = {{"view", Type::String, "The view to show, by one of the names above.", false}},
         .handler = [this](const Json& parameters) -> Result<Json> {
             if (const auto name = jsonGetOr<std::string>(parameters, "view", ""); !name.empty()) {
@@ -759,6 +763,12 @@ void EditorApp::drawEntityMenu() {
             Json components = Json::object();
             components["AmbientLight"] = Json::object();
             create("Ambient light", std::move(components));
+        }
+        if (ImGui::MenuItem("Environment")) {
+            // The image of the sky that is to light the scene is chosen in the inspector.
+            Json components = Json::object();
+            components["Environment"] = Json::object();
+            create("Environment", std::move(components));
         }
         ImGui::EndMenu();
     }

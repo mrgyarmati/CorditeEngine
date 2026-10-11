@@ -157,7 +157,7 @@ TEST_SUITE("EditorCommands") {
     TEST_CASE("component.types describes what can be edited") {
         CommandFixture fixture;
         const Json types = fixture.run("component.types");
-        REQUIRE(types.size() == 7);
+        REQUIRE(types.size() == 8);
 
         CHECK(types[0]["name"] == "Transform");
         CHECK(types[0]["optional"] == false);
@@ -192,19 +192,30 @@ TEST_SUITE("EditorCommands") {
         CHECK(types[3]["properties"][3]["unit"] == "m");
         CHECK(types[4]["name"] == "AmbientLight");
 
+        // The image of an environment is a texture; how far it is turned has a range.
+        CHECK(types[5]["name"] == "Environment");
+        CHECK(types[5]["properties"][0]["name"] == "texture");
+        CHECK(types[5]["properties"][0]["semantic"] == "asset");
+        CHECK(types[5]["properties"][0]["assetType"] == "Texture");
+        CHECK(types[5]["properties"][2]["name"] == "rotationDegrees");
+        CHECK(types[5]["properties"][2]["minimum"] == -360.0);
+        CHECK(types[5]["properties"][2]["maximum"] == 360.0);
+        CHECK(types[5]["properties"][3]["name"] == "visible");
+        CHECK(types[5]["properties"][3]["type"] == "bool");
+
         // The settings a component takes over from a struct it is built on are its own
         // properties like any other.
-        CHECK(types[5]["name"] == "PostProcess");
-        CHECK(types[5]["properties"][0]["name"] == "global");
-        CHECK(types[5]["properties"][4]["name"] == "exposureMode");
-        CHECK(types[5]["properties"][4]["options"] == json(R"(["manual", "automatic"])"));
-        CHECK(types[5]["properties"][10]["name"] == "toneMapper");
-        CHECK(types[5]["properties"][10]["options"] == json(R"(["filmic", "aces", "linear"])"));
-        CHECK(types[5]["properties"][21]["name"] == "colorLut");
-        CHECK(types[5]["properties"][21]["assetType"] == "Texture");
+        CHECK(types[6]["name"] == "PostProcess");
+        CHECK(types[6]["properties"][0]["name"] == "global");
+        CHECK(types[6]["properties"][4]["name"] == "exposureMode");
+        CHECK(types[6]["properties"][4]["options"] == json(R"(["manual", "automatic"])"));
+        CHECK(types[6]["properties"][10]["name"] == "toneMapper");
+        CHECK(types[6]["properties"][10]["options"] == json(R"(["filmic", "aces", "linear"])"));
+        CHECK(types[6]["properties"][21]["name"] == "colorLut");
+        CHECK(types[6]["properties"][21]["assetType"] == "Texture");
 
-        CHECK(types[6]["name"] == "Label");
-        CHECK(types[6]["properties"][1]["readOnly"] == true);
+        CHECK(types[7]["name"] == "Label");
+        CHECK(types[7]["properties"][1]["readOnly"] == true);
     }
 
     TEST_CASE("a scene is lit by commands: lights are made, changed and taken back like everything else") {
@@ -258,6 +269,55 @@ TEST_SUITE("EditorCommands") {
         }
         CHECK(fixture.scene() == start);
         CHECK_FALSE(fixture.world.has<LightComponent>(fixture.lamp));
+    }
+
+    TEST_CASE("an environment is made, turned and taken back by commands") {
+        CommandFixture fixture;
+        const Json start = fixture.scene();
+
+        // Made without an image: it is seen and as bright as its image will be.
+        fixture.run("entity.create", R"({"name": "Sky", "components": {"Environment": {}}})");
+        Json environment = fixture.run("component.get", R"({"entity": "Sky", "component": "Environment"})");
+        CHECK(environment["texture"].is_null());
+        CHECK(environment["intensity"] == 1.0);
+        CHECK(environment["rotationDegrees"] == 0.0);
+        CHECK(environment["visible"] == true);
+
+        environment = fixture.run("component.set", R"({"entity": "Sky", "component": "Environment", "properties": {
+            "texture": "3f0c8d5e-6f0a-4f38-9d3b-1b2a7c0de481", "intensity": 2.5, "rotationDegrees": -132,
+            "visible": false}})");
+        CHECK(environment["texture"] == "3f0c8d5e-6f0a-4f38-9d3b-1b2a7c0de481");
+        CHECK(environment["intensity"] == 2.5);
+        CHECK(environment["rotationDegrees"] == -132.0);
+        CHECK(environment["visible"] == false);
+        const Entity sky = fixture.world.findByName("Sky");
+        REQUIRE(fixture.world.has<EnvironmentComponent>(sky));
+        CHECK(fixture.world.tryGet<EnvironmentComponent>(sky)->rotationDegrees == -132.0f);
+
+        // What an environment cannot be is refused, and nothing of the request is applied.
+        const Error dark = fixture.fail("component.set", R"({"entity": "Sky", "component": "Environment",
+            "properties": {"visible": true, "intensity": -1}})");
+        CHECK(dark.code == ErrorCode::OutOfRange);
+        CHECK(dark.message.find("intensity") != std::string::npos);
+        const Error spun =
+            fixture.fail("component.set",
+                         R"({"entity": "Sky", "component": "Environment", "properties": {"rotationDegrees": 720}})");
+        CHECK(spun.code == ErrorCode::OutOfRange);
+        const Error notAnId = fixture.fail(
+            "component.set", R"({"entity": "Sky", "component": "Environment", "properties": {"texture": "sky.hdr"}})");
+        CHECK(notAnId.message.find("texture") != std::string::npos);
+        CHECK(fixture.world.tryGet<EnvironmentComponent>(sky)->intensity == 2.5f);
+        CHECK_FALSE(fixture.world.tryGet<EnvironmentComponent>(sky)->visible);
+
+        // Taking the image away again is an edit like the others.
+        environment = fixture.run("component.set",
+                                  R"({"entity": "Sky", "component": "Environment", "properties": {"texture": null}})");
+        CHECK(environment["texture"].is_null());
+
+        for (int step = 0; step < 3; ++step) {
+            fixture.run("editor.undo");
+        }
+        CHECK(fixture.scene() == start);
     }
 
     TEST_CASE("entities are moved, copied and deleted by reference") {

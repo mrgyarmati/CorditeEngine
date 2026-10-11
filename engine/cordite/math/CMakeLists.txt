@@ -4,6 +4,8 @@ cordite_add_module(math
         Color.h
         Curve.h
         Encoding.h
+        Equirectangular.cpp
+        Equirectangular.h
         Frustum.cpp
         Frustum.h
         Geometry.cpp
@@ -17,6 +19,8 @@ cordite_add_module(math
         Projection.h
         Random.cpp
         Random.h
+        SphericalHarmonics.cpp
+        SphericalHarmonics.h
         Transform.cpp
         Transform.h
     DEPENDS
