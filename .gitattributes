@@ -1,0 +1,19 @@
+# Normalise line endings to LF in the repository and the working tree.
+* text=auto eol=lf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# Binary assets
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.hdr binary
+*.ktx2 binary
+*.glb binary
+*.bin binary
+*.wav binary
+*.ogg binary
+*.mp3 binary
+*.flac binary
+*.ttf binary
+*.otf binary

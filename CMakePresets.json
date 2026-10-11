@@ -1,0 +1,86 @@
+{
+    "version": 6,
+    "cmakeMinimumRequired": { "major": 3, "minor": 28, "patch": 0 },
+    "configurePresets": [
+        {
+            "name": "base",
+            "hidden": true,
+            "generator": "Ninja Multi-Config",
+            "binaryDir": "${sourceDir}/build/${presetName}",
+            "cacheVariables": {
+                "CMAKE_CONFIGURATION_TYPES": "Debug;RelWithDebInfo;Release",
+                "CMAKE_DEFAULT_BUILD_TYPE": "RelWithDebInfo",
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+            }
+        },
+        {
+            "name": "windows",
+            "displayName": "Windows (MSVC)",
+            "inherits": "base",
+            "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" },
+            "cacheVariables": {
+                "CMAKE_C_COMPILER": "cl",
+                "CMAKE_CXX_COMPILER": "cl",
+                "CORDITE_WARNINGS_AS_ERRORS": "ON"
+            }
+        },
+        {
+            "name": "windows-clang",
+            "displayName": "Windows (clang-cl)",
+            "inherits": "base",
+            "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Windows" },
+            "cacheVariables": {
+                "CMAKE_C_COMPILER": "clang-cl",
+                "CMAKE_CXX_COMPILER": "clang-cl",
+                "CORDITE_WARNINGS_AS_ERRORS": "ON"
+            }
+        },
+        {
+            "name": "linux",
+            "displayName": "Linux (system compiler)",
+            "inherits": "base",
+            "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Linux" }
+        },
+        {
+            "name": "linux-sanitize",
+            "displayName": "Linux (ASan + UBSan)",
+            "inherits": "linux",
+            "cacheVariables": { "CORDITE_ENABLE_SANITIZERS": "ON" }
+        },
+        {
+            "name": "macos",
+            "displayName": "macOS (Apple Clang)",
+            "inherits": "base",
+            "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Darwin" }
+        }
+    ],
+    "buildPresets": [
+        { "name": "windows-debug", "configurePreset": "windows", "configuration": "Debug" },
+        { "name": "windows-dev", "configurePreset": "windows", "configuration": "RelWithDebInfo" },
+        { "name": "windows-release", "configurePreset": "windows", "configuration": "Release" },
+        { "name": "windows-clang-dev", "configurePreset": "windows-clang", "configuration": "RelWithDebInfo" },
+        { "name": "linux-debug", "configurePreset": "linux", "configuration": "Debug" },
+        { "name": "linux-dev", "configurePreset": "linux", "configuration": "RelWithDebInfo" },
+        { "name": "linux-release", "configurePreset": "linux", "configuration": "Release" },
+        { "name": "linux-sanitize", "configurePreset": "linux-sanitize", "configuration": "Debug" },
+        { "name": "macos-debug", "configurePreset": "macos", "configuration": "Debug" },
+        { "name": "macos-dev", "configurePreset": "macos", "configuration": "RelWithDebInfo" },
+        { "name": "macos-release", "configurePreset": "macos", "configuration": "Release" }
+    ],
+    "testPresets": [
+        {
+            "name": "test-base",
+            "hidden": true,
+            "output": { "outputOnFailure": true },
+            "execution": { "noTestsAction": "error", "jobs": 8 }
+        },
+        { "name": "windows-dev", "inherits": "test-base", "configurePreset": "windows", "configuration": "RelWithDebInfo" },
+        { "name": "windows-debug", "inherits": "test-base", "configurePreset": "windows", "configuration": "Debug" },
+        { "name": "windows-clang-dev", "inherits": "test-base", "configurePreset": "windows-clang", "configuration": "RelWithDebInfo" },
+        { "name": "linux-dev", "inherits": "test-base", "configurePreset": "linux", "configuration": "RelWithDebInfo" },
+        { "name": "linux-debug", "inherits": "test-base", "configurePreset": "linux", "configuration": "Debug" },
+        { "name": "linux-sanitize", "inherits": "test-base", "configurePreset": "linux-sanitize", "configuration": "Debug" },
+        { "name": "macos-dev", "inherits": "test-base", "configurePreset": "macos", "configuration": "RelWithDebInfo" },
+        { "name": "macos-debug", "inherits": "test-base", "configurePreset": "macos", "configuration": "Debug" }
+    ]
+}

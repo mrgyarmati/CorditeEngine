@@ -1,0 +1,27 @@
+# Build output
+/build/
+/out/
+
+# Locally bootstrapped toolchain (see scripts/bootstrap.ps1)
+/.tools/
+
+# Per-project derived data: import cache, shader cache, editor state
+.cordite/
+
+# Exported game builds
+/export/
+
+# Render test output (captured frames and diff images)
+/tests/render/output/
+
+# IDE and OS noise
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+.DS_Store
+Thumbs.db
+CMakeUserPresets.json
+compile_commands.json
+imgui.ini

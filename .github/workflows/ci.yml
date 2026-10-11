@@ -1,0 +1,123 @@
+name: CI
+
+# Linux and Windows run on every push and pull request. macOS runners are billed at ten
+# times the Linux rate on private repositories, so the macOS job runs only when started
+# manually (Actions tab > CI > Run workflow) and for version tags.
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  format:
+    name: Formatting
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pinned to the clang-format version documented in AGENTS.md: different major
+      # versions format the same code differently.
+      - name: Install clang-format
+        run: pipx install clang-format==19.1.5
+
+      - name: Check formatting
+        run: |
+          find engine tests -type f \( -name '*.h' -o -name '*.cpp' -o -name '*.inl' \) -print0 \
+            | xargs -0 clang-format --dry-run --Werror --style=file
+
+  linux:
+    name: Linux (${{ matrix.preset }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        preset: [linux, linux-sanitize]
+        include:
+          - preset: linux
+            build: linux-dev
+          - preset: linux-sanitize
+            build: linux-sanitize
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ninja-build
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: build/${{ matrix.preset }}/_deps
+          key: deps-${{ runner.os }}-${{ matrix.preset }}-${{ hashFiles('cmake/CorditeDependencies.cmake') }}
+
+      - name: Configure
+        run: cmake --preset ${{ matrix.preset }}
+
+      - name: Build
+        run: cmake --build --preset ${{ matrix.build }}
+
+      # Hosted runners have no GPU; suites that need a Vulkan device carry the 'gpu' label.
+      - name: Test
+        run: ctest --preset ${{ matrix.build }} -LE gpu
+
+  windows:
+    name: Windows (MSVC)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: build/windows/_deps
+          key: deps-${{ runner.os }}-windows-${{ hashFiles('cmake/CorditeDependencies.cmake') }}
+
+      # The runner image ships CMake and Ninja; dev.ps1 loads the MSVC environment.
+      - name: Build (RelWithDebInfo)
+        shell: pwsh
+        run: ./scripts/dev.ps1 build
+
+      - name: Test (RelWithDebInfo)
+        shell: pwsh
+        run: ./scripts/dev.ps1 test -ExcludeLabel gpu
+
+      - name: Build (Release)
+        shell: pwsh
+        run: ./scripts/dev.ps1 build -Config Release
+
+      - name: Test (Release)
+        shell: pwsh
+        run: ./scripts/dev.ps1 test -Config Release -ExcludeLabel gpu
+
+  macos:
+    name: macOS (Apple Clang)
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build tools
+        run: brew install ninja
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: build/macos/_deps
+          key: deps-${{ runner.os }}-macos-${{ hashFiles('cmake/CorditeDependencies.cmake') }}
+
+      - name: Configure
+        run: cmake --preset macos
+
+      - name: Build
+        run: cmake --build --preset macos-dev
+
+      - name: Test
+        run: ctest --preset macos-dev -LE gpu
