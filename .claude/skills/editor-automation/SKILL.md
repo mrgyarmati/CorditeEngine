@@ -130,6 +130,13 @@ set it like any other property:
   `viewport.show` with `{"colliders": true}` draws every collider in the viewport.
   `physics.raycast` and `physics.overlap` ask what is where - in the scene as it is,
   without a frame having to go by first; they name the entity that has the body.
+- A `Joint` holds the body its entity is part of to that of the entity `connectedTo`
+  names by id (none: to the world): `type` is `fixed`, `ball`, `hinge`, `slider` or
+  `distance`; `anchor` and `axis` are in the entity's own space; `minimum` and
+  `maximum` are degrees for a hinge and metres otherwise. It holds the two entities
+  as they stand when the game begins, and whatever it is given later is said of
+  that moment. The viewport draws it with the colliders, and `scene.validate` says
+  where one will hold nothing.
   The editor does not simulate: nothing falls, and `editor.statistics` reports the
   bodies there are and no steps.
 - A new material is a `.material.json` file written into the project's `assets`

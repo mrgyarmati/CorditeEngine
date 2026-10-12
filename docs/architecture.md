@@ -1247,6 +1247,32 @@ because the library has sensors by the body; and it is not static, because a sen
 that stands still does not notice what has fallen asleep in it, which is exactly
 what a game asks a trigger most often: is it still there?
 
+### A joint is a component of the entity that is held
+
+A `Joint` names another entity, and holds the body its own entity is part of to the
+body of that one - or to the world. It is on the thing that hangs, swings or slides,
+which is where one looks for what holds it; and it names the other by id, like every
+reference from one entity to another, so that a copy of the two holds to the copy.
+
+A joint is made of how its two bodies stand to each other at one moment: that is
+what a hinge is turned against, where its limits count from, and how long a spring
+is. That moment is the first update in which the simulation can make the joint -
+the beginning of the game, for what is in a scene - and not the moment of some later
+making: a body is made anew whenever what it is made of changes, and its joints
+with it, and a door must not forget where shut is because it was made heavier while
+it stood open. Nor because a script gave it other limits: whatever a `Joint` is
+given later is said of that same moment. So the system keeps how the two entities
+stood, as the matrix from the space of the one to that of the other, and makes the
+joint of it each time, in the spaces of whatever bodies the entities are part of
+then. Only a joint that is told to hold to another entity begins again - there is
+nothing else it could be said of - and so does one that could not be made for a
+while: what was held by nothing has gone where nothing held it, and is held there.
+
+Angles are degrees in the component, as everywhere a person types them, and radians
+in the simulation. One pair of numbers serves all kinds - degrees for a hinge, metres
+for a slider and a distance - because a joint is one kind at a time, and three pairs
+of which two are dead would be worse to read than one that says what it is.
+
 ### A body of several shapes is an entity with colliders below it
 
 A rigid body takes its own collider and those of the entities below it, down to the

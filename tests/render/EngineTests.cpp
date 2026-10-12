@@ -21,6 +21,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <string_view>
 
 using namespace cordite;
 using cordite::test::checkNoValidationIssues;
@@ -539,19 +540,21 @@ TEST_SUITE("Engine") {
 
         // Everything in the scene that is enabled was found; none of it failed to load.
         const SceneRenderStatistics& statistics = engine->sceneRenderer().statistics();
-        CHECK(statistics.meshRenderers == 23);
+        CHECK(statistics.meshRenderers == 29);
         // The cable of the hoist is skinned to six joints, and it swings: a game lets
         // time pass, and the animator's clock has moved on by the two frames.
         CHECK(statistics.skinnedMeshes == 1);
         CHECK(statistics.jointMatrices == 6);
         CHECK(engine->statistics().animation == AnimationStatistics{.animators = 1, .joints = 6});
-        // Nine bodies: the floor, the pillar, the cone, the grating, the trigger over
-        // the walkway, and what the simulation moves - the crate with its lid, the
-        // barrel, the ball and the gas cylinder. Two of them have shapes made of meshes:
-        // the hull around the barrel, the triangles of the grating. A frame of a
-        // sixtieth of a second is one step.
+        // Fifteen bodies: the floor, the pillar, the cone, the grating, the trigger over
+        // the walkway, the beam of the rack, and what the simulation moves - the crate
+        // with its lid, the barrel, the ball, the gas cylinder and the five things that
+        // hang from the rack, each by a joint. Two have shapes made of meshes: the hull
+        // around the barrel, the triangles of the grating. A frame of a sixtieth of a
+        // second is one step.
         CHECK(engine->statistics().physics.steps == 1);
-        CHECK(engine->statistics().physics.bodies == 9);
+        CHECK(engine->statistics().physics.bodies == 15);
+        CHECK(engine->statistics().physics.joints == 5);
         CHECK(engine->statistics().physics.geometries == 2);
         CHECK(engine->world().transform(engine->world().findByName("Barrel")).position.y ==
               doctest::Approx(0.45f).epsilon(0.01));
@@ -568,6 +571,19 @@ TEST_SUITE("Engine") {
         CHECK(statistics.basePass.drawCalls < statistics.basePass.instances);
         // The glass pane is the one surface that is blended over the rest.
         CHECK(statistics.forwardPass.drawCalls == 1);
+
+        // What hangs from the rack is held there: a second and a half later, in which
+        // whatever nothing held would have fallen to the floor, each thing is as high
+        // as the scene has it.
+        runFrames(*engine, 90);
+        const auto heightOf = [&](std::string_view name) {
+            return engine->world().computeWorldMatrix(engine->world().findByName(name))[3].y;
+        };
+        CHECK(heightOf("Bracket") == doctest::Approx(2.1f).epsilon(0.005));
+        CHECK(heightOf("Lantern") == doctest::Approx(1.6f).epsilon(0.005));
+        CHECK(heightOf("Sign") == doctest::Approx(1.95f).epsilon(0.005));
+        CHECK(heightOf("Runner") == doctest::Approx(2.1f).epsilon(0.005));
+        CHECK(heightOf("Weight") == doctest::Approx(1.5f).epsilon(0.005));
         checkNoValidationIssues(engine->graphics());
     }
 

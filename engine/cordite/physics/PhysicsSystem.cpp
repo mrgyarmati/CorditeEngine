@@ -45,6 +45,17 @@ bool isUsable(const Quat& value) {
     return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z) && std::isfinite(value.w);
 }
 
+bool isUsable(const Mat4& value) {
+    for (glm::length_t column = 0; column < 4; ++column) {
+        for (glm::length_t row = 0; row < 4; ++row) {
+            if (!std::isfinite(value[column][row])) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 /// The scale Transform::fromMatrix() finds in a matrix that scales by `scale`: every
 /// axis as long as it is, and X the other way round where the three together mirror.
 /// A body is turned as that function finds its entity turned, and so this is how large
@@ -103,6 +114,39 @@ bool isBeginningOf(const CollisionEvent& event, const CollisionEvent& ended) {
     return event.type == CollisionEventType::CollisionBegan &&
            ((event.first == ended.first && event.second == ended.second) ||
             (event.first == ended.second && event.second == ended.first));
+}
+
+/// What takes a point of an entity to the space of the body it is part of: that of
+/// `bodyEntity`, the entity whose body it is - where that is and turned as it is, and
+/// of no size. To the world, for no body; and for no entity, the point is in the world
+/// already.
+///
+/// It is worked out from the entities, not from where the body is in the simulation: a
+/// body that is moved by hand is a frame behind its entity, and a point of an entity
+/// is where it is on its body whether the body has caught up or not.
+Mat4 entityToBody(const World& world, Entity entity, Entity bodyEntity) {
+    const Mat4 entityToWorld = entity.isNull() ? Mat4(1.0f) : world.worldMatrix(entity);
+    if (bodyEntity.isNull()) {
+        return entityToWorld;
+    }
+    // A body is placed as Transform::fromMatrix() finds its entity placed.
+    const Transform placed = Transform::fromMatrix(world.worldMatrix(bodyEntity));
+    const Mat4 placement = glm::translate(Mat4(1.0f), placed.position) * glm::mat4_cast(placed.rotation);
+    return glm::inverse(placement) * entityToWorld;
+}
+
+/// What takes a point of a body to the world, where the body is in the simulation now;
+/// nothing at all for no body, which is the world.
+Mat4 bodyToWorld(const PhysicsWorld& physics, BodyId body) {
+    if (body.isNull()) {
+        return Mat4(1.0f);
+    }
+    return glm::translate(Mat4(1.0f), physics.position(body)) * glm::mat4_cast(physics.rotation(body));
+}
+
+/// A direction as a matrix turns it, of unit length; `fallback` where nothing is left of it.
+Vec3 directionIn(const Mat4& matrix, const Vec3& direction, const Vec3& fallback) {
+    return normalizeOr(Vec3(matrix * Vec4(direction, 0.0f)), fallback);
 }
 
 bool isMadeOfMesh(ShapeType shape) {
@@ -188,6 +232,11 @@ BodyId PhysicsSystem::bodyOf(Entity entity) const {
     return found != m_records.end() ? found->second.body : BodyId();
 }
 
+JointId PhysicsSystem::jointOf(Entity entity) const {
+    const auto found = m_joints.find(entity);
+    return found != m_joints.end() ? found->second.joint : JointId();
+}
+
 BodyId PhysicsSystem::triggerOf(Entity entity) const {
     const auto found = m_records.find(BodyKey{.entity = entity, .trigger = true});
     return found != m_records.end() ? found->second.body : BodyId();
@@ -243,6 +292,9 @@ void PhysicsSystem::clear() {
         m_physics->destroyBody(record.body);
     }
     forgetGeometry();
+    // The joints went with the bodies they held.
+    m_joints.clear();
+    m_jointEntities.clear();
     m_records.clear();
     m_order.clear();
     m_events.clear();
@@ -254,6 +306,7 @@ void PhysicsSystem::clear() {
 
 void PhysicsSystem::gather(const World& world, AssetManager& assets) {
     m_wantedCount = 0;
+    m_jointEntities.clear();
     world.traverse([&](Entity entity, uint32_t depth) {
         if (m_levels.size() <= depth) {
             m_levels.resize(depth + 1);
@@ -264,6 +317,9 @@ void PhysicsSystem::gather(const World& world, AssetManager& assets) {
         level.body = level.enabled && above != nullptr ? above->body : kNoBody;
         if (!level.enabled) {
             return;
+        }
+        if (world.has<JointComponent>(entity)) {
+            m_jointEntities.push_back(entity);
         }
         // How large things are here, and what takes a point from here to the body the
         // colliders here are part of, are worked out from the entities' own transforms,
@@ -495,9 +551,17 @@ void PhysicsSystem::reconcile(const World& world, uint32_t steps, Authority auth
         }
         return !entry.second.seen;
     });
-    // What no longer holds of an entity is forgotten, and said again should it hold again.
+    // What was said of joints is left alone: it is for whoever looks at the joints, and
+    // nobody does while no time passes.
+    forgetWhatNoLongerHolds(About::Collider);
+    forgetWhatNoLongerHolds(About::Body);
+}
+
+void PhysicsSystem::forgetWhatNoLongerHolds(About about) {
     for (auto said = m_reported.begin(); said != m_reported.end();) {
-        if (said->second.current) {
+        if (said->first.about != about) {
+            ++said;
+        } else if (said->second.current) {
             said->second.current = false;
             ++said;
         } else {
@@ -578,7 +642,130 @@ PhysicsFrameStatistics PhysicsSystem::statistics(uint32_t steps) const {
     return {.steps = steps,
             .bodies = simulation.bodies,
             .activeBodies = simulation.activeBodies,
-            .geometries = simulation.geometries};
+            .geometries = simulation.geometries,
+            .joints = simulation.joints};
+}
+
+JointDesc PhysicsSystem::makeJointDesc(const World& world, Entity entity, Entity connected,
+                                       const JointRecord& record) const {
+    const JointComponent& joint = record.blueprint;
+    // Points and directions are the entities'; a joint wants them as its bodies have
+    // them. Where the joint is on its own entity, the component says. Where it is on
+    // the other is where that was on the other when the two were first joined.
+    const Mat4 toFirst = entityToBody(world, entity, entityOf(record.first));
+    const Mat4 toSecond = entityToBody(world, connected, entityOf(record.second));
+    const Mat4 restToSecond = toSecond * record.restToConnected;
+    // The axis of a hinge or of a slider that has no length is left at that: the
+    // simulation refuses a joint without a direction, and says so. No other joint
+    // looks at its axis, and any will do.
+    const bool isHinge = joint.type == JointType::Hinge;
+    const Vec3 noAxis = isHinge || joint.type == JointType::Slider ? Vec3(0.0f) : kWorldUp;
+    const Vec3 axis = normalizeOr(joint.axis, noAxis);
+    // Any direction across the axis serves, as long as it is the same one on both.
+    const Vec3 across = glm::cross(axis, std::abs(axis.y) < 0.9f ? kWorldUp : kWorldRight);
+    JointDesc desc{.type = joint.type,
+                   .first = record.first,
+                   .second = record.second,
+                   .firstPoint = Vec3(toFirst * Vec4(joint.anchor, 1.0f)),
+                   .secondPoint = Vec3(restToSecond * Vec4(joint.anchor, 1.0f)),
+                   .firstAxis = directionIn(toFirst, axis, noAxis),
+                   .secondAxis = directionIn(restToSecond, axis, noAxis),
+                   .firstNormal = directionIn(toFirst, across, kWorldRight),
+                   .secondNormal = directionIn(restToSecond, across, kWorldRight),
+                   .limited = joint.limited,
+                   .minimum = isHinge ? toRadians(joint.minimum) : joint.minimum,
+                   .maximum = isHinge ? toRadians(joint.maximum) : joint.maximum,
+                   .frequency = joint.frequency,
+                   .damping = joint.damping,
+                   .collide = joint.collideConnected};
+    if (joint.type == JointType::Distance) {
+        // The other end of a distance is where its component says. One that is not
+        // limited keeps its ends as far apart as they were when the two were first
+        // joined - not as they are when it is made again, with a spring that is
+        // stretched just then. A body has no size: what is measured in it is metres.
+        const Vec3 end(toSecond * Vec4(joint.connectedAnchor, 1.0f));
+        if (!joint.limited) {
+            const float apart = glm::distance(desc.secondPoint, end);
+            desc.limited = true;
+            desc.minimum = apart;
+            desc.maximum = apart;
+        }
+        desc.secondPoint = end;
+    }
+    return desc;
+}
+
+void PhysicsSystem::reconcileJoints(const World& world) {
+    for (auto& [entity, record] : m_joints) {
+        record.seen = false;
+    }
+    for (const Entity entity : m_jointEntities) {
+        const JointComponent& component = *world.tryGet<JointComponent>(entity);
+        // The two bodies: that which the entity is part of, and that of what it names.
+        const Entity firstBodyEntity = bodyEntityOf(world, entity);
+        const BodyId first = bodyOf(firstBodyEntity);
+        if (first.isNull()) {
+            report(world, entity, About::Joint, "has a joint, and is part of no body that one could hold");
+            continue;
+        }
+        Entity connected;
+        Entity secondBodyEntity;
+        BodyId second;
+        if (!component.connectedTo.isNil()) {
+            connected = world.findById(component.connectedTo);
+            secondBodyEntity = connected.isNull() ? Entity{} : bodyEntityOf(world, connected);
+            second = bodyOf(secondBodyEntity);
+            if (second.isNull()) {
+                report(world, entity, About::Joint,
+                       connected.isNull()
+                           ? fmt::format("has a joint to the entity {}, which is not there",
+                                         component.connectedTo.toString())
+                           : fmt::format("has a joint to '{}', which is part of no body", world.name(connected)));
+                continue;
+            }
+        }
+
+        JointRecord& record = m_joints.try_emplace(entity).first->second;
+        record.seen = true;
+        const bool begins = !record.hasRest || record.blueprint.connectedTo != component.connectedTo;
+        const bool isAsItWas = !begins && record.blueprint == component && record.first == first &&
+                               record.second == second && m_physics->isValid(record.joint);
+        if (isAsItWas) {
+            continue;
+        }
+        m_physics->destroyJoint(record.joint);
+        record.joint = JointId();
+        record.blueprint = component;
+        record.first = first;
+        record.second = second;
+        if (begins) {
+            // Held to this for the first time: how the two stand to each other now is
+            // what the joint holds them to and counts its limits from, however often it
+            // is made again - of other values, or because a body was made anew, when the
+            // two may stand quite differently. They stand where their bodies are: a body
+            // that is moved by hand is yet to follow its entity.
+            const Mat4 here = bodyToWorld(*m_physics, first) * entityToBody(world, entity, firstBodyEntity);
+            const Mat4 there = bodyToWorld(*m_physics, second) * entityToBody(world, connected, secondBodyEntity);
+            record.restToConnected = glm::inverse(there) * here;
+            // Under something of no size there is no telling; it is found when there is.
+            record.hasRest = isUsable(record.restToConnected);
+        }
+        const Result<JointId> made = m_physics->createJoint(makeJointDesc(world, entity, connected, record));
+        if (made) {
+            record.joint = *made;
+        } else {
+            report(world, entity, About::Joint, fmt::format("has no joint: {}", made.error().message));
+        }
+    }
+
+    // What the world no longer asks for, or cannot be made for want of a body, goes.
+    std::erase_if(m_joints, [&](const auto& entry) {
+        if (!entry.second.seen) {
+            m_physics->destroyJoint(entry.second.joint);
+        }
+        return !entry.second.seen;
+    });
+    forgetWhatNoLongerHolds(About::Joint);
 }
 
 void PhysicsSystem::hearContacts() {
@@ -635,6 +822,7 @@ PhysicsFrameStatistics PhysicsSystem::update(World& world, AssetManager& assets,
     gather(world, assets);
     const uint32_t steps = m_timestep.advance(static_cast<double>(deltaSeconds));
     reconcile(world, steps, Authority::Simulation);
+    reconcileJoints(world);
     for (uint32_t step = 0; step < steps; ++step) {
         m_physics->step(static_cast<float>(m_timestep.stepSeconds()));
         hearContacts();

@@ -90,7 +90,7 @@ std::vector<SceneProblem> findSceneProblems(const World& world, const ComponentR
                                          asset->reference(), withArticle(asset->type), wanted)});
         }
     }
-    for (ColliderProblem& problem : findColliderProblems(world)) {
+    for (PhysicsProblem& problem : findPhysicsProblems(world)) {
         problems.push_back({problem.entity, std::move(problem.message)});
     }
     return problems;

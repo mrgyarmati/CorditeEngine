@@ -1368,6 +1368,338 @@ TEST_SUITE("PhysicsSystem") {
         CHECK(stage.physics->simulation().statistics().activeBodies == 0);
     }
 
+    TEST_CASE("a joint holds the body of its entity to the body of the entity it names") {
+        Stage stage;
+        // A sign of a metre that hangs from a beam by its upper edge, on a hinge along X.
+        const Entity beam = stage.world.createEntity("Beam");
+        stage.world.transform(beam).position = Vec3(0.0f, 4.0f, 0.0f);
+        stage.world.add<ColliderComponent>(beam) = {.size = Vec3(2.0f, 0.2f, 0.2f)};
+        const Entity sign = stage.world.createEntity("Sign");
+        stage.world.transform(sign).position = Vec3(0.0f, 3.4f, 0.0f);
+        stage.world.add<ColliderComponent>(sign) = {.size = Vec3(1.0f, 1.0f, 0.1f)};
+        stage.world.add<RigidBodyComponent>(sign) = {.linearDamping = 0.0f, .angularDamping = 0.0f};
+        stage.world.add<JointComponent>(sign) = {.type = JointType::Hinge,
+                                                 .connectedTo = stage.world.id(beam),
+                                                 .anchor = Vec3(0.0f, 0.5f, 0.0f),
+                                                 .axis = Vec3(1.0f, 0.0f, 0.0f)};
+        const Vec3 hinge(0.0f, 3.9f, 0.0f);
+
+        // While no time passes there is no joint: an editor has no use for one.
+        CHECK(stage.physics->synchronize(stage.world, *stage.assets).joints == 0);
+        CHECK(stage.physics->jointOf(sign).isNull());
+        // With the first update there is, and the sign hangs where it hung.
+        CHECK(stage.run(1).joints == 1);
+        const JointId joint = stage.physics->jointOf(sign);
+        CHECK(stage.physics->simulation().isValid(joint));
+        CHECK(stage.physics->jointOf(beam).isNull());
+        stage.run(120);
+        CHECK_NEAR(stage.world.transform(sign).position, Vec3(0.0f, 3.4f, 0.0f), 5.0e-3f);
+        CHECK(stage.physics->jointOf(sign) == joint);
+
+        // Pushed, it swings: its upper edge stays on the hinge, and its middle half a
+        // metre from it.
+        stage.world.tryGet<RigidBodyComponent>(sign)->linearVelocity = Vec3(0.0f, 0.0f, 2.0f);
+        float farthest = 0.0f;
+        for (int frame = 0; frame < 120; ++frame) {
+            stage.run(1);
+            const Vec3 edge(stage.world.computeWorldMatrix(sign) * Vec4(0.0f, 0.5f, 0.0f, 1.0f));
+            REQUIRE(glm::distance(edge, hinge) < 0.02f);
+            REQUIRE(glm::distance(stage.world.transform(sign).position, hinge) == doctest::Approx(0.5f).epsilon(0.02));
+            farthest = std::max(farthest, std::abs(stage.world.transform(sign).position.z));
+        }
+        CHECK(farthest > 0.2f);
+        // Nothing is said of the two colliding: what is joined does not, unless it is to.
+        CHECK(stage.physics->events().empty());
+
+        // While no time passes the joint is kept as it is.
+        CHECK(stage.physics->synchronize(stage.world, *stage.assets).joints == 1);
+        CHECK(stage.physics->jointOf(sign) == joint);
+        // Without its component, the sign has no joint, and falls.
+        stage.world.remove<JointComponent>(sign);
+        CHECK(stage.run(1).joints == 0);
+        CHECK_FALSE(stage.physics->simulation().isValid(joint));
+        stage.run(60);
+        CHECK(stage.world.transform(sign).position.y < 1.0f);
+    }
+
+    TEST_CASE("a joint is where its entity has it, under whatever the entity hangs") {
+        Stage stage;
+        // A lamp under a group that is moved, turned and twice as large: it hangs from
+        // the world by a point half a metre above it in its own space - a metre, there.
+        const Entity group = stage.world.createEntity("Group");
+        stage.world.transform(group) = {.position = Vec3(10.0f, 5.0f, -4.0f),
+                                        .rotation = glm::angleAxis(kHalfPi, Vec3(0.0f, 1.0f, 0.0f)),
+                                        .scale = Vec3(2.0f)};
+        const Entity lamp = stage.world.createEntity("Lamp");
+        REQUIRE(stage.world.setParent(lamp, group, false).has_value());
+        stage.world.add<ColliderComponent>(lamp) = {.shape = ShapeType::Sphere, .radius = 0.1f};
+        stage.world.add<RigidBodyComponent>(lamp) = {
+            .linearDamping = 0.0f, .angularDamping = 0.0f, .linearVelocity = Vec3(1.5f, 0.0f, 0.5f)};
+        stage.world.add<JointComponent>(lamp) = {.type = JointType::Ball, .anchor = Vec3(0.0f, 0.5f, 0.0f)};
+        const Vec3 hook(10.0f, 6.0f, -4.0f);
+
+        float lowest = 5.0f;
+        for (int frame = 0; frame < 180; ++frame) {
+            stage.run(1);
+            // It swings about the hook, a metre below it wherever it is.
+            REQUIRE(glm::distance(stage.positionOf(lamp), hook) == doctest::Approx(1.0f).epsilon(0.02));
+            const Vec3 held(stage.world.computeWorldMatrix(lamp) * Vec4(0.0f, 0.5f, 0.0f, 1.0f));
+            REQUIRE(glm::distance(held, hook) < 0.03f);
+            lowest = std::min(lowest, stage.positionOf(lamp).y);
+        }
+        CHECK(lowest < 5.2f);
+        CHECK(lowest > 4.97f);
+
+        // The other end of a distance is in the space of what it is held to: a weight
+        // on a rope of a metre and a half from the tip of a jib that is itself moved.
+        const Entity jib = stage.world.createEntity("Jib");
+        stage.world.transform(jib) = {.position = Vec3(-10.0f, 6.0f, 0.0f), .scale = Vec3(2.0f, 1.0f, 1.0f)};
+        stage.world.add<ColliderComponent>(jib) = {.size = Vec3(1.0f, 0.1f, 0.1f)};
+        const Entity weight = stage.world.createEntity("Weight");
+        stage.world.transform(weight).position = Vec3(-9.0f, 5.5f, 0.0f);
+        stage.world.add<ColliderComponent>(weight) = {.shape = ShapeType::Sphere, .radius = 0.2f};
+        stage.world.add<RigidBodyComponent>(weight);
+        stage.world.add<JointComponent>(weight) = {.type = JointType::Distance,
+                                                   .connectedTo = stage.world.id(jib),
+                                                   .connectedAnchor = Vec3(0.5f, 0.0f, 0.0f),
+                                                   .limited = true,
+                                                   .maximum = 1.5f};
+        stage.run(300);
+        // The tip is half the jib's length along its X, which is two metres long.
+        CHECK_NEAR(stage.positionOf(weight), Vec3(-9.0f, 4.5f, 0.0f), 0.03f);
+    }
+
+    TEST_CASE("the limits of a joint are from where it was first made, also when a body is made anew") {
+        Stage stage;
+        stage.physics->simulation().setGravity(Vec3(0.0f));
+        // A door hinged to the world at its edge, that may open thirty degrees one way
+        // and ten the other.
+        const Entity door = stage.world.createEntity("Door");
+        stage.world.transform(door).position = Vec3(0.5f, 1.0f, 0.0f);
+        stage.world.add<ColliderComponent>(door) = {.size = Vec3(1.0f, 2.0f, 0.1f)};
+        stage.world.add<RigidBodyComponent>(door) = {.linearDamping = 0.0f, .angularDamping = 0.0f};
+        stage.world.add<JointComponent>(door) = {.type = JointType::Hinge,
+                                                 .anchor = Vec3(-0.5f, 0.0f, 0.0f),
+                                                 .limited = true,
+                                                 .minimum = -10.0f,
+                                                 .maximum = 30.0f};
+        /// How far the door is turned, in degrees about +Y.
+        const auto angle = [&] {
+            const Vec3 along = stage.world.transform(door).rotation * Vec3(1.0f, 0.0f, 0.0f);
+            return glm::degrees(std::atan2(-along.z, along.x));
+        };
+        /// Pushes the door about its hinge, and says how far that turned it at the most:
+        /// a door that is stopped by its limit comes back from it a little.
+        const auto push = [&](float radiansPerSecond, int frames) {
+            const Vec3 spin(0.0f, radiansPerSecond, 0.0f);
+            RigidBodyComponent& body = *stage.world.tryGet<RigidBodyComponent>(door);
+            body.angularVelocity = spin;
+            body.linearVelocity = glm::cross(spin, stage.world.transform(door).position - Vec3(0.0f, 1.0f, 0.0f));
+            float farthest = angle();
+            for (int frame = 0; frame < frames; ++frame) {
+                stage.run(1);
+                farthest = radiansPerSecond > 0.0f ? std::max(farthest, angle()) : std::min(farthest, angle());
+            }
+            return farthest;
+        };
+        stage.run(1);
+        // Opened a little, and left there.
+        CHECK(push(1.0f, 15) == doctest::Approx(glm::degrees(0.25f)).epsilon(0.05));
+        *stage.world.tryGet<RigidBodyComponent>(door) = {.linearDamping = 0.0f, .angularDamping = 0.0f};
+        stage.run(2);
+
+        // Made heavier while it stands open: another body, and so another joint - which
+        // still counts from where the door was shut, not from where it stands now.
+        const JointId before = stage.physics->jointOf(door);
+        const BodyId body = stage.physics->bodyOf(door);
+        stage.world.tryGet<RigidBodyComponent>(door)->mass = 30.0f;
+        stage.run(1);
+        CHECK(stage.physics->bodyOf(door) != body);
+        CHECK(stage.physics->jointOf(door) != before);
+        CHECK(stage.physics->simulation().isValid(stage.physics->jointOf(door)));
+        // Thirty degrees from shut, not from the fourteen it stood open at - give or take
+        // what it is past the end for a step, coming at that speed.
+        CHECK(push(2.0f, 90) == doctest::Approx(30.0f).epsilon(0.07));
+        CHECK(push(-2.0f, 90) == doctest::Approx(-10.0f).epsilon(0.2));
+
+        // Given other limits it is another joint as well - and one that still counts
+        // from where the door was shut: whatever a Joint is given is said of the moment
+        // it first held.
+        const RigidBodyComponent still{.mass = 30.0f, .linearDamping = 0.0f, .angularDamping = 0.0f};
+        *stage.world.tryGet<RigidBodyComponent>(door) = still;
+        stage.run(2);
+        const JointId remade = stage.physics->jointOf(door);
+        stage.world.tryGet<JointComponent>(door)->maximum = 20.0f;
+        stage.run(1);
+        CHECK(stage.physics->jointOf(door) != remade);
+        CHECK(push(2.0f, 90) == doctest::Approx(20.0f).epsilon(0.07));
+
+        // Held to something else, it begins again: its limits count from where the door
+        // stands when it is.
+        *stage.world.tryGet<RigidBodyComponent>(door) = still;
+        stage.run(2);
+        const float stands = angle();
+        CHECK(stands > 5.0f);
+        const Entity post = stage.world.createEntity("Post");
+        stage.world.transform(post).position = Vec3(-3.0f, 1.0f, 0.0f);
+        stage.world.add<ColliderComponent>(post) = {.size = Vec3(0.2f)};
+        stage.world.tryGet<JointComponent>(door)->connectedTo = stage.world.id(post);
+        stage.run(1);
+        CHECK(push(2.0f, 90) == doctest::Approx(stands + 20.0f).epsilon(0.07));
+
+        // Half a turn either way is the most a hinge can be limited to, and is not too
+        // much by what is lost between degrees and radians.
+        JointComponent& hinge = *stage.world.tryGet<JointComponent>(door);
+        hinge.minimum = -180.0f;
+        hinge.maximum = 180.0f;
+        CHECK(stage.run(1).joints == 1);
+        CHECK(stage.physics->simulation().isValid(stage.physics->jointOf(door)));
+    }
+
+    TEST_CASE("a spring that is made again keeps the length it had when it first held") {
+        Stage stage;
+        // A weight on a spring from a point of the world a metre above it: a distance
+        // that is not limited, and gives. It hangs lower than it was hung, by as much as
+        // it stretches the spring - which for one of one hertz is g / (2 pi)^2.
+        const Entity weight = stage.world.createEntity("Weight");
+        stage.world.transform(weight).position = Vec3(0.0f, 5.0f, 0.0f);
+        stage.world.add<ColliderComponent>(weight) = {.shape = ShapeType::Sphere, .radius = 0.2f};
+        stage.world.add<RigidBodyComponent>(weight);
+        stage.world.add<JointComponent>(weight) = {
+            .type = JointType::Distance, .connectedAnchor = Vec3(0.0f, 6.0f, 0.0f), .frequency = 1.0f, .damping = 1.0f};
+        stage.run(300);
+        const float stretched = 6.0f - stage.positionOf(weight).y;
+        CHECK(stretched == doctest::Approx(1.0f + 9.81f / (4.0f * kPi * kPi)).epsilon(0.02));
+
+        // Made heavier, the weight is another body on another joint - whose length is
+        // still the metre the two were apart at first, not what the spring is stretched
+        // to now: the weight hangs where it hung.
+        const JointId before = stage.physics->jointOf(weight);
+        stage.world.tryGet<RigidBodyComponent>(weight)->mass = 40.0f;
+        stage.run(300);
+        CHECK(stage.physics->jointOf(weight) != before);
+        CHECK(6.0f - stage.positionOf(weight).y == doctest::Approx(stretched).epsilon(0.01));
+    }
+
+    TEST_CASE("a joint that is made again while what it holds to is moved by hand holds as before") {
+        Stage stage;
+        stage.physics->simulation().setGravity(Vec3(0.0f));
+        // A crate fixed two metres above a platform that is moved by hand, six metres a
+        // second.
+        const Entity platform = stage.world.createEntity("Platform");
+        stage.world.transform(platform).position = Vec3(0.0f, 1.0f, 0.0f);
+        stage.world.add<ColliderComponent>(platform) = {.size = Vec3(2.0f, 0.2f, 2.0f)};
+        stage.world.add<RigidBodyComponent>(platform) = {.motion = BodyMotion::Kinematic};
+        const Entity crate = stage.addCrate(Vec3(0.0f, 3.0f, 0.0f));
+        stage.world.add<JointComponent>(crate) = {.type = JointType::Fixed, .connectedTo = stage.world.id(platform)};
+        stage.run(1);
+        const auto move = [&](int frames) {
+            for (int frame = 0; frame < frames; ++frame) {
+                stage.world.transform(platform).position.x += 0.1f;
+                stage.run(1);
+            }
+        };
+        move(15);
+
+        // Made heavier on the way: another body, and another joint - made while the body
+        // of the platform is a frame behind its entity, as a body that is moved by hand
+        // always is. The crate is held where it was held, not a frame's way beside it.
+        const JointId before = stage.physics->jointOf(crate);
+        stage.world.tryGet<RigidBodyComponent>(crate)->mass = 5.0f;
+        move(15);
+        CHECK(stage.physics->jointOf(crate) != before);
+        stage.run(60);
+        CHECK_NEAR(stage.positionOf(crate) - stage.positionOf(platform), Vec3(0.0f, 2.0f, 0.0f), 5.0e-3f);
+
+        // And one that is first made on the way holds the two as they are just then.
+        const Entity lamp = stage.addCrate(Vec3(3.0f, 5.0f, 0.0f), "Lamp");
+        stage.run(1);
+        move(5);
+        stage.world.add<JointComponent>(lamp) = {.type = JointType::Fixed, .connectedTo = stage.world.id(platform)};
+        const Vec3 apart =
+            stage.positionOf(lamp) - stage.physics->simulation().position(stage.physics->bodyOf(platform));
+        move(10);
+        stage.run(60);
+        CHECK_NEAR(stage.positionOf(lamp) - stage.positionOf(platform), apart, 5.0e-3f);
+    }
+
+    TEST_CASE("a joint that cannot be made is named once, and made when it can be") {
+        Stage stage;
+        stage.addFloor();
+        const LogCapture log;
+        // A crate that is to hang from a hook that has no body.
+        const Entity hook = stage.world.createEntity("Hook");
+        stage.world.transform(hook).position = Vec3(0.0f, 6.0f, 0.0f);
+        const Entity crate = stage.addCrate(Vec3(0.0f, 5.0f, 0.0f));
+        stage.world.add<JointComponent>(crate) = {
+            .type = JointType::Ball, .connectedTo = stage.world.id(hook), .anchor = Vec3(0.0f, 1.0f, 0.0f)};
+        CHECK(stage.run(3).joints == 0);
+        CHECK(log.count(LogLevel::Error) == 1);
+        CHECK(log.contains("'Crate' has a joint to 'Hook', which is part of no body"));
+        // Nor is it said again because the world was looked at in between without time
+        // passing, as a query does: joints are not looked at then, and what was said of
+        // them still holds.
+        stage.physics->synchronize(stage.world, *stage.assets);
+        stage.run(2);
+        stage.physics->synchronize(stage.world, *stage.assets);
+        stage.physics->synchronize(stage.world, *stage.assets);
+        stage.run(2);
+        CHECK(log.count(LogLevel::Error) == 1);
+        CHECK(stage.world.transform(crate).position.y < 5.0f);
+
+        // Given a collider, the hook is a body, and the crate hangs from it - from where
+        // the two are now.
+        stage.world.add<ColliderComponent>(hook) = {.size = Vec3(0.2f)};
+        stage.world.transform(crate).position = Vec3(0.0f, 5.0f, 0.0f);
+        CHECK(stage.run(1).joints == 1);
+        stage.run(120);
+        CHECK(stage.world.transform(crate).position.y == doctest::Approx(5.0f).epsilon(0.01));
+        CHECK(log.count(LogLevel::Error) == 1);
+
+        // The hook is destroyed: the joint is to an entity that is not there, and the crate falls.
+        const Uuid hookId = stage.world.id(hook);
+        stage.world.destroyEntity(hook);
+        CHECK(stage.run(3).joints == 0);
+        CHECK(log.count(LogLevel::Error) == 2);
+        CHECK(log.contains("'Crate' has a joint to the entity " + hookId.toString() + ", which is not there"));
+        stage.run(120);
+        CHECK(stage.world.transform(crate).position.y == doctest::Approx(0.5f).epsilon(0.02));
+
+        // What the simulation refuses is said with its reason: a joint between two
+        // bodies that it does not move.
+        stage.world.remove<JointComponent>(crate);
+        const Entity wall = stage.world.createEntity("Wall");
+        stage.world.transform(wall).position = Vec3(10.0f, 1.0f, 0.0f);
+        stage.world.add<ColliderComponent>(wall);
+        stage.world.add<JointComponent>(wall).type = JointType::Hinge;
+        CHECK(stage.run(3).joints == 0);
+        CHECK(log.count(LogLevel::Error) == 3);
+        CHECK(log.contains("'Wall' has no joint: a hinge joint holds nothing: neither of its bodies is dynamic, and "
+                           "only what the simulation moves can be held"));
+        // And a joint on what is part of no body at all.
+        const Entity marker = stage.world.createEntity("Marker");
+        stage.world.add<JointComponent>(marker);
+        stage.run(3);
+        CHECK(log.count(LogLevel::Error) == 4);
+        CHECK(log.contains("'Marker' has a joint, and is part of no body that one could hold"));
+        // Nor is there a hinge about an axis of no length - until it is given one.
+        stage.world.add<JointComponent>(crate) = {.type = JointType::Hinge, .axis = Vec3(0.0f)};
+        CHECK(stage.run(3).joints == 0);
+        CHECK(log.count(LogLevel::Error) == 5);
+        CHECK(log.contains("'Crate' has no joint: the axis of a hinge joint has no length, and so no direction"));
+        stage.world.tryGet<JointComponent>(crate)->axis = Vec3(0.0f, 0.0f, 2.0f);
+        CHECK(stage.run(1).joints == 1);
+        // A joint that does not turn or slide has no use for an axis, and takes any.
+        *stage.world.tryGet<JointComponent>(crate) = {.type = JointType::Fixed, .axis = Vec3(0.0f)};
+        CHECK(stage.run(1).joints == 1);
+        CHECK(log.count(LogLevel::Error) == 5);
+        // clear() forgets the joints with the bodies.
+        stage.physics->clear();
+        CHECK(stage.physics->simulation().statistics().joints == 0);
+        CHECK(stage.physics->jointOf(crate).isNull());
+        CHECK(stage.run(1).joints == 1);
+    }
+
     TEST_CASE("two worlds given the same frames end up the same") {
         const auto run = [] {
             Stage stage;
@@ -1420,7 +1752,7 @@ TEST_SUITE("PhysicsComponents") {
         const Entity ghost = world.createEntity("Ghost");
         world.add<ColliderComponent>(ghost) = {.shape = ShapeType::ConvexHull,
                                                .mesh = *Uuid::parse("11111111-1111-4111-8111-111111111111")};
-        CHECK(findColliderProblems(world).empty());
+        CHECK(findPhysicsProblems(world).empty());
 
         // A shape of a mesh that names none.
         world.tryGet<ColliderComponent>(rock)->mesh = Uuid();
@@ -1449,7 +1781,7 @@ TEST_SUITE("PhysicsComponents") {
         world.add<ColliderComponent>(plate) = {.shape = ShapeType::Mesh, .mesh = builtinMeshId(BuiltinMesh::Plane)};
         REQUIRE(world.setParent(plate, anchor, false).has_value());
 
-        const std::vector<ColliderProblem> problems = findColliderProblems(world);
+        const std::vector<PhysicsProblem> problems = findPhysicsProblems(world);
         REQUIRE(problems.size() == 4);
         CHECK(problems[0].entity == rock);
         CHECK(problems[0].message ==
@@ -1467,8 +1799,8 @@ TEST_SUITE("PhysicsComponents") {
     TEST_CASE("the physics components are registered under the names scene files use, and described") {
         ComponentRegistry registry;
         REQUIRE(registerPhysicsComponents(registry).has_value());
-        REQUIRE(registry.components().size() == 2);
-        for (const char* name : {"Collider", "RigidBody"}) {
+        REQUIRE(registry.components().size() == 3);
+        for (const char* name : {"Collider", "RigidBody", "Joint"}) {
             const ComponentDescriptor* descriptor = registry.find(name);
             REQUIRE(descriptor != nullptr);
             CHECK(descriptor->traits.optional);
@@ -1484,6 +1816,144 @@ TEST_SUITE("PhysicsComponents") {
         CHECK(rigidBody.findProperty("linearVelocity")->attributes().transient);
         CHECK(rigidBody.findProperty("angularVelocity")->attributes().transient);
         CHECK_FALSE(rigidBody.findProperty("mass")->attributes().transient);
+        // What a joint is held to is another entity, which is redirected when the two are copied.
+        const TypeInfo& joint = registry.find("Joint")->type;
+        CHECK(joint.findProperty("connectedTo")->attributes().semantic == PropertySemantic::EntityReference);
+        CHECK(joint.findProperty("frequency")->attributes().unit == "Hz");
+    }
+
+    TEST_CASE("a joint is saved with every property, under the names of its kinds") {
+        ComponentRegistry registry;
+        REQUIRE(registerPhysicsComponents(registry).has_value());
+        const TypeInfo& jointType = registry.find("Joint")->type;
+        const JointComponent joint{.type = JointType::Hinge,
+                                   .connectedTo = *Uuid::parse("10000000-0000-4000-8000-000000000002"),
+                                   .anchor = Vec3(-0.5f, 0.0f, 0.25f),
+                                   .axis = Vec3(0.0f, 0.0f, 1.0f),
+                                   .connectedAnchor = Vec3(1.0f, 2.0f, 3.0f),
+                                   .limited = true,
+                                   .minimum = -45.0f,
+                                   .maximum = 90.0f,
+                                   .frequency = 2.5f,
+                                   .damping = 0.25f,
+                                   .collideConnected = true};
+        const Json saved = jointType.toJson(&joint);
+        CHECK(saved == unwrap(parseJson(R"({"type": "hinge", "connectedTo": "10000000-0000-4000-8000-000000000002",
+                                          "anchor": [-0.5, 0.0, 0.25], "axis": [0.0, 0.0, 1.0],
+                                          "connectedAnchor": [1.0, 2.0, 3.0], "limited": true, "minimum": -45.0,
+                                          "maximum": 90.0, "frequency": 2.5, "damping": 0.25,
+                                          "collideConnected": true})")));
+        JointComponent loaded;
+        REQUIRE(jointType.fromJson(&loaded, saved).has_value());
+        CHECK(loaded == joint);
+        // A joint to the world names nothing.
+        CHECK(jointType.toJson(std::make_unique<JointComponent>().get())["connectedTo"].is_null());
+        for (const JointType type : kJointTypes) {
+            Json named = saved;
+            named["type"] = std::string(nameOf(type));
+            REQUIRE(jointType.fromJson(&loaded, named).has_value());
+            CHECK(loaded.type == type);
+        }
+        for (const char* text : {R"({"type": "weld"})", R"({"frequency": -1})", R"({"damping": -0.5})",
+                                 R"({"limited": 1})", R"({"connectedTo": "somewhere"})", R"({"anchor": [0, 0]})"}) {
+            CAPTURE(std::string(text));
+            CHECK_FALSE(jointType.fromJson(&loaded, unwrap(parseJson(text))).has_value());
+        }
+    }
+
+    TEST_CASE("joints that will hold nothing are found without making any") {
+        World world;
+        const auto body = [&](const char* name, BodyMotion motion) {
+            const Entity entity = world.createEntity(name);
+            world.add<ColliderComponent>(entity);
+            world.add<RigidBodyComponent>(entity).motion = motion;
+            return entity;
+        };
+        const Entity frame = world.createEntity("Frame");
+        world.add<ColliderComponent>(frame);
+        const Entity lift = body("Lift", BodyMotion::Kinematic);
+        // Nothing wrong: a door on its frame, a lamp on the world, a crate on a lift, and
+        // a handle that is part of the door's body and joins it to the frame.
+        const Entity door = body("Door", BodyMotion::Dynamic);
+        world.add<JointComponent>(door) = {.type = JointType::Hinge,
+                                           .connectedTo = world.id(frame),
+                                           .limited = true,
+                                           .minimum = -90.0f,
+                                           .maximum = 90.0f};
+        const Entity lamp = body("Lamp", BodyMotion::Dynamic);
+        world.add<JointComponent>(lamp).type = JointType::Ball;
+        const Entity crate = body("Crate", BodyMotion::Dynamic);
+        world.add<JointComponent>(crate) = {.type = JointType::Slider, .connectedTo = world.id(lift)};
+        const Entity handle = world.createEntity("Handle");
+        REQUIRE(world.setParent(handle, door, false).has_value());
+        world.add<JointComponent>(handle) = {.type = JointType::Distance, .connectedTo = world.id(frame)};
+        CHECK(findPhysicsProblems(world).empty());
+
+        const auto problemOf = [&](Entity entity) {
+            std::string found;
+            for (const PhysicsProblem& problem : findPhysicsProblems(world)) {
+                if (problem.entity == entity) {
+                    found += found.empty() ? problem.message : " | " + problem.message;
+                }
+            }
+            return found;
+        };
+        // An entity that is not there, one that is part of no body, and a part of the same body.
+        JointComponent& hinge = *world.tryGet<JointComponent>(door);
+        hinge.connectedTo = *Uuid::parse("11111111-1111-4111-8111-111111111111");
+        CHECK(problemOf(door) ==
+              "Joint.connectedTo refers to the entity 11111111-1111-4111-8111-111111111111, which does not exist");
+        const Entity nothing = world.createEntity("Nothing");
+        hinge.connectedTo = world.id(nothing);
+        CHECK(problemOf(door) == "Joint.connectedTo refers to 'Nothing', which is part of no body");
+        hinge.connectedTo = world.id(handle);
+        CHECK(problemOf(door) == "Joint.connectedTo refers to 'Handle', which is part of the same body - 'Door' - as "
+                                 "the joint itself: a joint holds two bodies");
+        hinge.connectedTo = world.id(frame);
+        // A joint on an entity that is part of no body.
+        world.add<JointComponent>(nothing);
+        CHECK(problemOf(nothing) == "Joint: the entity is part of no body that a joint could hold - neither it nor "
+                                    "anything above it has a RigidBody, and it has no Collider");
+        world.remove<JointComponent>(nothing);
+        // Bodies of which none is moved by the simulation: held to the world, and to each other.
+        world.add<JointComponent>(lift);
+        CHECK(problemOf(lift) == "Joint holds nothing: 'Lift' is held to the world, and is not a dynamic body that "
+                                 "would move without it");
+        world.tryGet<JointComponent>(lift)->connectedTo = world.id(frame);
+        CHECK(problemOf(lift) == "Joint holds nothing: neither 'Lift' nor 'Frame' is a dynamic body");
+        world.remove<JointComponent>(lift);
+
+        // An axis of no length, and limits that the kind of joint does not have.
+        hinge.axis = Vec3(0.0f);
+        hinge.minimum = 10.0f;
+        CHECK(problemOf(door) == "Joint.axis has no length, and a hinge needs a direction | Joint.minimum and "
+                                 "Joint.maximum of a hinge are from between -180 and 0 to between 0 and 180 degrees, "
+                                 "not from 10 to 90");
+        hinge.axis = Vec3(0.0f, 1.0f, 0.0f);
+        hinge.minimum = -200.0f;
+        CHECK_FALSE(problemOf(door).empty());
+        hinge.minimum = 0.0f;
+        hinge.maximum = 0.0f;
+        CHECK(problemOf(door) == "Joint: a hinge that is limited to where it is, and does not give, is a fixed joint");
+        hinge.frequency = 2.0f;
+        CHECK(problemOf(door).empty());
+        JointComponent& slider = *world.tryGet<JointComponent>(crate);
+        slider.limited = true;
+        slider.minimum = 0.5f;
+        slider.maximum = 1.0f;
+        CHECK(problemOf(crate) ==
+              "Joint.minimum and Joint.maximum of a slider are from at most 0 to at least 0 metres, "
+              "not from 0.5 to 1");
+        JointComponent& rope = *world.tryGet<JointComponent>(handle);
+        rope.limited = true;
+        rope.minimum = 2.0f;
+        rope.maximum = 1.0f;
+        CHECK(problemOf(handle) ==
+              "Joint.minimum and Joint.maximum of a distance are from 0 or more to as much or more "
+              "metres, not from 2 to 1");
+        // Limits that are not asked for are not looked at.
+        rope.limited = false;
+        CHECK(problemOf(handle).empty());
     }
 
     TEST_CASE("the physics components are saved with every property but what only a running simulation has") {

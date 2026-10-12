@@ -35,6 +35,10 @@ constexpr Vec4 kVolumeColor(0.55f, 0.85f, 0.80f, 1.0f);
 constexpr Vec4 kColliderColor(0.40f, 0.95f, 0.50f, 1.0f);
 /// The shape of a trigger, which stops nothing and notices what moves into it.
 constexpr Vec4 kTriggerColor(1.00f, 0.55f, 0.20f, 1.0f);
+/// A joint between two bodies: where it is, about or along which axis, and to what.
+constexpr Vec4 kPhysicsJointColor(0.45f, 0.75f, 1.00f, 1.0f);
+constexpr float kPhysicsJointMarkerSize = 0.12f;
+constexpr float kPhysicsJointAxisLength = 0.35f;
 /// The bones of a skeleton: joints are not entities, and are seen only like this.
 constexpr Vec4 kSkeletonColor(0.95f, 0.45f, 0.85f, 1.0f);
 
@@ -173,16 +177,50 @@ void drawCollider(const World& world, Entity entity, const Mat4& placement, Coll
     }
 }
 
-/// What a selected entity shows beside what every entity shows: its collider and those
-/// of what hangs below it, the skeleton its animator has posed, and a box - around its
-/// mesh, or around where it is.
+/// The joint of an entity as lines: a mark where it is, the axis of a hinge or of a
+/// slider through it, and a line to what the entity is held to - to the other end, for
+/// a distance. Nothing for an entity without a joint.
+void drawJoint(const World& world, Entity entity, const Mat4& placement, DebugDraw& lines) {
+    const auto* joint = world.tryGet<JointComponent>(entity);
+    if (joint == nullptr) {
+        return;
+    }
+    const Vec3 anchor(placement * Vec4(joint->anchor, 1.0f));
+    lines.cross(anchor, kPhysicsJointMarkerSize, kPhysicsJointColor);
+    if (joint->type == JointType::Hinge || joint->type == JointType::Slider) {
+        const Vec3 axis = normalizeOr(Vec3(placement * Vec4(joint->axis, 0.0f)), kWorldUp);
+        lines.line(anchor - axis * kPhysicsJointAxisLength, anchor + axis * kPhysicsJointAxisLength,
+                   kPhysicsJointColor);
+    }
+
+    const Entity connected = world.findById(joint->connectedTo);
+    const bool isDistance = joint->type == JointType::Distance;
+    if (connected.isNull() && !isDistance) {
+        // Held to the world where it is: there is no other end to draw a line to.
+        return;
+    }
+    // The other end of a distance is a point of what it is held to, or of the world;
+    // any other joint is held to the entity itself.
+    const Mat4 connectedToWorld = connected.isNull() ? Mat4(1.0f) : world.worldMatrix(connected);
+    const Vec3 end(connectedToWorld * Vec4(isDistance ? joint->connectedAnchor : Vec3(0.0f), 1.0f));
+    lines.line(anchor, end, kPhysicsJointColor);
+    if (isDistance) {
+        lines.cross(end, kPhysicsJointMarkerSize, kPhysicsJointColor);
+    }
+}
+
+/// What a selected entity shows beside what every entity shows: its collider and its
+/// joint, and those of what hangs below it, the skeleton its animator has posed, and a
+/// box - around its mesh, or around where it is.
 void drawSelected(EditorContext& context, Entity entity, const Mat4& placement, ColliderShapes& shapes,
                   DebugDraw& lines) {
     const World& world = context.world();
     // A body is often made of several colliders: its entity's own, and those below it.
+    // What holds it is shown with it.
     world.traverseSubtree(entity, [&](Entity part, uint32_t /*depth*/) {
         if (world.isEnabledInHierarchy(part)) {
             drawCollider(world, part, world.worldMatrix(part), shapes, lines);
+            drawJoint(world, part, world.worldMatrix(part), lines);
         }
     });
     // The joints an animator moves are no entities; this is where they are seen.
@@ -310,6 +348,7 @@ void ViewportPanel::collectLines(EditorContext& context, const CameraView& view)
             drawSelected(context, entity, placement, shapes, m_selectionLines);
         } else if (m_showColliders) {
             drawCollider(world, entity, placement, shapes, m_sceneLines);
+            drawJoint(world, entity, placement, m_sceneLines);
         }
     });
 }

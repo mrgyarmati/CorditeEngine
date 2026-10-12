@@ -234,6 +234,26 @@ TEST_SUITE("SceneAssets") {
               "Collider.mesh names no mesh, and a collider of the shape convexHull is made of one");
     }
 
+    TEST_CASE("joints that will hold nothing are problems of a scene") {
+        Fixture fixture;
+        const Entity frame = fixture.world.createEntity("Frame");
+        fixture.world.add<ColliderComponent>(frame);
+        const Entity door = fixture.world.createEntity("Door");
+        fixture.world.add<ColliderComponent>(door);
+        fixture.world.add<RigidBodyComponent>(door);
+        fixture.world.add<JointComponent>(door) = {.type = JointType::Hinge, .connectedTo = fixture.world.id(frame)};
+        CHECK(findSceneProblems(fixture.world, fixture.components, fixture.assets).empty());
+
+        // The frame goes: the door is hinged to an entity that is not there.
+        const Uuid frameId = fixture.world.id(frame);
+        fixture.world.destroyEntity(frame);
+        const std::vector<SceneProblem> problems = findSceneProblems(fixture.world, fixture.components, fixture.assets);
+        REQUIRE(problems.size() == 1);
+        CHECK(problems[0].entity == door);
+        CHECK(problems[0].message ==
+              "Joint.connectedTo refers to the entity " + frameId.toString() + ", which does not exist");
+    }
+
     TEST_CASE("disabled entities are checked like any other") {
         // They are still in the scene file, and enabling one must not reveal a problem.
         Fixture fixture;

@@ -7,6 +7,8 @@
 
 #include <cstdint>
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace cordite {
 namespace {
@@ -127,40 +129,213 @@ TypeInfo describeRigidBody() {
         .build();
 }
 
-/// The rigid body a collider is part of: the nearest at its entity or above it, if any.
-Entity bodyEntityOf(const World& world, Entity collider) {
-    for (Entity entity = collider; !entity.isNull(); entity = world.parent(entity)) {
-        if (world.has<RigidBodyComponent>(entity)) {
-            return entity;
+TypeInfo describeJoint() {
+    return TypeBuilder<JointComponent>("Joint")
+        .enumProperty("type", &JointComponent::type,
+                      {{JointType::Fixed, std::string(nameOf(JointType::Fixed))},
+                       {JointType::Ball, std::string(nameOf(JointType::Ball))},
+                       {JointType::Hinge, std::string(nameOf(JointType::Hinge))},
+                       {JointType::Slider, std::string(nameOf(JointType::Slider))},
+                       {JointType::Distance, std::string(nameOf(JointType::Distance))}},
+                      {.description = "Fixed: the two move as one. Ball: held at `anchor`, turning freely. "
+                                      "Hinge: turning about `axis` through `anchor`. Slider: sliding along "
+                                      "`axis` without turning. Distance: `anchor` and `connectedAnchor` kept "
+                                      "a distance apart - a rod, a rope, a spring"})
+        .property("connectedTo", &JointComponent::connectedTo,
+                  {.description = "The entity whose body this entity's body is held to; none holds it to the world",
+                   .semantic = PropertySemantic::EntityReference})
+        .property("anchor", &JointComponent::anchor,
+                  {.description = "Where the joint is, in the space of this entity",
+                   .minimum = -kMaxShapeExtent,
+                   .maximum = kMaxShapeExtent,
+                   .step = 0.01,
+                   .unit = "m"})
+        .property("axis", &JointComponent::axis,
+                  {.description = "Hinge: the axis it turns about. Slider: the axis it slides along. In the space "
+                                  "of this entity, of any length but none",
+                   .minimum = -1000.0,
+                   .maximum = 1000.0,
+                   .step = 0.01})
+        .property("connectedAnchor", &JointComponent::connectedAnchor,
+                  {.description = "Distance: the other end, in the space of the entity it is held to - or in the "
+                                  "world",
+                   .minimum = -kMaxShapeExtent,
+                   .maximum = kMaxShapeExtent,
+                   .step = 0.01,
+                   .unit = "m"})
+        .property("limited", &JointComponent::limited,
+                  {.description = "Whether a hinge, a slider or a distance is kept between `minimum` and "
+                                  "`maximum`. A distance that is not keeps its ends as far apart as they were "
+                                  "when it first held them"})
+        .property("minimum", &JointComponent::minimum,
+                  {.description = "Hinge: degrees, from -180 to 0. Slider: metres, at most 0. Distance: metres "
+                                  "between the ends, at least 0",
+                   .minimum = -kMaxShapeExtent,
+                   .maximum = kMaxShapeExtent,
+                   .step = 0.1})
+        .property("maximum", &JointComponent::maximum,
+                  {.description = "Hinge: degrees, from 0 to 180. Slider: metres, at least 0. Distance: metres "
+                                  "between the ends, no less than `minimum`",
+                   .minimum = -kMaxShapeExtent,
+                   .maximum = kMaxShapeExtent,
+                   .step = 0.1})
+        .property("frequency", &JointComponent::frequency,
+                  {.description = "How a distance, or a limit, gives: the frequency at which it swings; 0 for not "
+                                  "at all",
+                   .minimum = 0.0,
+                   .maximum = 1000.0,
+                   .step = 0.1,
+                   .unit = "Hz"})
+        .property("damping", &JointComponent::damping,
+                  {.description = "How fast that swinging dies away: 0 never, 1 at once",
+                   .minimum = 0.0,
+                   .maximum = 100.0,
+                   .step = 0.01})
+        .property("collideConnected", &JointComponent::collideConnected,
+                  {.description = "Whether the two bodies collide with each other. Mostly they must not: what is "
+                                  "joined is close together"})
+        .build();
+}
+
+/// What is wrong with a collider, as far as can be told without making a shape of it.
+void findColliderProblems(const World& world, Entity entity, std::vector<PhysicsProblem>& problems) {
+    const auto* collider = world.tryGet<ColliderComponent>(entity);
+    if (collider == nullptr || (collider->shape != ShapeType::ConvexHull && collider->shape != ShapeType::Mesh)) {
+        return;
+    }
+    if (collider->mesh.isNil()) {
+        problems.push_back(
+            {entity, fmt::format("Collider.mesh names no mesh, and a collider of the shape {} is made of one",
+                                 nameOf(collider->shape))});
+    }
+    // A trigger is a body of its own, which the simulation does not move.
+    if (collider->shape != ShapeType::Mesh || collider->trigger) {
+        return;
+    }
+    const Entity body = bodyEntityOf(world, entity);
+    const auto* rigidBody = world.tryGet<RigidBodyComponent>(body);
+    if (rigidBody != nullptr && rigidBody->motion == BodyMotion::Dynamic) {
+        problems.push_back(
+            {entity, fmt::format("Collider.shape is mesh, and the body it is part of - '{}' - is dynamic: the "
+                                 "triangles of a mesh have no inside, and only a body that the simulation does "
+                                 "not move is made of them",
+                                 world.name(body))});
+    }
+}
+
+/// Whether the simulation moves the body that an entity is.
+bool isDynamicBody(const World& world, Entity body) {
+    const auto* rigidBody = world.tryGet<RigidBodyComponent>(body);
+    return rigidBody != nullptr && rigidBody->motion == BodyMotion::Dynamic;
+}
+
+/// What is wrong with the limits of a joint that has them, or nothing.
+std::string limitProblemOf(const JointComponent& joint) {
+    constexpr float kHalfTurn = 180.0f;
+    const bool leavesNothing = joint.minimum == joint.maximum && joint.frequency <= 0.0f;
+    switch (joint.type) {
+        case JointType::Hinge:
+            if (joint.minimum > 0.0f || joint.maximum < 0.0f || joint.minimum < -kHalfTurn ||
+                joint.maximum > kHalfTurn) {
+                return fmt::format("Joint.minimum and Joint.maximum of a hinge are from between -180 and 0 to "
+                                   "between 0 and 180 degrees, not from {} to {}",
+                                   joint.minimum, joint.maximum);
+            }
+            break;
+        case JointType::Slider:
+            if (joint.minimum > 0.0f || joint.maximum < 0.0f) {
+                return fmt::format("Joint.minimum and Joint.maximum of a slider are from at most 0 to at least 0 "
+                                   "metres, not from {} to {}",
+                                   joint.minimum, joint.maximum);
+            }
+            break;
+        case JointType::Distance:
+            if (joint.minimum < 0.0f || joint.maximum < joint.minimum) {
+                return fmt::format("Joint.minimum and Joint.maximum of a distance are from 0 or more to as much or "
+                                   "more metres, not from {} to {}",
+                                   joint.minimum, joint.maximum);
+            }
+            return "";
+        case JointType::Fixed:
+        case JointType::Ball:
+            return "";
+    }
+    if (leavesNothing) {
+        return fmt::format("Joint: a {} that is limited to where it is, and does not give, is a fixed joint",
+                           nameOf(joint.type));
+    }
+    return "";
+}
+
+/// What is wrong with a joint, as far as can be told without making one.
+void findJointProblems(const World& world, Entity entity, std::vector<PhysicsProblem>& problems) {
+    const auto* joint = world.tryGet<JointComponent>(entity);
+    if (joint == nullptr) {
+        return;
+    }
+    const bool hasAxis = joint->type == JointType::Hinge || joint->type == JointType::Slider;
+    if (hasAxis && glm::length(joint->axis) <= kEpsilon) {
+        problems.push_back(
+            {entity, fmt::format("Joint.axis has no length, and a {} needs a direction", nameOf(joint->type))});
+    }
+    if (joint->limited) {
+        if (std::string problem = limitProblemOf(*joint); !problem.empty()) {
+            problems.push_back({entity, std::move(problem)});
         }
     }
-    return Entity{};
+
+    const Entity body = bodyEntityOf(world, entity);
+    if (body.isNull()) {
+        problems.push_back({entity, "Joint: the entity is part of no body that a joint could hold - neither it nor "
+                                    "anything above it has a RigidBody, and it has no Collider"});
+        return;
+    }
+    if (joint->connectedTo.isNil()) {
+        if (!isDynamicBody(world, body)) {
+            problems.push_back({entity, fmt::format("Joint holds nothing: '{}' is held to the world, and is not a "
+                                                    "dynamic body that would move without it",
+                                                    world.name(body))});
+        }
+        return;
+    }
+    const Entity connected = world.findById(joint->connectedTo);
+    if (connected.isNull()) {
+        problems.push_back({entity, fmt::format("Joint.connectedTo refers to the entity {}, which does not exist",
+                                                joint->connectedTo.toString())});
+        return;
+    }
+    const Entity other = bodyEntityOf(world, connected);
+    if (other.isNull()) {
+        problems.push_back(
+            {entity, fmt::format("Joint.connectedTo refers to '{}', which is part of no body", world.name(connected))});
+    } else if (other == body) {
+        problems.push_back({entity, fmt::format("Joint.connectedTo refers to '{}', which is part of the same body "
+                                                "- '{}' - as the joint itself: a joint holds two bodies",
+                                                world.name(connected), world.name(body))});
+    } else if (!isDynamicBody(world, body) && !isDynamicBody(world, other)) {
+        problems.push_back({entity, fmt::format("Joint holds nothing: neither '{}' nor '{}' is a dynamic body",
+                                                world.name(body), world.name(other))});
+    }
 }
 
 } // namespace
 
-std::vector<ColliderProblem> findColliderProblems(const World& world) {
-    std::vector<ColliderProblem> problems;
+Entity bodyEntityOf(const World& world, Entity entity) {
+    for (Entity above = entity; !above.isNull(); above = world.parent(above)) {
+        if (world.has<RigidBodyComponent>(above)) {
+            return above;
+        }
+    }
+    // With no rigid body at or above it, a collider that is no trigger is a body of its own.
+    const auto* collider = world.tryGet<ColliderComponent>(entity);
+    return collider != nullptr && !collider->trigger ? entity : Entity{};
+}
+
+std::vector<PhysicsProblem> findPhysicsProblems(const World& world) {
+    std::vector<PhysicsProblem> problems;
     world.traverse([&](Entity entity, uint32_t /*depth*/) {
-        const auto* collider = world.tryGet<ColliderComponent>(entity);
-        if (collider == nullptr || (collider->shape != ShapeType::ConvexHull && collider->shape != ShapeType::Mesh)) {
-            return;
-        }
-        if (collider->mesh.isNil()) {
-            problems.push_back(
-                {entity, fmt::format("Collider.mesh names no mesh, and a collider of the shape {} is made of one",
-                                     nameOf(collider->shape))});
-        }
-        // A trigger is a body of its own, which the simulation does not move.
-        const bool isPartOfBody = collider->shape == ShapeType::Mesh && !collider->trigger;
-        const Entity body = isPartOfBody ? bodyEntityOf(world, entity) : Entity{};
-        if (!body.isNull() && world.tryGet<RigidBodyComponent>(body)->motion == BodyMotion::Dynamic) {
-            problems.push_back(
-                {entity, fmt::format("Collider.shape is mesh, and the body it is part of - '{}' - is dynamic: the "
-                                     "triangles of a mesh have no inside, and only a body that the simulation does "
-                                     "not move is made of them",
-                                     world.name(body))});
-        }
+        findColliderProblems(world, entity, problems);
+        findJointProblems(world, entity, problems);
     });
     return problems;
 }
@@ -169,10 +344,13 @@ Status registerPhysicsComponents(ComponentRegistry& registry) {
     CORDITE_TRY(registry.add<ColliderComponent>(
         describeCollider(), {.description = "The shape of the entity for collisions. Alone, it stands still; with a "
                                             "RigidBody on its entity or above it, it is part of that body."}));
-    return registry.add<RigidBodyComponent>(
+    CORDITE_TRY(registry.add<RigidBodyComponent>(
         describeRigidBody(),
         {.description = "Makes the entity a body of the simulation, shaped by its Collider and by the Colliders "
-                        "below it that have no RigidBody of their own."});
+                        "below it that have no RigidBody of their own."}));
+    return registry.add<JointComponent>(
+        describeJoint(), {.description = "Holds the body the entity is part of to the body of another entity, or to "
+                                         "the world, as the two are when the simulation first meets the joint."});
 }
 
 } // namespace cordite

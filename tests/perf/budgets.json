@@ -18,9 +18,11 @@
         // once, and whatever stands in the light of a light that casts shadows once
         // more for each of its shadow maps. Two thirds of both are the shadow maps. The
         // hoist is in them with its frame and with its cable, which is skinned: three
-        // draw calls a pass that sees all of it.
+        // draw calls a pass that sees all of it. The rack by the wall is two balls and
+        // four boxes more - the balls of 960 triangles each, in every pass and every
+        // shadow map that sees them.
         "drawCalls": 150,
-        "triangles": 22500,
+        "triangles": 31500,
         // Passes over the whole picture: the two of the ambient occlusion, the lighting,
         // and what finishes the picture as the scene says - five levels of bloom down
         // and up, the automatic exposure, the final pass and the smoothing of its edges.
@@ -44,8 +46,9 @@
         // What is simulated: the bodies of the scene, of which a kinematic one is
         // awake at most once the rest has settled, the shapes that were made of meshes
         // for their colliders, and the joints its animators pose.
-        "bodies": 9,
+        "bodies": 15,
         "geometries": 2,
+        "joints": 5,
         "joints": 8,
         // The image of the sky is 1.4 MiB of this.
         "textureBytes": 9437184,

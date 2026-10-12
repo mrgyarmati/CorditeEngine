@@ -1,5 +1,7 @@
 #include "cordite/editor/EditorActions.h"
 
+#include "cordite/physics/PhysicsComponents.h"
+
 #include "support/MathTestSupport.h"
 #include "unit/editor/EditorTestSupport.h"
 
@@ -195,6 +197,35 @@ TEST_SUITE("EditorActions") {
         checkUndoRedo(fixture, before);
 
         CHECK_FALSE(actions.duplicateEntities({}).has_value());
+    }
+
+    TEST_CASE("a joint that is copied with what it holds to holds to the copy") {
+        EditorFixture fixture;
+        REQUIRE(registerPhysicsComponents(fixture.components).has_value());
+        EditorActions actions(fixture.context);
+        // The lamp hangs from the table it stands on, and the chair from the table too.
+        fixture.world.add<JointComponent>(fixture.lamp) = {.type = JointType::Ball,
+                                                           .connectedTo = fixture.world.id(fixture.table)};
+        fixture.world.add<JointComponent>(fixture.chair) = {.type = JointType::Distance,
+                                                            .connectedTo = fixture.world.id(fixture.table)};
+        const Json before = fixture.scene();
+
+        // The table is copied, and the lamp with it: the copy of the lamp hangs from the
+        // copy of the table.
+        const Entity table[] = {fixture.table};
+        const std::vector<Entity> tables = unwrap(actions.duplicateEntities(table));
+        REQUIRE(tables.size() == 1);
+        const std::vector<Entity> lamps = fixture.world.children(tables[0]);
+        REQUIRE(lamps.size() == 1);
+        CHECK(fixture.world.tryGet<JointComponent>(lamps[0])->connectedTo == fixture.world.id(tables[0]));
+        CHECK(fixture.world.tryGet<JointComponent>(fixture.lamp)->connectedTo == fixture.world.id(fixture.table));
+        checkUndoRedo(fixture, before);
+
+        // The chair is copied alone: its copy hangs from the table the chair hangs from.
+        const Entity chair[] = {fixture.chair};
+        const std::vector<Entity> chairs = unwrap(actions.duplicateEntities(chair));
+        REQUIRE(chairs.size() == 1);
+        CHECK(fixture.world.tryGet<JointComponent>(chairs[0])->connectedTo == fixture.world.id(fixture.table));
     }
 
     TEST_CASE("renaming validates the name and can be undone") {

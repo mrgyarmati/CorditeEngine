@@ -127,7 +127,7 @@ by accident.
 | `assets` | `core`, `math` | Assets as data: images and mipmaps, meshes - rigid and skinned - and what prepares them, skeletons, animation clips, materials, glTF import and export, the asset database (ids, `.meta` files) and the asset manager (loading by id) |
 | `world` | `core`, `math` | Entities, components and their hierarchy (EnTT), the component registry, scene files |
 | `animation` | `core`, `math`, `assets`, `world` | Poses of skeletons and what makes them: sampling clips, blending, the matrices a mesh is skinned with and the bounds of a posed mesh; the `Animator` component; `AnimationSystem`, which plays the animators of a world |
-| `physics` | `core`, `math`, `assets`, `world` | `PhysicsWorld`: rigid bodies, their shapes - boxes, balls, capsules, the hulls around sets of points and surfaces of triangles - stepping and raycasts, over Jolt Physics; the `Collider` and `RigidBody` components; `PhysicsSystem`, which keeps the entities of a world and the bodies of a simulation in step and makes shapes of mesh assets |
+| `physics` | `core`, `math`, `assets`, `world` | `PhysicsWorld`: rigid bodies, their shapes - boxes, balls, capsules, the hulls around sets of points and surfaces of triangles - joints between them, stepping, contact events and queries, over Jolt Physics; the `Collider`, `RigidBody` and `Joint` components; `PhysicsSystem`, which keeps the entities of a world and the bodies of a simulation in step and makes shapes of mesh assets |
 | `rhi` | `core`, `math`, `platform` | Vulkan device, swapchain and texture readback over NVRHI |
 | `shaders` | `core` | Shader requests and permutation keys, disk cache, `ShaderLibrary` |
 | `shader_compiler` | `core`, `shaders` | Slang to SPIR-V compiler (not linked into exported games) |
@@ -738,7 +738,7 @@ Step-by-step guide: [work-with-assets](.claude/skills/work-with-assets/SKILL.md)
   `PhysicsSystem` makes geometry of a mesh asset when a collider first asks for it,
   keeps it by mesh and shape for every collider at every scale, and forgets it all
   when `AssetDatabase::revision()` changes. A collider of which no shape can be made
-  is left out of its body and named once; `findColliderProblems`, which
+  is left out of its body and named once; `findPhysicsProblems`, which
   `scene.validate` reports, finds what can be told without making anything.
 - **What touches is said after a step, not asked for**: `PhysicsWorld::contactEvents`,
   and for entities `PhysicsSystem::events` after every update - began, ended, entered
@@ -768,6 +768,24 @@ Step-by-step guide: [work-with-assets](.claude/skills/work-with-assets/SKILL.md)
   round. A test with limits that are not the same both ways pins the direction.
   The points and axes of a joint are given in the space of each body, and turned
   into Jolt's, which are against the centre of mass.
+- **A `Joint` component holds its two entities as they stood when it first did.**
+  That is found once, in the first update that can make the joint, and kept by the
+  system as one matrix: from the space of the entity to that of the entity it is
+  held to (`JointRecord::restToConnected`). The anchor, the axis and the limits of
+  the component are all said of that moment, and the joint is made of that matrix
+  every time it is made again - a body was made anew, an entity came to be part of
+  another body, the component was given other values - never of where things are
+  just then. Made of where things are, a door that is given another mass or other
+  limits while it stands open would count them from there, and a spring that is
+  stretched would take that for its length. Only another entity to hold to begins
+  again. An editor, in which no time passes, has no joints: what will not work is
+  found by `findPhysicsProblems`.
+- **A point of an entity is turned into the space of its body by way of the
+  hierarchy** (`entityToBody` in `PhysicsSystem.cpp`), not by where the body is in
+  the simulation: a kinematic body is a frame behind its entity until the step has
+  moved it, and a joint made of where it is just then is a frame's way off. Where
+  bodies are is asked only when two are joined for the first time, to find how they
+  stand to each other at one moment.
 - **A joint holds on to its bodies.** `destroyBody` takes the joints of a body away
   first, and their ids are then no joint's; whoever keeps a `JointId` asks
   `isValid`. What a joint held is woken when the joint goes, and when it is made:

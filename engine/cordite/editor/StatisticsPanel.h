@@ -22,9 +22,9 @@
 ///     "frame": 412,
 ///     "cpuMilliseconds": 0.61,
 ///     "gpuMilliseconds": 0.24,          // null where the GPU cannot time its work
-///     // The steps the simulation took, the bodies it holds, those that are awake, and the
-///     // shapes that were made of meshes for colliders.
-///     "physics": {"steps": 1, "bodies": 14, "activeBodies": 2, "geometries": 3},
+///     // The steps the simulation took, the bodies it holds, those that are awake, the
+///     // shapes that were made of meshes for colliders, and the joints between bodies.
+///     "physics": {"steps": 1, "bodies": 14, "activeBodies": 2, "geometries": 3, "joints": 5},
 ///     // The animators that were posed, and the joints of their skeletons.
 ///     "animation": {"animators": 1, "joints": 6},
 ///     "scene": {"views": 1, "meshRenderers": 21, "culled": 1,

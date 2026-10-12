@@ -54,9 +54,9 @@ struct SceneProblem {
 };
 
 /// Checks every asset reference in a world: the asset must exist and be of the kind the
-/// property expects. Then its colliders, for what the physics will not make a shape or
-/// a body of (findColliderProblems()). A scene without problems draws and collides as
-/// it was meant to.
+/// property expects. Then its colliders and joints, for what the physics will make no
+/// shape, no body and no joint of (findPhysicsProblems()). A scene without problems
+/// draws and collides as it was meant to.
 [[nodiscard]] std::vector<SceneProblem> findSceneProblems(const World& world, const ComponentRegistry& components,
                                                           const AssetDatabase& assets);
 

@@ -2,7 +2,7 @@
 
 /// @file
 /// The components that put an entity into the simulation: a collider gives it a shape, a
-/// rigid body makes it move.
+/// rigid body makes it move, a joint holds it to another.
 ///
 /// @code
 /// const Entity crate = world.createEntity("Crate");
@@ -12,7 +12,17 @@
 /// const Entity floor = world.createEntity("Floor");            // a collider alone stands still
 /// world.add<ColliderComponent>(floor) = {.size = Vec3(20.0f, 1.0f, 20.0f), .center = Vec3(0.0f, -0.5f, 0.0f)};
 ///
-/// physics.update(world, frameSeconds);                         // PhysicsSystem
+/// const Entity door = world.createEntity("Door");               // hinged to what stands still
+/// world.add<ColliderComponent>(door) = {.size = Vec3(1.0f, 2.0f, 0.1f)};
+/// world.add<RigidBodyComponent>(door);
+/// world.add<JointComponent>(door) = {.type = JointType::Hinge,
+///                                    .connectedTo = world.id(floor),
+///                                    .anchor = Vec3(-0.5f, 0.0f, 0.0f),
+///                                    .limited = true,
+///                                    .minimum = -90.0f,
+///                                    .maximum = 90.0f};
+///
+/// physics.update(world, assets, frameSeconds);                 // PhysicsSystem
 /// @endcode
 ///
 /// In a scene file:
@@ -35,6 +45,13 @@
 /// - A RigidBody without any Collider has no shape, and is no body.
 /// - A Collider that is a trigger is never part of another body: it is one of its own
 ///   that nothing runs into, and that says what moves into it and out of it.
+///
+/// A Joint holds the body its entity is part of to the body of another entity, or to
+/// the world: as the two are when the simulation first meets the joint. From then on
+/// it is that - how they stood to each other at that moment - which a hinge is turned
+/// against and a slider has slid from, and of which its anchor, its axis and its
+/// limits are said: also those it is given later. Only a Joint that is told to hold to
+/// another entity begins again, from how the two stand then.
 ///
 /// A shape is as large as its entity is scaled - by its own scale and by the scales of
 /// everything above it, multiplied: a box by each axis, a sphere by the largest of the
@@ -106,22 +123,64 @@ struct RigidBodyComponent {
     Vec3 angularVelocity{0.0f};
 };
 
-/// Registers the components of the physics module: "Collider" and "RigidBody".
+/// Holds the body an entity is part of to the body of another entity, or to the world.
+struct JointComponent {
+    JointType type = JointType::Fixed;
+    /// The entity whose body this entity's is held to. None: the world.
+    Uuid connectedTo;
+    /// Where the joint is, in the space of this entity: the point about which a ball
+    /// turns, a point on the axis of a hinge or a slider, this end of a distance.
+    Vec3 anchor{0.0f};
+    /// The axis a hinge turns about and a slider slides along, in the space of this
+    /// entity; of any length but none.
+    Vec3 axis{0.0f, 1.0f, 0.0f};
+    /// The other end of a distance: in the space of the entity it is held to, or in
+    /// the world.
+    Vec3 connectedAnchor{0.0f};
+    /// Whether what the joint leaves free is limited, and to what: a hinge in degrees,
+    /// from at most 0 to at least 0, no further than half a turn either way; a slider
+    /// in metres, likewise around 0; a distance in metres between its ends, from 0 up.
+    /// A distance that is not limited keeps its ends as far apart as they were when it
+    /// first held them.
+    bool limited = false;
+    float minimum = 0.0f;
+    float maximum = 0.0f;
+    /// How a distance, or the limit of a hinge or a slider, gives: the frequency in
+    /// hertz at which it swings - 0 for not at all - and how fast that dies away, from
+    /// 0 for never to 1 for at once.
+    float frequency = 0.0f;
+    float damping = 0.0f;
+    /// Whether the two bodies collide with each other.
+    bool collideConnected = false;
+
+    bool operator==(const JointComponent&) const = default;
+};
+
+/// Registers the components of the physics module: "Collider", "RigidBody" and "Joint".
 [[nodiscard]] Status registerPhysicsComponents(ComponentRegistry& registry);
 
-/// Something about a collider that the physics will not make a shape, or a body, of.
-struct ColliderProblem {
+/// The entity whose body an entity is part of: the nearest at or above it that has a
+/// RigidBody, or - with none - the entity itself where a Collider makes it a body that
+/// stands still. None otherwise. Triggers, which are bodies of their own beside those,
+/// are not what is asked about.
+[[nodiscard]] Entity bodyEntityOf(const World& world, Entity entity);
+
+/// Something about the physics components of an entity that will not work as it stands.
+struct PhysicsProblem {
     Entity entity;
     /// One sentence, naming the component and the property.
     std::string message;
 };
 
-/// What can be told of the colliders of a world without making bodies of them, in the
-/// order of the hierarchy: shapes made of meshes that name no mesh, and the triangles
-/// of meshes in bodies that the simulation is to move. What only shows when a shape is
-/// made - a mesh that cannot be read, points with no volume between them - is said by
-/// the physics system when it is. Entities that are switched off are checked like any
-/// other.
-[[nodiscard]] std::vector<ColliderProblem> findColliderProblems(const World& world);
+/// What can be told of the colliders and joints of a world without making bodies of
+/// them, in the order of the hierarchy. Colliders: shapes made of meshes that name no
+/// mesh, and the triangles of meshes in bodies that the simulation is to move. Joints:
+/// one to an entity that is not there, on an entity that is part of no body or to one
+/// that is part of none, between two parts of one body, between bodies of which none
+/// is dynamic, with an axis of no length, and with limits that its kind does not have.
+/// What only shows when a shape is made - a mesh that cannot be read, points with no
+/// volume between them - is said by the physics system when it is. Entities that are
+/// switched off are checked like any other.
+[[nodiscard]] std::vector<PhysicsProblem> findPhysicsProblems(const World& world);
 
 } // namespace cordite

@@ -63,6 +63,16 @@
 /// bodies that move into it and out of it. What bodies begin to touch and stop
 /// touching, and what enters and leaves triggers, is in events() after every update.
 ///
+/// A Joint holds the body its entity is part of to the body of the entity it names, or
+/// to the world. It is made while time passes - an editor has no use for one - and
+/// holds the two as they stand to each other when it first does: that is what its
+/// anchor and its axis are said of, what a hinge is turned against and what limits
+/// count from. The system remembers it, and makes the joint of it however often the
+/// joint is made again - because a body was made anew, or the Joint given other
+/// values - and however far the two have moved since. Only a Joint that names another
+/// entity, or one that could not be made for a while because a body was missing,
+/// begins again from how the two then stand.
+///
 /// A collider that is the hull around a mesh, or the triangles of one, is made of the
 /// mesh asset it names. The mesh is loaded and prepared when a collider first asks for
 /// it, and what was prepared serves every collider of that mesh and shape, at any
@@ -80,6 +90,7 @@
 #include "cordite/core/Uuid.h"
 #include "cordite/math/Math.h"
 #include "cordite/math/Transform.h"
+#include "cordite/physics/PhysicsComponents.h"
 #include "cordite/physics/PhysicsWorld.h"
 #include "cordite/world/Entity.h"
 #include "cordite/world/World.h"
@@ -117,6 +128,8 @@ struct PhysicsFrameStatistics {
     uint32_t activeBodies = 0;
     /// Hulls and surfaces of triangles that were made of meshes, for colliders.
     uint32_t geometries = 0;
+    /// Joints that hold bodies together.
+    uint32_t joints = 0;
 
     bool operator==(const PhysicsFrameStatistics&) const = default;
 };
@@ -158,17 +171,18 @@ public:
     ~PhysicsSystem();
     CORDITE_NON_MOVABLE(PhysicsSystem);
 
-    /// Brings the bodies in line with the entities of `world`, lets `deltaSeconds` pass
-    /// in as many whole steps as have come together, and puts the entities of dynamic
-    /// bodies where their bodies are. Less than no time, and a time that is no number,
-    /// is no time. Works the world transforms out first; they are not up to date
-    /// afterwards for what was moved. `assets` is where the meshes of colliders that
-    /// are made of meshes come from.
+    /// Brings the bodies and the joints in line with the entities of `world`, lets
+    /// `deltaSeconds` pass in as many whole steps as have come together, and puts the
+    /// entities of dynamic bodies where their bodies are. Less than no time, and a time
+    /// that is no number, is no time. Works the world transforms out first; they are
+    /// not up to date afterwards for what was moved. `assets` is where the meshes of
+    /// colliders that are made of meshes come from.
     PhysicsFrameStatistics update(World& world, AssetManager& assets, float deltaSeconds);
 
     /// Brings the bodies in line with the entities of `world` and lets no time pass:
     /// nothing is moved by the simulation, every body is where its entity is, and the
     /// world is left as it is but for its world transforms, which are worked out.
+    /// Joints are not looked at: none is made, and those there are stay as they are.
     PhysicsFrameStatistics synchronize(World& world, AssetManager& assets);
 
     /// The simulation itself, for what is asked of it directly: rays, forces, gravity.
@@ -182,6 +196,9 @@ public:
     [[nodiscard]] BodyId bodyOf(Entity entity) const;
     /// The body of the trigger that an entity's collider is, or the null id.
     [[nodiscard]] BodyId triggerOf(Entity entity) const;
+    /// The joint that an entity's Joint has become, or the null id: before the first
+    /// update that met it, and for one that could not be made.
+    [[nodiscard]] JointId jointOf(Entity entity) const;
     /// The entity a body belongs to, or the null entity.
     [[nodiscard]] Entity entityOf(BodyId body) const;
 
@@ -272,10 +289,11 @@ private:
         Mat4 toBody{1.0f};
     };
 
-    /// What is said of an entity in the log is about its collider, or about its body.
+    /// What is said of an entity in the log is about its collider, its body or its joint.
     enum class About : uint8_t {
         Collider,
         Body,
+        Joint,
     };
 
     struct ReportKey {
@@ -305,6 +323,24 @@ private:
 
     struct GeometryKeyHash {
         size_t operator()(const GeometryKey& key) const noexcept;
+    };
+
+    /// What the system knows of a joint it has made, or tried to.
+    struct JointRecord {
+        JointId joint;
+        /// What it was made of.
+        JointComponent blueprint;
+        /// The bodies it holds; the second is none for the world.
+        BodyId first;
+        BodyId second;
+        /// What took a point of the entity to the space of the entity it is held to -
+        /// to the world, for none - when the two were first joined: how they stood to
+        /// each other then, which is what the joint holds them to and counts from.
+        /// Where the joint is on the entity itself, its component says.
+        Mat4 restToConnected{1.0f};
+        /// Whether that has been found. It cannot be under something of no size.
+        bool hasRest = false;
+        bool seen = false;
     };
 
     /// What was made of a mesh: geometry, or the reason why there is none.
@@ -338,6 +374,17 @@ private:
     /// Gives a dynamic body the speeds its RigidBody was given since they were last
     /// written.
     void applyVelocities(const World& world, Entity entity, Record& record);
+    /// Makes, remakes and removes joints until they are what the Joint components of
+    /// the entities in m_jointEntities say, between the bodies there are.
+    void reconcileJoints(const World& world);
+    /// What the simulation is asked for, for the joint of an entity that is held to
+    /// `connected` - or to the world, for none - between the bodies of the record.
+    [[nodiscard]] JointDesc makeJointDesc(const World& world, Entity entity, Entity connected,
+                                          const JointRecord& record) const;
+    /// Forgets what was said about one kind of thing and was not said again since this
+    /// was last called for it, so that it is said again should it hold again. Whoever
+    /// reports about a kind of thing calls this for it, after looking at all of them.
+    void forgetWhatNoLongerHolds(About about);
     /// Adds to m_events what the bodies said of touching in the step that was just taken.
     void hearContacts();
     /// Takes out of m_events what only came of a body being made anew: that it stopped
@@ -371,6 +418,10 @@ private:
     /// What has been said of entities whose colliders are no shapes, that have no body
     /// or that cannot be placed, so that each thing is said once.
     std::unordered_map<ReportKey, Report, ReportKeyHash> m_reported;
+    /// The joints there are, by the entity that has the component, and the entities
+    /// with a Joint that the last walk through the world met.
+    std::unordered_map<Entity, JointRecord> m_joints;
+    std::vector<Entity> m_jointEntities;
     /// The geometry made of meshes so far, and AssetDatabase::revision() when it was.
     std::unordered_map<GeometryKey, MeshGeometry, GeometryKeyHash> m_geometries;
     uint64_t m_assetRevision = 0;

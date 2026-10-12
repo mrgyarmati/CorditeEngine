@@ -471,6 +471,284 @@
             }
         },
         {
+            // A rack by the wall. What hangs from its beam is held by joints, one of each kind: a
+            // joint holds the body of its entity to the body of the entity it names, as the two
+            // stand to each other when the game begins.
+            "id": "10000000-0000-4000-8000-00000000002f",
+            "name": "Rack",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-000000000001",
+            "components": {
+                "Transform": { "position": [4.3, 0.0, -4.2], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [1.0, 1.0, 1.0] }
+            }
+        },
+        {
+            // The beam stands still: a collider alone.
+            "id": "10000000-0000-4000-8000-000000000030",
+            "name": "Beam",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-00000000002f",
+            "components": {
+                "Transform": { "position": [0.0, 2.3, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [2.8, 0.1, 0.1] },
+                "MeshRenderer": {
+                    "mesh": "0a56c2f1-21e0-819d-8bac-567d1e1c4345",
+                    "materials": ["63f57b0d-f370-8781-a32a-57a1be8dd15a"]
+                },
+                "Collider": {
+                    "shape": "box",
+                    "size": [1.0, 1.0, 1.0],
+                    "radius": 0.5,
+                    "height": 2.0,
+                    "mesh": null,
+                    "trigger": false,
+                    "center": [0.0, 0.0, 0.0],
+                    "friction": 0.5,
+                    "restitution": 0.0
+                }
+            }
+        },
+        {
+            // Fixed: the bracket moves with what it is held to, which does not move. The
+            // simulation would let it fall; the joint does not.
+            "id": "10000000-0000-4000-8000-000000000031",
+            "name": "Bracket",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-00000000002f",
+            "components": {
+                "Transform": { "position": [-1.1, 2.1, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [0.3, 0.3, 0.3] },
+                "MeshRenderer": {
+                    "mesh": "0a56c2f1-21e0-819d-8bac-567d1e1c4345",
+                    "materials": ["7cde9ddc-faf9-89ce-810c-b0ed1b1226a0"]
+                },
+                "Collider": {
+                    "shape": "box",
+                    "size": [1.0, 1.0, 1.0],
+                    "radius": 0.5,
+                    "height": 2.0,
+                    "mesh": null,
+                    "trigger": false,
+                    "center": [0.0, 0.0, 0.0],
+                    "friction": 0.5,
+                    "restitution": 0.0
+                },
+                "RigidBody": {
+                    "motion": "dynamic",
+                    "mass": 4.0,
+                    "linearDamping": 0.05,
+                    "angularDamping": 0.05,
+                    "gravityScale": 1.0,
+                    "continuous": false,
+                    "allowSleep": true
+                },
+                "Joint": {
+                    "type": "fixed",
+                    "connectedTo": "10000000-0000-4000-8000-000000000030",
+                    "anchor": [0.0, 0.0, 0.0],
+                    "axis": [0.0, 1.0, 0.0],
+                    "connectedAnchor": [0.0, 0.0, 0.0],
+                    "limited": false,
+                    "minimum": 0.0,
+                    "maximum": 0.0,
+                    "frequency": 0.0,
+                    "damping": 0.0,
+                    "collideConnected": false
+                }
+            }
+        },
+        {
+            // A ball joint holds a point - here one above the lantern, in its own space, where
+            // the beam is - and lets everything turn about it.
+            "id": "10000000-0000-4000-8000-000000000032",
+            "name": "Lantern",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-00000000002f",
+            "components": {
+                "Transform": { "position": [-0.55, 1.6, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [0.3, 0.3, 0.3] },
+                "MeshRenderer": {
+                    "mesh": "aa35bb57-6b9a-8ecb-9eda-83a2a1be3014",
+                    "materials": []
+                },
+                "Collider": {
+                    "shape": "sphere",
+                    "size": [1.0, 1.0, 1.0],
+                    "radius": 0.5,
+                    "height": 2.0,
+                    "mesh": null,
+                    "trigger": false,
+                    "center": [0.0, 0.0, 0.0],
+                    "friction": 0.5,
+                    "restitution": 0.0
+                },
+                "RigidBody": {
+                    "motion": "dynamic",
+                    "mass": 2.0,
+                    "linearDamping": 0.05,
+                    "angularDamping": 0.05,
+                    "gravityScale": 1.0,
+                    "continuous": false,
+                    "allowSleep": true
+                },
+                "Joint": {
+                    "type": "ball",
+                    "connectedTo": "10000000-0000-4000-8000-000000000030",
+                    "anchor": [0.0, 2.1666667, 0.0],
+                    "axis": [0.0, 1.0, 0.0],
+                    "connectedAnchor": [0.0, 0.0, 0.0],
+                    "limited": false,
+                    "minimum": 0.0,
+                    "maximum": 0.0,
+                    "frequency": 0.0,
+                    "damping": 0.0,
+                    "collideConnected": false
+                }
+            }
+        },
+        {
+            // A hinge turns about its axis, through its anchor: the sign swings below the
+            // beam, sixty degrees either way and no further.
+            "id": "10000000-0000-4000-8000-000000000033",
+            "name": "Sign",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-00000000002f",
+            "components": {
+                "Transform": { "position": [0.0, 1.95, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [0.5, 0.5, 0.04] },
+                "MeshRenderer": {
+                    "mesh": "0a56c2f1-21e0-819d-8bac-567d1e1c4345",
+                    "materials": ["c40ceb3a-92fb-8ca6-8c0c-a72bda94bf24"]
+                },
+                "Collider": {
+                    "shape": "box",
+                    "size": [1.0, 1.0, 1.0],
+                    "radius": 0.5,
+                    "height": 2.0,
+                    "mesh": null,
+                    "trigger": false,
+                    "center": [0.0, 0.0, 0.0],
+                    "friction": 0.5,
+                    "restitution": 0.0
+                },
+                "RigidBody": {
+                    "motion": "dynamic",
+                    "mass": 3.0,
+                    "linearDamping": 0.05,
+                    "angularDamping": 0.05,
+                    "gravityScale": 1.0,
+                    "continuous": false,
+                    "allowSleep": true
+                },
+                "Joint": {
+                    "type": "hinge",
+                    "connectedTo": "10000000-0000-4000-8000-000000000030",
+                    "anchor": [0.0, 0.6, 0.0],
+                    "axis": [1.0, 0.0, 0.0],
+                    "connectedAnchor": [0.0, 0.0, 0.0],
+                    "limited": true,
+                    "minimum": -60.0,
+                    "maximum": 60.0,
+                    "frequency": 0.0,
+                    "damping": 0.0,
+                    "collideConnected": false
+                }
+            }
+        },
+        {
+            // A slider slides along its axis without turning: the runner goes a fifth of a
+            // metre either way along the beam, and stays up because down is not along it.
+            "id": "10000000-0000-4000-8000-000000000034",
+            "name": "Runner",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-00000000002f",
+            "components": {
+                "Transform": { "position": [0.55, 2.1, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [0.25, 0.2, 0.25] },
+                "MeshRenderer": {
+                    "mesh": "0a56c2f1-21e0-819d-8bac-567d1e1c4345",
+                    "materials": ["63f57b0d-f370-8781-a32a-57a1be8dd15a"]
+                },
+                "Collider": {
+                    "shape": "box",
+                    "size": [1.0, 1.0, 1.0],
+                    "radius": 0.5,
+                    "height": 2.0,
+                    "mesh": null,
+                    "trigger": false,
+                    "center": [0.0, 0.0, 0.0],
+                    "friction": 0.5,
+                    "restitution": 0.0
+                },
+                "RigidBody": {
+                    "motion": "dynamic",
+                    "mass": 2.0,
+                    "linearDamping": 0.05,
+                    "angularDamping": 0.05,
+                    "gravityScale": 1.0,
+                    "continuous": false,
+                    "allowSleep": true
+                },
+                "Joint": {
+                    "type": "slider",
+                    "connectedTo": "10000000-0000-4000-8000-000000000030",
+                    "anchor": [0.0, 0.0, 0.0],
+                    "axis": [1.0, 0.0, 0.0],
+                    "connectedAnchor": [0.0, 0.0, 0.0],
+                    "limited": true,
+                    "minimum": -0.2,
+                    "maximum": 0.2,
+                    "frequency": 0.0,
+                    "damping": 0.0,
+                    "collideConnected": false
+                }
+            }
+        },
+        {
+            // A distance keeps two points no further apart than it says: a rope of three
+            // quarters of a metre from the middle of the weight to a point of the beam, which is
+            // given in the space of the beam - scaled as the beam is.
+            "id": "10000000-0000-4000-8000-000000000035",
+            "name": "Weight",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-00000000002f",
+            "components": {
+                "Transform": { "position": [1.1, 1.5, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [0.24, 0.24, 0.24] },
+                "MeshRenderer": {
+                    "mesh": "aa35bb57-6b9a-8ecb-9eda-83a2a1be3014",
+                    "materials": []
+                },
+                "Collider": {
+                    "shape": "sphere",
+                    "size": [1.0, 1.0, 1.0],
+                    "radius": 0.5,
+                    "height": 2.0,
+                    "mesh": null,
+                    "trigger": false,
+                    "center": [0.0, 0.0, 0.0],
+                    "friction": 0.5,
+                    "restitution": 0.0
+                },
+                "RigidBody": {
+                    "motion": "dynamic",
+                    "mass": 5.0,
+                    "linearDamping": 0.05,
+                    "angularDamping": 0.05,
+                    "gravityScale": 1.0,
+                    "continuous": false,
+                    "allowSleep": true
+                },
+                "Joint": {
+                    "type": "distance",
+                    "connectedTo": "10000000-0000-4000-8000-000000000030",
+                    "anchor": [0.0, 0.0, 0.0],
+                    "axis": [0.0, 1.0, 0.0],
+                    "connectedAnchor": [0.39285713, -0.5, 0.0],
+                    "limited": true,
+                    "minimum": 0.0,
+                    "maximum": 0.75,
+                    "frequency": 0.0,
+                    "damping": 0.0,
+                    "collideConnected": false
+                }
+            }
+        },
+        {
             // Glass: what is behind it shows through. Blended surfaces are drawn last,
             // the farthest first.
             "id": "10000000-0000-4000-8000-00000000001a",

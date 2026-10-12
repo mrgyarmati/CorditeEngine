@@ -84,6 +84,7 @@ Json describeFrameStatistics(const FrameStatistics& statistics) {
     physics["bodies"] = statistics.physics.bodies;
     physics["activeBodies"] = statistics.physics.activeBodies;
     physics["geometries"] = statistics.physics.geometries;
+    physics["joints"] = statistics.physics.joints;
 
     Json animation = Json::object();
     animation["animators"] = statistics.animation.animators;
@@ -111,9 +112,9 @@ void StatisticsPanel::draw(const FrameStatistics& statistics, bool& open) {
         row("CPU", fmt::format("{:.2f} ms", m_cpuMilliseconds));
         row("GPU", m_gpuMilliseconds ? fmt::format("{:.2f} ms", *m_gpuMilliseconds) : std::string("not measured"));
 
-        row("Bodies",
-            fmt::format("{} ({} awake, {} steps, {} shapes of meshes)", statistics.physics.bodies,
-                        statistics.physics.activeBodies, statistics.physics.steps, statistics.physics.geometries));
+        row("Bodies", fmt::format("{} ({} awake, {} steps, {} shapes of meshes, {} joints)", statistics.physics.bodies,
+                                  statistics.physics.activeBodies, statistics.physics.steps,
+                                  statistics.physics.geometries, statistics.physics.joints));
         row("Animators", fmt::format("{} ({} joints)", statistics.animation.animators, statistics.animation.joints));
 
         const SceneRenderStatistics& scene = statistics.scene;
