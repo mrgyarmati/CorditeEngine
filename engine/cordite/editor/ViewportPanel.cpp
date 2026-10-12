@@ -236,6 +236,7 @@ Status ViewportPanel::render(nvrhi::IDevice* device, nvrhi::ICommandList* comman
     settings.backgroundColor = srgbToLinear(kBackgroundColor);
     settings.debugView = m_debugView;
     settings.shadowQuality = m_shadowQuality;
+    settings.screenEffectsQuality = m_screenEffectsQuality;
     settings.postProcessQuality = m_postProcessQuality;
     settings.deltaSeconds = deltaSeconds;
     settings.timeSeconds = timeSeconds;

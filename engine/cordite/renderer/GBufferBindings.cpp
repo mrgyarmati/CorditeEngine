@@ -8,8 +8,8 @@ namespace {
 /// The register space of the G-buffer's binding set; the view's bindings are in space 0.
 constexpr uint32_t kGBufferRegisterSpace = 1;
 
-/// The G-buffer targets and the depth.
-constexpr uint32_t kTextureCount = static_cast<uint32_t>(kGBufferTargetCount) + 1;
+/// The G-buffer targets, the depth and the ambient occlusion.
+constexpr uint32_t kTextureCount = static_cast<uint32_t>(kGBufferTargetCount) + 2;
 
 } // namespace
 
@@ -43,6 +43,7 @@ nvrhi::BindingSetHandle createGBufferBindings(nvrhi::IDevice* device, nvrhi::IBi
     desc.bindings.push_back(nvrhi::BindingSetItem::Texture_SRV(2, targets.gbuffer(GBufferTarget::Parameters)));
     desc.bindings.push_back(nvrhi::BindingSetItem::Texture_SRV(3, targets.gbuffer(GBufferTarget::Emissive)));
     desc.bindings.push_back(nvrhi::BindingSetItem::Texture_SRV(4, targets.depth()));
+    desc.bindings.push_back(nvrhi::BindingSetItem::Texture_SRV(5, targets.ambientOcclusion()));
     return device->createBindingSet(desc, layout);
 }
 

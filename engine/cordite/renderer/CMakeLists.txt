@@ -1,5 +1,9 @@
 cordite_add_module(renderer
     SOURCES
+        AmbientOcclusion.cpp
+        AmbientOcclusion.h
+        AmbientOcclusionPass.cpp
+        AmbientOcclusionPass.h
         BlitPass.cpp
         BlitPass.h
         CameraView.cpp
@@ -48,6 +52,8 @@ cordite_add_module(renderer
         SceneLights.h
         ScenePostProcess.cpp
         ScenePostProcess.h
+        ScreenEffects.cpp
+        ScreenEffects.h
         ShadowAtlas.cpp
         ShadowAtlas.h
         ShadowPlan.cpp

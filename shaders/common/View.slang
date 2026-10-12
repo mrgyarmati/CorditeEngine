@@ -52,8 +52,10 @@ cbuffer ViewConstants : register(b0, space0)
     float environmentVisible;
     // The sine and the cosine of the angle it is turned by about the vertical axis.
     float2 environmentTurn;
+    // 1 when the ambient occlusion of the view was drawn this frame
+    // (passes/AmbientOcclusion.slang) and the lighting is to read it.
+    float screenOcclusion;
     float viewPadding0;
-    float viewPadding1;
     // What it lights a matte surface with: nine spherical harmonics, in rgb.
     float4 environmentDiffuse[9];
 };

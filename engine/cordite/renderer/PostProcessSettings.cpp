@@ -144,6 +144,11 @@ PostProcessSettings sanitized(const PostProcessSettings& settings) {
     result.vignette = within(settings.vignette, 0.0f, 1.0f, defaults.vignette);
     result.chromaticAberration = within(settings.chromaticAberration, 0.0f, 1.0f, defaults.chromaticAberration);
     result.filmGrain = within(settings.filmGrain, 0.0f, 1.0f, defaults.filmGrain);
+    result.ambientOcclusionIntensity =
+        within(settings.ambientOcclusionIntensity, 0.0f, 4.0f, defaults.ambientOcclusionIntensity);
+    result.ambientOcclusionRadius =
+        within(settings.ambientOcclusionRadius, 0.01f, 10.0f, defaults.ambientOcclusionRadius);
+    result.ambientOcclusionBias = within(settings.ambientOcclusionBias, 0.0f, 30.0f, defaults.ambientOcclusionBias);
     return result;
 }
 
@@ -172,6 +177,9 @@ PostProcessSettings blend(const PostProcessSettings& from, const PostProcessSett
     result.vignette = mix(from.vignette, to.vignette, t);
     result.chromaticAberration = mix(from.chromaticAberration, to.chromaticAberration, t);
     result.filmGrain = mix(from.filmGrain, to.filmGrain, t);
+    result.ambientOcclusionIntensity = mix(from.ambientOcclusionIntensity, to.ambientOcclusionIntensity, t);
+    result.ambientOcclusionRadius = mix(from.ambientOcclusionRadius, to.ambientOcclusionRadius, t);
+    result.ambientOcclusionBias = mix(from.ambientOcclusionBias, to.ambientOcclusionBias, t);
 
     // Two tables cannot be blended into one without making a third. The same table on
     // both sides blends its intensity; otherwise the one fades out towards the middle

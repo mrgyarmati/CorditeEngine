@@ -216,6 +216,7 @@ void runScenario(const std::string& name, bool withShadows) {
     checkBudget(budgets, "lightListEntries", statistics.scene.lightListEntries);
     checkBudget(budgets, "shadowMaps", statistics.scene.shadowMaps);
     checkBudget(budgets, "shadowAtlasBytes", static_cast<double>(statistics.scene.shadowAtlasBytes));
+    checkBudget(budgets, "ambientOcclusionBytes", static_cast<double>(statistics.scene.ambientOcclusionBytes));
 
     REQUIRE(budgets.contains("milliseconds"));
     const Json& timeBudgets = budgets["milliseconds"];

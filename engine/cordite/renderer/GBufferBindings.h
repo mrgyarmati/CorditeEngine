@@ -15,6 +15,7 @@
 /// | t2       | G-buffer: parameters                                     |
 /// | t3       | G-buffer: emissive                                       |
 /// | t4       | Depth                                                    |
+/// | t5       | Ambient occlusion (see SceneTargets::ambientOcclusion)   |
 ///
 /// @code
 /// nvrhi::BindingLayoutHandle layout = createGBufferLayout(device, false);
@@ -26,7 +27,8 @@
 /// @endcode
 ///
 /// A pass that reads the depth this way must not draw into a framebuffer that has the
-/// same depth attached; SceneTargets::lightingFramebuffer() has none.
+/// same depth attached; SceneTargets::lightingFramebuffer() has none. For the same
+/// reason the passes that draw the ambient occlusion do not use this set.
 
 #include "cordite/renderer/SceneTargets.h"
 

@@ -312,6 +312,9 @@ TEST_SUITE("PostProcessSettings") {
         CHECK(mended.vignette == defaults.vignette);
         CHECK(mended.chromaticAberration == defaults.chromaticAberration);
         CHECK(mended.filmGrain == defaults.filmGrain);
+        CHECK(mended.ambientOcclusionIntensity == defaults.ambientOcclusionIntensity);
+        CHECK(mended.ambientOcclusionRadius == defaults.ambientOcclusionRadius);
+        CHECK(mended.ambientOcclusionBias == defaults.ambientOcclusionBias);
 
         // The most stops are not fewer than the fewest, even when it is the fewest that
         // were out of range, or the most that were no number.
@@ -329,8 +332,30 @@ TEST_SUITE("PostProcessSettings") {
         PostProcessSettings endless;
         endless.exposure = std::numeric_limits<float>::infinity();
         endless.vignette = -std::numeric_limits<float>::infinity();
+        endless.ambientOcclusionRadius = std::numeric_limits<float>::infinity();
         CHECK(sanitized(endless).exposure == 16.0f);
         CHECK(sanitized(endless).vignette == 0.0f);
+        CHECK(sanitized(endless).ambientOcclusionRadius == 10.0f);
+
+        // The ambient occlusion: no stronger than four times, no further than ten metres
+        // and no nearer than a centimetre, a bias of at most thirty degrees.
+        PostProcessSettings occluded;
+        occluded.ambientOcclusionIntensity = 1.5f;
+        occluded.ambientOcclusionRadius = 2.0f;
+        occluded.ambientOcclusionBias = 12.0f;
+        CHECK(sanitized(occluded).ambientOcclusionIntensity == 1.5f);
+        CHECK(sanitized(occluded).ambientOcclusionRadius == 2.0f);
+        CHECK(sanitized(occluded).ambientOcclusionBias == 12.0f);
+        occluded.ambientOcclusionIntensity = 9.0f;
+        occluded.ambientOcclusionRadius = 0.0f;
+        occluded.ambientOcclusionBias = 90.0f;
+        CHECK(sanitized(occluded).ambientOcclusionIntensity == 4.0f);
+        CHECK(sanitized(occluded).ambientOcclusionRadius == 0.01f);
+        CHECK(sanitized(occluded).ambientOcclusionBias == 30.0f);
+        occluded.ambientOcclusionIntensity = -1.0f;
+        occluded.ambientOcclusionBias = -5.0f;
+        CHECK(sanitized(occluded).ambientOcclusionIntensity == 0.0f);
+        CHECK(sanitized(occluded).ambientOcclusionBias == 0.0f);
     }
 
     TEST_CASE("blending settings blends their numbers and switches the rest half way") {
@@ -342,6 +367,9 @@ TEST_SUITE("PostProcessSettings") {
         from.saturation = 1.0f;
         from.lift = Vec3(0.0f, 0.1f, 0.2f);
         from.vignette = 0.2f;
+        from.ambientOcclusionIntensity = 0.0f;
+        from.ambientOcclusionRadius = 0.2f;
+        from.ambientOcclusionBias = 0.0f;
         PostProcessSettings to;
         to.exposureMode = ExposureMode::Automatic;
         to.exposure = 1.0f;
@@ -350,6 +378,9 @@ TEST_SUITE("PostProcessSettings") {
         to.saturation = 0.0f;
         to.lift = Vec3(0.2f, 0.1f, 0.0f);
         to.vignette = 0.6f;
+        to.ambientOcclusionIntensity = 2.0f;
+        to.ambientOcclusionRadius = 1.0f;
+        to.ambientOcclusionBias = 8.0f;
 
         const PostProcessSettings start = blend(from, to, 0.0f);
         CHECK(start.exposure == -1.0f);
@@ -363,6 +394,9 @@ TEST_SUITE("PostProcessSettings") {
         CHECK(quarter.saturation == doctest::Approx(0.75f));
         CHECK_NEAR(quarter.lift, Vec3(0.05f, 0.1f, 0.15f), 1.0e-6f);
         CHECK(quarter.vignette == doctest::Approx(0.3f));
+        CHECK(quarter.ambientOcclusionIntensity == doctest::Approx(0.5f));
+        CHECK(quarter.ambientOcclusionRadius == doctest::Approx(0.4f));
+        CHECK(quarter.ambientOcclusionBias == doctest::Approx(2.0f));
         CHECK(quarter.exposureMode == ExposureMode::Manual);
         CHECK(quarter.toneMapper == ToneMapper::Filmic);
 

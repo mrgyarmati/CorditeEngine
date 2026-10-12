@@ -52,13 +52,17 @@ endfunction()
 #     SOURCES <files...>
 #     LIBRARIES <targets...>
 #     [LABELS <ctest labels...>]
-#     [WORKING_DIRECTORY <dir>])
+#     [WORKING_DIRECTORY <dir>]
+#     [TIMEOUT <seconds>])
 #
 # Creates the executable cordite_<name>_tests and registers it with CTest as <name>.
+# A suite that runs longer than TIMEOUT - five minutes, unless it says otherwise - is
+# stopped and counts as failed: the limit is there to end a test that hangs, so a suite
+# that has grown needs a larger one, not fewer tests.
 # Suites that need a Vulkan device must carry the 'gpu' label so headless machines can
 # skip them with: ctest -LE gpu
 function(cordite_add_test_suite name)
-    cmake_parse_arguments(PARSE_ARGV 1 arg "" "WORKING_DIRECTORY" "SOURCES;LIBRARIES;LABELS")
+    cmake_parse_arguments(PARSE_ARGV 1 arg "" "WORKING_DIRECTORY;TIMEOUT" "SOURCES;LIBRARIES;LABELS")
 
     set(target cordite_${name}_tests)
     add_executable(${target} ${arg_SOURCES})
@@ -70,11 +74,14 @@ function(cordite_add_test_suite name)
     if(NOT arg_WORKING_DIRECTORY)
         set(arg_WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}")
     endif()
+    if(NOT arg_TIMEOUT)
+        set(arg_TIMEOUT 300)
+    endif()
 
     add_test(NAME ${name}
         COMMAND ${target}
         WORKING_DIRECTORY "${arg_WORKING_DIRECTORY}")
-    set_tests_properties(${name} PROPERTIES LABELS "${arg_LABELS}" TIMEOUT 300)
+    set_tests_properties(${name} PROPERTIES LABELS "${arg_LABELS}" TIMEOUT ${arg_TIMEOUT})
     cordite_configure_gpu_test(${name} "${arg_LABELS}")
 endfunction()
 

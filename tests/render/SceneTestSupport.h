@@ -155,10 +155,12 @@ public:
     }
 
     /// A grey background and nothing else: in a world without lights, what is seen is
-    /// what materials emit - shown as it is, not finished into a picture, so that a
-    /// test can say what a pixel must be.
+    /// what materials emit - shown as it is, with nothing worked out from the screen
+    /// and not finished into a picture, so that a test can say what a pixel must be.
     static SceneRenderSettings flatSettings() {
-        return {.backgroundColor = kBackground, .postProcessQuality = PostProcessQuality::Off};
+        return {.backgroundColor = kBackground,
+                .screenEffectsQuality = ScreenEffectsQuality::Off,
+                .postProcessQuality = PostProcessQuality::Off};
     }
 
     /// Adds a light at `position` that shines along `direction`, which a point light

@@ -169,8 +169,9 @@ scene black. Lights are components like any other:
   `shadowNormalOffset` a little. Shadows that start away from what casts them: lower
   them.
 - `viewport.quality {"preset": "low"}` sets how much the picture in the viewport may
-  cost, by one word (`low`, `medium`, `high`); `{"shadows": "off"}` and
-  `{"postProcess": "off"}` set the shadows and the finishing of the picture alone
+  cost, by one word (`low`, `medium`, `high`); `{"shadows": "off"}`,
+  `{"effects": "off"}` and `{"postProcess": "off"}` set the shadows, what is worked
+  out from the screen (ambient occlusion) and the finishing of the picture alone
   (`off`, `low`, `medium`, `high`). It is the editor's view, not a setting of the
   scene. With `postProcess` off the viewport shows the light as the renderer worked it
   out - no exposure, no bloom, no curve, no grade - which is the picture to judge
@@ -201,11 +202,15 @@ scene black. Lights are components like any other:
 - `viewport.debugView {"view": "normals"}` makes the viewport show something the
   renderer works with instead of the lit picture: `baseColor`, `normals`, `roughness`,
   `metallic`, `specular`, `occlusion`, `emissive`, `depth`, `lightCount`,
-  `shadowCascades`, `lightingOnly`, `reflections`, `wireframe`, `overdraw`; `none`
+  `shadowCascades`, `ambientOcclusion`, `lightingOnly`, `reflections`, `wireframe`,
+  `overdraw`; `none`
   brings the picture back. When a surface looks wrong, a screenshot of the right view
   says whether the material, the normals or the light is at fault. `reflections` makes
   a mirror of every surface: it shows what the environment gives them to reflect, and
-  which way round it is.
+  which way round it is. `ambientOcclusion` shows how much of the light from all
+  around gets to each surface: white is all of it. If corners are too dark or not dark
+  enough, the numbers to change are on the scene's `PostProcess` component
+  (`ambientOcclusionIntensity`, `ambientOcclusionRadius`, `ambientOcclusionBias`).
 
 Then read the image file. Looking at the picture is the only way to know that a change
 is visible and looks right; a passing command only says that the data changed.

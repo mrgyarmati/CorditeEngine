@@ -1017,7 +1017,9 @@ TEST_SUITE("SceneRenderer") {
         const Entity ball = scene.add(BuiltinMesh::Sphere, scene.material("deferred"), at(Vec3(0.0f), Vec3(1.6f)));
         const CameraView view = scene.perspectiveView(Vec3(1.5f, 1.0f, 2.5f), Vec3(0.0f));
         // Lit the way a scene is: a key light and light from the sky and the ground.
-        const SceneRenderSettings settings{.defaultLighting = true};
+        // Without what is worked out from the screen: a surface that is drawn forward
+        // is not in the depth buffer when that is done, and gets none of it.
+        const SceneRenderSettings settings{.defaultLighting = true, .screenEffectsQuality = ScreenEffectsQuality::Off};
 
         const Image deferred = scene.render(view, settings);
         CHECK(scene.renderer->statistics().forwardPass.drawCalls == 0);

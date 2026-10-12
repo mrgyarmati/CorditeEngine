@@ -59,6 +59,9 @@ struct SceneView {
     /// Ambient light arriving from above and from below.
     Vec3 skyColor{0.0f};
     Vec3 groundColor{0.0f};
+    /// Whether the ambient occlusion of the view's targets is drawn this frame
+    /// (AmbientOcclusionPass): the lighting reads it only then.
+    bool ambientOcclusion = false;
 };
 
 /// The shadows of a view, as its passes read them.

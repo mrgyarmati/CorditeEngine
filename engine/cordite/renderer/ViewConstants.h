@@ -60,8 +60,10 @@ struct ViewConstants {
     /// The sine and the cosine of the angle the environment is turned by about the
     /// vertical axis.
     Vec2 environmentTurn;
+    /// 1 when the ambient occlusion of the view's targets holds this frame's, and the
+    /// lighting is to read it.
+    float screenOcclusion;
     float padding0;
-    float padding1;
     /// What the environment lights a matte surface with, as nine spherical harmonics
     /// (rgb; the fourth number is not used).
     std::array<Vec4, 9> environmentDiffuse;

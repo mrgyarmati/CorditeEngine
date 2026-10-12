@@ -28,12 +28,17 @@
 /// | G-buffer 2      | RGBA8_UNORM   | Roughness, metallic, specular, occlusion            |
 /// | G-buffer 3      | R11G11B10F    | Emissive light                                      |
 /// | depth           | D32           | Reversed depth: 1 at the near plane, 0 far away     |
+/// | ambient occl.   | R8_UNORM      | How much of the light from all around gets through  |
+/// | traced occl.    | RG16_FLOAT    | The same before it is smoothed, and the depth; made |
+/// |                 |               | when ambient occlusion is first drawn, at its size  |
 /// | scene color     | RGBA16_FLOAT  | Linear light, not limited to the range of a display |
 /// | bloom levels    | RGBA16_FLOAT  | rgb: what blooms, blurred; a: log of the brightness |
 /// | exposure, twice | R16_FLOAT     | One texel: the stops automatic exposure adds        |
 /// | display         | RGBA8_UNORM   | sRGB-encoded color, as a screen expects it          |
 ///
-/// The shader side of the G-buffer is shaders/common/GBuffer.slang. The bloom levels and
+/// The shader side of the G-buffer is shaders/common/GBuffer.slang. The ambient
+/// occlusion is what AmbientOcclusionPass makes of the depth and the normals, for the
+/// lighting to read; it means something in a frame in which that pass ran. The bloom levels and
 /// the exposure are what PostProcessPass works with. The exposure is the one thing here
 /// that lasts from frame to frame: a view gets used to light slowly, so each frame
 /// starts from the exposure of the one before.
@@ -98,6 +103,11 @@ public:
 
     [[nodiscard]] nvrhi::ITexture* depth() const { return m_depth; }
 
+    /// How much of the light from all around reaches what each pixel shows: 1 all of
+    /// it, 0 none. It holds what AmbientOcclusionPass last drew; a view that does not
+    /// draw it tells its passes not to read it (SceneView::ambientOcclusion).
+    [[nodiscard]] nvrhi::ITexture* ambientOcclusion() const { return m_ambientOcclusion; }
+
     [[nodiscard]] nvrhi::ITexture* display() const { return m_display; }
 
     /// How many levels the bloom chain has: as many as it takes to get from half the
@@ -145,6 +155,28 @@ public:
     /// The G-buffer targets with depth: what the base pass draws into.
     [[nodiscard]] nvrhi::IFramebuffer* gbufferFramebuffer() const { return m_gbufferFramebuffer; }
 
+    /// The ambient occlusion alone.
+    [[nodiscard]] nvrhi::IFramebuffer* ambientOcclusionFramebuffer() const { return m_ambientOcclusionFramebuffer; }
+
+    /// Makes sure there is an image for the first pass of the ambient occlusion to
+    /// draw into, with a texel for every `divisor` pixels each way (1 to 4): makes it,
+    /// or replaces the one of another size. Fails when the device cannot create it; the
+    /// targets then hold none.
+    [[nodiscard]] Status prepareTracedOcclusion(nvrhi::IDevice* device, uint32_t divisor);
+
+    /// Lets go of that image: for a view that draws no ambient occlusion any more.
+    void releaseTracedOcclusion();
+
+    /// The image prepareTracedOcclusion() made - r: the share of the light that gets
+    /// through, g: the distance from the camera - and the framebuffer that draws into
+    /// it. Null before that call and after releaseTracedOcclusion().
+    [[nodiscard]] nvrhi::ITexture* tracedOcclusion() const { return m_tracedOcclusion; }
+
+    [[nodiscard]] nvrhi::IFramebuffer* tracedOcclusionFramebuffer() const { return m_tracedOcclusionFramebuffer; }
+
+    /// The memory of that image, in bytes: nothing when there is none.
+    [[nodiscard]] uint64_t tracedOcclusionBytes() const;
+
     /// Scene color alone: what the passes that read the depth as a texture draw into,
     /// the lighting first of all.
     [[nodiscard]] nvrhi::IFramebuffer* lightingFramebuffer() const { return m_lightingFramebuffer; }
@@ -174,6 +206,10 @@ private:
     std::array<nvrhi::TextureHandle, kGBufferTargetCount> m_gbuffer;
     nvrhi::TextureHandle m_sceneColor;
     nvrhi::TextureHandle m_depth;
+    nvrhi::TextureHandle m_ambientOcclusion;
+    nvrhi::TextureHandle m_tracedOcclusion;
+    /// The divisor m_tracedOcclusion was made for.
+    uint32_t m_tracedOcclusionDivisor = 0;
     nvrhi::TextureHandle m_display;
     std::array<nvrhi::TextureHandle, kMaxBloomLevels> m_bloom;
     std::array<nvrhi::FramebufferHandle, kMaxBloomLevels> m_bloomFramebuffers;
@@ -186,6 +222,8 @@ private:
     uint64_t m_serial = 0;
     nvrhi::FramebufferHandle m_depthFramebuffer;
     nvrhi::FramebufferHandle m_gbufferFramebuffer;
+    nvrhi::FramebufferHandle m_ambientOcclusionFramebuffer;
+    nvrhi::FramebufferHandle m_tracedOcclusionFramebuffer;
     nvrhi::FramebufferHandle m_lightingFramebuffer;
     nvrhi::FramebufferHandle m_sceneFramebuffer;
     nvrhi::FramebufferHandle m_displayFramebuffer;

@@ -58,6 +58,9 @@ Json describeFrameStatistics(const FrameStatistics& statistics) {
     environment["made"] = statistics.scene.environmentsMade;
     environment["bytes"] = statistics.scene.environmentBytes;
     scene["environment"] = std::move(environment);
+    Json occlusion = Json::object();
+    occlusion["bytes"] = statistics.scene.ambientOcclusionBytes;
+    scene["ambientOcclusion"] = std::move(occlusion);
     Json passes = Json::object();
     passes["shadow"] = describePass(statistics.scene.shadowPass);
     passes["depth"] = describePass(statistics.scene.depthPass);

@@ -117,14 +117,17 @@ void applyRenderQuality(RenderQuality quality, SceneRenderSettings& settings) {
     switch (quality) {
         case RenderQuality::Low:
             settings.shadowQuality = ShadowQuality::Low;
+            settings.screenEffectsQuality = ScreenEffectsQuality::Low;
             settings.postProcessQuality = PostProcessQuality::Low;
             break;
         case RenderQuality::Medium:
             settings.shadowQuality = ShadowQuality::Medium;
+            settings.screenEffectsQuality = ScreenEffectsQuality::Medium;
             settings.postProcessQuality = PostProcessQuality::Medium;
             break;
         case RenderQuality::High:
             settings.shadowQuality = ShadowQuality::High;
+            settings.screenEffectsQuality = ScreenEffectsQuality::High;
             settings.postProcessQuality = PostProcessQuality::High;
             break;
     }
@@ -135,6 +138,7 @@ std::optional<RenderQuality> renderQualityOf(const SceneRenderSettings& settings
         SceneRenderSettings preset;
         applyRenderQuality(quality, preset);
         if (preset.shadowQuality == settings.shadowQuality &&
+            preset.screenEffectsQuality == settings.screenEffectsQuality &&
             preset.postProcessQuality == settings.postProcessQuality) {
             return quality;
         }
@@ -155,6 +159,7 @@ SceneRenderStatistics& SceneRenderStatistics::operator+=(const SceneRenderStatis
     shadowAtlasBytes = std::max(shadowAtlasBytes, other.shadowAtlasBytes);
     environmentsMade += other.environmentsMade;
     environmentBytes = std::max(environmentBytes, other.environmentBytes);
+    ambientOcclusionBytes = std::max(ambientOcclusionBytes, other.ambientOcclusionBytes);
     shadowPass += other.shadowPass;
     depthPass += other.depthPass;
     basePass += other.basePass;
@@ -195,6 +200,7 @@ Result<std::unique_ptr<SceneRenderer>> SceneRenderer::create(nvrhi::IDevice* dev
     CORDITE_TRY_ASSIGN(DisplayEncodePass encode, DisplayEncodePass::create(device, shaders));
     CORDITE_TRY_ASSIGN(ShadowAtlas shadows, ShadowAtlas::create(device, shaders, materialLayout));
     CORDITE_TRY_ASSIGN(EnvironmentMaps environments, EnvironmentMaps::create(device, shaders, assets));
+    CORDITE_TRY_ASSIGN(AmbientOcclusionPass occlusion, AmbientOcclusionPass::create(device, shaders, viewLayout));
     CORDITE_TRY_ASSIGN(PostProcessPass postProcess, PostProcessPass::create(device, shaders));
 
     Passes passes{.depth = std::move(depth),
@@ -207,6 +213,7 @@ Result<std::unique_ptr<SceneRenderer>> SceneRenderer::create(nvrhi::IDevice* dev
                   .encode = std::move(encode),
                   .shadows = std::move(shadows),
                   .environments = std::move(environments),
+                  .occlusion = std::move(occlusion),
                   .postProcess = std::move(postProcess)};
     return std::unique_ptr<SceneRenderer>(new SceneRenderer(device, std::move(resources), std::move(viewBindings),
                                                             std::move(passes), desc.supportsWireframe));
@@ -365,6 +372,27 @@ void SceneRenderer::render(nvrhi::ICommandList* commandList, const World& world,
         debugView = RenderDebugView::None;
     }
 
+    // The look the scene asks for where the view is from: what its picture is finished
+    // with, and what its screen effects are like.
+    const bool isFinished =
+        settings.postProcessQuality != PostProcessQuality::Off && debugView == RenderDebugView::None;
+    const bool needsLook = isFinished || settings.screenEffectsQuality != ScreenEffectsQuality::Off;
+    PostProcessSettings look;
+    if (settings.postProcess) {
+        look = sanitized(*settings.postProcess);
+    } else if (needsLook) {
+        look = sanitized(resolvePostProcess(world, {.position = view.position, .camera = settings.viewEntity}));
+    }
+
+    // Ambient occlusion keeps light from all around away: where there is none of that,
+    // there is nothing to work out - unless it is itself what the view shows.
+    const AmbientOcclusionSettings occlusion = ambientOcclusionSettingsFor(look, settings.screenEffectsQuality);
+    const bool hasLightFromAround = environment != nullptr && surroundings.intensity > 0.0f;
+    const bool hasAmbientLight = m_lights.skyColor() != Vec3(0.0f) || m_lights.groundColor() != Vec3(0.0f);
+    const bool isLit = debugView == RenderDebugView::None || debugView == RenderDebugView::LightingOnly;
+    const bool drawsOcclusion = occlusion.isEnabled() && (debugView == RenderDebugView::AmbientOcclusion ||
+                                                          (isLit && (hasLightFromAround || hasAmbientLight)));
+
     // The shadows of those lights: planned for every view, drawn for the views that
     // are lit - the others show something else in place of the light.
     const ShadowSettings shadowSettings = shadowSettingsFor(settings.shadowQuality);
@@ -378,7 +406,8 @@ void SceneRenderer::render(nvrhi::ICommandList* commandList, const World& world,
         {.camera = view,
          .targetSize = targets.size(),
          .skyColor = m_lights.skyColor(),
-         .groundColor = m_lights.groundColor()},
+         .groundColor = m_lights.groundColor(),
+         .ambientOcclusion = drawsOcclusion},
         m_clusters,
         {.plan = &m_shadowPlan, .atlas = m_passes.shadows.texture(), .filterRadius = shadowSettings.filterRadius},
         // An environment whose image cannot be used lights nothing.
@@ -405,6 +434,19 @@ void SceneRenderer::render(nvrhi::ICommandList* commandList, const World& world,
                                                      viewBindings, instances);
         m_statistics.basePass = m_passes.base.draw(commandList, targets.gbufferFramebuffer(), m_drawList.solidBatches(),
                                                    viewBindings, instances);
+        if (!occlusion.isEnabled()) {
+            // A view that is to have none gives back what it was worked out in.
+            targets.releaseTracedOcclusion();
+        }
+        if (drawsOcclusion) {
+            const uint32_t passes = m_passes.occlusion.draw(commandList, targets, viewBindings, occlusion);
+            if (passes == 0) {
+                // It could not be drawn, and has said so; the lighting reads it all
+                // the same, and is to find nothing in the light's way.
+                commandList->clearTextureFloat(targets.ambientOcclusion(), nvrhi::AllSubresources, nvrhi::Color(1.0f));
+            }
+            m_statistics.screenPasses += passes;
+        }
         if (isDrawnFromGBuffer(debugView)) {
             m_passes.debugView.draw(commandList, targets, viewBindings, debugView);
         } else {
@@ -416,11 +458,7 @@ void SceneRenderer::render(nvrhi::ICommandList* commandList, const World& world,
                                                              m_drawList.blendedBatches(), viewBindings, instances);
         }
     }
-    if (settings.postProcessQuality != PostProcessQuality::Off && debugView == RenderDebugView::None) {
-        const PostProcessSettings look =
-            settings.postProcess
-                ? *settings.postProcess
-                : resolvePostProcess(world, {.position = view.position, .camera = settings.viewEntity});
+    if (isFinished) {
         // A lookup table that is used for the first time goes to the GPU now.
         nvrhi::ITexture* colorLut = m_resources->dataTexture(look.colorLut);
         m_resources->flushUploads();
@@ -436,6 +474,7 @@ void SceneRenderer::render(nvrhi::ICommandList* commandList, const World& world,
 
     m_statistics.views = 1;
     m_statistics.shadowAtlasBytes = m_passes.shadows.byteSize();
+    m_statistics.ambientOcclusionBytes = targets.tracedOcclusionBytes();
     m_statistics.meshes = m_statistics.shadowPass;
     m_statistics.meshes += m_statistics.depthPass;
     m_statistics.meshes += m_statistics.basePass;

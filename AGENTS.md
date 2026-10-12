@@ -129,7 +129,7 @@ by accident.
 | `rhi` | `core`, `math`, `platform` | Vulkan device, swapchain and texture readback over NVRHI |
 | `shaders` | `core` | Shader requests and permutation keys, disk cache, `ShaderLibrary` |
 | `shader_compiler` | `core`, `shaders` | Slang to SPIR-V compiler (not linked into exported games) |
-| `renderer` | `core`, `math`, `assets`, `world`, `rhi`, `shaders` | The scene renderer and what it is made of: GPU copies of assets, the mesh passes, the G-buffer and its lighting, the lights of a world and the clusters they are sorted into, their shadow maps and the atlas those share, what finishes the picture (exposure, bloom, tone mapping, grading), the environment (the sky and what it lights), the debug views, scene targets, the `MeshRenderer`, `Light`, `AmbientLight`, `Environment` and `PostProcess` components; camera views, debug lines, GPU timing, GPU shader management |
+| `renderer` | `core`, `math`, `assets`, `world`, `rhi`, `shaders` | The scene renderer and what it is made of: GPU copies of assets, the mesh passes, the G-buffer and its lighting, the lights of a world and the clusters they are sorted into, their shadow maps and the atlas those share, what finishes the picture (exposure, bloom, tone mapping, grading), the environment (the sky and what it lights), ambient occlusion from the screen, the debug views, scene targets, the `MeshRenderer`, `Light`, `AmbientLight`, `Environment` and `PostProcess` components; camera views, debug lines, GPU timing, GPU shader management |
 | `ui` | `core`, `math`, `platform`, `rhi`, `shaders`, `renderer` | The immediate-mode interface: the Dear ImGui context and its NVRHI renderer |
 | `engine` | all of the above | `Engine`: owns the subsystems, the assets, the world and the interface, and runs the frame loop; projects; placing models; checking the assets a scene uses |
 | `editor` | `engine` and below | The editor: the scene document, undoable actions, scene and asset commands, panels, `EditorApp` (not linked into exported games) |
@@ -266,12 +266,12 @@ Vulkan directly. Step-by-step guide for adding a pass:
   frame's interface has been rendered: ImGui only remembers a pointer. Replace such a
   texture before the widget that shows it, never after.
 - **Meshes are drawn by `SceneRenderer`**, into a `SceneTargets` per view, in this
-  order: shadow maps, depth pre-pass, base pass (fills the G-buffer), deferred lighting,
-  forward pass, post-processing. Solid surfaces - opaque and masked - go through the
-  G-buffer; only translucent ones are drawn forward. Front faces wind counter-clockwise;
-  depth is reversed. Draws that share mesh, submesh and material are instanced, and sorted by
-  the serial numbers of their GPU resources, never by address, so that two runs issue
-  the same draw calls in the same order (`MeshDrawList`).
+  order: shadow maps, depth pre-pass, base pass (fills the G-buffer), ambient occlusion,
+  deferred lighting, forward pass, post-processing. Solid surfaces - opaque and masked -
+  go through the G-buffer; only translucent ones are drawn forward. Front faces wind
+  counter-clockwise; depth is reversed. Draws that share mesh, submesh and material are
+  instanced, and sorted by the serial numbers of their GPU resources, never by address,
+  so that two runs issue the same draw calls in the same order (`MeshDrawList`).
 - **A pass that draws meshes is a `MeshPassDesc`**, not a new class: `MeshPass` owns
   what such passes share. All of them use the one vertex shader in
   `passes/MeshVertex.slang`. That is not a convenience: the base pass keeps only pixels
@@ -284,7 +284,8 @@ Vulkan directly. Step-by-step guide for adding a pass:
   environment of `common/Environment.slang` at `t5`, `t6`, `s1` and `s2`), space 1 the
   material's in a mesh pass (`materials/Material.slang`; call `evaluateSurface`, never
   sample material textures directly) or the G-buffer's in a pass that reads it
-  (`GBufferBindings`). The C++ side of the constants is `ViewConstants.h`.
+  (`GBufferBindings`: its four targets, the depth, and the ambient occlusion at `t5`).
+  The C++ side of the constants is `ViewConstants.h`.
 - **The G-buffer layout is written down twice**: `common/GBuffer.slang` and
   `GBufferTarget` in `SceneTargets.h`. Change both, and only through
   `encodeGBuffer`/`decodeGBuffer`; `SceneRendererTests` checks every channel through
@@ -387,7 +388,23 @@ Vulkan directly. Step-by-step guide for adding a pass:
   `SceneTargets`: the exposure a view has got used to is kept there, and is gone when
   the view changes its size. What a pass keeps for a view - `PostProcessPass` its
   binding sets - goes by `SceneTargets::serial()`, and is dropped when that has not
-  been drawn for a while.
+  been drawn for a while. That is for what costs nothing to keep. An image as large as
+  the view is one of the view's targets, made when it is first needed
+  (`SceneTargets::prepareTracedOcclusion`): kept by a pass, the images of every size a
+  viewport went through while it was dragged larger would wait there to be dropped.
+- **Ambient occlusion is worked out from the screen** (`AmbientOcclusionPass`), between
+  the base pass and the lighting, and dims the light from all around - ambient lights
+  and the environment - and nothing else: it multiplies the occlusion of the surface
+  that `shadeSurroundings` takes into account. Its arithmetic is written down twice,
+  in `AmbientOcclusion.cpp` and in `common/AmbientOcclusion.slang`; tests hold the
+  first against cases with a known answer, and the pictures against the first with a
+  wall given as a formula (`Reference` in `AmbientOcclusionTests.cpp`). What stands in
+  the light is measured by how far it rises above the plane of the surface
+  (`riseAboveSurface`), never from the direction to the viewer alone: a flat surface
+  must come out with all its light, at any angle, without a bias to hide behind.
+  What it looks like is the scene's to say (`PostProcess`: intensity, radius, bias);
+  what it costs is the view's (`ScreenEffectsQuality`). Surfaces drawn forward get
+  none: they are not in the depth buffer.
 - **The renderer has no clock.** What takes time (exposure getting used to light) or
   changes with it (film grain) is told how much has passed and what time it is, in
   `SceneRenderSettings`. `Engine::drawWorld` fills that in; with a fixed time step
@@ -749,3 +766,17 @@ body explaining what changed and why. One logical change per commit.
   reports and a test that draws a few frames first never sees. Fill such a texture
   with `writeTexture`. The test fixtures take their GPU objects down without waiting
   and check validation after, to catch the next one.
+- A depth buffer is read at the middles of pixels, which are seldom where a walk
+  across the screen wants them. Ambient occlusion that takes them as if they were
+  finds a floor seen at a low angle standing in its own light - by four percent at six
+  degrees, with noise - because a step to the side on the screen is a long way along
+  such a floor. No bias fixes that. Measure what was found from the surface's own
+  plane instead (`riseAboveSurface`), which is nothing for anything on the plane.
+- With nothing in the way, a slice of the ambient occlusion does not let through 1
+  but more the further the normal leans (`openSliceVisibility`); only all slices
+  together average 1. A pixel asks two or three: divide what gets through by what an
+  open sky would give through the same slices.
+- A test's own geometry can be wrong. The first reference for a wall forgot that a
+  plane cuts a slice on both sides of the viewer, and "proved" the arithmetic wrong
+  by a fifth. When a model and a formula disagree, check the test's drawing of the
+  scene before either.

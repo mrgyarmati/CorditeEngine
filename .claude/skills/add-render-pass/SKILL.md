@@ -180,6 +180,14 @@ Texture2D<float4> sceneDepth : register(t4, space1);
   `decodeGBuffer` turns the four values into a `Surface`, and
   `worldPositionFromDepth` gives its position.
 - Skip pixels whose depth is 0 - nothing was drawn there.
+- The set also holds the ambient occlusion of the view (`t5`). It means something
+  only when `screenOcclusion` of the view's constants is 1: ask before reading it. A
+  pass that draws into it, or into anything else of that set, needs a set of its own
+  without it (`AmbientOcclusionPass`).
+- A pass that needs an image of its own for every view - a smaller copy, a half-way
+  result - asks the view's `SceneTargets` for it (`prepareTracedOcclusion` is the
+  example) and keeps nothing itself. The image then goes when the view is resized,
+  not sixty frames later.
 - Draw into `targets.lightingFramebuffer()`. A framebuffer with the depth attached
   cannot be used while the depth is being read as a texture.
 - Anything that lights a surface calls `shadeSurface` (`common/SceneLighting.slang`),

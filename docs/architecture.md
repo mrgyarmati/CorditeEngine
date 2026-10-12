@@ -37,7 +37,7 @@ of slowly turning the code base into a ball of mud.
 | `rhi` | `core`, `math`, `platform` | The GPU: Vulkan instance and device creation, the NVRHI device the renderer programs against, the swapchain, and texture readback. The only module that calls Vulkan. |
 | `shaders` | `core` | What a shader *is* to the engine: requests and their permutation keys, compiled binaries, the on-disk cache, and the `ShaderLibrary` that resolves a request from memory, disk or a compiler. |
 | `shader_compiler` | `core`, `shaders` | The Slang-based implementation of `IShaderCompiler`. Kept separate so exported games do not link a compiler. |
-| `renderer` | `core`, `math`, `assets`, `world`, `rhi`, `shaders` | Drawing: the scene renderer and its passes (depth, G-buffer, deferred lighting, forward, debug views), the GPU copies of assets it draws with, the targets of a view, the components that make an entity visible or make it a light, the lights of a world sorted into the clusters of a view, the environment that surrounds a world made ready to light it; the view a camera gives, debug line drawing, and the `ShaderManager` that turns shader binaries into GPU shader objects. |
+| `renderer` | `core`, `math`, `assets`, `world`, `rhi`, `shaders` | Drawing: the scene renderer and its passes (depth, G-buffer, deferred lighting, forward, debug views), the GPU copies of assets it draws with, the targets of a view, the components that make an entity visible or make it a light, the lights of a world sorted into the clusters of a view, the environment that surrounds a world made ready to light it, ambient occlusion worked out from the screen; the view a camera gives, debug line drawing, and the `ShaderManager` that turns shader binaries into GPU shader objects. |
 | `ui` | `core`, `math`, `platform`, `rhi`, `shaders`, `renderer` | The immediate-mode user interface: the Dear ImGui context, its input, and the renderer that draws it with NVRHI. |
 | `engine` | all of the above | `Engine`: creates and owns the subsystems, the assets, the world and the interface, and runs the frame loop. Also what needs several of the modules below at once: projects, placing a model in a world, checking the assets a scene refers to. |
 | `editor` | `engine` and below | The editor: the scene document, undoable actions, the command registry, the panels, and `EditorApp`. Not part of exported games. |
@@ -122,9 +122,10 @@ solid surfaces ──> depth pre-pass ──> depth
                ──> base pass      ──> G-buffer: base color and lighting channels, normal,
                                                roughness / metallic / specular / occlusion,
                                                emissive
+depth + normals ──> ambient occlusion, traced ──> ambient occlusion: how much light from all around gets through
 image of the sky ──> (when first used) nine spherical harmonics: what it lights matte surfaces with
                  ──> (when first used) a cube map, blurred level by level: what surfaces reflect
-G-buffer + depth + clusters + shadow atlas + environment ──> deferred lighting ──> scene color (linear, float)
+G-buffer + depth + clusters + shadow atlas + environment + ambient occlusion ──> deferred lighting ──> scene color (linear, float)
                                                              and the sky, where nothing was drawn
 translucent surfaces + clusters + shadow atlas + environment ──> forward pass ──> scene color, blended over it
 scene color ──> bloom levels, down ──> exposure: how many stops the view adds
@@ -165,9 +166,10 @@ looks a surface up in them to find out how much of each light reaches it.
 
 A debug view (`RenderDebugView`) replaces the lighting, or the passes altogether, by a
 picture of something the renderer works with: a channel of the G-buffer, how many
-lights each pixel asks, which cascade of the sun's shadow it is looked up in, the light
-without the materials, what the surroundings give every surface to reflect, the edges
-of the triangles, how often each pixel is drawn.
+lights each pixel asks, which cascade of the sun's shadow it is looked up in, how much
+of the light from all around gets to each surface, the light without the materials,
+what the surroundings give every surface to reflect, the edges of the triangles, how
+often each pixel is drawn.
 
 ### The editor
 
@@ -668,6 +670,46 @@ levels of a cube map would then spread.
 The same limit is why whatever writes scene color cuts off at 65504 itself
 (`storableLight`): what a GPU stores for more is its own choice, and the ones that
 store infinity turn it into "not a number" in the first pass that blurs.
+
+### Ambient occlusion is measured from the surface, in slices
+
+Light from all around reaches a point from the half of the world it faces, less what
+stands in the way. How much less is worked out from the depth buffer, the way of
+"ground truth ambient occlusion" (Jimenez et al., 2016): the half sphere above a point
+is cut into slices that all contain the line to the viewer; in each, the depth buffer
+is walked both ways and the steepest thing met is the horizon of that side; what comes
+in between two horizons, weighted by how squarely it falls on the surface, has a
+closed form. That gives numbers that mean something - at the foot of a wall a floor
+gets half its light, beside a ramp half of one plus a cosine - which is what the
+tests hold it to, and why it was chosen over the older ways of counting how many
+random points around a pixel lie behind the depth buffer.
+
+Three things are this engine's own:
+
+- **What is met is measured from the plane of the surface**, not from the direction to
+  the viewer. The depth buffer can only be read at the middles of pixels, and those
+  are seldom in the slice that is being walked. Taken as if they were, a floor seen
+  at a low angle finds itself in its own light - a step sideways on the screen is a
+  long way along such a floor - and no bias mends it. Measured by how far it rises
+  above the surface's plane, in the slice it really is in, a pixel of the same plane
+  rises by nothing, wherever it is. Where what is met does lie in the slice, the two
+  ways give the same number.
+- **What gets through is divided by what an open sky would give through the same
+  slices.** A pixel asks two or three slices of the endless many, and an open slice
+  lets through more the further the normal leans in it; only all of them together
+  average one. Without the division an open, tilted surface would flicker around one.
+- **A second pass makes a value for every pixel**, from what the pixels around found
+  on the same surface: each pixel looks in other directions than its neighbours, and
+  at the lower qualities only one in four looks at all. "The same surface" is judged
+  by the depth the pixel's own surface would have there, so that the darkness under a
+  crate does not creep up its side.
+
+Only light from all around is dimmed - ambient lights and the environment. The light
+of a lamp is kept away by a shadow or not at all; dimming it in corners as well is how
+the first games with this effect got their dirty look, and can be had by raising the
+intensity. What it looks like - intensity, radius, bias - belongs to the look of a
+scene and is set with its PostProcess components; what it costs is one of three
+qualities of a view, with the shadows and the finishing of the picture.
 
 ### All shadow maps of a view share one atlas
 

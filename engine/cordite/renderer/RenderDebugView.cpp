@@ -28,6 +28,8 @@ std::string_view nameOf(RenderDebugView view) {
             return "lightCount";
         case RenderDebugView::ShadowCascades:
             return "shadowCascades";
+        case RenderDebugView::AmbientOcclusion:
+            return "ambientOcclusion";
         case RenderDebugView::LightingOnly:
             return "lightingOnly";
         case RenderDebugView::Reflections:
@@ -64,6 +66,8 @@ std::string_view displayNameOf(RenderDebugView view) {
             return "Light count";
         case RenderDebugView::ShadowCascades:
             return "Shadow cascades";
+        case RenderDebugView::AmbientOcclusion:
+            return "Ambient occlusion";
         case RenderDebugView::LightingOnly:
             return "Lighting only";
         case RenderDebugView::Reflections:

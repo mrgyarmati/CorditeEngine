@@ -139,6 +139,7 @@ TEST_SUITE("Performance") {
         checkBudget(budgets, "shadowMaps", statistics.scene.shadowMaps);
         checkBudget(budgets, "shadowAtlasBytes", static_cast<double>(statistics.scene.shadowAtlasBytes));
         checkBudget(budgets, "environmentBytes", static_cast<double>(statistics.scene.environmentBytes));
+        checkBudget(budgets, "ambientOcclusionBytes", static_cast<double>(statistics.scene.ambientOcclusionBytes));
         checkBudget(budgets, "meshBytes", static_cast<double>(statistics.resources.meshBytes));
         checkBudget(budgets, "textureBytes", static_cast<double>(statistics.resources.textureBytes));
 

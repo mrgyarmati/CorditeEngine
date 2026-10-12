@@ -53,6 +53,10 @@ enum class RenderDebugView : uint8_t {
     /// Which cascade of the sun's shadow each pixel is looked up in: red, green, blue
     /// and yellow from the nearest on; grey where the sun casts no shadow.
     ShadowCascades,
+    /// How much of the light from all around gets to each surface past what stands
+    /// around it, as worked out from the screen: white is all of it. (Occlusion, above,
+    /// is what the materials say about themselves.)
+    AmbientOcclusion,
 
     /// The light alone: every surface a plain matte grey. Translucent surfaces are left out.
     LightingOnly,
@@ -66,12 +70,13 @@ enum class RenderDebugView : uint8_t {
     Overdraw,
 };
 
-inline constexpr std::array<RenderDebugView, 15> kRenderDebugViews = {
-    RenderDebugView::None,        RenderDebugView::BaseColor,      RenderDebugView::Normals,
-    RenderDebugView::Roughness,   RenderDebugView::Metallic,       RenderDebugView::Specular,
-    RenderDebugView::Occlusion,   RenderDebugView::Emissive,       RenderDebugView::Depth,
-    RenderDebugView::LightCount,  RenderDebugView::ShadowCascades, RenderDebugView::LightingOnly,
-    RenderDebugView::Reflections, RenderDebugView::Wireframe,      RenderDebugView::Overdraw,
+inline constexpr std::array<RenderDebugView, 16> kRenderDebugViews = {
+    RenderDebugView::None,         RenderDebugView::BaseColor,      RenderDebugView::Normals,
+    RenderDebugView::Roughness,    RenderDebugView::Metallic,       RenderDebugView::Specular,
+    RenderDebugView::Occlusion,    RenderDebugView::Emissive,       RenderDebugView::Depth,
+    RenderDebugView::LightCount,   RenderDebugView::ShadowCascades, RenderDebugView::AmbientOcclusion,
+    RenderDebugView::LightingOnly, RenderDebugView::Reflections,    RenderDebugView::Wireframe,
+    RenderDebugView::Overdraw,
 };
 
 /// The name used in files and by tools: "none", "baseColor", "lightingOnly", "reflections", ...
@@ -84,9 +89,9 @@ std::string_view displayNameOf(RenderDebugView view);
 [[nodiscard]] std::optional<RenderDebugView> renderDebugViewFromName(std::string_view name);
 
 /// True for the views that are drawn from the G-buffer and the depth, in place of the
-/// lighting: BaseColor to ShadowCascades.
+/// lighting: BaseColor to AmbientOcclusion.
 [[nodiscard]] constexpr bool isDrawnFromGBuffer(RenderDebugView view) {
-    return view >= RenderDebugView::BaseColor && view <= RenderDebugView::ShadowCascades;
+    return view >= RenderDebugView::BaseColor && view <= RenderDebugView::AmbientOcclusion;
 }
 
 } // namespace cordite

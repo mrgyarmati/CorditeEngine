@@ -100,6 +100,7 @@ cordite_add_test_suite(shaders
 # components, and the lights of a world and the clusters they are sorted into.
 cordite_add_test_suite(renderer
     SOURCES
+        unit/renderer/AmbientOcclusionTests.cpp
         unit/renderer/CameraViewTests.cpp
         unit/renderer/DebugDrawTests.cpp
         unit/renderer/EnvironmentLightTests.cpp
@@ -156,6 +157,7 @@ cordite_add_test_suite(shader_compiler
 # Everything below renders on a real Vulkan device.
 cordite_add_test_suite(render
     SOURCES
+        render/AmbientOcclusionTests.cpp
         render/DebugLineTests.cpp
         render/EditorAppTests.cpp
         render/EngineTests.cpp
@@ -179,7 +181,10 @@ cordite_add_test_suite(render
     LIBRARIES
         cordite::editor
     LABELS
-        gpu)
+        gpu
+    # Every rendering feature adds to this suite, and each of its tests starts a device
+    # and a renderer of its own: in a Debug build it runs for more than five minutes.
+    TIMEOUT 900)
 
 # Measures what the scenarios cost - the showcase, a scene full of lights - writes it to
 # tests/perf/output/ and checks it against tests/perf/budgets.json. See the comment at

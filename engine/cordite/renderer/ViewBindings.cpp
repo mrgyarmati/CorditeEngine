@@ -232,6 +232,7 @@ void ViewBindings::update(nvrhi::ICommandList* commandList, const SceneView& vie
     constants.clusterDepthScale = lights.depthMapping.scale;
     constants.groundColor = view.groundColor;
     constants.clusterDepthBias = lights.depthMapping.bias;
+    constants.screenOcclusion = view.ambientOcclusion ? 1.0f : 0.0f;
     constants.targetSize = size;
     constants.inverseTargetSize = 1.0f / size;
     if (hasShadows) {

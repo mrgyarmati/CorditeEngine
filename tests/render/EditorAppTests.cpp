@@ -542,9 +542,15 @@ TEST_SUITE("EditorApp") {
         // Three cascades for the sun, one map for the lamp, six for the wall light.
         CHECK(scene["shadows"]["maps"] == 10);
         CHECK(scene["shadows"]["lightsWithout"] == 0);
-        // Passes over the whole picture: the lighting, and what finishes the picture as
-        // the showcase says - five levels of bloom down and up, the exposure, the last.
-        CHECK(scene["screenPasses"] == 12);
+        // Passes over the whole picture: the two of the ambient occlusion, the lighting,
+        // and what finishes the picture as the showcase says - five levels of bloom down
+        // and up, the exposure, the last.
+        CHECK(scene["screenPasses"] == 14);
+        // The ambient occlusion is worked out for one pixel in four of the viewport, in
+        // two half floats each.
+        const UVec2 viewportSize = editor->viewport().targets().size();
+        CHECK(scene["ambientOcclusion"]["bytes"] ==
+              uint64_t{(viewportSize.x + 1) / 2} * ((viewportSize.y + 1) / 2) * 4);
         // The atlas of the medium quality: 4096 texels a side, four bytes each.
         CHECK(scene["shadows"]["atlasBytes"] == 67108864);
         // The cube map of the showcase's sky, made in the first frame and in no frame
@@ -623,11 +629,14 @@ TEST_SUITE("EditorApp") {
         Json answer = run(*editor, "viewport.quality");
         CHECK(answer["preset"] == "medium");
         CHECK(answer["shadows"] == "medium");
+        CHECK(answer["effects"] == "medium");
         CHECK(answer["postProcess"] == "medium");
         CHECK(answer["presets"] == json(R"(["low", "medium", "high"])"));
         CHECK(answer["shadowQualities"] == json(R"(["off", "low", "medium", "high"])"));
+        CHECK(answer["effectsQualities"] == json(R"(["off", "low", "medium", "high"])"));
         CHECK(answer["postProcessQualities"] == json(R"(["off", "low", "medium", "high"])"));
         CHECK(editor->viewport().shadowQuality() == ShadowQuality::Medium);
+        CHECK(editor->viewport().screenEffectsQuality() == ScreenEffectsQuality::Medium);
         CHECK(editor->viewport().postProcessQuality() == PostProcessQuality::Medium);
         const Image medium = unwrap(editor->captureViewport(UVec2(320, 180)));
 
@@ -649,6 +658,7 @@ TEST_SUITE("EditorApp") {
             answer = run(*editor, "viewport.quality", fmt::format(R"({{"preset": "{}"}})", preset));
             CHECK(answer["preset"] == std::string(preset));
             CHECK(answer["shadows"] == std::string(preset));
+            CHECK(answer["effects"] == std::string(preset));
             CHECK(answer["postProcess"] == std::string(preset));
             const Image shown = unwrap(editor->captureViewport(UVec2(320, 180)));
             const ImageComparison difference =
@@ -665,15 +675,29 @@ TEST_SUITE("EditorApp") {
         const Image unfinished = unwrap(editor->captureViewport(UVec2(320, 180)));
         CHECK(unwrap(compareImages(medium, unfinished, {.channelTolerance = 16})).differingPixels > 5000);
 
+        // Without the screen effects the corners of the scene are a little lighter: the
+        // light from the sky is kept out of them no longer.
+        run(*editor, "viewport.quality", R"({"preset": "medium"})");
+        answer = run(*editor, "viewport.quality", R"({"effects": "off"})");
+        CHECK(answer["effects"] == "off");
+        CHECK(answer["shadows"] == "medium");
+        CHECK(answer["preset"].is_null());
+        CHECK(editor->viewport().screenEffectsQuality() == ScreenEffectsQuality::Off);
+        const Image withoutEffects = unwrap(editor->captureViewport(UVec2(320, 180)));
+        CHECK(unwrap(compareImages(medium, withoutEffects, {.channelTolerance = 3})).differingPixels > 200);
+        CHECK(unwrap(compareImages(medium, withoutEffects, {.channelTolerance = 40})).differingPixels == 0);
+
         // A preset and single settings in one call: the preset first, then the rest.
         answer = run(*editor, "viewport.quality", R"({"preset": "high", "shadows": "LOW"})");
         CHECK(answer["shadows"] == "low");
+        CHECK(answer["effects"] == "high");
         CHECK(answer["postProcess"] == "high");
         CHECK(answer["preset"].is_null());
 
         // An unknown name is refused, and then nothing of the call is applied.
         for (const char* parameters :
              {R"({"preset": "ultra"})", R"({"shadows": "ultra"})", R"({"postProcess": "ultra"})",
+              R"({"effects": "ultra"})", R"({"effects": "off", "shadows": "ultra"})",
               R"({"preset": "medium", "postProcess": "ultra"})", R"({"shadows": "off", "postProcess": "ultra"})"}) {
             CAPTURE(std::string(parameters));
             const Result<Json> unknown = editor->commands().execute("viewport.quality", json(parameters));
@@ -681,6 +705,7 @@ TEST_SUITE("EditorApp") {
             CHECK(unknown.error().code == ErrorCode::InvalidArgument);
             CHECK(unknown.error().message.find("ultra") != std::string::npos);
             CHECK(editor->viewport().shadowQuality() == ShadowQuality::Low);
+            CHECK(editor->viewport().screenEffectsQuality() == ScreenEffectsQuality::High);
             CHECK(editor->viewport().postProcessQuality() == PostProcessQuality::High);
         }
         checkNoValidationIssues(editor->engine().graphics());

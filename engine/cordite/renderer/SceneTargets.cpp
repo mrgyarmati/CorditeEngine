@@ -84,7 +84,9 @@ Result<SceneTargets> SceneTargets::create(nvrhi::IDevice* device, UVec2 size, st
         createTexture(device, size, nvrhi::Format::D32, name + " depth", nvrhi::ResourceStates::DepthWrite);
     targets.m_display = createTexture(device, size, nvrhi::Format::RGBA8_UNORM, name + " display",
                                       nvrhi::ResourceStates::ShaderResource);
-    if (!created || !targets.m_sceneColor || !targets.m_depth || !targets.m_display) {
+    targets.m_ambientOcclusion = createTexture(device, size, nvrhi::Format::R8_UNORM, name + " ambient occlusion",
+                                               nvrhi::ResourceStates::ShaderResource);
+    if (!created || !targets.m_sceneColor || !targets.m_depth || !targets.m_display || !targets.m_ambientOcclusion) {
         return makeError(ErrorCode::DeviceError, "cannot create the {}x{} textures of '{}'", size.x, size.y, name);
     }
 
@@ -97,6 +99,8 @@ Result<SceneTargets> SceneTargets::create(nvrhi::IDevice* device, UVec2 size, st
     targets.m_depthFramebuffer =
         device->createFramebuffer(nvrhi::FramebufferDesc().setDepthAttachment(targets.m_depth));
     targets.m_gbufferFramebuffer = device->createFramebuffer(gbufferDesc);
+    targets.m_ambientOcclusionFramebuffer =
+        device->createFramebuffer(nvrhi::FramebufferDesc().addColorAttachment(targets.m_ambientOcclusion));
     targets.m_lightingFramebuffer =
         device->createFramebuffer(nvrhi::FramebufferDesc().addColorAttachment(targets.m_sceneColor));
     targets.m_sceneFramebuffer = device->createFramebuffer(
@@ -105,8 +109,9 @@ Result<SceneTargets> SceneTargets::create(nvrhi::IDevice* device, UVec2 size, st
         device->createFramebuffer(nvrhi::FramebufferDesc().addColorAttachment(targets.m_display));
     targets.m_overlayFramebuffer = device->createFramebuffer(
         nvrhi::FramebufferDesc().addColorAttachment(targets.m_display).setDepthAttachment(targets.m_depth));
-    if (!targets.m_depthFramebuffer || !targets.m_gbufferFramebuffer || !targets.m_lightingFramebuffer ||
-        !targets.m_sceneFramebuffer || !targets.m_displayFramebuffer || !targets.m_overlayFramebuffer) {
+    if (!targets.m_depthFramebuffer || !targets.m_gbufferFramebuffer || !targets.m_ambientOcclusionFramebuffer ||
+        !targets.m_lightingFramebuffer || !targets.m_sceneFramebuffer || !targets.m_displayFramebuffer ||
+        !targets.m_overlayFramebuffer) {
         return makeError(ErrorCode::DeviceError, "cannot create the framebuffers of '{}'", name);
     }
 
@@ -143,6 +148,55 @@ Result<SceneTargets> SceneTargets::create(nvrhi::IDevice* device, UVec2 size, st
     static std::atomic<uint64_t> nextSerial{1};
     targets.m_serial = nextSerial.fetch_add(1);
     return targets;
+}
+
+Status SceneTargets::prepareTracedOcclusion(nvrhi::IDevice* device, uint32_t divisor) {
+    CORDITE_ASSERT(isValid() && device != nullptr && divisor >= 1 && divisor <= 4,
+                   "the traced occlusion needs valid targets, a device and a divisor from 1 to 4");
+    if (!isValid() || device == nullptr || divisor < 1 || divisor > 4) {
+        return makeError(ErrorCode::InvalidArgument,
+                         "the traced occlusion needs valid targets, a device and a divisor from 1 to 4");
+    }
+    if (m_tracedOcclusion && m_tracedOcclusionDivisor == divisor) {
+        return {};
+    }
+    releaseTracedOcclusion();
+
+    // A texel for every block of pixels, the last of which may hang over the edge.
+    const UVec2 size = (m_size + UVec2(divisor - 1)) / divisor;
+    nvrhi::TextureHandle traced =
+        createTexture(device, size, nvrhi::Format::RG16_FLOAT, m_debugName + " traced occlusion",
+                      nvrhi::ResourceStates::ShaderResource);
+    nvrhi::FramebufferHandle framebuffer;
+    if (traced) {
+        framebuffer = device->createFramebuffer(nvrhi::FramebufferDesc().addColorAttachment(traced));
+    }
+    if (!framebuffer) {
+        return makeError(ErrorCode::DeviceError,
+                         "cannot create the {}x{} image the ambient occlusion of '{}' is "
+                         "worked out in",
+                         size.x, size.y, m_debugName);
+    }
+    m_tracedOcclusion = std::move(traced);
+    m_tracedOcclusionFramebuffer = std::move(framebuffer);
+    m_tracedOcclusionDivisor = divisor;
+    return {};
+}
+
+void SceneTargets::releaseTracedOcclusion() {
+    // What a command list on its way still draws into is kept alive by that list.
+    m_tracedOcclusionFramebuffer = nullptr;
+    m_tracedOcclusion = nullptr;
+    m_tracedOcclusionDivisor = 0;
+}
+
+uint64_t SceneTargets::tracedOcclusionBytes() const {
+    if (!m_tracedOcclusion) {
+        return 0;
+    }
+    // Two half floats a texel.
+    const nvrhi::TextureDesc& desc = m_tracedOcclusion->getDesc();
+    return uint64_t{desc.width} * desc.height * 4;
 }
 
 nvrhi::ITexture* SceneTargets::bloomLevel(uint32_t level) const {

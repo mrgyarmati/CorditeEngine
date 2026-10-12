@@ -20,6 +20,7 @@ Texture2D<float4> gbufferNormal : register(t1, space1);
 Texture2D<float4> gbufferParameters : register(t2, space1);
 Texture2D<float4> gbufferEmissive : register(t3, space1);
 Texture2D<float4> sceneDepth : register(t4, space1);
+Texture2D<float4> ambientOcclusion : register(t5, space1);
 
 // The direction in which the surface drawn in a pixel runs along one axis of the
 // screen: from the pixel one step back along `axis` to the pixel one step on, in the
@@ -94,6 +95,12 @@ float4 deferredLightingPixel(FullscreenVaryings input) : SV_Target0
     const float3 position = worldPositionFromDepth(uv, depth, inverseViewProjection);
     Surface surface = decodeGBuffer(gbufferBaseColor.Load(pixel), gbufferNormal.Load(pixel).xy,
                                     gbufferParameters.Load(pixel), gbufferEmissive.Load(pixel).rgb, position);
+    // What stands around the surface keeps part of the light from all around away from
+    // it, as the material's own occlusion does (passes/AmbientOcclusion.slang).
+    if (screenOcclusion > 0.5)
+    {
+        surface.occlusion *= ambientOcclusion.Load(pixel).r;
+    }
     // Shadows alone are looked up with the surface's own normal; a view without any
     // does not go looking for it.
     if (shadowViewCount > 0)

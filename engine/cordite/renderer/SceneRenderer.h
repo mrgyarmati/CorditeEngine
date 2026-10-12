@@ -26,6 +26,7 @@
 /// | Shadow pass       | What casts shadows, as the lights see it | the shadow atlas     |
 /// | Depth pre-pass    | Solid surfaces: opaque and masked        | depth                |
 /// | Base pass         | The same, where they are the nearest     | the G-buffer         |
+/// | Ambient occlusion | Two triangles (AmbientOcclusionPass.h)   | ambient occlusion    |
 /// | Deferred lighting | One triangle over the whole target       | scene color          |
 /// | Forward pass      | Translucent surfaces, far to near        | scene color, over it |
 /// | Post-processing   | A few triangles (PostProcessPass.h)      | the display image    |
@@ -49,6 +50,7 @@
 #include "cordite/core/Base.h"
 #include "cordite/core/Result.h"
 #include "cordite/math/Math.h"
+#include "cordite/renderer/AmbientOcclusionPass.h"
 #include "cordite/renderer/CameraView.h"
 #include "cordite/renderer/DebugViewPass.h"
 #include "cordite/renderer/DeferredLightingPass.h"
@@ -64,6 +66,7 @@
 #include "cordite/renderer/SceneLights.h"
 #include "cordite/renderer/ScenePostProcess.h"
 #include "cordite/renderer/SceneTargets.h"
+#include "cordite/renderer/ScreenEffects.h"
 #include "cordite/renderer/ShaderManager.h"
 #include "cordite/renderer/ShadowAtlas.h"
 #include "cordite/renderer/ShadowPlan.h"
@@ -106,6 +109,11 @@ struct SceneRenderSettings {
     /// renderer has one atlas, and makes it anew whenever its size changes.
     ShadowQuality shadowQuality = ShadowQuality::Medium;
 
+    /// How much the effects that are worked out from the screen may cost: ambient
+    /// occlusion, so far (ScreenEffects.h). Off draws none. What they look like is
+    /// part of the look of the scene, like the finishing of the picture below.
+    ScreenEffectsQuality screenEffectsQuality = ScreenEffectsQuality::Medium;
+
     /// What to show instead of the finished picture; None shows the picture.
     RenderDebugView debugView = RenderDebugView::None;
 
@@ -114,9 +122,9 @@ struct SceneRenderSettings {
     /// with whatever is brighter than white cut off. Debug views are never finished:
     /// they show numbers.
     PostProcessQuality postProcessQuality = PostProcessQuality::Medium;
-    /// What the picture is finished with. Left empty, the PostProcess components of the
-    /// world say (ScenePostProcess.h). A tool or a test that wants one look whatever
-    /// the scene says sets it here.
+    /// What the picture is finished with, and what its screen effects look like. Left
+    /// empty, the PostProcess components of the world say (ScenePostProcess.h). A tool
+    /// or a test that wants one look whatever the scene says sets it here.
     std::optional<PostProcessSettings> postProcess;
     /// The entity whose camera the view is seen through, if it is one: a PostProcess
     /// component on a camera is for the views through that camera alone.
@@ -150,12 +158,13 @@ std::string_view displayNameOf(RenderQuality quality);
 /// apart.
 [[nodiscard]] std::optional<RenderQuality> renderQualityFromName(std::string_view name);
 
-/// Sets what `quality` stands for - the quality of the shadows and of the finishing of
-/// the picture - and leaves everything else in `settings` as it is.
+/// Sets what `quality` stands for - the quality of the shadows, of the screen effects
+/// and of the finishing of the picture - and leaves everything else in `settings` as
+/// it is.
 void applyRenderQuality(RenderQuality quality, SceneRenderSettings& settings);
 
-/// The quality `settings` are at, or nothing when shadows and finishing were set one by
-/// one to what no single quality has.
+/// The quality `settings` are at, or nothing when its parts were set one by one to what
+/// no single quality has.
 [[nodiscard]] std::optional<RenderQuality> renderQualityOf(const SceneRenderSettings& settings);
 
 /// What SceneRenderer::render() did: in its last call, or in all the calls of a frame.
@@ -167,8 +176,9 @@ struct SceneRenderStatistics {
     /// Of those, the ones outside the view, which were not drawn.
     uint32_t culled = 0;
     /// Passes that draw over the whole picture, or over a smaller copy of it, rather
-    /// than meshes: the lighting or the debug view, and what finishes the picture -
-    /// the levels of the bloom down and up, the exposure, the last pass.
+    /// than meshes: the two of the ambient occlusion, the lighting or the debug view,
+    /// and what finishes the picture - the levels of the bloom down and up, the
+    /// exposure, the last pass.
     uint32_t screenPasses = 0;
 
     /// The lights that reach something in view: directional ones, and point and spot
@@ -200,6 +210,12 @@ struct SceneRenderStatistics {
     /// (kEnvironmentBytes each). The views of a renderer share them, so this is not
     /// summed up over the views of a frame: it is the most there was.
     uint64_t environmentBytes = 0;
+
+    /// The memory of the image the ambient occlusion of the view is worked out in, in
+    /// bytes: two half floats for every pixel, or for one in four
+    /// (SceneTargets::tracedOcclusion; the result is another of the view's targets, and
+    /// not in this number). Over the views of a frame it is the largest of them.
+    uint64_t ambientOcclusionBytes = 0;
 
     /// What each of the passes that draw meshes did. A debug view that draws the meshes
     /// itself - wireframe, overdraw - counts as the forward pass.
@@ -257,6 +273,7 @@ private:
         DisplayEncodePass encode;
         ShadowAtlas shadows;
         EnvironmentMaps environments;
+        AmbientOcclusionPass occlusion;
         PostProcessPass postProcess;
     };
 

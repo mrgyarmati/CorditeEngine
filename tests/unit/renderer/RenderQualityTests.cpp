@@ -23,7 +23,7 @@ TEST_SUITE("RenderQuality") {
         CHECK_FALSE(renderQualityFromName("").has_value());
     }
 
-    TEST_CASE("a quality sets the shadows and the finishing of the picture, and nothing else") {
+    TEST_CASE("a quality sets the shadows, the screen effects and the finishing of the picture, and nothing else") {
         SceneRenderSettings settings;
         settings.backgroundColor = Vec3(0.1f, 0.2f, 0.3f);
         settings.defaultLighting = true;
@@ -32,12 +32,15 @@ TEST_SUITE("RenderQuality") {
 
         applyRenderQuality(RenderQuality::Low, settings);
         CHECK(settings.shadowQuality == ShadowQuality::Low);
+        CHECK(settings.screenEffectsQuality == ScreenEffectsQuality::Low);
         CHECK(settings.postProcessQuality == PostProcessQuality::Low);
         applyRenderQuality(RenderQuality::High, settings);
         CHECK(settings.shadowQuality == ShadowQuality::High);
+        CHECK(settings.screenEffectsQuality == ScreenEffectsQuality::High);
         CHECK(settings.postProcessQuality == PostProcessQuality::High);
         applyRenderQuality(RenderQuality::Medium, settings);
         CHECK(settings.shadowQuality == ShadowQuality::Medium);
+        CHECK(settings.screenEffectsQuality == ScreenEffectsQuality::Medium);
         CHECK(settings.postProcessQuality == PostProcessQuality::Medium);
 
         CHECK(settings.backgroundColor == Vec3(0.1f, 0.2f, 0.3f));
@@ -62,5 +65,13 @@ TEST_SUITE("RenderQuality") {
         CHECK_FALSE(renderQualityOf(settings).has_value());
         settings.shadowQuality = ShadowQuality::Off;
         CHECK_FALSE(renderQualityOf(settings).has_value());
+        // The screen effects are a piece like the others.
+        applyRenderQuality(RenderQuality::High, settings);
+        settings.screenEffectsQuality = ScreenEffectsQuality::Low;
+        CHECK_FALSE(renderQualityOf(settings).has_value());
+        settings.screenEffectsQuality = ScreenEffectsQuality::Off;
+        CHECK_FALSE(renderQualityOf(settings).has_value());
+        settings.screenEffectsQuality = ScreenEffectsQuality::High;
+        CHECK(renderQualityOf(settings) == RenderQuality::High);
     }
 }

@@ -351,6 +351,11 @@ TEST_SUITE("RenderComponents") {
         CHECK(component.vignette == 0.0f);
         CHECK(component.chromaticAberration == 0.0f);
         CHECK(component.filmGrain == 0.0f);
+        // What stands in the light from all around darkens it as the geometry says,
+        // looked for half a metre around.
+        CHECK(component.ambientOcclusionIntensity == 1.0f);
+        CHECK(component.ambientOcclusionRadius == 0.5f);
+        CHECK(component.ambientOcclusionBias == 2.0f);
     }
 
     TEST_CASE("a post-process component is saved with every property and read back the same") {
@@ -384,6 +389,9 @@ TEST_SUITE("RenderComponents") {
         component.vignette = 0.375f;
         component.chromaticAberration = 0.25f;
         component.filmGrain = 0.125f;
+        component.ambientOcclusionIntensity = 1.5f;
+        component.ambientOcclusionRadius = 0.75f;
+        component.ambientOcclusionBias = 4.0f;
 
         const Json saved = type.toJson(&component);
         CHECK(saved == json(R"({
@@ -396,7 +404,8 @@ TEST_SUITE("RenderComponents") {
             "temperature": 0.25, "tint": -0.125, "contrast": 1.25, "saturation": 0.75,
             "lift": [0.0, 0.125, 0.25], "gamma": [0.5, 1.0, 2.0], "gain": [1.5, 1.0, 0.5],
             "colorLut": "11111111-2222-4333-8444-555555555555", "colorLutIntensity": 0.5,
-            "vignette": 0.375, "chromaticAberration": 0.25, "filmGrain": 0.125
+            "vignette": 0.375, "chromaticAberration": 0.25, "filmGrain": 0.125,
+            "ambientOcclusionIntensity": 1.5, "ambientOcclusionRadius": 0.75, "ambientOcclusionBias": 4.0
         })"));
 
         PostProcessComponent loaded;
@@ -452,6 +461,12 @@ TEST_SUITE("RenderComponents") {
                  R"({"vignette": 1.5})",
                  R"({"chromaticAberration": -0.5})",
                  R"({"filmGrain": 2.0})",
+                 R"({"ambientOcclusionIntensity": -0.5})",
+                 R"({"ambientOcclusionIntensity": 4.5})",
+                 R"({"ambientOcclusionRadius": 0.0})",
+                 R"({"ambientOcclusionRadius": 11.0})",
+                 R"({"ambientOcclusionBias": -1.0})",
+                 R"({"ambientOcclusionBias": 31.0})",
                  R"({"sharpen": 1.0})",
                  R"({"exposure": 0.5, "vignette": 9.0})",
              }) {

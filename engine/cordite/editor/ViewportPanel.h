@@ -31,6 +31,7 @@
 #include "cordite/renderer/RenderDebugView.h"
 #include "cordite/renderer/SceneRenderer.h"
 #include "cordite/renderer/SceneTargets.h"
+#include "cordite/renderer/ScreenEffects.h"
 #include "cordite/renderer/ShadowPlan.h"
 
 #include <memory>
@@ -69,6 +70,12 @@ public:
 
     void setShadowQuality(ShadowQuality quality) { m_shadowQuality = quality; }
 
+    /// How much the effects that are worked out from the screen may cost in the
+    /// viewport: ambient occlusion, so far. Off draws none.
+    [[nodiscard]] ScreenEffectsQuality screenEffectsQuality() const { return m_screenEffectsQuality; }
+
+    void setScreenEffectsQuality(ScreenEffectsQuality quality) { m_screenEffectsQuality = quality; }
+
     /// How much finishing the picture the viewport shows may cost; Off shows the light
     /// as the renderer worked it out.
     [[nodiscard]] PostProcessQuality postProcessQuality() const { return m_postProcessQuality; }
@@ -95,6 +102,7 @@ private:
     EditorCamera m_camera;
     RenderDebugView m_debugView = RenderDebugView::None;
     ShadowQuality m_shadowQuality = ShadowQuality::Medium;
+    ScreenEffectsQuality m_screenEffectsQuality = ScreenEffectsQuality::Medium;
     PostProcessQuality m_postProcessQuality = PostProcessQuality::Medium;
     /// The view render() last used, for pick().
     CameraView m_view;

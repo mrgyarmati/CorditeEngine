@@ -526,7 +526,10 @@
                     "colorLutIntensity": 1.0,
                     "vignette": 0.0,
                     "chromaticAberration": 0.0,
-                    "filmGrain": 0.0
+                    "filmGrain": 0.0,
+                    "ambientOcclusionIntensity": 1.0,
+                    "ambientOcclusionRadius": 0.5,
+                    "ambientOcclusionBias": 2.0
                 }
             }
         },
@@ -645,6 +648,13 @@
             // blooms. The lookup table (textures/grade_lut.png, made by
             // tools/sample-assets) mutes the colors and tints shadows and highlights; the
             // rest is what a lens adds: darker corners, a fringe of color, grain.
+            //
+            // Ambient occlusion is part of the look too, though it is worked out before
+            // the picture is finished: the light of the sky does not get into corners and
+            // under things. Its intensity is a power - here a little more than the
+            // geometry says, for depth; its radius is how far around a point things are
+            // looked for that stand in its light, in metres; its bias, in degrees, how far
+            // above a surface something must rise to count.
             "id": "10000000-0000-4000-8000-000000000025",
             "name": "Grade",
             "enabled": true,
@@ -677,7 +687,10 @@
                     "colorLutIntensity": 0.8,
                     "vignette": 0.35,
                     "chromaticAberration": 0.15,
-                    "filmGrain": 0.15
+                    "filmGrain": 0.15,
+                    "ambientOcclusionIntensity": 1.4,
+                    "ambientOcclusionRadius": 0.6,
+                    "ambientOcclusionBias": 2.0
                 }
             }
         },
@@ -720,7 +733,10 @@
                     "colorLutIntensity": 0.5,
                     "vignette": 0.5,
                     "chromaticAberration": 0.3,
-                    "filmGrain": 0.25
+                    "filmGrain": 0.25,
+                    "ambientOcclusionIntensity": 1.8,
+                    "ambientOcclusionRadius": 0.4,
+                    "ambientOcclusionBias": 2.0
                 }
             }
         }

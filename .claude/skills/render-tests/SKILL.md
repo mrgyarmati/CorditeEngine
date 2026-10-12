@@ -97,6 +97,10 @@ TEST_CASE("the vignette darkens the corners") {
   its own leaves nothing about orientation to chance.
 - A value that is not 8 bits - scene color, a level of a cube map - is read back with
   `readTexture` (`rhi/TextureReadback.h`), which takes a mip level and an array slice.
+- Where no formula says what a pixel must be but the arithmetic is the engine's own
+  on the CPU as well, build the answer from that arithmetic and a scene given as a
+  formula - `Reference` in `AmbientOcclusionTests.cpp` walks a wall that is a plane -
+  and first hold that reference against a case that does have a formula.
 - Make sure the test can fail: break the code on purpose once (leave a light out,
   shrink a bound) and see the test notice.
 - Everything that influences the image must be fixed: sizes, times, seeds. Use

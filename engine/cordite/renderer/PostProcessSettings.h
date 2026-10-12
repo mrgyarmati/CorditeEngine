@@ -2,7 +2,8 @@
 
 /// @file
 /// How the picture of a view is finished: what happens between the light the renderer
-/// has worked out and the colors a screen shows.
+/// has worked out and the colors a screen shows - and what of the look of a scene is
+/// worked out from the screen before that (ambient occlusion, AmbientOcclusion.h).
 ///
 /// The renderer computes light without an upper limit; a display has one. Finishing a
 /// picture is, in this order:
@@ -157,6 +158,19 @@ struct PostProcessSettings {
     float chromaticAberration = 0.0f;
     /// How much film grain is laid over the picture: 0 none, 1 a lot.
     float filmGrain = 0.0f;
+
+    /// Ambient occlusion: how much darker the light from all around gets where
+    /// something stands in its way - in creases, under things, at the foot of a wall.
+    /// 0 is not at all, 1 as much as the geometry says, more than that exaggerated.
+    /// The light of the lights is not touched: shadows are theirs.
+    float ambientOcclusionIntensity = 1.0f;
+    /// Ambient occlusion: how far from a point things are looked for that stand in its
+    /// light, in metres.
+    float ambientOcclusionRadius = 0.5f;
+    /// Ambient occlusion: how far something has to rise above a surface before it
+    /// counts as standing in its light, as an angle in degrees. More of it hides the
+    /// streaks a surface seen at a low angle can show, and takes from shallow creases.
+    float ambientOcclusionBias = 2.0f;
 };
 
 /// `settings` with every number inside the range it is documented for, and "not a

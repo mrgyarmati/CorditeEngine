@@ -415,20 +415,25 @@ Status EditorApp::registerApplicationCommands() {
         .description = "Chooses how much the picture in the viewport may cost. \"preset\" sets everything by "
                        "one word (\"low\", \"medium\", \"high\"); \"shadows\" sets the shadows alone (\"off\" "
                        "draws none; the others give the shadow maps of a view an atlas of 2048, 4096 and 8192 "
-                       "texels a side to share) and \"postProcess\" the finishing of the picture alone (\"off\" "
-                       "shows the light as the renderer worked it out, without exposure, bloom, tone mapping or "
-                       "grading). Returns what is now in use and all there is to choose from; without "
-                       "parameters it changes nothing. A game sets its own quality; this is the editor's view "
-                       "of the scene.",
-        .parameters = {{"preset", Type::String, "Sets shadows and finishing together, by one of the names above.",
-                        false},
+                       "texels a side to share), \"effects\" what is worked out from the screen - ambient "
+                       "occlusion (\"off\" draws none; \"low\" and \"medium\" work it out for one pixel in "
+                       "four, \"high\" for every pixel) - and \"postProcess\" the finishing of the picture "
+                       "alone (\"off\" shows the light as the renderer worked it out, without exposure, bloom, "
+                       "tone mapping or grading). Returns what is now in use and all there is to choose from; "
+                       "without parameters it changes nothing. A game sets its own quality; this is the "
+                       "editor's view of the scene.",
+        .parameters = {{"preset", Type::String,
+                        "Sets shadows, screen effects and finishing together, by one of the names above.", false},
                        {"shadows", Type::String, "The quality of the shadows; applied after the preset.", false},
+                       {"effects", Type::String,
+                        "The quality of what is worked out from the screen; applied after the preset.", false},
                        {"postProcess", Type::String,
                         "The quality of the finishing of the picture; applied after the preset.", false}},
         .handler = [this](const Json& parameters) -> Result<Json> {
-            // All three are checked before any of them is applied.
+            // All of them are checked before any of them is applied.
             SceneRenderSettings wanted;
             wanted.shadowQuality = m_viewport->shadowQuality();
+            wanted.screenEffectsQuality = m_viewport->screenEffectsQuality();
             wanted.postProcessQuality = m_viewport->postProcessQuality();
             if (const auto name = jsonGetOr<std::string>(parameters, "preset", ""); !name.empty()) {
                 const std::optional<RenderQuality> preset = renderQualityFromName(name);
@@ -448,6 +453,16 @@ Status EditorApp::registerApplicationCommands() {
                 }
                 wanted.shadowQuality = *quality;
             }
+            if (const auto name = jsonGetOr<std::string>(parameters, "effects", ""); !name.empty()) {
+                const std::optional<ScreenEffectsQuality> quality = screenEffectsQualityFromName(name);
+                if (!quality) {
+                    return makeError(ErrorCode::InvalidArgument,
+                                     "'{}' is not a quality of the screen effects; viewport.quality without "
+                                     "parameters lists them",
+                                     name);
+                }
+                wanted.screenEffectsQuality = *quality;
+            }
             if (const auto name = jsonGetOr<std::string>(parameters, "postProcess", ""); !name.empty()) {
                 const std::optional<PostProcessQuality> quality = postProcessQualityFromName(name);
                 if (!quality) {
@@ -459,12 +474,14 @@ Status EditorApp::registerApplicationCommands() {
                 wanted.postProcessQuality = *quality;
             }
             m_viewport->setShadowQuality(wanted.shadowQuality);
+            m_viewport->setScreenEffectsQuality(wanted.screenEffectsQuality);
             m_viewport->setPostProcessQuality(wanted.postProcessQuality);
 
             Json result = Json::object();
             const std::optional<RenderQuality> preset = renderQualityOf(wanted);
             result["preset"] = preset ? Json(nameOf(*preset)) : Json(nullptr);
             result["shadows"] = nameOf(wanted.shadowQuality);
+            result["effects"] = nameOf(wanted.screenEffectsQuality);
             result["postProcess"] = nameOf(wanted.postProcessQuality);
             result["presets"] = Json::array();
             for (const RenderQuality quality : kRenderQualities) {
@@ -473,6 +490,10 @@ Status EditorApp::registerApplicationCommands() {
             result["shadowQualities"] = Json::array();
             for (const ShadowQuality quality : kShadowQualities) {
                 result["shadowQualities"].push_back(nameOf(quality));
+            }
+            result["effectsQualities"] = Json::array();
+            for (const ScreenEffectsQuality quality : kScreenEffectsQualities) {
+                result["effectsQualities"].push_back(nameOf(quality));
             }
             result["postProcessQualities"] = Json::array();
             for (const PostProcessQuality quality : kPostProcessQualities) {
@@ -490,7 +511,9 @@ Status EditorApp::registerApplicationCommands() {
                        "has to ask (lightCount: dark for none, blue for one, through green to red for eight "
                        "and more), which cascade of the sun's shadow each pixel is looked up in "
                        "(shadowCascades: red, green, blue, yellow from the nearest on; grey where the sun "
-                       "casts none), the light without the materials (lightingOnly), what the surroundings "
+                       "casts none), how much of the light from all around gets to each surface past what "
+                       "stands around it (ambientOcclusion: white is all of it), the light without the "
+                       "materials (lightingOnly), what the surroundings "
                        "give every surface to reflect, each of them made a perfect mirror (reflections), the "
                        "edges of the triangles (wireframe) or how often each pixel is drawn (overdraw). "
                        "Returns the view now shown and all there are; without a parameter it changes "
@@ -683,6 +706,7 @@ void EditorApp::drawViewMenu() {
     if (ImGui::BeginMenu("Quality")) {
         SceneRenderSettings current;
         current.shadowQuality = m_viewport->shadowQuality();
+        current.screenEffectsQuality = m_viewport->screenEffectsQuality();
         current.postProcessQuality = m_viewport->postProcessQuality();
         const std::optional<RenderQuality> preset = renderQualityOf(current);
         for (const RenderQuality quality : kRenderQualities) {
@@ -690,6 +714,7 @@ void EditorApp::drawViewMenu() {
             if (ImGui::MenuItem(label.c_str(), nullptr, preset == quality)) {
                 applyRenderQuality(quality, current);
                 m_viewport->setShadowQuality(current.shadowQuality);
+                m_viewport->setScreenEffectsQuality(current.screenEffectsQuality);
                 m_viewport->setPostProcessQuality(current.postProcessQuality);
             }
         }
@@ -699,6 +724,15 @@ void EditorApp::drawViewMenu() {
                 const std::string label(displayNameOf(quality));
                 if (ImGui::MenuItem(label.c_str(), nullptr, m_viewport->shadowQuality() == quality)) {
                     m_viewport->setShadowQuality(quality);
+                }
+            }
+            ImGui::EndMenu();
+        }
+        if (ImGui::BeginMenu("Screen effects")) {
+            for (const ScreenEffectsQuality quality : kScreenEffectsQualities) {
+                const std::string label(displayNameOf(quality));
+                if (ImGui::MenuItem(label.c_str(), nullptr, m_viewport->screenEffectsQuality() == quality)) {
+                    m_viewport->setScreenEffectsQuality(quality);
                 }
             }
             ImGui::EndMenu();

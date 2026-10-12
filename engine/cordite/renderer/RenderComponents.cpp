@@ -279,6 +279,26 @@ TypeInfo describePostProcess() {
                    .minimum = 0.0,
                    .maximum = 1.0,
                    .step = 0.01})
+        .property("ambientOcclusionIntensity", &Component::ambientOcclusionIntensity,
+                  {.description = "Ambient occlusion: how much darker the light from all around gets in creases "
+                                  "and under things. 0 not at all, 1 as the geometry says, more exaggerated",
+                   .minimum = 0.0,
+                   .maximum = 4.0,
+                   .step = 0.01})
+        .property("ambientOcclusionRadius", &Component::ambientOcclusionRadius,
+                  {.description = "Ambient occlusion: how far from a point things are looked for that stand in "
+                                  "its light",
+                   .minimum = 0.01,
+                   .maximum = 10.0,
+                   .step = 0.01,
+                   .unit = "m"})
+        .property("ambientOcclusionBias", &Component::ambientOcclusionBias,
+                  {.description = "Ambient occlusion: how far something has to rise above a surface before it "
+                                  "counts; more hides streaks on surfaces seen at a low angle",
+                   .minimum = 0.0,
+                   .maximum = 30.0,
+                   .step = 0.1,
+                   .unit = "deg"})
         .build();
 }
 

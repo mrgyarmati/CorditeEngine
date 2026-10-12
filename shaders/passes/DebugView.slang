@@ -23,6 +23,7 @@ static const uint kViewEmissive = 7;
 static const uint kViewDepth = 8;
 static const uint kViewLightCount = 9;
 static const uint kViewShadowCascades = 10;
+static const uint kViewAmbientOcclusion = 11;
 
 cbuffer DebugViewConstants : register(b0, space1)
 {
@@ -37,6 +38,7 @@ Texture2D<float4> gbufferNormal : register(t1, space1);
 Texture2D<float4> gbufferParameters : register(t2, space1);
 Texture2D<float4> gbufferEmissive : register(t3, space1);
 Texture2D<float4> sceneDepth : register(t4, space1);
+Texture2D<float4> ambientOcclusion : register(t5, space1);
 
 // A number that is to be seen as it is, in the color the display encoding turns back
 // into it.
@@ -133,6 +135,11 @@ float4 debugViewPixel(FullscreenVaryings input) : SV_Target0
         color = asShown(tint * brightness);
         break;
     }
+    case kViewAmbientOcclusion:
+        // How much of the light from all around gets through to the surface: white is
+        // all of it. White everywhere when the view draws no ambient occlusion.
+        color = asShown(float3(screenOcclusion > 0.5 ? ambientOcclusion.Load(pixel).r : 1.0));
+        break;
     default:
         break;
     }

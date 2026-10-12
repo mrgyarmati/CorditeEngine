@@ -22,7 +22,7 @@ Cordite is under active development. Milestones follow the brief:
 | 7 | Shadows: shadow maps in an atlas for directional, point and spot lights, cascades for the sun, soft filtered edges | Done |
 | 8 | HDR and post-processing: exposure by hand or automatic, bloom, filmic and ACES tone mapping, color grading with lookup tables, vignette, grain, quality presets | Done |
 | - | Image-based lighting: HDR images of the sky as environments - the sky itself, its light on matte surfaces, its reflection on shiny ones | Done |
-| 9 | Screen-space effects | Planned |
+| 9 | Screen-space effects: ambient occlusion done; reflections, fog and anti-aliasing to come | In progress |
 | 10 | Physics and gameplay | Planned |
 | 11 | Editor maturity | Planned |
 | 12 | Packaging and export | Planned |
@@ -111,6 +111,14 @@ clusters, and a pixel only asks the lights near it. Every mesh and every light i
 some of eight lighting channels, and a light shines on a mesh when the two share one.
 A scene without lights is black in a game; the editor lights it until it has lights of
 its own. The "Light count" view of the editor shows how many lights each pixel asks.
+
+Where light from all around - ambient light, an environment - does not get to, it is
+darker: in corners, under things, at the foot of a wall. That is ambient occlusion,
+worked out from the picture itself. How strong it is, how far around a point things
+are looked for and how much they must rise above a surface to count are set with the
+rest of the look of a scene (`PostProcess`: `ambientOcclusionIntensity`, `...Radius`,
+`...Bias`); how finely it is worked out is the screen-effects quality of the view. The
+"Ambient occlusion" view of the editor shows it alone.
 
 A light casts shadows when it is told to (`castsShadows`): the sun through up to four
 cascades that reach as far as its shadow distance, a spot light through one shadow map,
