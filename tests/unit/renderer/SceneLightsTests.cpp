@@ -360,6 +360,148 @@ TEST_SUITE("SceneLights") {
         CHECK(lights.environment().rotation == doctest::Approx(kPi / 4.0f));
     }
 
+    TEST_CASE("a world has the fog of the enabled entity with the lowest id, at that entity's height, or none") {
+        World world;
+        SceneLights lights;
+        lights.collect(world);
+        CHECK_FALSE(lights.fog().isEnabled());
+        CHECK(lights.fog().density == 0.0f);
+
+        // Made in the order of their ids turned round.
+        const Entity second = unwrap(world.createEntityWithId(id("00000000-0000-4000-8000-0000000000b0"), "Mist"));
+        world.transform(second).position = Vec3(4.0f, 1.5f, -2.0f);
+        world.add<FogComponent>(second) = {.color = Vec3(0.25f, 0.5f, 0.75f),
+                                           .density = 0.125f,
+                                           .heightFalloff = 0.5f,
+                                           .startDistance = 3.0f,
+                                           .maxOpacity = 0.75f,
+                                           .sunColor = Vec3(2.0f, 1.0f, 0.5f),
+                                           .sunExponent = 16.0f};
+        world.updateWorldTransforms();
+        lights.collect(world);
+        REQUIRE(lights.fog().isEnabled());
+        CHECK(lights.fog().color == Vec3(0.25f, 0.5f, 0.75f));
+        CHECK(lights.fog().density == 0.125f);
+        CHECK(lights.fog().height == 1.5f);
+        CHECK(lights.fog().heightFalloff == 0.5f);
+        CHECK(lights.fog().startDistance == 3.0f);
+        CHECK(lights.fog().maxOpacity == 0.75f);
+        CHECK(lights.fog().sunExponent == 16.0f);
+        // A fog is no light among the lights, and no ambient light.
+        CHECK(lights.lights().empty());
+        CHECK(lights.skyColor() == Vec3(0.0f));
+
+        const Entity first = unwrap(world.createEntityWithId(id("00000000-0000-4000-8000-0000000000a0"), "Haze"));
+        world.add<FogComponent>(first) = {.density = 0.01f};
+        world.updateWorldTransforms();
+        lights.collect(world);
+        CHECK(lights.fog().density == 0.01f);
+        CHECK(lights.fog().height == 0.0f);
+
+        // Its height is where it is in the world, whatever it hangs under.
+        const Entity group = world.createEntity("Group");
+        world.transform(group).position = Vec3(0.0f, 10.0f, 0.0f);
+        REQUIRE(world.setParent(first, group).has_value());
+        world.transform(first).position = Vec3(0.0f, -4.0f, 0.0f);
+        world.updateWorldTransforms();
+        lights.collect(world);
+        CHECK(lights.fog().height == doctest::Approx(6.0f));
+
+        // Switched off - itself or something above it - it gives way to the next.
+        world.setEnabled(group, false);
+        lights.collect(world);
+        CHECK(lights.fog().density == 0.125f);
+        world.setEnabled(group, true);
+        world.setEnabled(first, false);
+        lights.collect(world);
+        CHECK(lights.fog().density == 0.125f);
+
+        // One without density is one all the same: the world has no fog then.
+        world.setEnabled(first, true);
+        world.tryGet<FogComponent>(first)->density = 0.0f;
+        lights.collect(world);
+        CHECK_FALSE(lights.fog().isEnabled());
+
+        // With all of them off there is none, and what was collected before is gone.
+        world.setEnabled(first, false);
+        world.setEnabled(second, false);
+        lights.collect(world);
+        CHECK_FALSE(lights.fog().isEnabled());
+        CHECK(lights.fog().color == Vec3(0.0f));
+        CHECK(lights.fog().height == 0.0f);
+    }
+
+    TEST_CASE("the sun of a fog is the brightest directional light, and without one it has none") {
+        World world;
+        const Entity mist = world.createEntity("Mist");
+        world.add<FogComponent>(mist) = {.sunColor = Vec3(2.0f, 1.0f, 0.5f)};
+        SceneLights lights;
+
+        // No light from one direction: nothing of a sun's for the fog to throw on.
+        addLight(world, "Lamp", {.type = LightType::Point, .intensity = 50.0f});
+        world.updateWorldTransforms();
+        lights.collect(world);
+        REQUIRE(lights.fog().isEnabled());
+        CHECK(lights.fog().sunColor == Vec3(0.0f));
+
+        // A light that shines straight down has its sun straight up.
+        const Entity moon = addLight(world, "Moon", {.type = LightType::Directional, .intensity = 0.5f},
+                                     {.rotation = lookRotation(Vec3(0.0f, -1.0f, 0.0f), Vec3(0.0f, 0.0f, -1.0f))});
+        world.updateWorldTransforms();
+        lights.collect(world);
+        CHECK(lights.fog().sunColor == Vec3(2.0f, 1.0f, 0.5f));
+        CHECK_NEAR(lights.fog().towardsSun, Vec3(0.0f, 1.0f, 0.0f), 1.0e-6f);
+
+        // A brighter one takes its place, wherever its entity comes in the order.
+        const Vec3 along = glm::normalize(Vec3(1.0f, -1.0f, -2.0f));
+        const Entity sun = addLight(
+            world, "Sun", {.type = LightType::Directional, .color = Vec3(1.0f, 0.5f, 0.25f), .intensity = 3.0f},
+            {.rotation = lookRotation(along)});
+        world.updateWorldTransforms();
+        lights.collect(world);
+        CHECK_NEAR(lights.fog().towardsSun, -along, 1.0e-6f);
+        // How bright the sun is does not change what the fog was told to make of it.
+        CHECK(lights.fog().sunColor == Vec3(2.0f, 1.0f, 0.5f));
+
+        // Switched off, or dark, a light is no sun.
+        world.setEnabled(sun, false);
+        lights.collect(world);
+        CHECK_NEAR(lights.fog().towardsSun, Vec3(0.0f, 1.0f, 0.0f), 1.0e-6f);
+        world.tryGet<LightComponent>(moon)->intensity = 0.0f;
+        lights.collect(world);
+        CHECK(lights.fog().sunColor == Vec3(0.0f));
+    }
+
+    TEST_CASE("a fog's numbers reach the renderer as numbers, in their ranges") {
+        World world;
+        const Entity mist = world.createEntity("Mist");
+        FogComponent& fog = world.add<FogComponent>(mist);
+        SceneLights lights;
+
+        fog.density = std::numeric_limits<float>::quiet_NaN();
+        fog.color = Vec3(-1.0f, std::numeric_limits<float>::infinity(), 0.5f);
+        lights.collect(world);
+        CHECK_FALSE(lights.fog().isEnabled());
+        CHECK(lights.fog().color == Vec3(0.0f));
+
+        fog = {.color = Vec3(0.5f),
+               .density = 0.25f,
+               .heightFalloff = -2.0f,
+               .startDistance = -5.0f,
+               .maxOpacity = 3.0f,
+               .sunExponent = 0.0f};
+        world.transform(mist).position = Vec3(0.0f, std::numeric_limits<float>::infinity(), 0.0f);
+        world.updateWorldTransforms();
+        lights.collect(world);
+        CHECK(lights.fog().isEnabled());
+        CHECK(lights.fog().density == 0.25f);
+        CHECK(lights.fog().height == 0.0f);
+        CHECK(lights.fog().heightFalloff == 0.0f);
+        CHECK(lights.fog().startDistance == 0.0f);
+        CHECK(lights.fog().maxOpacity == 1.0f);
+        CHECK(lights.fog().sunExponent == 1.0f);
+    }
+
     TEST_CASE("a world without light components gets the default lighting, and only when asked") {
         World world;
         world.createEntity("Crate");

@@ -67,8 +67,24 @@ struct ViewConstants {
     /// What the environment lights a matte surface with, as nine spherical harmonics
     /// (rgb; the fourth number is not used).
     std::array<Vec4, 9> environmentDiffuse;
+    /// The fog (shaders/common/Fog.slang; FogSettings in Fog.h says what the numbers
+    /// are). A density of 0 is no fog.
+    Vec3 fogColor;
+    float fogDensity;
+    Vec3 fogSunColor;
+    float fogSunExponent;
+    Vec3 fogTowardsSun;
+    float fogHeight;
+    float fogHeightFalloff;
+    float fogStartDistance;
+    float fogMaxOpacity;
+    float padding1;
+    /// What the targets of the view were cleared to: what is seen where nothing is
+    /// drawn and no sky is shown.
+    Vec3 backgroundColor;
+    float padding2;
 };
 
-static_assert(sizeof(ViewConstants) == 416, "must match the cbuffer layout in View.slang");
+static_assert(sizeof(ViewConstants) == 496, "must match the cbuffer layout in View.slang");
 
 } // namespace cordite

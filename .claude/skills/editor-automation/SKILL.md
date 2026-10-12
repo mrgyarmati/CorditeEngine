@@ -139,7 +139,11 @@ scene black. Lights are components like any other:
     {"command": "entity.create", "params": {"name": "Lamp", "components": {
         "Transform": {"position": [0, 3, 0], "rotation": [-0.70710677, 0, 0, 0.70710677]},
         "Light": {"type": "spot", "intensity": 4, "range": 6,
-                  "innerConeDegrees": 25, "outerConeDegrees": 40, "castsShadows": true}}}}
+                  "innerConeDegrees": 25, "outerConeDegrees": 40, "castsShadows": true}}}},
+    {"command": "entity.create", "params": {"name": "Haze", "components": {
+        "Transform": {"position": [0, 0, 0]},
+        "Fog": {"color": [0.2, 0.185, 0.17], "density": 0.02, "heightFalloff": 0.25,
+                "sunColor": [0.7, 0.42, 0.2], "sunExponent": 6}}}}
 ]
 ```
 
@@ -158,6 +162,14 @@ scene black. Lights are components like any other:
   image by that light's turn about the vertical axis, less 180 degrees. Nothing
   blocks its light, a world uses one (of several, the one whose entity has the lowest
   id), and `"visible": false` keeps its light and leaves the background as it was.
+- A `Fog` lets what is far away fade into its `color`, the sky included. `density` is
+  the part of the light that is lost with every metre (0.02: a fifth after ten
+  metres) where the fog is densest: at the height of its entity and below. Above, it
+  thins out to about a third every 1 / `heightFalloff` metres; with 0 it is the same
+  at every height and hides the sky. Nothing lights it: give it the color of the
+  sky's horizon, and a darker one in a dark scene. `sunColor` is added towards the
+  brightest directional light. A world uses one fog, the one whose entity has the
+  lowest id. Look at it with `viewport.debugView {"view": "fog"}`.
 - `channels` on a light and `lightChannels` on a mesh renderer are numbers with one
   bit per lighting channel (1, 2, 4 ... 128). A light shines on a mesh when they share
   a bit; left alone, everything is in channel 1.
@@ -202,8 +214,8 @@ scene black. Lights are components like any other:
 - `viewport.debugView {"view": "normals"}` makes the viewport show something the
   renderer works with instead of the lit picture: `baseColor`, `normals`, `roughness`,
   `metallic`, `specular`, `occlusion`, `emissive`, `depth`, `lightCount`,
-  `shadowCascades`, `ambientOcclusion`, `lightingOnly`, `reflections`, `wireframe`,
-  `overdraw`; `none`
+  `shadowCascades`, `ambientOcclusion`, `fog`, `lightingOnly`, `reflections`,
+  `wireframe`, `overdraw`; `none`
   brings the picture back. When a surface looks wrong, a screenshot of the right view
   says whether the material, the normals or the light is at fault. `reflections` makes
   a mirror of every surface: it shows what the environment gives them to reflect, and
@@ -211,6 +223,9 @@ scene black. Lights are components like any other:
   around gets to each surface: white is all of it. If corners are too dark or not dark
   enough, the numbers to change are on the scene's `PostProcess` component
   (`ambientOcclusionIntensity`, `ambientOcclusionRadius`, `ambientOcclusionBias`).
+  `fog` shows how much of each pixel is fog: white where nothing shows through. A
+  scene that is too hazy, or not hazy enough, has a `Fog` component to change
+  (`density`, `heightFalloff`, and the height of its entity).
 
 Then read the image file. Looking at the picture is the only way to know that a change
 is visible and looks right; a passing command only says that the data changed.

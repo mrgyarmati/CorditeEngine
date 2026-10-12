@@ -129,7 +129,7 @@ by accident.
 | `rhi` | `core`, `math`, `platform` | Vulkan device, swapchain and texture readback over NVRHI |
 | `shaders` | `core` | Shader requests and permutation keys, disk cache, `ShaderLibrary` |
 | `shader_compiler` | `core`, `shaders` | Slang to SPIR-V compiler (not linked into exported games) |
-| `renderer` | `core`, `math`, `assets`, `world`, `rhi`, `shaders` | The scene renderer and what it is made of: GPU copies of assets, the mesh passes, the G-buffer and its lighting, the lights of a world and the clusters they are sorted into, their shadow maps and the atlas those share, what finishes the picture (exposure, bloom, tone mapping, grading), the environment (the sky and what it lights), ambient occlusion from the screen, the debug views, scene targets, the `MeshRenderer`, `Light`, `AmbientLight`, `Environment` and `PostProcess` components; camera views, debug lines, GPU timing, GPU shader management |
+| `renderer` | `core`, `math`, `assets`, `world`, `rhi`, `shaders` | The scene renderer and what it is made of: GPU copies of assets, the mesh passes, the G-buffer and its lighting, the lights of a world and the clusters they are sorted into, their shadow maps and the atlas those share, what finishes the picture (exposure, bloom, tone mapping, grading), the environment (the sky and what it lights), ambient occlusion from the screen, fog, the debug views, scene targets, the `MeshRenderer`, `Light`, `AmbientLight`, `Environment`, `Fog` and `PostProcess` components; camera views, debug lines, GPU timing, GPU shader management |
 | `ui` | `core`, `math`, `platform`, `rhi`, `shaders`, `renderer` | The immediate-mode interface: the Dear ImGui context and its NVRHI renderer |
 | `engine` | all of the above | `Engine`: owns the subsystems, the assets, the world and the interface, and runs the frame loop; projects; placing models; checking the assets a scene uses |
 | `editor` | `engine` and below | The editor: the scene document, undoable actions, scene and asset commands, panels, `EditorApp` (not linked into exported games) |
@@ -291,9 +291,10 @@ Vulkan directly. Step-by-step guide for adding a pass:
   `encodeGBuffer`/`decodeGBuffer`; `SceneRendererTests` checks every channel through
   the debug views.
 - **Light is computed in one place**, `shadeSurface` (`common/SceneLighting.slang`),
-  which the deferred lighting and the forward pass both call. Tests render the same
-  surface both ways and compare the pictures; a lighting feature that only one path
-  has fails them.
+  which the deferred lighting and the forward pass both call: what leaves a surface
+  towards the viewer, and what the fog between the two makes of it. Tests render the
+  same surface both ways and compare the pictures; a lighting feature that only one
+  path has fails them.
 - **A scene is lit by components:** `Light` (directional, point or spot),
   `AmbientLight` and `Environment` (`RenderComponents.h`). A light shines from where
   its entity is, along the entity's -Z axis. An intensity of 1 lights a white, matte
@@ -405,6 +406,21 @@ Vulkan directly. Step-by-step guide for adding a pass:
   What it looks like is the scene's to say (`PostProcess`: intensity, radius, bias);
   what it costs is the view's (`ScreenEffectsQuality`). Surfaces drawn forward get
   none: they are not in the depth buffer.
+- **Fog is in the way of everything a viewer sees** (`Fog.h`, `common/Fog.slang`).
+  `shadeSurface` ends with it, so solid and translucent surfaces are in it alike; the
+  lighting pass lays it over the sky and the background, where nothing was drawn. It
+  is a closed form - a fog at its densest up to the height of its entity, thinning
+  out above by the same factor every metre, with a glow towards the sun - and costs no
+  pass and no texture. The arithmetic is written down twice, in `Fog.cpp` and in
+  `common/Fog.slang`: unit tests hold the first against the density added up along a
+  way, step by step, and `FogTests` holds pictures of boxes of known colors against
+  the first. Change both. Without perspective every line of sight sets out from the
+  plane the camera is in (`viewerOf`, `viewerAt` in `common/View.slang`), not from
+  the camera. A world has one `Fog` in use, as it has one environment; `SceneLights`
+  picks it and its sun, the brightest directional light.
+- **A fullscreen pass writes every pixel.** Where nothing was drawn, the lighting and
+  the debug views write the background (`backgroundColor` in `ViewConstants`); they
+  do not `discard` (see the pitfall on discarding for what is true of every pixel).
 - **The renderer has no clock.** What takes time (exposure getting used to light) or
   changes with it (film grain) is told how much has passed and what time it is, in
   `SceneRenderSettings`. `Engine::drawWorld` fills that in; with a fixed time step
@@ -780,3 +796,16 @@ body explaining what changed and why. One logical change per commit.
   plane cuts a slice on both sides of the viewer, and "proved" the arithmetic wrong
   by a fifth. When a model and a formula disagree, check the test's drawing of the
   scene before either.
+- `discard` for a reason every pixel shares ("this view has no sky and no fog"),
+  nested in one that a single pixel has ("nothing was drawn here"), made one driver
+  (AMD, Radeon RX 9070 XT) throw away whole blocks of 8 by 8 pixels for the sake of
+  one pixel in them: things in front of the background lost their edges, and small
+  ones were gone. The SPIR-V was right; the same condition written as two nested
+  `if`s happened to work, which is no way to write shaders. The fullscreen passes
+  write the background instead, and `discard` is left to mesh passes, for what is
+  true of one pixel: its alpha.
+- An exponential height fog grows without limit below its own height, and "e to the
+  minus the height" overflows a float long before a scene is unreasonable. Here the
+  fog stops getting denser below the height it is given (`Fog.h`), so every exponent
+  is at most zero. The usual closed form also divides by the change of height along
+  the way, which is nothing for a level one: `fogMeanDecayOver` takes the series there.

@@ -126,7 +126,8 @@ depth + normals ──> ambient occlusion, traced ──> ambient occlusion: how
 image of the sky ──> (when first used) nine spherical harmonics: what it lights matte surfaces with
                  ──> (when first used) a cube map, blurred level by level: what surfaces reflect
 G-buffer + depth + clusters + shadow atlas + environment + ambient occlusion ──> deferred lighting ──> scene color (linear, float)
-                                                             and the sky, where nothing was drawn
+                                                             and the sky, where nothing was drawn;
+                                                             all of it seen through the fog
 translucent surfaces + clusters + shadow atlas + environment ──> forward pass ──> scene color, blended over it
 scene color ──> bloom levels, down ──> exposure: how many stops the view adds
                               └────> bloom levels, up again
@@ -147,7 +148,8 @@ that and only encodes the light for a display.
 
 A scene is lit by components: `Light` (directional, point or spot), `AmbientLight`
 (a sky above and a ground below, as two colors) and `Environment` (an image of
-everything far away, which lights the scene and is its sky). For every view,
+everything far away, which lights the scene and is its sky). A `Fog` fills its air:
+what is far away is seen through it, the sky included. For every view,
 `SceneLights` gathers the enabled ones, and a `LightClusterBuilder` sorts the point
 and spot lights into a grid of
 clusters that fills what the camera sees - 16 columns, 9 rows, 24 slices into the
@@ -167,9 +169,9 @@ looks a surface up in them to find out how much of each light reaches it.
 A debug view (`RenderDebugView`) replaces the lighting, or the passes altogether, by a
 picture of something the renderer works with: a channel of the G-buffer, how many
 lights each pixel asks, which cascade of the sun's shadow it is looked up in, how much
-of the light from all around gets to each surface, the light without the materials,
-what the surroundings give every surface to reflect, the edges of the triangles, how
-often each pixel is drawn.
+of the light from all around gets to each surface, how much of each pixel is fog, the
+light without the materials, what the surroundings give every surface to reflect, the
+edges of the triangles, how often each pixel is drawn.
 
 ### The editor
 
@@ -710,6 +712,63 @@ the first games with this effect got their dirty look, and can be had by raising
 intensity. What it looks like - intensity, radius, bias - belongs to the look of a
 scene and is set with its PostProcess components; what it costs is one of three
 qualities of a view, with the shadows and the finishing of the picture.
+
+### Fog is a formula in the lighting, not a pass
+
+Fog takes light away on its way to the viewer and puts its own color in its place:
+after a way with an optical depth of t - the density of the fog added up along it -
+e to the minus t of the light is left. For a fog that is the same everywhere, t is the
+density times the distance. A fog that lies on the ground is denser below than above,
+and if its density falls by the same factor with every metre of height, the sum along
+a straight way still has a closed form: the difference of the densities at its two
+ends, over how many e-ths lie between them. That is "exponential height fog", the fog
+of the games this engine takes its look from, and it costs a pixel one exponential
+and a division - no pass, no texture, no steps along a ray.
+
+It is applied where light is computed: at the end of `shadeSurface`, for the surface
+that is being shaded, and in the lighting pass for the pixels in which nothing was
+drawn, where the sky or the background is infinitely far away. Doing it there, and
+not in a pass over the finished scene color, is what puts translucent surfaces into
+the fog correctly: a pane of glass five metres away is seen through five metres of
+fog, the wall behind it through fifteen, and blending the one over the other gives
+exactly what the light does on its way - a test works that out both ways. A pass over
+the picture would only know the depth of the wall.
+
+Three things are decided differently from the textbook form:
+
+- **The fog stops getting denser below its height.** Taken as it stands, the formula
+  doubles the density every few metres downwards without end: a cellar under a misty
+  yard would be solid, and the numbers overflow soon after. Here `density` is the
+  densest the fog gets, at its height and everywhere below; a way that crosses the
+  height is the sum of a part in even fog and a part in thinning fog. Every exponent
+  is then at most zero, and nothing has to be clamped.
+- **The height is where the entity is.** A fog is moved up and down like anything
+  else in a scene, by hand, by a parent, by a script.
+- **The fog is not lit.** It has the color it is given, plus a second color towards
+  the sun - the brightest directional light - that falls off with a power of the
+  cosine. A sun that is seen through haze has a glow around it, and that is most of
+  what light in fog looks like outdoors. Lamps that light the fog around them, and
+  shafts of light between shadows, need the fog sampled along the ray; that is a
+  different effect, and when it comes it adds to this one.
+
+The sky is behind all the fog there is. A line of sight that climbs comes out of a
+fog that thins out, and the sky shows through the more the steeper the line is; a
+level one never comes out, so the horizon is the color of the fog. A fog without
+falloff hides the sky altogether, which is what an endless even fog does; `maxOpacity`
+is there for the scenes that want their sky back.
+
+### Fullscreen passes write every pixel
+
+The lighting pass used to `discard` the pixels in which nothing was drawn, so that
+they kept the color the targets were cleared to. With fog the reason to discard
+became "nothing was drawn here, and the view has neither a sky nor fog" - one
+condition for the pixel and two that are the same for all pixels - and on one GPU
+driver whole blocks of 8 by 8 pixels were thrown away whenever one pixel in them was:
+the edges of everything in front of the background, and small things altogether. The
+shader was right; the driver's compiler was not. Rather than find a spelling of the
+condition that it gets right, the passes that fill the screen now write the
+background color themselves, which the view tells them, and discard nothing. A pass
+that cannot throw pixels away cannot throw the wrong ones away.
 
 ### All shadow maps of a view share one atlas
 

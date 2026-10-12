@@ -512,7 +512,8 @@ Status EditorApp::registerApplicationCommands() {
                        "and more), which cascade of the sun's shadow each pixel is looked up in "
                        "(shadowCascades: red, green, blue, yellow from the nearest on; grey where the sun "
                        "casts none), how much of the light from all around gets to each surface past what "
-                       "stands around it (ambientOcclusion: white is all of it), the light without the "
+                       "stands around it (ambientOcclusion: white is all of it), how much of each pixel "
+                       "is fog (fog: white where nothing shows through), the light without the "
                        "materials (lightingOnly), what the surroundings "
                        "give every surface to reflect, each of them made a perfect mirror (reflections), the "
                        "edges of the triangles (wireframe) or how often each pixel is drawn (overdraw). "
@@ -805,6 +806,13 @@ void EditorApp::drawEntityMenu() {
             create("Environment", std::move(components));
         }
         ImGui::EndMenu();
+    }
+    if (ImGui::MenuItem("Create fog")) {
+        // As dense as it gets at the height of the entity: it is moved up and down like
+        // anything else; its color and density are set in the inspector.
+        Json components = Json::object();
+        components["Fog"] = Json::object();
+        create("Fog", std::move(components));
     }
     if (ImGui::MenuItem("Create post-process volume")) {
         // A box of a few metres in which the picture is finished differently; what

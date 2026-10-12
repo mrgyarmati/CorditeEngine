@@ -41,6 +41,7 @@ TEST_SUITE("RenderDebugView") {
         CHECK(nameOf(RenderDebugView::LightCount) == "lightCount");
         CHECK(nameOf(RenderDebugView::ShadowCascades) == "shadowCascades");
         CHECK(nameOf(RenderDebugView::AmbientOcclusion) == "ambientOcclusion");
+        CHECK(nameOf(RenderDebugView::Fog) == "fog");
         CHECK(nameOf(RenderDebugView::LightingOnly) == "lightingOnly");
         CHECK(nameOf(RenderDebugView::Reflections) == "reflections");
         CHECK(nameOf(RenderDebugView::Wireframe) == "wireframe");
@@ -50,7 +51,8 @@ TEST_SUITE("RenderDebugView") {
         CHECK(displayNameOf(RenderDebugView::LightingOnly) == "Lighting only");
         CHECK(displayNameOf(RenderDebugView::Reflections) == "Reflections");
         CHECK(displayNameOf(RenderDebugView::AmbientOcclusion) == "Ambient occlusion");
-        CHECK(kRenderDebugViews.size() == 16);
+        CHECK(displayNameOf(RenderDebugView::Fog) == "Fog");
+        CHECK(kRenderDebugViews.size() == 17);
     }
 
     TEST_CASE("a view is found by its name, whatever the case, and nothing else is") {
@@ -67,13 +69,13 @@ TEST_SUITE("RenderDebugView") {
         CHECK_FALSE(renderDebugViewFromName("xray").has_value());
     }
 
-    TEST_CASE("the views drawn from the G-buffer are the ones from base color to ambient occlusion") {
+    TEST_CASE("the views drawn from the G-buffer are the ones from base color to fog") {
         CHECK_FALSE(isDrawnFromGBuffer(RenderDebugView::None));
         for (const RenderDebugView view :
              {RenderDebugView::BaseColor, RenderDebugView::Normals, RenderDebugView::Roughness,
               RenderDebugView::Metallic, RenderDebugView::Specular, RenderDebugView::Occlusion,
               RenderDebugView::Emissive, RenderDebugView::Depth, RenderDebugView::LightCount,
-              RenderDebugView::ShadowCascades, RenderDebugView::AmbientOcclusion}) {
+              RenderDebugView::ShadowCascades, RenderDebugView::AmbientOcclusion, RenderDebugView::Fog}) {
             CAPTURE(nameOf(view));
             CHECK(isDrawnFromGBuffer(view));
         }
@@ -94,5 +96,6 @@ TEST_SUITE("RenderDebugView") {
         CHECK(static_cast<int>(RenderDebugView::LightCount) == 9);
         CHECK(static_cast<int>(RenderDebugView::ShadowCascades) == 10);
         CHECK(static_cast<int>(RenderDebugView::AmbientOcclusion) == 11);
+        CHECK(static_cast<int>(RenderDebugView::Fog) == 12);
     }
 }

@@ -257,6 +257,19 @@ void ViewBindings::update(nvrhi::ICommandList* commandList, const SceneView& vie
         const Vec3& coefficient = surroundings.diffuse[index];
         constants.environmentDiffuse[index] = Vec4(isFinite(coefficient) ? coefficient : Vec3(0.0f), 0.0f);
     }
+
+    // The fog, likewise: every number of it finite and in its range.
+    const FogSettings fog = sanitized(view.fog);
+    constants.fogColor = fog.color;
+    constants.fogDensity = fog.isEnabled() ? fog.density : 0.0f;
+    constants.fogSunColor = fog.sunColor;
+    constants.fogSunExponent = fog.sunExponent;
+    constants.fogTowardsSun = fog.towardsSun;
+    constants.fogHeight = fog.height;
+    constants.fogHeightFalloff = fog.heightFalloff;
+    constants.fogStartDistance = fog.startDistance;
+    constants.fogMaxOpacity = fog.maxOpacity;
+    constants.backgroundColor = isFinite(view.backgroundColor) ? view.backgroundColor : Vec3(0.0f);
     commandList->writeBuffer(m_constants, &constants, sizeof(constants));
 
     if (m_bindingsOutdated || !m_bindings || m_atlas != shadows.atlas ||

@@ -194,6 +194,12 @@ Texture2D<float4> sceneDepth : register(t4, space1);
   which the forward pass calls too; extend that function, not one of its callers.
   Light that comes from all around - ambient light, the environment - is added in
   `shadeSurroundings`, which is also what the `reflections` debug view shows.
+  `shadeSurface` ends by putting the surface into the fog (`common/Fog.slang`); a pass
+  that writes scene color some other way calls `seenThroughFog` itself.
+- A pass that fills the screen writes every pixel. Where it has nothing to draw it
+  writes `backgroundColor` (`common/View.slang`), it does not `discard`: one driver
+  threw away whole blocks of pixels for one discarded pixel in them (AGENTS.md, known
+  pitfalls).
 - Whatever a pass writes to scene color goes through `storableLight` first: the
   target is made of half floats, and what a GPU keeps of more light than they hold
   may be infinity. `shadeSurface` does it for what it returns.

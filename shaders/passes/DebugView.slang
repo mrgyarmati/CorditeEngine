@@ -3,9 +3,12 @@
 // The value is written where the lit color would go, so that everything after this pass
 // - the display encoding, the editor's overlays - works as usual. Numbers that are not
 // colors (normals, roughness) are written so that they come out of the display encoding
-// as they are: a roughness of 0.5 is shown as mid-grey.
+// as they are: a roughness of 0.5 is shown as mid-grey. Where nothing was drawn the
+// background is written: no pixel is discarded, for the reason the lighting pass gives
+// (passes/DeferredLighting.slang).
 
 #include "common/Color.slang"
+#include "common/Fog.slang"
 #include "common/Fullscreen.slang"
 #include "common/GBuffer.slang"
 #include "common/Lights.slang"
@@ -24,6 +27,7 @@ static const uint kViewDepth = 8;
 static const uint kViewLightCount = 9;
 static const uint kViewShadowCascades = 10;
 static const uint kViewAmbientOcclusion = 11;
+static const uint kViewFog = 12;
 
 cbuffer DebugViewConstants : register(b0, space1)
 {
@@ -52,10 +56,28 @@ float4 debugViewPixel(FullscreenVaryings input) : SV_Target0
 {
     const int3 pixel = int3(int2(input.position.xy), 0);
     const float depth = sceneDepth.Load(pixel).r;
-    // Where nothing was drawn, the background stays.
+    if (view == kViewFog)
+    {
+        // How much of the pixel is fog: white is all of it. Fog is in front of
+        // everything, of where nothing was drawn too: there it is what the sky, or the
+        // background, is seen through.
+        const float2 uv = input.position.xy * inverseTargetSize;
+        float amount = 0.0;
+        if (depth <= 0.0)
+        {
+            amount = fogAmountTowards(viewerAt(uv), viewDirectionAt(uv));
+        }
+        else
+        {
+            const float3 position = worldPositionFromDepth(uv, depth, inverseViewProjection);
+            amount = fogAmount(viewerOf(position), position);
+        }
+        return float4(asShown(float3(amount)), 1.0);
+    }
+    // Where nothing was drawn, the background shows.
     if (depth <= 0.0)
     {
-        discard;
+        return float4(backgroundColor, 1.0);
     }
 
     const float4 parameters = gbufferParameters.Load(pixel);

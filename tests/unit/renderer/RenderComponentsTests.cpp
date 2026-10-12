@@ -40,12 +40,13 @@ struct Components {
 TEST_SUITE("RenderComponents") {
     TEST_CASE("the renderer registers its components under the names scene files use") {
         const Components components;
-        REQUIRE(components.registry.components().size() == 5);
+        REQUIRE(components.registry.components().size() == 6);
         CHECK(components.registry.components()[0]->type.name() == "MeshRenderer");
         CHECK(components.registry.components()[1]->type.name() == "Light");
         CHECK(components.registry.components()[2]->type.name() == "AmbientLight");
         CHECK(components.registry.components()[3]->type.name() == "Environment");
-        CHECK(components.registry.components()[4]->type.name() == "PostProcess");
+        CHECK(components.registry.components()[4]->type.name() == "Fog");
+        CHECK(components.registry.components()[5]->type.name() == "PostProcess");
         for (const ComponentDescriptor* descriptor : components.registry.components()) {
             CAPTURE(descriptor->type.name());
             CHECK(descriptor->traits.optional);
@@ -326,6 +327,76 @@ TEST_SUITE("RenderComponents") {
             CHECK_FALSE(type.fromJson(&loaded, json(text)).has_value());
             CHECK(loaded.intensity == 2.5f);
             CHECK(loaded.rotationDegrees == -45.0f);
+        }
+    }
+
+    TEST_CASE("a fog is saved as a color, how dense it is and how it thins out, and what it makes of the sun") {
+        const Components components;
+        const TypeInfo& type = components.type("Fog");
+
+        // A new one is a light haze that hangs low and has no sun in it.
+        const FogComponent fresh;
+        CHECK(fresh.color == Vec3(0.5f, 0.6f, 0.7f));
+        CHECK(fresh.density == 0.02f);
+        CHECK(fresh.heightFalloff == 0.2f);
+        CHECK(fresh.startDistance == 0.0f);
+        CHECK(fresh.maxOpacity == 1.0f);
+        CHECK(fresh.sunColor == Vec3(0.0f));
+        CHECK(fresh.sunExponent == 8.0f);
+
+        const FogComponent fog{.color = Vec3(0.25f, 0.5f, 0.75f),
+                               .density = 0.125f,
+                               .heightFalloff = 0.5f,
+                               .startDistance = 4.0f,
+                               .maxOpacity = 0.75f,
+                               .sunColor = Vec3(2.0f, 1.0f, 0.5f),
+                               .sunExponent = 16.0f};
+        const Json saved = type.toJson(&fog);
+        CHECK(saved == json(R"({"color": [0.25, 0.5, 0.75], "density": 0.125, "heightFalloff": 0.5,
+                                "startDistance": 4.0, "maxOpacity": 0.75, "sunColor": [2.0, 1.0, 0.5],
+                                "sunExponent": 16.0})"));
+
+        FogComponent loaded;
+        REQUIRE(type.fromJson(&loaded, saved).has_value());
+        CHECK(loaded.color == fog.color);
+        CHECK(loaded.density == 0.125f);
+        CHECK(loaded.heightFalloff == 0.5f);
+        CHECK(loaded.startDistance == 4.0f);
+        CHECK(loaded.maxOpacity == 0.75f);
+        CHECK(loaded.sunColor == fog.sunColor);
+        CHECK(loaded.sunExponent == 16.0f);
+
+        // Its colors are colors to an editor, and may be brighter than white.
+        for (const char* name : {"color", "sunColor"}) {
+            CAPTURE(std::string(name));
+            const PropertyInfo* color = type.findProperty(name);
+            REQUIRE(color != nullptr);
+            CHECK(color->attributes().semantic == PropertySemantic::Color);
+            CHECK(color->attributes().minimum == 0.0);
+            CHECK_FALSE(color->attributes().maximum.has_value());
+        }
+
+        for (const char* text : {
+                 R"({"density": -0.01})",
+                 R"({"density": 10.5})",
+                 R"({"heightFalloff": -1.0})",
+                 R"({"heightFalloff": 11.0})",
+                 R"({"startDistance": -1.0})",
+                 R"({"maxOpacity": 1.5})",
+                 R"({"maxOpacity": -0.1})",
+                 R"({"sunExponent": 0.5})",
+                 R"({"sunExponent": 65.0})",
+                 R"({"color": [-0.1, 0.0, 0.0]})",
+                 R"({"sunColor": [0.0, 0.0]})",
+                 R"({"color": "grey"})",
+                 R"({"height": 3.0})",
+                 R"({"density": 0.5, "maxOpacity": 2.0})",
+             }) {
+            CAPTURE(std::string(text));
+            CHECK_FALSE(type.fromJson(&loaded, json(text)).has_value());
+            CHECK(loaded.density == 0.125f);
+            CHECK(loaded.maxOpacity == 0.75f);
+            CHECK(loaded.color == fog.color);
         }
     }
 

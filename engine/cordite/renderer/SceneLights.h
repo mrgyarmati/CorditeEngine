@@ -1,7 +1,8 @@
 #pragma once
 
 /// @file
-/// The lights of a world, gathered for the renderer.
+/// The lights of a world, gathered for the renderer - and its fog, which is in the way
+/// of all of them.
 ///
 /// @code
 /// SceneLights lights;
@@ -9,6 +10,8 @@
 ///
 /// LightClusters clusters;
 /// buildLightClusters(view, lights.lights(), clusters);
+///
+/// const FogSettings& fog = lights.fog();      // clear air when the world has no Fog
 /// @endcode
 ///
 /// Brightness is converted here from what a person sets to what the shaders compute
@@ -18,6 +21,7 @@
 
 #include "cordite/core/Uuid.h"
 #include "cordite/math/Math.h"
+#include "cordite/renderer/Fog.h"
 #include "cordite/renderer/LightClusters.h"
 #include "cordite/renderer/RenderComponents.h"
 #include "cordite/world/World.h"
@@ -79,6 +83,13 @@ public:
     /// which is the same on every run. Without one, an environment without an image.
     [[nodiscard]] const SceneEnvironment& environment() const { return m_environment; }
 
+    /// The fog: that of the enabled Fog whose entity has the lowest id, as dense as it
+    /// gets at the height of that entity, with every number in its range. Its sun is
+    /// the brightest of the directional lights - of those that are equally bright,
+    /// the first - and without one it has no light of a sun to throw on. Without a
+    /// Fog, clear air.
+    [[nodiscard]] const FogSettings& fog() const { return m_fog; }
+
     /// True when the lights are the stand-ins of SceneLightsDesc::defaultLighting.
     [[nodiscard]] bool isDefault() const { return m_isDefault; }
 
@@ -91,6 +102,7 @@ private:
     Vec3 m_skyColor{0.0f};
     Vec3 m_groundColor{0.0f};
     SceneEnvironment m_environment;
+    FogSettings m_fog;
     bool m_isDefault = false;
 };
 

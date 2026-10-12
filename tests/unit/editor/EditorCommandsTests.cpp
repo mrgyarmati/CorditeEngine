@@ -157,7 +157,7 @@ TEST_SUITE("EditorCommands") {
     TEST_CASE("component.types describes what can be edited") {
         CommandFixture fixture;
         const Json types = fixture.run("component.types");
-        REQUIRE(types.size() == 8);
+        REQUIRE(types.size() == 9);
 
         CHECK(types[0]["name"] == "Transform");
         CHECK(types[0]["optional"] == false);
@@ -203,19 +203,30 @@ TEST_SUITE("EditorCommands") {
         CHECK(types[5]["properties"][3]["name"] == "visible");
         CHECK(types[5]["properties"][3]["type"] == "bool");
 
+        // What a fog is measured in is said with its numbers.
+        CHECK(types[6]["name"] == "Fog");
+        CHECK(types[6]["properties"][0]["name"] == "color");
+        CHECK(types[6]["properties"][0]["semantic"] == "color");
+        CHECK(types[6]["properties"][1]["name"] == "density");
+        CHECK(types[6]["properties"][1]["unit"] == "1/m");
+        CHECK(types[6]["properties"][1]["minimum"] == 0.0);
+        CHECK(types[6]["properties"][1]["maximum"] == 10.0);
+        CHECK(types[6]["properties"][3]["name"] == "startDistance");
+        CHECK(types[6]["properties"][3]["unit"] == "m");
+
         // The settings a component takes over from a struct it is built on are its own
         // properties like any other.
-        CHECK(types[6]["name"] == "PostProcess");
-        CHECK(types[6]["properties"][0]["name"] == "global");
-        CHECK(types[6]["properties"][4]["name"] == "exposureMode");
-        CHECK(types[6]["properties"][4]["options"] == json(R"(["manual", "automatic"])"));
-        CHECK(types[6]["properties"][10]["name"] == "toneMapper");
-        CHECK(types[6]["properties"][10]["options"] == json(R"(["filmic", "aces", "linear"])"));
-        CHECK(types[6]["properties"][21]["name"] == "colorLut");
-        CHECK(types[6]["properties"][21]["assetType"] == "Texture");
+        CHECK(types[7]["name"] == "PostProcess");
+        CHECK(types[7]["properties"][0]["name"] == "global");
+        CHECK(types[7]["properties"][4]["name"] == "exposureMode");
+        CHECK(types[7]["properties"][4]["options"] == json(R"(["manual", "automatic"])"));
+        CHECK(types[7]["properties"][10]["name"] == "toneMapper");
+        CHECK(types[7]["properties"][10]["options"] == json(R"(["filmic", "aces", "linear"])"));
+        CHECK(types[7]["properties"][21]["name"] == "colorLut");
+        CHECK(types[7]["properties"][21]["assetType"] == "Texture");
 
-        CHECK(types[7]["name"] == "Label");
-        CHECK(types[7]["properties"][1]["readOnly"] == true);
+        CHECK(types[8]["name"] == "Label");
+        CHECK(types[8]["properties"][1]["readOnly"] == true);
     }
 
     TEST_CASE("a scene is lit by commands: lights are made, changed and taken back like everything else") {

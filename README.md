@@ -22,7 +22,7 @@ Cordite is under active development. Milestones follow the brief:
 | 7 | Shadows: shadow maps in an atlas for directional, point and spot lights, cascades for the sun, soft filtered edges | Done |
 | 8 | HDR and post-processing: exposure by hand or automatic, bloom, filmic and ACES tone mapping, color grading with lookup tables, vignette, grain, quality presets | Done |
 | - | Image-based lighting: HDR images of the sky as environments - the sky itself, its light on matte surfaces, its reflection on shiny ones | Done |
-| 9 | Screen-space effects: ambient occlusion done; reflections, fog and anti-aliasing to come | In progress |
+| 9 | Screen-space effects: ambient occlusion and fog done; reflections and anti-aliasing to come | In progress |
 | 10 | Physics and gameplay | Planned |
 | 11 | Editor maturity | Planned |
 | 12 | Packaging and export | Planned |
@@ -119,6 +119,13 @@ are looked for and how much they must rise above a surface to count are set with
 rest of the look of a scene (`PostProcess`: `ambientOcclusionIntensity`, `...Radius`,
 `...Bias`); how finely it is worked out is the screen-effects quality of the view. The
 "Ambient occlusion" view of the editor shows it alone.
+
+A scene can have fog (`Fog`): what is far away fades into its color, the sky included.
+It is at its densest at the height of its entity and below, and thins out above, so
+that it can lie on the ground while what stands tall rises out of it; towards the sun
+it glows in a second color. `density` is the part of the light that is lost with
+every metre, `heightFalloff` how fast it thins out; the "Fog" view of the editor shows
+how much of each pixel is fog.
 
 A light casts shadows when it is told to (`castsShadows`): the sun through up to four
 cascades that reach as far as its shadow distance, a spot light through one shadow map,

@@ -41,6 +41,7 @@
 #include "cordite/math/Math.h"
 #include "cordite/renderer/CameraView.h"
 #include "cordite/renderer/EnvironmentMaps.h"
+#include "cordite/renderer/Fog.h"
 #include "cordite/renderer/LightClusters.h"
 #include "cordite/renderer/ShadowPlan.h"
 
@@ -62,6 +63,11 @@ struct SceneView {
     /// Whether the ambient occlusion of the view's targets is drawn this frame
     /// (AmbientOcclusionPass): the lighting reads it only then.
     bool ambientOcclusion = false;
+    /// The fog between the viewer and what it sees; none unless it has a density.
+    FogSettings fog;
+    /// What the targets were cleared to. The lighting has to know it where it draws
+    /// fog over pixels in which nothing else is: fog mixes with what is behind it.
+    Vec3 backgroundColor{0.0f};
 };
 
 /// The shadows of a view, as its passes read them.

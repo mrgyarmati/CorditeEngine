@@ -3,8 +3,14 @@
 // The base pass has written down what each visible surface is; this pass reads that
 // back, works out where the surface is from its depth, and computes the light that
 // leaves it towards the viewer. Output is linear light. Pixels in which nothing was
-// drawn show the sky of the environment, when the view has one that is to be seen;
-// otherwise they are left alone and keep the background.
+// drawn show what is behind everything - the sky of the environment, when the view
+// has one that is to be seen, and the background otherwise - through all the fog
+// there is.
+//
+// Every pixel is written; none is discarded. A pixel may be discarded for what is
+// true of that pixel alone - but "this view has no sky" is true of all of them, and
+// one GPU driver, given both in one condition, threw away whole blocks of pixels for
+// the sake of one in them (AGENTS.md, known pitfalls).
 //
 // Compiled a second time with LIGHTING_ONLY, for the debug view that shows the light
 // without the materials' colors: every surface a plain, matte grey. And a third time
@@ -79,17 +85,22 @@ float4 deferredLightingPixel(FullscreenVaryings input) : SV_Target0
     // Depth is reversed: zero is as far as the view reaches, where nothing was drawn.
     if (depth <= 0.0)
     {
-        if (environmentVisible < 0.5)
-        {
-            discard;
-        }
-        // The sky. How far the view turns from this pixel to the ones beside and below
-        // it tells how much of the sky the pixel covers.
         const float3 direction = viewDirectionAt(uv);
-        const float3 beside = viewDirectionAt(uv + float2(inverseTargetSize.x, 0.0));
-        const float3 below = viewDirectionAt(uv + float2(0.0, inverseTargetSize.y));
-        const float turn = max(length(beside - direction), length(below - direction));
-        return float4(storableLight(environmentSkyLight(direction, turn)), 1.0);
+        float3 light = backgroundColor;
+        if (environmentVisible > 0.5)
+        {
+            // The sky. How far the view turns from this pixel to the ones beside and
+            // below it tells how much of the sky the pixel covers.
+            const float3 beside = viewDirectionAt(uv + float2(inverseTargetSize.x, 0.0));
+            const float3 below = viewDirectionAt(uv + float2(0.0, inverseTargetSize.y));
+            const float turn = max(length(beside - direction), length(below - direction));
+            light = storableLight(environmentSkyLight(direction, turn));
+        }
+#if !defined(REFLECTIONS_ONLY)
+        // (What there is to reflect is shown as it is, with no air in between.)
+        light = storableLight(seenThroughFogTowards(light, viewerAt(uv), direction));
+#endif
+        return float4(light, 1.0);
     }
 
     const float3 position = worldPositionFromDepth(uv, depth, inverseViewProjection);

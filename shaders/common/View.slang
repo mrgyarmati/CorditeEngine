@@ -58,6 +58,28 @@ cbuffer ViewConstants : register(b0, space0)
     float viewPadding0;
     // What it lights a matte surface with: nine spherical harmonics, in rgb.
     float4 environmentDiffuse[9];
+    // The fog (common/Fog.slang): its own color, and the part of the light that is
+    // lost with every metre where it is densest - zero when the view has no fog.
+    float3 fogColor;
+    float fogDensity;
+    // What it adds of the sun's light where the view looks straight at the sun, and how
+    // closely around the sun that stays: the power of the cosine of the angle to it.
+    float3 fogSunColor;
+    float fogSunExponent;
+    // Unit vector towards that sun.
+    float3 fogTowardsSun;
+    // The height up to which the fog is at its densest, and how fast it thins out
+    // above: by a factor of e every one divided by this many metres.
+    float fogHeight;
+    float fogHeightFalloff;
+    // How far from the viewer the fog begins, and the most of a pixel it ever takes.
+    float fogStartDistance;
+    float fogMaxOpacity;
+    float viewPadding1;
+    // What the targets were cleared to: what is seen where nothing is drawn and the
+    // environment is not shown as the sky.
+    float3 backgroundColor;
+    float viewPadding2;
 };
 
 // The unit vector from a point in the world towards the viewer. With perspective that
@@ -88,4 +110,24 @@ float3 viewDirectionAt(float2 uv)
 float viewDepth(float3 position)
 {
     return dot(position - cameraPosition, cameraForward);
+}
+
+// Where the line of sight to a point in the world sets out. With perspective that is
+// the camera. Without, every line of sight has a start of its own, in the plane the
+// camera is in: the one straight in front of the point.
+float3 viewerOf(float3 position)
+{
+    return orthographic > 0.5 ? position - cameraForward * viewDepth(position) : cameraPosition;
+}
+
+// The same for the pixel at `uv`, whatever it shows: where viewDirectionAt(uv) sets out.
+float3 viewerAt(float2 uv)
+{
+    if (orthographic < 0.5)
+    {
+        return cameraPosition;
+    }
+    // Any point the pixel shows will do; this one is on the near plane, where depth is one.
+    const float4 shown = mul(inverseViewProjection, float4(uv.x * 2.0 - 1.0, 1.0 - uv.y * 2.0, 1.0, 1.0));
+    return viewerOf(shown.xyz / shown.w);
 }

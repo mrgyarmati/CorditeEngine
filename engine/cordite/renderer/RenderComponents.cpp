@@ -143,6 +143,55 @@ TypeInfo describeEnvironment() {
         .build();
 }
 
+TypeInfo describeFog() {
+    return TypeBuilder<FogComponent>("Fog")
+        .property("color", &FogComponent::color,
+                  {.description = "Linear color of the fog itself: what is seen where nothing shows through "
+                                  "it. Nothing lights it; give a fog in a dark scene a dark color",
+                   .semantic = PropertySemantic::Color,
+                   .minimum = 0.0})
+        .property("density", &FogComponent::density,
+                  {.description = "The part of the light that is lost with every metre, at the height of the "
+                                  "entity and below. 0.02 leaves 82% after ten metres and 14% after a "
+                                  "hundred; 0 is no fog",
+                   .minimum = 0.0,
+                   .maximum = 10.0,
+                   .step = 0.001,
+                   .unit = "1/m"})
+        .property("heightFalloff", &FogComponent::heightFalloff,
+                  {.description = "How fast the fog thins out above the entity: to about a third every one "
+                                  "divided by this many metres. 0 is the same fog at every height, which "
+                                  "hides the sky",
+                   .minimum = 0.0,
+                   .maximum = 10.0,
+                   .step = 0.01,
+                   .unit = "1/m"})
+        .property("startDistance", &FogComponent::startDistance,
+                  {.description = "The fog begins this far from the viewer",
+                   .minimum = 0.0,
+                   .maximum = 100000.0,
+                   .step = 0.1,
+                   .unit = "m"})
+        .property("maxOpacity", &FogComponent::maxOpacity,
+                  {.description = "The most of the fog's color that takes the place of what is behind it: 1 "
+                                  "lets distant things vanish, less keeps them and the sky faintly there",
+                   .minimum = 0.0,
+                   .maximum = 1.0,
+                   .step = 0.01})
+        .property("sunColor", &FogComponent::sunColor,
+                  {.description = "Linear color added to the fog's where the view looks straight at the sun - "
+                                  "the brightest directional light: the glow of a sun in haze. Black for none",
+                   .semantic = PropertySemantic::Color,
+                   .minimum = 0.0})
+        .property("sunExponent", &FogComponent::sunExponent,
+                  {.description = "How closely around the sun its glow stays: 1 lights half the sky, 64 a "
+                                  "small patch",
+                   .minimum = 1.0,
+                   .maximum = 64.0,
+                   .step = 0.1})
+        .build();
+}
+
 TypeInfo describePostProcess() {
     using Component = PostProcessComponent;
     return TypeBuilder<Component>("PostProcess")
@@ -340,6 +389,10 @@ Status registerRendererComponents(ComponentRegistry& registry) {
         describeEnvironment(),
         {.description = "Everything far away, as an image that lights the scene and is its sky. Of several, "
                         "the one whose entity has the lowest id is used."}));
+    CORDITE_TRY(registry.add<FogComponent>(
+        describeFog(), {.description = "Fog: the further away something is, the more of the fog's color is seen in its "
+                                       "place. Densest at the height of the entity and below, thinning out above. Of "
+                                       "several, the one whose entity has the lowest id is used."}));
     CORDITE_TRY(registry.add<PostProcessComponent>(
         describePostProcess(),
         {.description = "How the picture is finished - exposure, bloom, tone mapping, grading - everywhere, in a "

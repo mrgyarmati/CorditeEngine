@@ -1,4 +1,5 @@
-// The light that leaves a surface towards the viewer, under the lights of the view.
+// The light a viewer gets from a surface: what leaves it towards the viewer under the
+// lights of the view, and what the fog between the two makes of that.
 //
 // The deferred lighting pass and the forward pass both call shadeSurface(), so a surface
 // looks the same whichever of them draws it. A lighting feature is added here, never to
@@ -8,6 +9,7 @@
 
 #include "common/Brdf.slang"
 #include "common/Environment.slang"
+#include "common/Fog.slang"
 #include "common/Lights.slang"
 #include "common/View.slang"
 
@@ -39,5 +41,7 @@ float3 shadeSurface(Surface surface, float2 uv)
     float3 color = shadeLights(surface, toViewer, uv);
     color += shadeSurroundings(surface, toViewer);
     color += surface.emissive;
-    return storableLight(color);
+    // Made storable before the fog and after it: fog mixes, and what is mixed with
+    // "infinitely much" is not a number.
+    return storableLight(seenThroughFog(storableLight(color), viewerOf(surface.position), surface.position));
 }

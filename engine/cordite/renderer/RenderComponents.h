@@ -2,7 +2,8 @@
 
 /// @file
 /// The components that make an entity visible, the ones that light it, the one that
-/// surrounds a scene with a sky, and the one that says how the picture is finished.
+/// surrounds a scene with a sky, the one that fills its air with fog, and the one that
+/// says how the picture is finished.
 ///
 /// @code
 /// const Entity crate = world.createEntity("Crate");
@@ -27,6 +28,8 @@
 ///           "innerConeDegrees": 20, "outerConeDegrees": 30, "castsShadows": true},
 /// "Environment": {"texture": "3f0c8d5e-6f0a-4f38-9d3b-1b2a7c0de481", "intensity": 1.5,
 ///                 "rotationDegrees": 90, "visible": true},
+/// "Fog": {"color": [0.5, 0.6, 0.7], "density": 0.02, "heightFalloff": 0.2,
+///         "sunColor": [1, 0.7, 0.4], "sunExponent": 8},
 /// "PostProcess": {"global": true, "toneMapper": "filmic", "exposure": 0.5, "saturation": 0.85,
 ///                 "vignette": 0.3}
 /// @endcode
@@ -180,6 +183,41 @@ struct EnvironmentComponent {
     bool visible = true;
 };
 
+/// Air that is not clear: haze, mist, smoke that hangs low. The further away something
+/// is, the less of its light arrives, and the more of the fog's own color is seen in
+/// its place - of the sky too, which is furthest of all. Surfaces are in the fog
+/// whatever draws them, solid or translucent.
+///
+/// The fog is at its densest at the height of the entity and everywhere below, and
+/// thins out above: raise or lower the entity to raise or lower the fog. Nothing else
+/// of where the entity is matters. A world has one fog: of several that are enabled,
+/// that of the entity with the lowest id. Fog.h says how it is worked out.
+struct FogComponent {
+    /// Linear color of the fog itself: what is seen where nothing shows through it.
+    /// It is not lit by anything: a fog in a dark scene is given a dark color.
+    Vec3 color{0.5f, 0.6f, 0.7f};
+    /// The part of the light that is lost with every metre where the fog is densest.
+    /// 0.02 leaves 82% of the light of what is ten metres away, and 14% of what is a
+    /// hundred; 0 is no fog.
+    float density = 0.02f;
+    /// How fast the fog thins out above the entity: to a little more than a third
+    /// (1 / e) every 1 / heightFalloff metres. 0 is the same fog at every height, which
+    /// hides the sky altogether unless `maxOpacity` keeps some of it.
+    float heightFalloff = 0.2f;
+    /// The fog begins this far from the viewer, in metres.
+    float startDistance = 0.0f;
+    /// The most of the fog's color that ever takes the place of what is behind it: 1
+    /// lets distant things vanish, less keeps them, and the sky, faintly there.
+    float maxOpacity = 1.0f;
+    /// Linear color the fog adds to its own where the view looks straight at the sun:
+    /// the glow of a sun in haze. The sun is the brightest directional light that is
+    /// on; without one, and with black, there is no glow.
+    Vec3 sunColor{0.0f};
+    /// How closely around the sun the glow stays: it falls off with the cosine of the
+    /// angle to the sun, to this power. 1 lights half the sky, 64 a small patch.
+    float sunExponent = 8.0f;
+};
+
 /// How the picture is finished - exposure, bloom, tone mapping, grading and the rest of
 /// PostProcessSettings - and where.
 ///
@@ -203,7 +241,7 @@ struct PostProcessComponent : PostProcessSettings {
 };
 
 /// Registers the renderer's components: "MeshRenderer", "Light", "AmbientLight",
-/// "Environment" and "PostProcess".
+/// "Environment", "Fog" and "PostProcess".
 [[nodiscard]] Status registerRendererComponents(ComponentRegistry& registry);
 
 } // namespace cordite

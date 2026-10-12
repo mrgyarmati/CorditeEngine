@@ -626,6 +626,38 @@
             }
         },
         {
+            // Fog: air that is not clear. The further away something is, the less of its
+            // light arrives and the more of the fog's "color" is seen in its place - of the
+            // sky too, which is furthest of all. "density" is the part of the light that is
+            // lost with every metre where the fog is densest: at the height of its entity
+            // and below. Above, it thins out, to about a third every 1 / "heightFalloff"
+            // metres; here it lies on the ground, and the walkway stands out of it. Moving
+            // the entity up or down moves the fog; where else it is does not matter.
+            //
+            // Nothing lights a fog: it has the color it is given, here that of the haze on
+            // the horizon of the sky. "sunColor" is added where the view looks towards the
+            // sun - the brightest directional light - and "sunExponent" says how closely
+            // around the sun that glow stays. The fog begins "startDistance" from the
+            // viewer and never takes more than "maxOpacity" of a pixel. Of several fogs,
+            // the one whose entity has the lowest id is used.
+            "id": "10000000-0000-4000-8000-000000000028",
+            "name": "Haze",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-00000000001e",
+            "components": {
+                "Transform": { "position": [0.0, 0.0, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [1.0, 1.0, 1.0] },
+                "Fog": {
+                    "color": [0.2, 0.185, 0.17],
+                    "density": 0.02,
+                    "heightFalloff": 0.25,
+                    "startDistance": 0.0,
+                    "maxOpacity": 1.0,
+                    "sunColor": [0.7, 0.42, 0.2],
+                    "sunExponent": 6.0
+                }
+            }
+        },
+        {
             // The renderer works out light, without an upper limit; a screen shows colors
             // between black and white. What happens in between - exposure, bloom, tone
             // mapping, grading - is set by PostProcess components.

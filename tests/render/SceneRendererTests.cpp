@@ -1016,6 +1016,13 @@ TEST_SUITE("SceneRenderer") {
 
         const Entity ball = scene.add(BuiltinMesh::Sphere, scene.material("deferred"), at(Vec3(0.0f), Vec3(1.6f)));
         const CameraView view = scene.perspectiveView(Vec3(1.5f, 1.0f, 2.5f), Vec3(0.0f));
+        // In a fog with a sun in it, which is between the viewer and a surface whichever
+        // pass draws the surface.
+        const Entity haze = scene.world.createEntity("Haze");
+        scene.world.add<FogComponent>(haze) = {.color = Vec3(0.3f, 0.5f, 0.8f),
+                                               .density = 0.15f,
+                                               .heightFalloff = 0.5f,
+                                               .sunColor = Vec3(0.5f, 0.3f, 0.1f)};
         // Lit the way a scene is: a key light and light from the sky and the ground.
         // Without what is worked out from the screen: a surface that is drawn forward
         // is not in the depth buffer when that is done, and gets none of it.
@@ -1027,8 +1034,11 @@ TEST_SUITE("SceneRenderer") {
         const Image forward = scene.render(view, settings);
         CHECK(scene.renderer->statistics().basePass.drawCalls == 0);
 
-        // The picture is not flat: there is something to compare.
+        // The picture is not flat: there is something to compare. And there is fog in it.
         CHECK(glm::distance(Vec3(deferred.pixel(40, 40)), Vec3(deferred.pixel(60, 60))) > 0.05f);
+        scene.world.setEnabled(haze, false);
+        CHECK(unwrap(compareImages(deferred, scene.render(view, settings), {.channelTolerance = 3})).differingPixels >
+              1000);
         // The G-buffer stores what the forward pass has in full precision in eight bits
         // a channel; that is all the difference there may be.
         const ImageComparison difference = unwrap(compareImages(deferred, forward, {.channelTolerance = 3}));
