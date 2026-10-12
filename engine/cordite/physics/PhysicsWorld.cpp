@@ -92,6 +92,9 @@ constexpr float kMinShapeExtent = 0.001f;
 /// How round the edges of a box are, in metres, where the box is large enough for it:
 /// boxes with slightly round edges collide faster and come to rest more steadily.
 constexpr float kBoxEdgeRadius = 0.05f;
+/// How far around a body what rests against it is looked for, in metres: two bodies
+/// that touch are a little apart.
+constexpr float kTouchMargin = 0.05f;
 /// How many mutexes guard the bodies. Zero lets the library choose.
 constexpr JPH::uint kBodyMutexCount = 0;
 
@@ -651,6 +654,29 @@ struct PhysicsWorld::Impl {
 
     [[nodiscard]] JPH::BodyInterface& bodies() { return system.GetBodyInterface(); }
 
+    /// The box around a body in the world - or the box that holds nothing, for a body
+    /// that nothing rests against: a sensor, and one that is not there.
+    [[nodiscard]] JPH::AABox solidBoundsOf(JPH::BodyID body) const {
+        const JPH::BodyLockRead lock(system.GetBodyLockInterface(), body);
+        if (!lock.Succeeded() || lock.GetBody().IsSensor()) {
+            return {};
+        }
+        return lock.GetBody().GetWorldSpaceBounds();
+    }
+
+    /// Wakes what sleeps in a box, and a little around it. A body that sleeps does
+    /// not notice by itself that what it rests on is gone, or that something has been
+    /// put where it lies: Jolt looks at a sleeping body only when one that is awake
+    /// comes near, and a body that is destroyed, or stands still, never is.
+    void wakeWhatIsIn(const JPH::AABox& box) {
+        if (!box.IsValid()) {
+            return;
+        }
+        JPH::AABox around = box;
+        around.ExpandBy(JPH::Vec3::sReplicate(kTouchMargin));
+        bodies().ActivateBodiesInAABox(around, SolidBroadPhaseFilter(), SolidObjectFilter());
+    }
+
     /// The bodies that reach into a shape that is put somewhere: each once, by the
     /// place it has among the bodies of the world.
     [[nodiscard]] std::vector<BodyId> bodiesIn(const JPH::Shape& shape, const Vec3& center,
@@ -919,6 +945,10 @@ Result<BodyId> PhysicsWorld::createBody(const BodyDesc& desc) {
         return makeError(ErrorCode::OutOfRange, "the physics world is full: it holds {} bodies",
                          m_impl->system.GetMaxBodies());
     }
+    if (isStatic) {
+        // What is awake finds what sleeps by itself. What stands still does not.
+        m_impl->wakeWhatIsIn(m_impl->solidBoundsOf(body));
+    }
     return BodyId{body.GetIndexAndSequenceNumber()};
 }
 
@@ -926,9 +956,11 @@ void PhysicsWorld::destroyBody(BodyId body) {
     if (!isValid(body)) {
         return;
     }
+    const JPH::AABox where = m_impl->solidBoundsOf(joltIdOf(body));
     m_impl->bodies().RemoveBody(joltIdOf(body));
     m_impl->bodies().DestroyBody(joltIdOf(body));
     m_impl->contacts.noteGone();
+    m_impl->wakeWhatIsIn(where);
 }
 
 bool PhysicsWorld::isValid(BodyId body) const {
@@ -966,8 +998,13 @@ void PhysicsWorld::setPlacement(BodyId body, const Vec3& position, const Quat& r
     if (!isValid(body) || !usable) {
         return;
     }
+    // What rested against it where it was has lost it, and what sleeps where it is
+    // now has it in the way.
+    const JPH::AABox from = m_impl->solidBoundsOf(joltIdOf(body));
     m_impl->bodies().SetPositionAndRotation(joltIdOf(body), toJolt(position), toJolt(glm::normalize(rotation)),
                                             JPH::EActivation::Activate);
+    m_impl->wakeWhatIsIn(from);
+    m_impl->wakeWhatIsIn(m_impl->solidBoundsOf(joltIdOf(body)));
 }
 
 void PhysicsWorld::moveKinematic(BodyId body, const Vec3& position, const Quat& rotation, float seconds) {

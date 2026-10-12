@@ -761,6 +761,13 @@ Step-by-step guide: [work-with-assets](.claude/skills/work-with-assets/SKILL.md)
   the old one has stopped touching things and the new one has begun to.
   `PhysicsSystem` takes both out where they are about the same two entities
   (`dropEchoesOfRemaking`): changing a mass must not sound like an impact.
+- **A sleeping body notices nothing by itself.** Jolt looks at one only when a body
+  that is awake comes near - and a body that is destroyed, put somewhere else or
+  standing still never is. So `destroyBody`, `setPlacement` and the making of a
+  static body wake what sleeps where the body was and where it is
+  (`wakeWhatIsIn`): without that a crate stays asleep in the air when the shelf it
+  lay on is gone. Anything new that takes a body away, or puts one down, must do
+  the same.
 - **What is where is asked of `PhysicsWorld`**: `raycast`, `sphereCast` - a ball
   moved along a ray - and `overlapSphere`/`overlapBox`. Rays are exact; what is done
   with a shape meets a box whose edges are five hundredths of a metre round

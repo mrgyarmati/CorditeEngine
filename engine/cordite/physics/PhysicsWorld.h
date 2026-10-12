@@ -337,7 +337,8 @@ public:
     /// that are none, and when the world is full.
     [[nodiscard]] Result<BodyId> createBody(const BodyDesc& desc);
 
-    /// Removes a body. An id that is not a body's (any more) is ignored.
+    /// Removes a body. What slept against it wakes: it may have lost what held it. An
+    /// id that is not a body's (any more) is ignored.
     void destroyBody(BodyId body);
 
     [[nodiscard]] bool isValid(BodyId body) const;
@@ -356,7 +357,8 @@ public:
     [[nodiscard]] Quat rotation(BodyId body) const;
 
     /// Puts a body somewhere else at once, whatever is there: it does not move through
-    /// what lies between, and keeps its speed. Wakes it.
+    /// what lies between, and keeps its speed. Wakes it, what slept against it where
+    /// it was, and what sleeps where it is now.
     void setPlacement(BodyId body, const Vec3& position, const Quat& rotation);
 
     /// Has a kinematic body be at a place after the next step of `seconds`, moving

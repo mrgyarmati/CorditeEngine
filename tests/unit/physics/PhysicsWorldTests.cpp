@@ -818,6 +818,80 @@ TEST_SUITE("PhysicsWorld") {
               "a sensor has to notice what has fallen asleep in it, and a static body does not: make it kinematic");
     }
 
+    TEST_CASE("what sleeps on a body wakes when that body is destroyed or put somewhere else") {
+        const std::unique_ptr<PhysicsWorld> physics = unwrap(PhysicsWorld::create());
+        addFloor(*physics);
+        // Three shelves a metre and a half up, each with a crate asleep on it, and a
+        // crate on the floor far away from all of them.
+        std::vector<BodyId> shelves;
+        std::vector<BodyId> crates;
+        for (const float x : {0.0f, 10.0f, 20.0f}) {
+            shelves.push_back(
+                unwrap(physics->createBody({.motion = BodyMotion::Static,
+                                            .shapes = {{.type = ShapeType::Box, .size = Vec3(2.0f, 0.2f, 2.0f)}},
+                                            .position = Vec3(x, 1.4f, 0.0f)})));
+            crates.push_back(unwrap(physics->createBody({.position = Vec3(x, 2.0f, 0.0f)})));
+        }
+        const BodyId apart = unwrap(physics->createBody({.position = Vec3(-10.0f, 0.5f, 0.0f)}));
+        stepFor(*physics, 300);
+        for (const BodyId crate : crates) {
+            REQUIRE_FALSE(physics->isActive(crate));
+            REQUIRE(physics->position(crate).y == doctest::Approx(2.0f).epsilon(0.02));
+        }
+        REQUIRE_FALSE(physics->isActive(apart));
+
+        // The first shelf is destroyed, the second put somewhere else, and the third
+        // turned on its side under its crate. None of the crates stays where nothing
+        // holds it: each wakes, and falls to the floor.
+        physics->destroyBody(shelves[0]);
+        physics->setPlacement(shelves[1], Vec3(10.0f, 1.4f, 30.0f), kIdentityQuat);
+        physics->setPlacement(shelves[2], Vec3(23.0f, 1.4f, 0.0f), glm::angleAxis(kHalfPi, Vec3(0.0f, 0.0f, 1.0f)));
+        physics->step(kStep);
+        for (const BodyId crate : crates) {
+            CHECK(physics->isActive(crate));
+        }
+        // What was near none of it sleeps on.
+        CHECK_FALSE(physics->isActive(apart));
+        stepFor(*physics, 300);
+        for (const BodyId crate : crates) {
+            CHECK(physics->position(crate).y == doctest::Approx(0.5f).epsilon(0.02));
+            CHECK_FALSE(physics->isActive(crate));
+        }
+
+        // A body that is put where another sleeps wakes it: a shelf brought down onto
+        // the crate that lies apart pushes it out from under itself.
+        physics->setPlacement(shelves[1], Vec3(-10.0f, 0.6f, 0.0f), kIdentityQuat);
+        physics->step(kStep);
+        CHECK(physics->isActive(apart));
+
+        // So does a body that is made where another sleeps and that stands still - what
+        // moves finds what sleeps by itself.
+        stepFor(*physics, 300);
+        REQUIRE_FALSE(physics->isActive(crates[0]));
+        unwrap(physics->createBody({.motion = BodyMotion::Static, .position = Vec3(0.4f, 0.5f, 0.0f)}));
+        CHECK(physics->isActive(crates[0]));
+        CHECK_FALSE(physics->isActive(crates[2]));
+
+        // A crate that sleeps on a crate falls when the one below is taken away.
+        const BodyId lower = unwrap(physics->createBody({.position = Vec3(-20.0f, 0.5f, 0.0f)}));
+        const BodyId upper = unwrap(physics->createBody({.position = Vec3(-20.0f, 1.5f, 0.0f)}));
+        stepFor(*physics, 300);
+        REQUIRE_FALSE(physics->isActive(upper));
+        physics->setPlacement(lower, Vec3(-20.0f, 0.5f, 10.0f), kIdentityQuat);
+        stepFor(*physics, 300);
+        CHECK(physics->position(upper).y == doctest::Approx(0.5f).epsilon(0.02));
+        // A sensor holds nothing up: taking one away wakes nobody.
+        const BodyId zone = unwrap(physics->createBody({.motion = BodyMotion::Kinematic,
+                                                        .shapes = {{.type = ShapeType::Box, .size = Vec3(3.0f)}},
+                                                        .position = Vec3(-20.0f, 0.5f, 0.0f),
+                                                        .sensor = true}));
+        stepFor(*physics, 5);
+        REQUIRE_FALSE(physics->isActive(upper));
+        physics->destroyBody(zone);
+        physics->step(kStep);
+        CHECK_FALSE(physics->isActive(upper));
+    }
+
     TEST_CASE("a body that is destroyed is gone, and its id is no body's again") {
         const std::unique_ptr<PhysicsWorld> physics = unwrap(PhysicsWorld::create({.maxBodies = 4}));
         const BodyId first = unwrap(physics->createBody({.shapes = {{.type = ShapeType::Sphere}}}));

@@ -1302,6 +1302,72 @@ TEST_SUITE("PhysicsSystem") {
         CHECK(stage.world.isValid(floor));
     }
 
+    TEST_CASE("what sleeps on an entity falls when the entity is switched off, moved away or destroyed") {
+        Stage stage;
+        stage.addFloor();
+        const Entity shelf = stage.world.createEntity("Shelf");
+        stage.world.transform(shelf).position = Vec3(0.0f, 1.4f, 0.0f);
+        stage.world.add<ColliderComponent>(shelf) = {.size = Vec3(2.0f, 0.2f, 2.0f)};
+        const Entity crate = stage.addCrate(Vec3(0.0f, 2.0f, 0.0f));
+        /// Puts the crate on the shelf and lets it fall asleep there.
+        const auto settle = [&] {
+            stage.world.transform(crate) = {.position = Vec3(0.0f, 2.0f, 0.0f)};
+            CHECK(stage.run(300).activeBodies == 0);
+            REQUIRE(stage.world.transform(crate).position.y == doctest::Approx(2.0f).epsilon(0.02));
+        };
+        /// Lets a second pass, and says whether the crate has come down to the floor.
+        const auto hasFallen = [&] {
+            stage.run(120);
+            return std::abs(stage.world.transform(crate).position.y - 0.5f) < 0.02f;
+        };
+
+        // Switched off, the shelf holds nothing up - and switched on again it does.
+        settle();
+        stage.world.setEnabled(shelf, false);
+        CHECK(hasFallen());
+        stage.world.setEnabled(shelf, true);
+        settle();
+        // Moved away - while time passes, and while it does not.
+        stage.world.transform(shelf).position.x = 10.0f;
+        CHECK(hasFallen());
+        stage.world.transform(shelf).position.x = 0.0f;
+        settle();
+        stage.world.transform(shelf).position.x = 10.0f;
+        stage.physics->synchronize(stage.world, *stage.assets);
+        CHECK(hasFallen());
+        stage.world.transform(shelf).position.x = 0.0f;
+        settle();
+        // Given a collider that is somewhere else: another body, where the crate is not.
+        stage.world.tryGet<ColliderComponent>(shelf)->center = Vec3(10.0f, 0.0f, 0.0f);
+        CHECK(hasFallen());
+        stage.world.tryGet<ColliderComponent>(shelf)->center = Vec3(0.0f);
+        settle();
+        // Destroyed.
+        stage.world.destroyEntity(shelf);
+        CHECK(hasFallen());
+    }
+
+    TEST_CASE("a floor that is made anew keeps what sleeps on it, and nothing is said of it") {
+        Stage stage;
+        const Entity floor = stage.addFloor();
+        const Entity crate = stage.addCrate(Vec3(0.0f, 0.5f, 0.0f));
+        CHECK(stage.run(300).activeBodies == 0);
+
+        // Rougher, the floor is another body. The crate wakes, finds it, and has not
+        // left the one floor for the other as far as anybody is told.
+        const BodyId before = stage.physics->bodyOf(floor);
+        stage.world.tryGet<ColliderComponent>(floor)->friction = 1.0f;
+        CHECK(stage.run(1).activeBodies == 1);
+        CHECK(stage.physics->bodyOf(floor) != before);
+        CHECK(stage.physics->events().empty());
+        for (int frame = 0; frame < 300; ++frame) {
+            stage.run(1);
+            REQUIRE(stage.physics->events().empty());
+        }
+        CHECK(stage.world.transform(crate).position.y == doctest::Approx(0.5f).epsilon(0.02));
+        CHECK(stage.physics->simulation().statistics().activeBodies == 0);
+    }
+
     TEST_CASE("two worlds given the same frames end up the same") {
         const auto run = [] {
             Stage stage;
