@@ -9,6 +9,9 @@
 #include <Jolt/Core/JobSystemSingleThreaded.h>
 #include <Jolt/Core/Memory.h>
 #include <Jolt/Core/TempAllocator.h>
+#include <Jolt/Geometry/AABox.h>
+#include <Jolt/Geometry/Triangle.h>
+#include <Jolt/Math/Float3.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Body/BodyInterface.h>
 #include <Jolt/Physics/Body/BodyLock.h>
@@ -20,6 +23,9 @@
 #include <Jolt/Physics/Collision/RayCast.h>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
+#include <Jolt/Physics/Collision/Shape/ConvexHullShape.h>
+#include <Jolt/Physics/Collision/Shape/MeshShape.h>
+#include <Jolt/Physics/Collision/Shape/ScaledShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Collision/Shape/StaticCompoundShape.h>
 #include <Jolt/Physics/PhysicsSettings.h>
@@ -27,14 +33,20 @@
 #include <Jolt/RegisterTypes.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdarg>
+#include <cstddef>
 #include <cstdio>
+#include <cstring>
 #include <mutex>
 #include <span>
 #include <string>
 #include <string_view>
+#include <unordered_map>
+#include <unordered_set>
 #include <utility>
+#include <vector>
 
 namespace cordite {
 namespace {
@@ -166,7 +178,51 @@ private:
 
 // --- Shapes ---------------------------------------------------------------------------------
 
-Result<JPH::ShapeRefC> makeShape(const ShapeDesc& desc) {
+/// Geometry that was prepared: the shape Jolt has made of it, at the size it was given
+/// in, and what kind of shape that is.
+struct Geometry {
+    JPH::ShapeRefC shape;
+    ShapeType type = ShapeType::ConvexHull;
+};
+
+/// By the value of its GeometryId.
+using GeometryTable = std::unordered_map<uint32_t, Geometry>;
+
+/// A shape of geometry: the geometry itself, or as many times as large as its scale says.
+Result<JPH::ShapeRefC> makeGeometryShape(const ShapeDesc& desc, const GeometryTable& geometries) {
+    const auto found = geometries.find(desc.geometry.value);
+    if (found == geometries.end() || found->second.type != desc.type) {
+        return makeError(ErrorCode::InvalidArgument,
+                         "a shape of the type {} needs geometry that was prepared for one, and has none",
+                         nameOf(desc.type));
+    }
+    const JPH::ShapeRefC& shape = found->second.shape;
+    const Vec3 scale = glm::abs(desc.scale);
+    const Vec3 size = fromJolt(shape->GetLocalBounds().GetSize()) * scale;
+    // A hull needs room along every axis; a surface may be flat, but not a point - and
+    // a scale of nothing is none that Jolt takes.
+    const float smallest = std::min({size.x, size.y, size.z});
+    const float largest = std::max({size.x, size.y, size.z});
+    if (!isFinite(desc.scale) || std::min({scale.x, scale.y, scale.z}) <= kEpsilon ||
+        (desc.type == ShapeType::ConvexHull ? smallest : largest) < kMinShapeExtent) {
+        return makeError(ErrorCode::InvalidArgument,
+                         "a {} scaled by {} by {} by {} is {} by {} by {} metres, and has no {} to collide with",
+                         nameOf(desc.type), desc.scale.x, desc.scale.y, desc.scale.z, size.x, size.y, size.z,
+                         desc.type == ShapeType::ConvexHull ? "volume" : "size");
+    }
+    if (desc.scale == Vec3(1.0f)) {
+        return shape;
+    }
+    const JPH::ShapeSettings::ShapeResult result = JPH::ScaledShapeSettings(shape, toJolt(desc.scale)).Create();
+    if (!result.IsValid()) {
+        const std::string_view reason = result.HasError() ? std::string_view(result.GetError()) : "no shape";
+        return makeError(ErrorCode::InvalidArgument, "cannot scale a {} to collide with: {}", nameOf(desc.type),
+                         reason);
+    }
+    return result.Get();
+}
+
+Result<JPH::ShapeRefC> makeShape(const ShapeDesc& desc, const GeometryTable& geometries) {
     JPH::ShapeSettings::ShapeResult result;
     switch (desc.type) {
         case ShapeType::Box: {
@@ -204,6 +260,9 @@ Result<JPH::ShapeRefC> makeShape(const ShapeDesc& desc) {
             }
             break;
         }
+        case ShapeType::ConvexHull:
+        case ShapeType::Mesh:
+            return makeGeometryShape(desc, geometries);
     }
     if (!result.IsValid()) {
         const std::string_view reason = result.HasError() ? std::string_view(result.GetError()) : "no shape";
@@ -213,7 +272,7 @@ Result<JPH::ShapeRefC> makeShape(const ShapeDesc& desc) {
 }
 
 /// The shape of a whole body: its one shape, or its shapes put together.
-Result<JPH::ShapeRefC> makeBodyShape(std::span<const ShapeDesc> shapes) {
+Result<JPH::ShapeRefC> makeBodyShape(std::span<const ShapeDesc> shapes, const GeometryTable& geometries) {
     if (shapes.empty() || shapes.size() > kMaxBodyShapes) {
         return makeError(ErrorCode::InvalidArgument, "a body is put together of 1 to {} shapes, not {}", kMaxBodyShapes,
                          shapes.size());
@@ -227,11 +286,11 @@ Result<JPH::ShapeRefC> makeBodyShape(std::span<const ShapeDesc> shapes) {
     }
     const ShapeDesc& first = shapes.front();
     if (shapes.size() == 1 && first.offset == Vec3(0.0f) && glm::normalize(first.rotation) == kIdentityQuat) {
-        return makeShape(first);
+        return makeShape(first, geometries);
     }
     JPH::StaticCompoundShapeSettings compound;
     for (const ShapeDesc& shape : shapes) {
-        CORDITE_TRY_ASSIGN(const JPH::ShapeRefC part, makeShape(shape));
+        CORDITE_TRY_ASSIGN(const JPH::ShapeRefC part, makeShape(shape, geometries));
         compound.AddShape(toJolt(shape.offset), toJolt(glm::normalize(shape.rotation)), part);
     }
     const JPH::ShapeSettings::ShapeResult result = compound.Create();
@@ -262,6 +321,108 @@ Status validateBody(const BodyDesc& desc) {
     return {};
 }
 
+// --- Edges, for tools that show geometry -----------------------------------------------------
+
+/// An edge whatever way round it is given: its two ends in an order of their own.
+struct EdgeKey {
+    std::array<float, 6> ends{};
+
+    EdgeKey(const Vec3& from, const Vec3& to) {
+        const bool swap = std::array{to.x, to.y, to.z} < std::array{from.x, from.y, from.z};
+        const Vec3& first = swap ? to : from;
+        const Vec3& second = swap ? from : to;
+        ends = {first.x, first.y, first.z, second.x, second.y, second.z};
+    }
+
+    bool operator==(const EdgeKey&) const = default;
+};
+
+struct EdgeKeyHash {
+    size_t operator()(const EdgeKey& edge) const noexcept {
+        // FNV-1a over the bits of the six numbers. The two ends of an edge come out of
+        // the same table of corners whichever triangle names them, bit for bit.
+        uint64_t hash = 0xcbf29ce484222325ull;
+        for (const float value : edge.ends) {
+            uint32_t bits = 0;
+            std::memcpy(&bits, &value, sizeof(bits));
+            hash = (hash ^ bits) * 0x100000001b3ull;
+        }
+        return static_cast<size_t>(hash);
+    }
+};
+
+/// Gathers edges, each once, until there are more than may be: then it is full, and
+/// what it holds is of no use.
+class EdgeList {
+public:
+    explicit EdgeList(size_t maxEdges) : m_maxEdges(maxEdges) {}
+
+    void add(const Vec3& from, const Vec3& to) {
+        if (m_full || from == to || !m_seen.emplace(from, to).second) {
+            return;
+        }
+        if (m_seen.size() > m_maxEdges) {
+            m_full = true;
+            return;
+        }
+        m_points.push_back(from);
+        m_points.push_back(to);
+    }
+
+    [[nodiscard]] bool isFull() const { return m_full; }
+
+    [[nodiscard]] std::vector<Vec3> take() { return m_full ? std::vector<Vec3>() : std::move(m_points); }
+
+private:
+    size_t m_maxEdges;
+    bool m_full = false;
+    std::unordered_set<EdgeKey, EdgeKeyHash> m_seen;
+    std::vector<Vec3> m_points;
+};
+
+/// The edges of the faces of a hull.
+void addHullEdges(const JPH::ConvexHullShape& hull, EdgeList& edges) {
+    // Jolt keeps the corners of a hull against its centre of mass.
+    const Vec3 middle = fromJolt(hull.GetCenterOfMass());
+    std::array<JPH::uint, JPH::ConvexHullShape::cMaxPointsInHull> corners{};
+    for (JPH::uint face = 0; face < hull.GetNumFaces() && !edges.isFull(); ++face) {
+        const JPH::uint count =
+            std::min(hull.GetFaceVertices(face, static_cast<JPH::uint>(corners.size()), corners.data()),
+                     static_cast<JPH::uint>(corners.size()));
+        for (JPH::uint corner = 0; corner < count; ++corner) {
+            edges.add(middle + fromJolt(hull.GetPoint(corners.at(corner))),
+                      middle + fromJolt(hull.GetPoint(corners.at((corner + 1) % count))));
+        }
+    }
+}
+
+/// The sides of the triangles of a surface.
+void addTriangleEdges(const JPH::Shape& surface, EdgeList& edges) {
+    constexpr int kTrianglesAtATime = 256;
+    static_assert(kTrianglesAtATime >= JPH::Shape::cGetTrianglesMinTrianglesRequested);
+    std::vector<JPH::Float3> corners(static_cast<size_t>(kTrianglesAtATime) * 3);
+    const auto cornerAt = [&](size_t index) { return Vec3(corners[index].x, corners[index].y, corners[index].z); };
+
+    JPH::Shape::GetTrianglesContext context{};
+    // Everything, where it was given: not moved, not turned, not scaled.
+    surface.GetTrianglesStart(context, JPH::AABox::sBiggest(), JPH::Vec3::sZero(), JPH::Quat::sIdentity(),
+                              JPH::Vec3::sOne());
+    while (!edges.isFull()) {
+        const int count = surface.GetTrianglesNext(context, kTrianglesAtATime, corners.data());
+        if (count <= 0) {
+            break;
+        }
+        for (size_t triangle = 0; triangle < static_cast<size_t>(count); ++triangle) {
+            const Vec3 a = cornerAt(triangle * 3);
+            const Vec3 b = cornerAt(triangle * 3 + 1);
+            const Vec3 c = cornerAt(triangle * 3 + 2);
+            edges.add(a, b);
+            edges.add(b, c);
+            edges.add(c, a);
+        }
+    }
+}
+
 } // namespace
 
 std::string_view nameOf(BodyMotion motion) {
@@ -284,6 +445,10 @@ std::string_view nameOf(ShapeType type) {
             return "sphere";
         case ShapeType::Capsule:
             return "capsule";
+        case ShapeType::ConvexHull:
+            return "convexHull";
+        case ShapeType::Mesh:
+            return "mesh";
     }
     return "unknown";
 }
@@ -301,6 +466,17 @@ struct PhysicsWorld::Impl {
 
     [[nodiscard]] JPH::BodyInterface& bodies() { return system.GetBodyInterface(); }
 
+    /// Keeps a shape as geometry, under an id that no geometry of this world has had.
+    [[nodiscard]] GeometryId addGeometry(JPH::ShapeRefC shape, ShapeType type) {
+        // Counted up, and so used once each - until the count comes round after four
+        // thousand million of them, when those still in use are passed over.
+        do {
+            ++lastGeometry;
+        } while (lastGeometry == GeometryId::kNone || geometries.contains(lastGeometry));
+        geometries.emplace(lastGeometry, Geometry{.shape = std::move(shape), .type = type});
+        return GeometryId{lastGeometry};
+    }
+
     // Declared in the order the library needs them made, and unmade in reverse.
     JPH::BroadPhaseLayerInterfaceTable broadPhaseLayers;
     JPH::ObjectLayerPairFilterTable objectLayerPairs;
@@ -308,6 +484,11 @@ struct PhysicsWorld::Impl {
     std::unique_ptr<JPH::TempAllocator> stepMemory;
     std::unique_ptr<JPH::JobSystem> jobs;
     JPH::PhysicsSystem system;
+
+    GeometryTable geometries;
+    uint32_t lastGeometry = GeometryId::kNone;
+    size_t maxGeometryPoints = 0;
+    size_t maxGeometryTriangles = 0;
 
     uint64_t steps = 0;
     uint64_t overflowedSteps = 0;
@@ -330,6 +511,11 @@ Result<std::unique_ptr<PhysicsWorld>> PhysicsWorld::create(const PhysicsWorldDes
                          "a physics world needs room for bodies, pairs of bodies and contacts: {} / {} / {}",
                          desc.maxBodies, desc.maxBodyPairs, desc.maxContactConstraints);
     }
+    if (desc.maxGeometryPoints == 0 || desc.maxGeometryTriangles == 0) {
+        return makeError(ErrorCode::InvalidArgument,
+                         "a physics world needs geometry to be allowed points and triangles: {} / {}",
+                         desc.maxGeometryPoints, desc.maxGeometryTriangles);
+    }
     if (!isFinite(desc.gravity)) {
         return makeError(ErrorCode::InvalidArgument, "the gravity of a physics world is not made of numbers");
     }
@@ -345,12 +531,135 @@ Result<std::unique_ptr<PhysicsWorld>> PhysicsWorld::create(const PhysicsWorldDes
     impl->system.Init(desc.maxBodies, kBodyMutexCount, desc.maxBodyPairs, desc.maxContactConstraints,
                       impl->broadPhaseLayers, *impl->objectVsBroadPhase, impl->objectLayerPairs);
     impl->system.SetGravity(toJolt(desc.gravity));
+    impl->maxGeometryPoints = desc.maxGeometryPoints;
+    impl->maxGeometryTriangles = desc.maxGeometryTriangles;
     return std::unique_ptr<PhysicsWorld>(new PhysicsWorld(std::move(impl)));
+}
+
+Result<GeometryId> PhysicsWorld::createConvexHull(std::span<const Vec3> points) {
+    constexpr size_t kFewestPoints = 4;
+    if (points.size() < kFewestPoints || points.size() > m_impl->maxGeometryPoints) {
+        return makeError(ErrorCode::InvalidArgument, "a convex hull is found around {} to {} points, not {}",
+                         kFewestPoints, m_impl->maxGeometryPoints, points.size());
+    }
+    JPH::Array<JPH::Vec3> corners;
+    corners.reserve(points.size());
+    for (const Vec3& point : points) {
+        if (!isFinite(point)) {
+            return makeError(ErrorCode::InvalidArgument, "point {} of {} for a convex hull is not made of numbers",
+                             corners.size(), points.size());
+        }
+        corners.push_back(toJolt(point));
+    }
+    const JPH::ShapeSettings::ShapeResult result = JPH::ConvexHullShapeSettings(corners).Create();
+    if (!result.IsValid()) {
+        const std::string_view reason = result.HasError() ? std::string_view(result.GetError()) : "no shape";
+        return makeError(ErrorCode::InvalidArgument, "no convex hull was found around {} points: {}", points.size(),
+                         reason);
+    }
+    // Around points that lie in one plane Jolt makes a hull of two faces, back to back.
+    // It has no volume, and so no mass to spread: a body of it could not be moved.
+    if (!(result.Get()->GetVolume() > 0.0f)) {
+        return makeError(ErrorCode::InvalidArgument,
+                         "the {} points for a convex hull lie in one plane: there is no volume between them",
+                         points.size());
+    }
+    return m_impl->addGeometry(result.Get(), ShapeType::ConvexHull);
+}
+
+Result<GeometryId> PhysicsWorld::createTriangleMesh(std::span<const Vec3> positions,
+                                                    std::span<const uint32_t> indices) {
+    if (positions.empty() || positions.size() > m_impl->maxGeometryPoints || indices.empty() ||
+        indices.size() % 3 != 0 || indices.size() / 3 > m_impl->maxGeometryTriangles) {
+        return makeError(ErrorCode::InvalidArgument,
+                         "a surface of triangles is made of 1 to {} positions and three indices to each of 1 to {} "
+                         "triangles, not of {} positions and {} indices",
+                         m_impl->maxGeometryPoints, m_impl->maxGeometryTriangles, positions.size(), indices.size());
+    }
+    for (size_t index = 0; index < positions.size(); ++index) {
+        if (!isFinite(positions[index])) {
+            return makeError(ErrorCode::InvalidArgument,
+                             "position {} of {} for a surface of triangles is not made of numbers", index,
+                             positions.size());
+        }
+    }
+    const auto cornerAt = [&](uint32_t index) {
+        const Vec3& position = positions[index];
+        return JPH::Float3(position.x, position.y, position.z);
+    };
+    JPH::TriangleList triangles;
+    triangles.reserve(indices.size() / 3);
+    for (size_t first = 0; first < indices.size(); first += 3) {
+        const std::span<const uint32_t> corner = indices.subspan(first, 3);
+        if (std::max({corner[0], corner[1], corner[2]}) >= positions.size()) {
+            return makeError(ErrorCode::InvalidArgument, "triangle {} of a surface names position {}, and there are {}",
+                             first / 3, std::max({corner[0], corner[1], corner[2]}), positions.size());
+        }
+        triangles.emplace_back(cornerAt(corner[0]), cornerAt(corner[1]), cornerAt(corner[2]));
+    }
+    // Making the settings takes positions that are in one place for one corner, and
+    // leaves out the triangles that have no area or are there twice. The first is what
+    // a mesh made for drawing needs: along every seam and sharp edge it has two
+    // vertices in one place, and triangles that are not known to meet there are taken
+    // for the end of the surface - on which what slides across it catches.
+    const JPH::MeshShapeSettings settings(triangles);
+    if (settings.mIndexedTriangles.empty()) {
+        return makeError(ErrorCode::InvalidArgument, "none of the {} triangles of a surface has an area",
+                         indices.size() / 3);
+    }
+    const JPH::ShapeSettings::ShapeResult result = settings.Create();
+    if (!result.IsValid()) {
+        const std::string_view reason = result.HasError() ? std::string_view(result.GetError()) : "no shape";
+        return makeError(ErrorCode::InvalidArgument, "no surface was made of {} triangles: {}", indices.size() / 3,
+                         reason);
+    }
+    return m_impl->addGeometry(result.Get(), ShapeType::Mesh);
+}
+
+void PhysicsWorld::destroyGeometry(GeometryId geometry) {
+    m_impl->geometries.erase(geometry.value);
+}
+
+bool PhysicsWorld::isValid(GeometryId geometry) const {
+    return m_impl->geometries.contains(geometry.value);
+}
+
+Aabb PhysicsWorld::geometryBounds(GeometryId geometry) const {
+    const auto found = m_impl->geometries.find(geometry.value);
+    if (found == m_impl->geometries.end()) {
+        return {};
+    }
+    // Jolt keeps a shape against its centre of mass, and its bounds with it.
+    const JPH::Shape& shape = *found->second.shape;
+    const JPH::AABox bounds = shape.GetLocalBounds();
+    const Vec3 middle = fromJolt(shape.GetCenterOfMass());
+    return {.min = middle + fromJolt(bounds.mMin), .max = middle + fromJolt(bounds.mMax)};
+}
+
+std::vector<Vec3> PhysicsWorld::geometryEdges(GeometryId geometry, size_t maxEdges) const {
+    const auto found = m_impl->geometries.find(geometry.value);
+    if (found == m_impl->geometries.end()) {
+        return {};
+    }
+    EdgeList edges(maxEdges);
+    if (found->second.type == ShapeType::ConvexHull) {
+        // What createConvexHull() has made, and nothing else, is kept as a hull.
+        addHullEdges(static_cast<const JPH::ConvexHullShape&>(*found->second.shape), edges);
+    } else {
+        addTriangleEdges(*found->second.shape, edges);
+    }
+    return edges.take();
 }
 
 Result<BodyId> PhysicsWorld::createBody(const BodyDesc& desc) {
     CORDITE_TRY(validateBody(desc));
-    CORDITE_TRY_ASSIGN(const JPH::ShapeRefC shape, makeBodyShape(desc.shapes));
+    CORDITE_TRY_ASSIGN(const JPH::ShapeRefC shape, makeBodyShape(desc.shapes, m_impl->geometries));
+    // A surface of triangles has no inside, and so no mass that could be spread over it.
+    if (desc.motion == BodyMotion::Dynamic && shape->MustBeStatic()) {
+        return makeError(ErrorCode::InvalidArgument,
+                         "a dynamic body cannot be made of the triangles of a mesh, which have no inside: a convex "
+                         "hull has one");
+    }
 
     const bool isStatic = desc.motion == BodyMotion::Static;
     JPH::BodyCreationSettings settings(shape, toJolt(desc.position), toJolt(glm::normalize(desc.rotation)),
@@ -367,6 +676,13 @@ Result<BodyId> PhysicsWorld::createBody(const BodyDesc& desc) {
         // The mass is what was asked for; how it is spread follows from the shape.
         settings.mOverrideMassProperties = JPH::EOverrideMassProperties::CalculateInertia;
         settings.mMassPropertiesOverride.mMass = desc.mass;
+    } else if (desc.motion == BodyMotion::Kinematic && shape->MustBeStatic()) {
+        // Nothing that a kinematic body meets moves it, so its mass does not matter -
+        // but Jolt wants one of every body that moves, and cannot work it out of a
+        // surface. Any will do: that of a box of a metre, of water.
+        constexpr float kAnyDensity = 1000.0f;
+        settings.mOverrideMassProperties = JPH::EOverrideMassProperties::MassAndInertiaProvided;
+        settings.mMassPropertiesOverride.SetMassAndInertiaOfSolidBox(JPH::Vec3::sOne(), kAnyDensity);
     }
 
     const JPH::BodyID body = m_impl->bodies().CreateAndAddBody(settings, isStatic ? JPH::EActivation::DontActivate
@@ -555,6 +871,7 @@ PhysicsStatistics PhysicsWorld::statistics() const {
     PhysicsStatistics statistics;
     statistics.bodies = m_impl->system.GetNumBodies();
     statistics.activeBodies = m_impl->system.GetNumActiveBodies(JPH::EBodyType::RigidBody);
+    statistics.geometries = static_cast<uint32_t>(m_impl->geometries.size());
     statistics.steps = m_impl->steps;
     statistics.overflowedSteps = m_impl->overflowedSteps;
     return statistics;

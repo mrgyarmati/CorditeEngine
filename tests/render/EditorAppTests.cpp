@@ -1,6 +1,7 @@
 #include "cordite/editor/EditorApp.h"
 
 #include "cordite/animation/AnimationComponents.h"
+#include "cordite/assets/AssetDatabase.h"
 #include "cordite/assets/ImageCompare.h"
 #include "cordite/core/FileSystem.h"
 
@@ -535,9 +536,10 @@ TEST_SUITE("EditorApp") {
         // The cable of the hoist is posed by its animator: one skeleton of six joints.
         CHECK(statistics["animation"]["animators"] == 1);
         CHECK(statistics["animation"]["joints"] == 6);
-        // The bodies of the scene are there - seven of them - and none is simulated:
-        // the editor shows a scene, it does not run it.
-        CHECK(statistics["physics"]["bodies"] == 7);
+        // The bodies of the scene are there - eight of them, two with shapes made of
+        // meshes - and none is simulated: the editor shows a scene, it does not run it.
+        CHECK(statistics["physics"]["bodies"] == 8);
+        CHECK(statistics["physics"]["geometries"] == 2);
         CHECK(statistics["physics"]["steps"] == 0);
         CHECK(scene["skinned"]["meshes"] == 1);
         CHECK(scene["skinned"]["jointMatrices"] == 6);
@@ -782,6 +784,22 @@ TEST_SUITE("EditorApp") {
         const Image selected = unwrap(editor->captureViewport(UVec2(size)));
         CHECK(hasColliderLine(selected, onEdge));
         CHECK(hasColliderLine(selected, onHandle));
+
+        // A collider that is made of a mesh is drawn as what the physics has made of
+        // the mesh, once a frame has made it: here the hull around the cone, to whose
+        // tip an edge runs from every corner of its base.
+        Json marker = json(R"({"name": "Marker", "components": {"Transform": {"position": [3, 2, 0]},
+                               "Collider": {"shape": "convexHull"}}})");
+        marker["components"]["Collider"]["mesh"] = builtinMeshId(BuiltinMesh::Cone).toString();
+        REQUIRE(editor->commands().execute("entity.create", marker).has_value());
+        run(*editor, "selection.set", R"({"entities": ["Marker"]})");
+        REQUIRE(editor->runFrames(1).has_value());
+        const Vec2 onTip = worldToScreen(view, Vec3(3.0f, 2.5f, 0.0f), size).value();
+        const Image marked = unwrap(editor->captureViewport(UVec2(size)));
+        CHECK(hasColliderLine(marked, onTip));
+        run(*editor, "selection.set", R"({"entities": ["Crate"]})");
+        CHECK_FALSE(hasColliderLine(unwrap(editor->captureViewport(UVec2(size))), onTip));
+        run(*editor, "entity.delete", R"({"entities": ["Marker"]})");
 
         // Frames go by, and the crate hangs where the scene has it: nothing is simulated,
         // and nothing has changed the document since it was made.

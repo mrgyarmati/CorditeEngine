@@ -76,7 +76,7 @@ Do not guess command or property names; ask the editor.
 | `editor.state` | Scene file, unsaved changes, what undo and redo would do, the selection |
 | `asset.list` | Every asset with its id, type, name and path; optionally of one type |
 | `asset.get` | One asset: dependencies, import warnings, and its content (size, properties, nodes) |
-| `scene.validate` | References to assets that are missing or of the wrong kind |
+| `scene.validate` | References to assets that are missing or of the wrong kind, and colliders that no shape or body can be made of |
 | `editor.statistics` | What the last frame cost: CPU and GPU time, draw calls, triangles, lights, shadow maps, memory on the GPU |
 
 ## Refer to entities
@@ -118,11 +118,14 @@ set it like any other property:
 - The built-in meshes (cube, sphere, plane, cylinder, cone, capsule, torus) have the
   same ids in every project. `materials` takes one entry per submesh (`asset.get` tells
   how many a mesh has); a missing or null entry is drawn with the default material.
-- Physics is components: a `Collider` gives an entity a shape, a `RigidBody` makes it
-  a body (`motion`: `static`, `kinematic`, `dynamic`). `viewport.show` with
-  `{"colliders": true}` draws every collider in the viewport. The editor does not
-  simulate: nothing falls, and `editor.statistics` reports the bodies there are and no
-  steps.
+- Physics is components: a `Collider` gives an entity a shape (`shape`: `box`,
+  `sphere`, `capsule`, or - made of the mesh asset its `mesh` names - `convexHull`
+  and `mesh`), a `RigidBody` makes it a body (`motion`: `static`, `kinematic`,
+  `dynamic`). The triangles of a mesh (`mesh`) are only for bodies that are not
+  dynamic; `scene.validate` says where that, or a missing mesh, is in the way.
+  `viewport.show` with `{"colliders": true}` draws every collider in the viewport.
+  The editor does not simulate: nothing falls, and `editor.statistics` reports the
+  bodies there are and no steps.
 - A new material is a `.material.json` file written into the project's `assets`
   directory, followed by `asset.refresh` (skill: `work-with-assets`).
 - Run `scene.validate` after editing references; a reference to nothing draws nothing

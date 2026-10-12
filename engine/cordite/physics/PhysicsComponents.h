@@ -19,7 +19,7 @@
 ///
 /// @code{.json}
 /// "Collider": {"shape": "capsule", "size": [1, 1, 1], "radius": 0.3, "height": 1.8,
-///              "center": [0, 0.9, 0], "friction": 0.5, "restitution": 0},
+///              "mesh": null, "center": [0, 0.9, 0], "friction": 0.5, "restitution": 0},
 /// "RigidBody": {"motion": "dynamic", "mass": 80, "linearDamping": 0.05, "angularDamping": 0.05,
 ///               "gravityScale": 1, "continuous": false, "allowSleep": true}
 /// @endcode
@@ -35,12 +35,25 @@
 ///
 /// A shape is as large as its entity is scaled - by its own scale and by the scales of
 /// everything above it, multiplied: a box by each axis, a sphere by the largest of the
-/// three, a capsule by Y in height and by the larger of X and Z in thickness.
+/// three, a capsule by Y in height and by the larger of X and Z in thickness, the hull
+/// around a mesh and the triangles of one by each axis.
+///
+/// Shapes made of a mesh: a convex hull is the smallest shape without dents around the
+/// mesh - a solid that anything can be made of. The triangles of a mesh are the mesh
+/// itself, dents and holes and all, but a surface without an inside: only for what the
+/// simulation does not move - static, or kinematic - and stopped only from the side
+/// its triangles face.
 
 #include "cordite/core/Result.h"
+#include "cordite/core/Uuid.h"
 #include "cordite/math/Math.h"
 #include "cordite/physics/PhysicsWorld.h"
 #include "cordite/world/ComponentRegistry.h"
+#include "cordite/world/Entity.h"
+#include "cordite/world/World.h"
+
+#include <string>
+#include <vector>
 
 namespace cordite {
 
@@ -53,6 +66,8 @@ struct ColliderComponent {
     float radius = 0.5f;
     /// Of a capsule: from end to end along the entity's Y axis, in metres.
     float height = 2.0f;
+    /// Of a convex hull and of a mesh: the mesh asset the shape is made of.
+    Uuid mesh;
     /// Where the middle of the shape is, in the space of the entity.
     Vec3 center{0.0f};
     /// How much the surface resists sliding: 0 ice, 1 rubber.
@@ -86,5 +101,20 @@ struct RigidBodyComponent {
 
 /// Registers the components of the physics module: "Collider" and "RigidBody".
 [[nodiscard]] Status registerPhysicsComponents(ComponentRegistry& registry);
+
+/// Something about a collider that the physics will not make a shape, or a body, of.
+struct ColliderProblem {
+    Entity entity;
+    /// One sentence, naming the component and the property.
+    std::string message;
+};
+
+/// What can be told of the colliders of a world without making bodies of them, in the
+/// order of the hierarchy: shapes made of meshes that name no mesh, and the triangles
+/// of meshes in bodies that the simulation is to move. What only shows when a shape is
+/// made - a mesh that cannot be read, points with no volume between them - is said by
+/// the physics system when it is. Entities that are switched off are checked like any
+/// other.
+[[nodiscard]] std::vector<ColliderProblem> findColliderProblems(const World& world);
 
 } // namespace cordite

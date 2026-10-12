@@ -1,5 +1,8 @@
 #include "cordite/physics/PhysicsSystem.h"
 
+#include "cordite/assets/AssetManager.h"
+#include "cordite/assets/Mesh.h"
+#include "cordite/core/Hash.h"
 #include "cordite/core/Log.h"
 #include "cordite/physics/PhysicsComponents.h"
 
@@ -7,6 +10,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <functional>
 #include <span>
 #include <utility>
 
@@ -72,15 +76,43 @@ Mat4 parentMatrixOf(const World& world, Entity entity) {
     return parent.isNull() ? Mat4(1.0f) : world.computeWorldMatrix(parent);
 }
 
+bool isMadeOfMesh(ShapeType shape) {
+    return shape == ShapeType::ConvexHull || shape == ShapeType::Mesh;
+}
+
+/// Makes of a mesh asset what colliders of `shape` are made of.
+Result<GeometryId> makeGeometry(PhysicsWorld& physics, AssetManager& assets, const Uuid& meshId, ShapeType shape) {
+    if (meshId.isNil()) {
+        return makeError(ErrorCode::InvalidArgument, "a collider of the shape {} needs a mesh, and names none",
+                         nameOf(shape));
+    }
+    CORDITE_TRY_ASSIGN(const std::shared_ptr<const MeshData> mesh, assets.loadMesh(meshId));
+    std::vector<Vec3> positions;
+    positions.reserve(mesh->vertices.size());
+    for (const MeshVertex& vertex : mesh->vertices) {
+        positions.push_back(vertex.position);
+    }
+    // A mesh that joints move collides as it is at rest.
+    return shape == ShapeType::ConvexHull ? physics.createConvexHull(positions)
+                                          : physics.createTriangleMesh(positions, mesh->indices);
+}
+
 /// The shape a collider asks for: as large as its entity is scaled, and placed in the
 /// body it is part of. `entityToBody` takes a point of the collider's entity to the
-/// space of the body, which is not scaled.
-ShapeDesc shapeOf(const ColliderComponent& collider, const Mat4& entityToBody) {
+/// space of the body, which is not scaled. `geometry` is what a collider that is made
+/// of a mesh is made of.
+ShapeDesc shapeOf(const ColliderComponent& collider, const Mat4& entityToBody, GeometryId geometry) {
     const Transform placed = Transform::fromMatrix(entityToBody);
     const Vec3 scale = glm::abs(placed.scale);
 
     ShapeDesc shape;
     shape.type = collider.shape;
+    if (isMadeOfMesh(collider.shape)) {
+        // As large as its entity along each axis, and mirrored where the entity is:
+        // the scale found in the matrix has its sign, to go with the rotation found.
+        shape.geometry = geometry;
+        shape.scale = placed.scale;
+    }
     shape.size = collider.size * scale;
     // A ball stays a ball and a capsule round: both grow by the largest scale across.
     const float across =
@@ -98,6 +130,14 @@ PhysicsSystem::PhysicsSystem(std::unique_ptr<PhysicsWorld> physics, const Physic
     : m_physics(std::move(physics)), m_timestep(desc.stepSeconds, desc.maxStepsPerUpdate) {}
 
 PhysicsSystem::~PhysicsSystem() = default;
+
+size_t PhysicsSystem::ReportKeyHash::operator()(const ReportKey& key) const noexcept {
+    return static_cast<size_t>(hashCombine(std::hash<Entity>{}(key.entity), static_cast<uint64_t>(key.about)));
+}
+
+size_t PhysicsSystem::GeometryKeyHash::operator()(const GeometryKey& key) const noexcept {
+    return static_cast<size_t>(hashCombine(std::hash<Uuid>{}(key.mesh), static_cast<uint64_t>(key.shape)));
+}
 
 Result<std::unique_ptr<PhysicsSystem>> PhysicsSystem::create(const PhysicsSystemDesc& desc) {
     if (!std::isfinite(desc.stepSeconds) || desc.stepSeconds <= 0.0 || desc.maxStepsPerUpdate == 0) {
@@ -125,10 +165,46 @@ Entity PhysicsSystem::entityOf(BodyId body) const {
     return found != m_records.end() && found->second.body == body ? entity : Entity{};
 }
 
+GeometryId PhysicsSystem::geometryOf(const Uuid& mesh, ShapeType shape) const {
+    const auto found = m_geometries.find(GeometryKey{.mesh = mesh, .shape = shape});
+    return found != m_geometries.end() ? found->second.id : GeometryId();
+}
+
+const PhysicsSystem::MeshGeometry& PhysicsSystem::prepareGeometry(AssetManager& assets, const Uuid& mesh,
+                                                                  ShapeType shape) {
+    const auto [entry, isNew] = m_geometries.try_emplace(GeometryKey{.mesh = mesh, .shape = shape});
+    if (isNew) {
+        const Result<GeometryId> made = makeGeometry(*m_physics, assets, mesh, shape);
+        if (made) {
+            entry->second.id = *made;
+        } else {
+            entry->second.problem = made.error().message;
+        }
+    }
+    return entry->second;
+}
+
+void PhysicsSystem::forgetGeometry() {
+    for (const auto& [key, geometry] : m_geometries) {
+        m_physics->destroyGeometry(geometry.id);
+    }
+    m_geometries.clear();
+}
+
+void PhysicsSystem::followAssets(const AssetManager& assets) {
+    if (const uint64_t revision = assets.database().revision(); revision != m_assetRevision) {
+        // What is prepared anew has other ids, and so the bodies made of it are made
+        // anew as well.
+        forgetGeometry();
+        m_assetRevision = revision;
+    }
+}
+
 void PhysicsSystem::clear() {
     for (const auto& [entity, record] : m_records) {
         m_physics->destroyBody(record.body);
     }
+    forgetGeometry();
     m_records.clear();
     m_order.clear();
     m_wantedCount = 0;
@@ -136,7 +212,7 @@ void PhysicsSystem::clear() {
     m_timestep.reset();
 }
 
-void PhysicsSystem::gather(const World& world) {
+void PhysicsSystem::gather(const World& world, AssetManager& assets) {
     m_wantedCount = 0;
     world.traverse([&](Entity entity, uint32_t depth) {
         if (m_levels.size() <= depth) {
@@ -201,6 +277,18 @@ void PhysicsSystem::gather(const World& world) {
         // a body of its own that stands still - and what hangs below it is not part of
         // that one.
         const int32_t index = level.body != kNoBody ? level.body : startBody(BodyMotion::Static);
+        GeometryId geometry;
+        if (isMadeOfMesh(collider->shape)) {
+            const MeshGeometry& made = prepareGeometry(assets, collider->mesh, collider->shape);
+            if (made.id.isNull()) {
+                // A collider that is no shape is left out of its body. A body that is
+                // left without any is none.
+                report(world, entity, About::Collider,
+                       fmt::format("has a collider that is no shape: {}", made.problem));
+                return;
+            }
+            geometry = made.id;
+        }
         BodyDesc& body = m_wanted[static_cast<size_t>(index)].blueprint;
         if (body.shapes.empty()) {
             // A body has one surface: that of its first collider, which is its own
@@ -208,7 +296,7 @@ void PhysicsSystem::gather(const World& world) {
             body.friction = collider->friction;
             body.restitution = collider->restitution;
         }
-        body.shapes.push_back(shapeOf(*collider, level.toBody));
+        body.shapes.push_back(shapeOf(*collider, level.toBody, geometry));
     });
 }
 
@@ -234,7 +322,7 @@ PhysicsSystem::Record* PhysicsSystem::makeBody(const World& world, const Wanted&
     desc.rotation = wanted.rotation;
     const Result<BodyId> body = m_physics->createBody(desc);
     if (!body) {
-        report(world, wanted.entity, fmt::format("has no body: {}", body.error().message));
+        report(world, wanted.entity, About::Body, fmt::format("has no body: {}", body.error().message));
         return nullptr;
     }
 
@@ -261,7 +349,7 @@ void PhysicsSystem::placeBody(const World& world, const Wanted& wanted, Record& 
                               Authority authority) {
     record.scale = wanted.scale;
     if (!isUsable(wanted.position) || !isUsable(wanted.rotation)) {
-        report(world, wanted.entity,
+        report(world, wanted.entity, About::Body,
                "is nowhere - its place in the world is not made of numbers - and its body stays where it was");
         return;
     }
@@ -420,8 +508,8 @@ void PhysicsSystem::followBody(World& world, Entity entity, Record& record) {
     record.local = local;
 }
 
-void PhysicsSystem::report(const World& world, Entity entity, std::string_view problem) {
-    Report& said = m_reported[entity];
+void PhysicsSystem::report(const World& world, Entity entity, About about, std::string_view problem) {
+    Report& said = m_reported[ReportKey{.entity = entity, .about = about}];
     said.current = true;
     if (said.problem != problem) {
         said.problem = problem;
@@ -431,12 +519,16 @@ void PhysicsSystem::report(const World& world, Entity entity, std::string_view p
 
 PhysicsFrameStatistics PhysicsSystem::statistics(uint32_t steps) const {
     const PhysicsStatistics simulation = m_physics->statistics();
-    return {.steps = steps, .bodies = simulation.bodies, .activeBodies = simulation.activeBodies};
+    return {.steps = steps,
+            .bodies = simulation.bodies,
+            .activeBodies = simulation.activeBodies,
+            .geometries = simulation.geometries};
 }
 
-PhysicsFrameStatistics PhysicsSystem::update(World& world, float deltaSeconds) {
+PhysicsFrameStatistics PhysicsSystem::update(World& world, AssetManager& assets, float deltaSeconds) {
     world.updateWorldTransforms();
-    gather(world);
+    followAssets(assets);
+    gather(world, assets);
     const uint32_t steps = m_timestep.advance(static_cast<double>(deltaSeconds));
     reconcile(world, steps, Authority::Simulation);
     for (uint32_t step = 0; step < steps; ++step) {
@@ -448,9 +540,10 @@ PhysicsFrameStatistics PhysicsSystem::update(World& world, float deltaSeconds) {
     return statistics(steps);
 }
 
-PhysicsFrameStatistics PhysicsSystem::synchronize(World& world) {
+PhysicsFrameStatistics PhysicsSystem::synchronize(World& world, AssetManager& assets) {
     world.updateWorldTransforms();
-    gather(world);
+    followAssets(assets);
+    gather(world, assets);
     reconcile(world, 0, Authority::World);
     return statistics(0);
 }

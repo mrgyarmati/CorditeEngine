@@ -246,8 +246,10 @@ Status registerAssetCommands(CommandRegistry& commands, EditorContext& context) 
 
     CORDITE_TRY(commands.add({
         .name = "scene.validate",
-        .description = "Checks every reference from the scene to an asset: the asset must exist and be of the "
-                       "kind the property expects. Returns the problems found, and the assets the scene uses.",
+        .description = "Checks every reference from the scene to an asset - the asset must exist and be of the "
+                       "kind the property expects - and every collider for what no shape or body can be made "
+                       "of: a shape of a mesh that names none, the triangles of a mesh in a dynamic body. "
+                       "Returns the problems found, and the assets the scene uses.",
         .parameters = {},
         .handler = [&context](const Json& /*parameters*/) -> Result<Json> {
             const World& world = context.world();

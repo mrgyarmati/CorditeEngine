@@ -3,6 +3,9 @@
 #include "cordite/core/Reflection.h"
 #include "cordite/math/MathReflection.h"
 
+#include <fmt/format.h>
+
+#include <cstdint>
 #include <string>
 
 namespace cordite {
@@ -19,9 +22,13 @@ TypeInfo describeCollider() {
         .enumProperty("shape", &ColliderComponent::shape,
                       {{ShapeType::Box, std::string(nameOf(ShapeType::Box))},
                        {ShapeType::Sphere, std::string(nameOf(ShapeType::Sphere))},
-                       {ShapeType::Capsule, std::string(nameOf(ShapeType::Capsule))}},
+                       {ShapeType::Capsule, std::string(nameOf(ShapeType::Capsule))},
+                       {ShapeType::ConvexHull, std::string(nameOf(ShapeType::ConvexHull))},
+                       {ShapeType::Mesh, std::string(nameOf(ShapeType::Mesh))}},
                       {.description = "Box: of `size`. Sphere: of `radius`. Capsule: a cylinder along Y with round "
-                                      "ends, `radius` thick and `height` from end to end"})
+                                      "ends, `radius` thick and `height` from end to end. ConvexHull: the smallest "
+                                      "shape without dents around `mesh`. Mesh: the triangles of `mesh`, a surface "
+                                      "without an inside - not for a dynamic body"})
         .property("size", &ColliderComponent::size,
                   {.description = "Box: its edge lengths, before the entity's scale",
                    .minimum = kMinShapeExtent,
@@ -40,6 +47,10 @@ TypeInfo describeCollider() {
                    .maximum = kMaxShapeExtent,
                    .step = 0.01,
                    .unit = "m"})
+        .property("mesh", &ColliderComponent::mesh,
+                  {.description = "Convex hull and mesh: the mesh the shape is made of",
+                   .semantic = PropertySemantic::AssetReference,
+                   .referenceType = "Mesh"})
         .property("center", &ColliderComponent::center,
                   {.description = "Where the middle of the shape is, in the space of the entity",
                    .minimum = -kMaxShapeExtent,
@@ -113,7 +124,41 @@ TypeInfo describeRigidBody() {
         .build();
 }
 
+/// The rigid body a collider is part of: the nearest at its entity or above it, if any.
+Entity bodyEntityOf(const World& world, Entity collider) {
+    for (Entity entity = collider; !entity.isNull(); entity = world.parent(entity)) {
+        if (world.has<RigidBodyComponent>(entity)) {
+            return entity;
+        }
+    }
+    return Entity{};
+}
+
 } // namespace
+
+std::vector<ColliderProblem> findColliderProblems(const World& world) {
+    std::vector<ColliderProblem> problems;
+    world.traverse([&](Entity entity, uint32_t /*depth*/) {
+        const auto* collider = world.tryGet<ColliderComponent>(entity);
+        if (collider == nullptr || (collider->shape != ShapeType::ConvexHull && collider->shape != ShapeType::Mesh)) {
+            return;
+        }
+        if (collider->mesh.isNil()) {
+            problems.push_back(
+                {entity, fmt::format("Collider.mesh names no mesh, and a collider of the shape {} is made of one",
+                                     nameOf(collider->shape))});
+        }
+        const Entity body = collider->shape == ShapeType::Mesh ? bodyEntityOf(world, entity) : Entity{};
+        if (!body.isNull() && world.tryGet<RigidBodyComponent>(body)->motion == BodyMotion::Dynamic) {
+            problems.push_back(
+                {entity, fmt::format("Collider.shape is mesh, and the body it is part of - '{}' - is dynamic: the "
+                                     "triangles of a mesh have no inside, and only a body that the simulation does "
+                                     "not move is made of them",
+                                     world.name(body))});
+        }
+    });
+    return problems;
+}
 
 Status registerPhysicsComponents(ComponentRegistry& registry) {
     CORDITE_TRY(registry.add<ColliderComponent>(

@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <limits>
 #include <optional>
 #include <utility>
@@ -107,11 +108,40 @@ void drawSkeleton(const SkeletonData& skeleton, const SkeletonPoseComponent& pos
     }
 }
 
+/// What drawing the colliders that are made of meshes takes: the physics that has
+/// made their shapes, and the outlines of those that were asked for before.
+struct ColliderShapes {
+    const PhysicsSystem& physics;
+    ColliderOutlines& outlines;
+};
+
+/// A collider that is made of a mesh, as lines: the edges of the hull around the mesh,
+/// or of its triangles - of what things collide with, as the physics has made it. A
+/// shape of too many edges to draw is the box around it; one that the physics has not
+/// made, or could not make, is nothing.
+void drawMeshCollider(const ColliderComponent& collider, const Mat4& placement, ColliderShapes& shapes,
+                      DebugDraw& lines) {
+    const ColliderOutline* outline = shapes.outlines.find(shapes.physics, collider.mesh, collider.shape);
+    if (outline == nullptr) {
+        return;
+    }
+    // The middle of the collider is where the origin of its mesh goes.
+    const Mat4 meshToWorld = placement * glm::translate(Mat4(1.0f), collider.center);
+    if (outline->edges.empty()) {
+        lines.box(outline->bounds, meshToWorld, kColliderColor);
+        return;
+    }
+    for (size_t edge = 0; edge + 1 < outline->edges.size(); edge += 2) {
+        lines.line(Vec3(meshToWorld * Vec4(outline->edges[edge], 1.0f)),
+                   Vec3(meshToWorld * Vec4(outline->edges[edge + 1], 1.0f)), kColliderColor);
+    }
+}
+
 /// The collider of an entity as lines, where the entity has it and as large as its
 /// scale makes it for the physics: a box by each axis, a ball by the largest of the
-/// three, a capsule by Y in height and by the larger of X and Z across. Nothing for an
-/// entity without a collider.
-void drawCollider(const World& world, Entity entity, const Mat4& placement, DebugDraw& lines) {
+/// three, a capsule by Y in height and by the larger of X and Z across, what is made
+/// of a mesh by each axis. Nothing for an entity without a collider.
+void drawCollider(const World& world, Entity entity, const Mat4& placement, ColliderShapes& shapes, DebugDraw& lines) {
     const auto* collider = world.tryGet<ColliderComponent>(entity);
     if (collider == nullptr) {
         return;
@@ -133,18 +163,23 @@ void drawCollider(const World& world, Entity entity, const Mat4& placement, Debu
             lines.capsule(center - axis * halfCylinder, center + axis * halfCylinder, radius, kColliderColor);
             break;
         }
+        case ShapeType::ConvexHull:
+        case ShapeType::Mesh:
+            drawMeshCollider(*collider, placement, shapes, lines);
+            break;
     }
 }
 
 /// What a selected entity shows beside what every entity shows: its collider and those
 /// of what hangs below it, the skeleton its animator has posed, and a box - around its
 /// mesh, or around where it is.
-void drawSelected(EditorContext& context, Entity entity, const Mat4& placement, DebugDraw& lines) {
+void drawSelected(EditorContext& context, Entity entity, const Mat4& placement, ColliderShapes& shapes,
+                  DebugDraw& lines) {
     const World& world = context.world();
     // A body is often made of several colliders: its entity's own, and those below it.
     world.traverseSubtree(entity, [&](Entity part, uint32_t /*depth*/) {
         if (world.isEnabledInHierarchy(part)) {
-            drawCollider(world, part, world.worldMatrix(part), lines);
+            drawCollider(world, part, world.worldMatrix(part), shapes, lines);
         }
     });
     // The joints an animator moves are no entities; this is where they are seen.
@@ -202,13 +237,14 @@ void drawLight(const SceneLight& light, const Vec4& color, DebugDraw& marker, De
 
 } // namespace
 
-ViewportPanel::ViewportPanel(SceneRenderer& sceneRenderer, DebugLinePass linePass)
-    : m_sceneRenderer(&sceneRenderer), m_linePass(std::move(linePass)) {}
+ViewportPanel::ViewportPanel(SceneRenderer& sceneRenderer, const PhysicsSystem& physics, DebugLinePass linePass)
+    : m_sceneRenderer(&sceneRenderer), m_physics(&physics), m_linePass(std::move(linePass)) {}
 
 Result<std::unique_ptr<ViewportPanel>> ViewportPanel::create(Engine& engine) {
     CORDITE_TRY_ASSIGN(DebugLinePass linePass,
                        DebugLinePass::create(engine.graphics().device(), engine.shaderManager()));
-    return std::unique_ptr<ViewportPanel>(new ViewportPanel(engine.sceneRenderer(), std::move(linePass)));
+    return std::unique_ptr<ViewportPanel>(
+        new ViewportPanel(engine.sceneRenderer(), engine.physics(), std::move(linePass)));
 }
 
 void ViewportPanel::collectLines(EditorContext& context, const CameraView& view) {
@@ -227,6 +263,7 @@ void ViewportPanel::collectLines(EditorContext& context, const CameraView& view)
 
     m_sceneLines.clear();
     m_selectionLines.clear();
+    ColliderShapes shapes{.physics = *m_physics, .outlines = m_colliderOutlines};
     world.traverse([&](Entity entity, uint32_t /*depth*/) {
         if (!world.isEnabledInHierarchy(entity)) {
             return;
@@ -267,9 +304,9 @@ void ViewportPanel::collectLines(EditorContext& context, const CameraView& view)
             }
         }
         if (selected) {
-            drawSelected(context, entity, placement, m_selectionLines);
+            drawSelected(context, entity, placement, shapes, m_selectionLines);
         } else if (m_showColliders) {
-            drawCollider(world, entity, placement, m_sceneLines);
+            drawCollider(world, entity, placement, shapes, m_sceneLines);
         }
     });
 }

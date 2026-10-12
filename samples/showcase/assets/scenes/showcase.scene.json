@@ -40,6 +40,7 @@
                     "size": [1.0, 0.2, 1.0],
                     "radius": 0.5,
                     "height": 2.0,
+                    "mesh": null,
                     "center": [0.0, -0.1, 0.0],
                     "friction": 0.8,
                     "restitution": 0.0
@@ -176,6 +177,7 @@
                     "size": [1.0, 1.0, 1.0],
                     "radius": 0.5,
                     "height": 2.0,
+                    "mesh": null,
                     "center": [0.0, 0.0, 0.0],
                     "friction": 0.6,
                     "restitution": 0.0
@@ -208,6 +210,7 @@
                     "size": [1.0, 1.0, 1.0],
                     "radius": 0.5,
                     "height": 2.0,
+                    "mesh": null,
                     "center": [0.0, 0.0, 0.0],
                     "friction": 0.6,
                     "restitution": 0.0
@@ -232,6 +235,7 @@
                     "size": [1.0, 1.0, 1.0],
                     "radius": 0.5,
                     "height": 2.0,
+                    "mesh": null,
                     "center": [0.0, 0.0, 0.0],
                     "friction": 0.8,
                     "restitution": 0.0
@@ -259,12 +263,14 @@
                     "mesh": "a5666847-8761-8114-8630-d4dc8f686f5a",
                     "materials": ["ff5563c6-273e-802e-8ce8-6b3d0fa35656"]
                 },
-                // A box around the barrel, until colliders can be made of meshes.
+                // The hull around the mesh the barrel is drawn with: the smallest shape
+                // without dents that holds it, which a dynamic body can be made of.
                 "Collider": {
-                    "shape": "box",
-                    "size": [0.6, 0.9, 0.6],
+                    "shape": "convexHull",
+                    "size": [1.0, 1.0, 1.0],
                     "radius": 0.5,
                     "height": 2.0,
+                    "mesh": "a5666847-8761-8114-8630-d4dc8f686f5a",
                     "center": [0.0, 0.0, 0.0],
                     "friction": 0.5,
                     "restitution": 0.0
@@ -393,6 +399,18 @@
                 "MeshRenderer": {
                     "mesh": "8db36b6b-2606-8b2d-b7f0-6bd7af0a9d8c",
                     "materials": ["fc5b8263-6b52-8fc7-aaef-d7e3a67c2eea"]
+                },
+                // The triangles of the mesh it is drawn with: a surface without an inside,
+                // for what stands still. It stops what comes from above, where it faces.
+                "Collider": {
+                    "shape": "mesh",
+                    "size": [1.0, 1.0, 1.0],
+                    "radius": 0.5,
+                    "height": 2.0,
+                    "mesh": "8db36b6b-2606-8b2d-b7f0-6bd7af0a9d8c",
+                    "center": [0.0, 0.0, 0.0],
+                    "friction": 0.7,
+                    "restitution": 0.0
                 }
             }
         },
@@ -455,6 +473,7 @@
                     "size": [1.0, 1.0, 1.0],
                     "radius": 0.5,
                     "height": 2.0,
+                    "mesh": null,
                     "center": [0.0, 0.0, 0.0],
                     "friction": 0.4,
                     "restitution": 0.6
@@ -508,6 +527,7 @@
                     "size": [1.0, 1.0, 1.0],
                     "radius": 0.5,
                     "height": 2.0,
+                    "mesh": null,
                     "center": [0.0, 0.0, 0.0],
                     "friction": 0.5,
                     "restitution": 0.0
@@ -546,6 +566,7 @@
                     "size": [1.0, 1.0, 1.0],
                     "radius": 0.5,
                     "height": 1.0,
+                    "mesh": null,
                     "center": [0.0, 0.0, 0.0],
                     "friction": 0.5,
                     "restitution": 0.1

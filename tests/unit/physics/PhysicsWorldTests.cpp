@@ -11,6 +11,7 @@
 #include <memory>
 #include <optional>
 #include <span>
+#include <string>
 #include <vector>
 
 using namespace cordite;
@@ -36,6 +37,42 @@ BodyId addFloor(PhysicsWorld& physics) {
                                       .position = Vec3(0.0f, -0.5f, 0.0f)}));
 }
 
+/// The corners of a box of `size` around the origin.
+std::vector<Vec3> boxCorners(const Vec3& size) {
+    std::vector<Vec3> corners;
+    for (const float x : {-0.5f, 0.5f}) {
+        for (const float y : {-0.5f, 0.5f}) {
+            for (const float z : {-0.5f, 0.5f}) {
+                corners.push_back(Vec3(x, y, z) * size);
+            }
+        }
+    }
+    return corners;
+}
+
+/// A square of two metres at the height of one that faces up: two triangles, counter-
+/// clockwise seen from above.
+const std::vector<Vec3> kSquarePositions = {Vec3(-1.0f, 1.0f, -1.0f), Vec3(-1.0f, 1.0f, 1.0f), Vec3(1.0f, 1.0f, 1.0f),
+                                            Vec3(1.0f, 1.0f, -1.0f)};
+const std::vector<uint32_t> kSquareIndices = {0, 1, 2, 0, 2, 3};
+
+/// How high a ray straight down from high above (x, z) hits; far below for nothing.
+constexpr float kNothingBelow = -1000.0f;
+
+float heightAt(const PhysicsWorld& physics, float x, float z) {
+    const std::optional<RayHit> hit = physics.raycast(Ray{Vec3(x, 100.0f, z), Vec3(0.0f, -1.0f, 0.0f)}, 500.0f);
+    return hit ? hit->position.y : kNothingBelow;
+}
+
+/// The message a request was refused with, which must have been refused for what it
+/// was given.
+template <typename T>
+std::string refusalOf(const Result<T>& result) {
+    REQUIRE_FALSE(result.has_value());
+    CHECK(result.error().code == ErrorCode::InvalidArgument);
+    return result.error().message;
+}
+
 /// A body that nothing slows down but what it hits.
 BodyDesc undamped(const ShapeDesc& shape, const Vec3& position) {
     return {.shapes = {shape}, .position = position, .linearDamping = 0.0f, .angularDamping = 0.0f};
@@ -51,8 +88,10 @@ TEST_SUITE("PhysicsWorld") {
         CHECK(nameOf(ShapeType::Box) == "box");
         CHECK(nameOf(ShapeType::Sphere) == "sphere");
         CHECK(nameOf(ShapeType::Capsule) == "capsule");
+        CHECK(nameOf(ShapeType::ConvexHull) == "convexHull");
+        CHECK(nameOf(ShapeType::Mesh) == "mesh");
         CHECK(kBodyMotions.size() == 3);
-        CHECK(kShapeTypes.size() == 3);
+        CHECK(kShapeTypes.size() == 5);
     }
 
     TEST_CASE("a new world is empty, and pulls down as hard as the earth does") {
@@ -70,6 +109,8 @@ TEST_SUITE("PhysicsWorld") {
         CHECK_FALSE(PhysicsWorld::create({.maxBodies = 0}).has_value());
         CHECK_FALSE(PhysicsWorld::create({.maxBodyPairs = 0}).has_value());
         CHECK_FALSE(PhysicsWorld::create({.maxContactConstraints = 0}).has_value());
+        CHECK_FALSE(PhysicsWorld::create({.maxGeometryPoints = 0}).has_value());
+        CHECK_FALSE(PhysicsWorld::create({.maxGeometryTriangles = 0}).has_value());
         const auto refused = PhysicsWorld::create({.gravity = Vec3(0.0f, kNotANumber, 0.0f)});
         REQUIRE_FALSE(refused.has_value());
         CHECK(refused.error().code == ErrorCode::InvalidArgument);
@@ -612,6 +653,354 @@ TEST_SUITE("PhysicsWorld") {
                 {.type = ShapeType::Sphere, .radius = 0.1f, .offset = Vec3(static_cast<float>(index), 0.0f, 0.0f)});
         }
         CHECK(physics->createBody({.motion = BodyMotion::Static, .shapes = many}).has_value());
+    }
+
+    TEST_CASE("a convex hull is the shape around its points, at any size and either way round") {
+        const std::unique_ptr<PhysicsWorld> physics = unwrap(PhysicsWorld::create());
+        // The corners of the wedge under the plane x + y + z = 1 - and points inside it,
+        // and one that is given twice, which change nothing.
+        const std::vector<Vec3> points = {Vec3(0.0f, 0.0f, 0.0f), Vec3(1.0f, 0.0f, 0.0f), Vec3(0.0f, 1.0f, 0.0f),
+                                          Vec3(0.0f, 0.0f, 1.0f), Vec3(0.1f, 0.1f, 0.1f), Vec3(0.2f, 0.3f, 0.1f),
+                                          Vec3(1.0f, 0.0f, 0.0f)};
+        const GeometryId wedge = unwrap(physics->createConvexHull(points));
+        CHECK_FALSE(wedge.isNull());
+        CHECK(physics->isValid(wedge));
+        CHECK(physics->statistics().geometries == 1);
+        const auto wedgeAt = [&](float x, const ShapeDesc& shape) {
+            return unwrap(physics->createBody(
+                {.motion = BodyMotion::Static, .shapes = {shape}, .position = Vec3(x, 0.0f, 0.0f)}));
+        };
+
+        // From above, the slanted face: as high as x and z leave of one.
+        const BodyId body = wedgeAt(10.0f, {.type = ShapeType::ConvexHull, .geometry = wedge});
+        const std::optional<RayHit> hit =
+            physics->raycast(Ray{Vec3(10.25f, 5.0f, 0.25f), Vec3(0.0f, -1.0f, 0.0f)}, 100.0f);
+        REQUIRE(hit.has_value());
+        CHECK(hit->body == body);
+        CHECK(hit->position.y == doctest::Approx(0.5f).epsilon(1.0e-3));
+        CHECK_NEAR(hit->normal, glm::normalize(Vec3(1.0f)), 1.0e-3f);
+        CHECK(heightAt(*physics, 10.6f, 0.6f) == kNothingBelow);
+
+        // The same geometry twice as wide, three times as tall and four times as deep.
+        wedgeAt(20.0f, {.type = ShapeType::ConvexHull, .geometry = wedge, .scale = Vec3(2.0f, 3.0f, 4.0f)});
+        CHECK(heightAt(*physics, 20.5f, 1.0f) == doctest::Approx(1.5f).epsilon(1.0e-3));
+        // Scaled by less than nothing along X, it lies on the other side.
+        wedgeAt(30.0f, {.type = ShapeType::ConvexHull, .geometry = wedge, .scale = Vec3(-1.0f, 1.0f, 1.0f)});
+        CHECK(heightAt(*physics, 29.75f, 0.25f) == doctest::Approx(0.5f).epsilon(1.0e-3));
+        CHECK(heightAt(*physics, 30.25f, 0.25f) == kNothingBelow);
+        // Placed and turned in its body like any other shape: a quarter turn about Z
+        // puts what was along X upright, and what was upright along -X.
+        wedgeAt(40.0f, {.type = ShapeType::ConvexHull,
+                        .geometry = wedge,
+                        .offset = Vec3(0.0f, 2.0f, 0.0f),
+                        .rotation = glm::angleAxis(kHalfPi, Vec3(0.0f, 0.0f, 1.0f))});
+        CHECK(heightAt(*physics, 39.75f, 0.25f) == doctest::Approx(2.5f).epsilon(1.0e-3));
+        CHECK(heightAt(*physics, 40.25f, 0.25f) == kNothingBelow);
+        CHECK(physics->statistics().geometries == 1);
+
+        // A hull has an inside, and so the simulation can move a body of it: a box
+        // given by its corners falls on the floor and lies there.
+        addFloor(*physics);
+        const GeometryId box = unwrap(physics->createConvexHull(boxCorners(Vec3(1.0f, 0.5f, 2.0f))));
+        const BodyId crate = unwrap(physics->createBody({.shapes = {{.type = ShapeType::ConvexHull, .geometry = box}},
+                                                         .position = Vec3(0.0f, 3.0f, 0.0f),
+                                                         .mass = 5.0f}));
+        stepFor(*physics, 240);
+        CHECK(physics->position(crate).y == doctest::Approx(0.25f).epsilon(0.02));
+        CHECK_FALSE(physics->isActive(crate));
+    }
+
+    TEST_CASE("a hull around many points is made of the corners that matter most") {
+        const std::unique_ptr<PhysicsWorld> physics = unwrap(PhysicsWorld::create());
+        // A ball of a metre as seven hundred and sixty-two points: three times the
+        // corners a hull is made of.
+        constexpr int kRings = 20;
+        constexpr int kSegments = 40;
+        std::vector<Vec3> points = {Vec3(0.0f, 1.0f, 0.0f), Vec3(0.0f, -1.0f, 0.0f)};
+        for (int ring = 1; ring < kRings; ++ring) {
+            const float polar = kPi * static_cast<float>(ring) / static_cast<float>(kRings);
+            for (int segment = 0; segment < kSegments; ++segment) {
+                const float around = kTwoPi * static_cast<float>(segment) / static_cast<float>(kSegments);
+                points.emplace_back(std::sin(polar) * std::cos(around), std::cos(polar),
+                                    std::sin(polar) * std::sin(around));
+            }
+        }
+        const GeometryId ball = unwrap(physics->createConvexHull(points));
+        unwrap(physics->createBody(
+            {.motion = BodyMotion::Static, .shapes = {{.type = ShapeType::ConvexHull, .geometry = ball}}}));
+        // It is the ball all the same, but for what the corners that were left out
+        // stood out by.
+        CHECK(heightAt(*physics, 0.0f, 0.0f) == doctest::Approx(1.0f).epsilon(0.02));
+        CHECK(heightAt(*physics, 0.5f, 0.0f) == doctest::Approx(std::sqrt(0.75f)).epsilon(0.05));
+        CHECK(heightAt(*physics, 1.1f, 0.0f) == kNothingBelow);
+        // A shape of 256 corners at the most has fewer than three times as many edges.
+        const std::vector<Vec3> edges = physics->geometryEdges(ball, 10000);
+        CHECK(edges.size() > 2 * 200);
+        CHECK(edges.size() < 2 * 3 * 256);
+    }
+
+    TEST_CASE("points that have no volume between them are no hull, and it is said why") {
+        const std::unique_ptr<PhysicsWorld> physics = unwrap(PhysicsWorld::create({.maxGeometryPoints = 8}));
+        const std::vector<Vec3> corners = boxCorners(Vec3(1.0f));
+        // Too few, and more than the world was made for.
+        CHECK(refusalOf(physics->createConvexHull(std::span(corners).first(3))) ==
+              "a convex hull is found around 4 to 8 points, not 3");
+        std::vector<Vec3> nine = corners;
+        nine.emplace_back(0.0f);
+        CHECK(refusalOf(physics->createConvexHull(nine)) == "a convex hull is found around 4 to 8 points, not 9");
+        CHECK(refusalOf(physics->createConvexHull({})) == "a convex hull is found around 4 to 8 points, not 0");
+        // Eight are as many as may be.
+        CHECK(physics->createConvexHull(corners).has_value());
+
+        // A point that is no number.
+        std::vector<Vec3> broken = corners;
+        broken[5].y = kNotANumber;
+        CHECK(refusalOf(physics->createConvexHull(broken)) == "point 5 of 8 for a convex hull is not made of numbers");
+        broken[5].y = std::numeric_limits<float>::infinity();
+        CHECK_FALSE(physics->createConvexHull(broken).has_value());
+
+        // Points in one plane, on one line, and in one place.
+        const std::vector<Vec3> flat = {Vec3(0.0f, 0.0f, 0.0f), Vec3(1.0f, 0.0f, 0.0f), Vec3(1.0f, 0.0f, 1.0f),
+                                        Vec3(0.0f, 0.0f, 1.0f), Vec3(0.5f, 0.0f, 0.5f)};
+        CHECK(refusalOf(physics->createConvexHull(flat)) ==
+              "the 5 points for a convex hull lie in one plane: there is no volume between them");
+        const std::vector<Vec3> line = {Vec3(0.0f), Vec3(1.0f), Vec3(2.0f), Vec3(3.0f)};
+        CHECK_FALSE(refusalOf(physics->createConvexHull(line)).empty());
+        const std::vector<Vec3> place(4, Vec3(1.0f, 2.0f, 3.0f));
+        CHECK_FALSE(refusalOf(physics->createConvexHull(place)).empty());
+        CHECK(physics->statistics().geometries == 1);
+    }
+
+    TEST_CASE("a surface of triangles collides where its triangles are") {
+        const std::unique_ptr<PhysicsWorld> physics = unwrap(PhysicsWorld::create());
+        const GeometryId square = unwrap(physics->createTriangleMesh(kSquarePositions, kSquareIndices));
+        CHECK(physics->isValid(square));
+        CHECK(physics->statistics().geometries == 1);
+        const BodyId ground = unwrap(physics->createBody(
+            {.motion = BodyMotion::Static, .shapes = {{.type = ShapeType::Mesh, .geometry = square}}}));
+
+        const std::optional<RayHit> hit =
+            physics->raycast(Ray{Vec3(0.5f, 5.0f, 0.5f), Vec3(0.0f, -1.0f, 0.0f)}, 100.0f);
+        REQUIRE(hit.has_value());
+        CHECK(hit->body == ground);
+        CHECK(hit->position.y == doctest::Approx(1.0f).epsilon(1.0e-4));
+        CHECK_NEAR(hit->normal, Vec3(0.0f, 1.0f, 0.0f), 1.0e-4f);
+        CHECK(heightAt(*physics, 1.1f, 0.0f) == kNothingBelow);
+
+        // A ball that is dropped on it lies on it.
+        const BodyId ball = unwrap(physics->createBody(
+            {.shapes = {{.type = ShapeType::Sphere, .radius = 0.25f}}, .position = Vec3(0.2f, 3.0f, 0.1f)}));
+        stepFor(*physics, 240);
+        CHECK(physics->position(ball).y == doctest::Approx(1.25f).epsilon(0.02));
+
+        // The same surface three times as wide and deep, twice as high up, and placed
+        // in its body half a metre higher still.
+        unwrap(physics->createBody({.motion = BodyMotion::Static,
+                                    .shapes = {{.type = ShapeType::Mesh,
+                                                .geometry = square,
+                                                .scale = Vec3(3.0f, 2.0f, 3.0f),
+                                                .offset = Vec3(0.0f, 0.5f, 0.0f)}},
+                                    .position = Vec3(20.0f, 0.0f, 0.0f)}));
+        CHECK(heightAt(*physics, 22.9f, 0.0f) == doctest::Approx(2.5f).epsilon(1.0e-4));
+        CHECK(heightAt(*physics, 23.1f, 0.0f) == kNothingBelow);
+
+        // Scaled by less than nothing along Y it is a metre below, and faces down.
+        const BodyId ceiling = unwrap(physics->createBody(
+            {.motion = BodyMotion::Static,
+             .shapes = {{.type = ShapeType::Mesh, .geometry = square, .scale = Vec3(1.0f, -1.0f, 1.0f)}},
+             .position = Vec3(40.0f, 0.0f, 0.0f)}));
+        const std::optional<RayHit> fromBelow =
+            physics->raycast(Ray{Vec3(40.5f, -5.0f, 0.5f), Vec3(0.0f, 1.0f, 0.0f)}, 100.0f);
+        REQUIRE(fromBelow.has_value());
+        CHECK(fromBelow->body == ceiling);
+        CHECK(fromBelow->position.y == doctest::Approx(-1.0f).epsilon(1.0e-4));
+        CHECK_NEAR(fromBelow->normal, Vec3(0.0f, -1.0f, 0.0f), 1.0e-4f);
+    }
+
+    TEST_CASE("a surface has no inside: it is hit from behind too, and no body of it is moved by the simulation") {
+        const std::unique_ptr<PhysicsWorld> physics = unwrap(PhysicsWorld::create());
+        const GeometryId square = unwrap(physics->createTriangleMesh(kSquarePositions, kSquareIndices));
+        const BodyId ground = unwrap(physics->createBody(
+            {.motion = BodyMotion::Static, .shapes = {{.type = ShapeType::Mesh, .geometry = square}}}));
+
+        // A ray finds the surface from the side it does not face as well - what is
+        // looked for with a ray is there, whichever way round it is. The normal is
+        // that of the surface: the way it faces.
+        const std::optional<RayHit> fromBehind =
+            physics->raycast(Ray{Vec3(0.5f, -5.0f, 0.5f), Vec3(0.0f, 1.0f, 0.0f)}, 100.0f);
+        REQUIRE(fromBehind.has_value());
+        CHECK(fromBehind->body == ground);
+        CHECK(fromBehind->distance == doctest::Approx(6.0f).epsilon(1.0e-4));
+        CHECK_NEAR(fromBehind->normal, Vec3(0.0f, 1.0f, 0.0f), 1.0e-4f);
+
+        // Moved by hand it can be: kinematic, it lifts what lies on it.
+        const BodyId lift = unwrap(physics->createBody({.motion = BodyMotion::Kinematic,
+                                                        .shapes = {{.type = ShapeType::Mesh, .geometry = square}},
+                                                        .position = Vec3(20.0f, 0.0f, 0.0f)}));
+        const BodyId ball = unwrap(physics->createBody(
+            {.shapes = {{.type = ShapeType::Sphere, .radius = 0.25f}}, .position = Vec3(20.0f, 1.25f, 0.0f)}));
+        stepFor(*physics, 30);
+        for (int step = 1; step <= 60; ++step) {
+            physics->moveKinematic(lift, Vec3(20.0f, static_cast<float>(step) / 60.0f, 0.0f), kIdentityQuat, kStep);
+            physics->step(kStep);
+        }
+        // Told to be where it is, it comes to a halt there.
+        physics->moveKinematic(lift, Vec3(20.0f, 1.0f, 0.0f), kIdentityQuat, kStep);
+        stepFor(*physics, 30);
+        CHECK(physics->position(lift).y == doctest::Approx(1.0f).epsilon(1.0e-3));
+        CHECK(physics->position(ball).y == doctest::Approx(2.25f).epsilon(0.02));
+
+        // By the simulation it cannot: there is no mass to spread over what has no inside.
+        CHECK(refusalOf(physics->createBody({.shapes = {{.type = ShapeType::Mesh, .geometry = square}}})) ==
+              "a dynamic body cannot be made of the triangles of a mesh, which have no inside: a convex hull has one");
+        // Not with a shape beside it that has one, either.
+        CHECK_FALSE(
+            physics->createBody({.shapes = {{.type = ShapeType::Box}, {.type = ShapeType::Mesh, .geometry = square}}})
+                .has_value());
+        CHECK(physics->statistics().bodies == 3);
+    }
+
+    TEST_CASE("triangles that are none are left out, and a surface of none is refused") {
+        const std::unique_ptr<PhysicsWorld> physics =
+            unwrap(PhysicsWorld::create({.maxGeometryPoints = 4, .maxGeometryTriangles = 3}));
+        // Of three triangles one has no area and one is there twice: one is left.
+        const std::vector<uint32_t> withoutArea = {0, 1, 2, 0, 0, 1, 0, 1, 2};
+        const GeometryId triangle = unwrap(physics->createTriangleMesh(kSquarePositions, withoutArea));
+        CHECK(physics->geometryEdges(triangle, 100).size() == 2 * 3);
+        // None is left of these.
+        const std::vector<uint32_t> noArea = {0, 0, 1, 2, 2, 2};
+        CHECK(refusalOf(physics->createTriangleMesh(kSquarePositions, noArea)) ==
+              "none of the 2 triangles of a surface has an area");
+
+        // Indices that are not three to a triangle, or name no position.
+        const std::vector<uint32_t> four = {0, 1, 2, 3};
+        CHECK(refusalOf(physics->createTriangleMesh(kSquarePositions, four)) ==
+              "a surface of triangles is made of 1 to 4 positions and three indices to each of 1 to 3 triangles, "
+              "not of 4 positions and 4 indices");
+        const std::vector<uint32_t> beyond = {0, 1, 2, 0, 2, 4};
+        CHECK(refusalOf(physics->createTriangleMesh(kSquarePositions, beyond)) ==
+              "triangle 1 of a surface names position 4, and there are 4");
+        // Nothing at all, and more than the world was made for.
+        CHECK_FALSE(physics->createTriangleMesh({}, kSquareIndices).has_value());
+        CHECK_FALSE(physics->createTriangleMesh(kSquarePositions, {}).has_value());
+        std::vector<Vec3> five = kSquarePositions;
+        five.emplace_back(0.0f);
+        CHECK_FALSE(physics->createTriangleMesh(five, kSquareIndices).has_value());
+        const std::vector<uint32_t> fourTriangles = {0, 1, 2, 0, 2, 3, 1, 2, 3, 0, 1, 3};
+        CHECK_FALSE(physics->createTriangleMesh(kSquarePositions, fourTriangles).has_value());
+        // A position that is no number.
+        std::vector<Vec3> broken = kSquarePositions;
+        broken[2].z = kNotANumber;
+        CHECK(refusalOf(physics->createTriangleMesh(broken, kSquareIndices)) ==
+              "position 2 of 4 for a surface of triangles is not made of numbers");
+        CHECK(physics->statistics().geometries == 1);
+    }
+
+    TEST_CASE("geometry that is forgotten leaves the bodies made of it, and is no geometry again") {
+        const std::unique_ptr<PhysicsWorld> physics = unwrap(PhysicsWorld::create());
+        const GeometryId box = unwrap(physics->createConvexHull(boxCorners(Vec3(1.0f))));
+        const GeometryId square = unwrap(physics->createTriangleMesh(kSquarePositions, kSquareIndices));
+        CHECK(box != square);
+        unwrap(physics->createBody(
+            {.motion = BodyMotion::Static, .shapes = {{.type = ShapeType::ConvexHull, .geometry = box}}}));
+        CHECK(physics->statistics().geometries == 2);
+
+        physics->destroyGeometry(box);
+        CHECK_FALSE(physics->isValid(box));
+        CHECK(physics->statistics().geometries == 1);
+        // The body that was made of it is as it was.
+        CHECK(heightAt(*physics, 0.0f, 0.0f) == doctest::Approx(0.5f).epsilon(1.0e-3));
+        // No body is made of it any more - nor of geometry of the other kind, or of none.
+        const auto bodyOf = [&](ShapeType type, GeometryId geometry) {
+            return physics->createBody(
+                {.motion = BodyMotion::Static, .shapes = {{.type = type, .geometry = geometry}}});
+        };
+        CHECK(refusalOf(bodyOf(ShapeType::ConvexHull, box)) ==
+              "a shape of the type convexHull needs geometry that was prepared for one, and has none");
+        CHECK(refusalOf(bodyOf(ShapeType::ConvexHull, square)) ==
+              "a shape of the type convexHull needs geometry that was prepared for one, and has none");
+        CHECK(refusalOf(bodyOf(ShapeType::Mesh, GeometryId())) ==
+              "a shape of the type mesh needs geometry that was prepared for one, and has none");
+        // Forgetting it again, or what never was, is nothing.
+        physics->destroyGeometry(box);
+        physics->destroyGeometry(GeometryId{12345});
+        physics->destroyGeometry(GeometryId());
+        CHECK(physics->statistics().geometries == 1);
+        // What is prepared next is not taken for it.
+        const GeometryId next = unwrap(physics->createConvexHull(boxCorners(Vec3(2.0f))));
+        CHECK(next != box);
+        CHECK_FALSE(physics->isValid(box));
+
+        // A scale that leaves a hull no volume, or a surface no size, or is no number.
+        const auto scaled = [&](ShapeType type, GeometryId geometry, const Vec3& scale) {
+            return physics->createBody(
+                {.motion = BodyMotion::Static, .shapes = {{.type = type, .geometry = geometry, .scale = scale}}});
+        };
+        CHECK(refusalOf(scaled(ShapeType::ConvexHull, next, Vec3(1.0f, 0.0f, 1.0f))) ==
+              "a convexHull scaled by 1 by 0 by 1 is 2 by 0 by 2 metres, and has no volume to collide with");
+        CHECK_FALSE(scaled(ShapeType::ConvexHull, next, Vec3(1.0f, 1.0e-4f, 1.0f)).has_value());
+        CHECK_FALSE(scaled(ShapeType::ConvexHull, next, Vec3(1.0f, kNotANumber, 1.0f)).has_value());
+        CHECK_FALSE(scaled(ShapeType::Mesh, square, Vec3(0.0f, 1.0f, 1.0f)).has_value());
+        CHECK_FALSE(scaled(ShapeType::Mesh, square, Vec3(1.0e-5f)).has_value());
+        // A surface may be flat, and thin things are things: a millimetre is enough.
+        CHECK(scaled(ShapeType::Mesh, square, Vec3(1.0f, 1.0e-3f, 1.0f)).has_value());
+        CHECK(scaled(ShapeType::ConvexHull, next, Vec3(1.0f, 1.0e-3f, 1.0f)).has_value());
+    }
+
+    TEST_CASE("the edges of geometry are those of its faces, each once") {
+        const std::unique_ptr<PhysicsWorld> physics = unwrap(PhysicsWorld::create());
+        // A box that is not around the origin: twelve edges between its eight corners,
+        // where they were given.
+        std::vector<Vec3> corners = boxCorners(Vec3(1.0f));
+        for (Vec3& corner : corners) {
+            corner += Vec3(5.0f, 0.0f, -2.0f);
+        }
+        const GeometryId box = unwrap(physics->createConvexHull(corners));
+        const std::vector<Vec3> boxEdges = physics->geometryEdges(box, 100);
+        REQUIRE(boxEdges.size() == 2 * 12);
+        // The box around it is where it was given, too.
+        CHECK_NEAR(physics->geometryBounds(box).min, Vec3(4.5f, -0.5f, -2.5f), 1.0e-4f);
+        CHECK_NEAR(physics->geometryBounds(box).max, Vec3(5.5f, 0.5f, -1.5f), 1.0e-4f);
+        for (size_t edge = 0; edge < boxEdges.size(); edge += 2) {
+            CAPTURE(edge);
+            // A metre long, along one axis, from a corner to a corner.
+            const Vec3 along = glm::abs(boxEdges[edge + 1] - boxEdges[edge]);
+            CHECK(along.x + along.y + along.z == doctest::Approx(1.0f).epsilon(1.0e-4));
+            CHECK(std::max({along.x, along.y, along.z}) == doctest::Approx(1.0f).epsilon(1.0e-4));
+            CHECK_NEAR(glm::abs(boxEdges[edge] - Vec3(5.0f, 0.0f, -2.0f)), Vec3(0.5f), 1.0e-4f);
+        }
+
+        // A square of two triangles: its four sides, and the one the triangles share.
+        const GeometryId square = unwrap(physics->createTriangleMesh(kSquarePositions, kSquareIndices));
+        const std::vector<Vec3> squareEdges = physics->geometryEdges(square, 100);
+        REQUIRE(squareEdges.size() == 2 * 5);
+        float length = 0.0f;
+        for (size_t edge = 0; edge < squareEdges.size(); edge += 2) {
+            CHECK(squareEdges[edge].y == doctest::Approx(1.0f).epsilon(1.0e-4));
+            length += glm::distance(squareEdges[edge], squareEdges[edge + 1]);
+        }
+        CHECK(length == doctest::Approx(4.0f * 2.0f + 2.0f * std::sqrt(2.0f)).epsilon(1.0e-4));
+
+        // Given as triangles that share no position - as a mesh has them along a seam -
+        // it is the same surface: corners in one place are one corner.
+        const std::vector<Vec3> apart = {kSquarePositions[0], kSquarePositions[1], kSquarePositions[2],
+                                         kSquarePositions[0], kSquarePositions[2], kSquarePositions[3]};
+        const std::vector<uint32_t> inOrder = {0, 1, 2, 3, 4, 5};
+        const GeometryId seamed = unwrap(physics->createTriangleMesh(apart, inOrder));
+        CHECK(physics->geometryEdges(seamed, 100).size() == 2 * 5);
+
+        // More edges than were asked for are none at all: half a picture says less than none.
+        CHECK(physics->geometryEdges(box, 12).size() == 2 * 12);
+        CHECK(physics->geometryEdges(box, 11).empty());
+        CHECK(physics->geometryEdges(square, 4).empty());
+        CHECK(physics->geometryEdges(square, 0).empty());
+        CHECK_NEAR(physics->geometryBounds(square).min, Vec3(-1.0f, 1.0f, -1.0f), 1.0e-4f);
+        CHECK_NEAR(physics->geometryBounds(square).max, Vec3(1.0f, 1.0f, 1.0f), 1.0e-4f);
+        // And geometry that is none has none, and no box around it.
+        CHECK(physics->geometryEdges(GeometryId(), 100).empty());
+        CHECK(physics->geometryBounds(GeometryId()).isEmpty());
+        physics->destroyGeometry(box);
+        CHECK(physics->geometryEdges(box, 100).empty());
     }
 
     TEST_CASE("a simulation is the same every time it is run") {

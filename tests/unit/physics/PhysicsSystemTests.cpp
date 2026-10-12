@@ -1,5 +1,8 @@
 #include "cordite/physics/PhysicsSystem.h"
 
+#include "cordite/assets/AssetDatabase.h"
+#include "cordite/assets/AssetManager.h"
+#include "cordite/assets/Mesh.h"
 #include "cordite/core/Json.h"
 #include "cordite/core/Reflection.h"
 #include "cordite/physics/PhysicsComponents.h"
@@ -29,7 +32,7 @@ constexpr float kStep = 1.0f / 60.0f;
 
 /// A world, and the physics that goes with it.
 struct Stage {
-    Stage() : physics(unwrap(PhysicsSystem::create())) {}
+    Stage() : assets(unwrap(AssetManager::create())), physics(unwrap(PhysicsSystem::create())) {}
 
     /// A floor whose top is the plane y = 0: a collider alone, which stands still.
     Entity addFloor() {
@@ -51,7 +54,7 @@ struct Stage {
     PhysicsFrameStatistics run(int frames) {
         PhysicsFrameStatistics last;
         for (int frame = 0; frame < frames; ++frame) {
-            last = physics->update(world, kStep);
+            last = physics->update(world, *assets, kStep);
         }
         return last;
     }
@@ -78,6 +81,8 @@ struct Stage {
     }
 
     World world;
+    /// The meshes the engine brings along, and no others.
+    std::unique_ptr<AssetManager> assets;
     std::unique_ptr<PhysicsSystem> physics;
 };
 
@@ -123,24 +128,24 @@ TEST_SUITE("PhysicsSystem") {
         Stage stage;
         stage.addCrate(Vec3(0.0f, 100.0f, 0.0f));
         // Two frames of half a step make one step.
-        CHECK(stage.physics->update(stage.world, 0.5f * kStep).steps == 0);
-        CHECK(stage.physics->update(stage.world, 0.5f * kStep).steps == 1);
+        CHECK(stage.physics->update(stage.world, *stage.assets, 0.5f * kStep).steps == 0);
+        CHECK(stage.physics->update(stage.world, *stage.assets, 0.5f * kStep).steps == 1);
         // A frame of a tenth of a second makes six.
-        CHECK(stage.physics->update(stage.world, 0.1f).steps == 6);
+        CHECK(stage.physics->update(stage.world, *stage.assets, 0.1f).steps == 6);
         // A pause is not caught up with: eight steps to an update at the most.
-        CHECK(stage.physics->update(stage.world, 5.0f).steps == 8);
-        CHECK(stage.physics->update(stage.world, kStep).steps == 1);
+        CHECK(stage.physics->update(stage.world, *stage.assets, 5.0f).steps == 8);
+        CHECK(stage.physics->update(stage.world, *stage.assets, kStep).steps == 1);
         // Frames that are no time are no steps.
-        CHECK(stage.physics->update(stage.world, 0.0f).steps == 0);
-        CHECK(stage.physics->update(stage.world, -1.0f).steps == 0);
-        CHECK(stage.physics->update(stage.world, kNotANumber).steps == 0);
+        CHECK(stage.physics->update(stage.world, *stage.assets, 0.0f).steps == 0);
+        CHECK(stage.physics->update(stage.world, *stage.assets, -1.0f).steps == 0);
+        CHECK(stage.physics->update(stage.world, *stage.assets, kNotANumber).steps == 0);
         CHECK(stage.physics->simulation().statistics().steps == 16);
 
         // Other steps can be asked for; none at all cannot.
         const std::unique_ptr<PhysicsSystem> coarse =
             unwrap(PhysicsSystem::create({.stepSeconds = 0.1, .maxStepsPerUpdate = 2}));
-        CHECK(coarse->update(stage.world, 0.25f).steps == 2);
-        CHECK(coarse->update(stage.world, 10.0f).steps == 2);
+        CHECK(coarse->update(stage.world, *stage.assets, 0.25f).steps == 2);
+        CHECK(coarse->update(stage.world, *stage.assets, 10.0f).steps == 2);
         for (const PhysicsSystemDesc& desc :
              {PhysicsSystemDesc{.stepSeconds = 0.0}, PhysicsSystemDesc{.stepSeconds = -1.0},
               PhysicsSystemDesc{.stepSeconds = std::numeric_limits<double>::quiet_NaN()},
@@ -155,11 +160,11 @@ TEST_SUITE("PhysicsSystem") {
         Stage stage;
         stage.addFloor();
         const Entity crate = stage.addCrate(Vec3(0.0f, 5.0f, 0.0f));
-        CHECK(stage.physics->synchronize(stage.world) ==
+        CHECK(stage.physics->synchronize(stage.world, *stage.assets) ==
               PhysicsFrameStatistics{.steps = 0, .bodies = 2, .activeBodies = 1});
         CHECK(stage.heightAt(0.0f, 0.0f) == doctest::Approx(5.5f).epsilon(1.0e-4));
         for (int index = 0; index < 30; ++index) {
-            stage.physics->synchronize(stage.world);
+            stage.physics->synchronize(stage.world, *stage.assets);
         }
         CHECK(stage.world.transform(crate).position == Vec3(0.0f, 5.0f, 0.0f));
         // An entity that is moved has its body there at once - dynamic, static or kinematic.
@@ -169,10 +174,10 @@ TEST_SUITE("PhysicsSystem") {
         const Entity lift = stage.world.createEntity("Lift");
         stage.world.add<ColliderComponent>(lift);
         stage.world.add<RigidBodyComponent>(lift).motion = BodyMotion::Kinematic;
-        stage.physics->synchronize(stage.world);
+        stage.physics->synchronize(stage.world, *stage.assets);
         stage.world.transform(wall).position = Vec3(-6.0f, 4.0f, 0.0f);
         stage.world.transform(lift).position = Vec3(-9.0f, 7.0f, 0.0f);
-        stage.physics->synchronize(stage.world);
+        stage.physics->synchronize(stage.world, *stage.assets);
         CHECK(stage.under(3.0f, 0.0f) == "Crate");
         CHECK(stage.heightAt(3.0f, 0.0f) == doctest::Approx(2.5f).epsilon(1.0e-4));
         CHECK(stage.heightAt(-6.0f, 0.0f) == doctest::Approx(4.5f).epsilon(1.0e-4));
@@ -215,7 +220,7 @@ TEST_SUITE("PhysicsSystem") {
         // In a frame without a step too, and turned as the body is: the entity's Y axis,
         // two long under a group of twice the size, is the body's.
         stage.world.transform(group).rotation = glm::angleAxis(1.0f, Vec3(0.0f, 0.0f, 1.0f));
-        CHECK(stage.physics->update(stage.world, 0.0f) ==
+        CHECK(stage.physics->update(stage.world, *stage.assets, 0.0f) ==
               PhysicsFrameStatistics{.steps = 0, .bodies = 2, .activeBodies = 0});
         CHECK_NEAR(stage.positionOf(crate), lies, 1.0e-3f);
         CHECK_NEAR(0.5f * Vec3(stage.world.computeWorldMatrix(crate)[1]), up, 1.0e-3f);
@@ -237,7 +242,7 @@ TEST_SUITE("PhysicsSystem") {
         // In every frame - with a step, and without one - it is where its body is: five
         // metres up, and upright. Not one frame behind what it hangs under, either.
         for (int frame = 0; frame < 90; ++frame) {
-            stage.physics->update(stage.world, frame % 3 == 2 ? 0.0f : kStep);
+            stage.physics->update(stage.world, *stage.assets, frame % 3 == 2 ? 0.0f : kStep);
             REQUIRE(glm::distance(stage.positionOf(loose), Vec3(0.0f, 5.0f, 0.0f)) < 1.0e-3f);
             REQUIRE(glm::distance(Vec3(stage.world.computeWorldMatrix(loose)[1]), Vec3(0.0f, 1.0f, 0.0f)) < 1.0e-3f);
         }
@@ -259,7 +264,7 @@ TEST_SUITE("PhysicsSystem") {
         stage.world.transform(wall).position = Vec3(0.0f, 2.0f, 5.0f);
         stage.world.add<ColliderComponent>(wall);
         REQUIRE(stage.world.setParent(wall, group, false).has_value());
-        stage.physics->synchronize(stage.world);
+        stage.physics->synchronize(stage.world, *stage.assets);
         CHECK(stage.under(4.0f, 0.0f) == "Crate");
         CHECK(stage.under(4.0f, 5.0f) == "Wall");
 
@@ -268,7 +273,7 @@ TEST_SUITE("PhysicsSystem") {
         const Transform before = stage.world.transform(crate);
         stage.world.transform(group) = {.position = Vec3(-10.0f, 1.0f, 0.0f),
                                         .rotation = glm::angleAxis(kHalfPi, Vec3(0.0f, 1.0f, 0.0f))};
-        stage.physics->synchronize(stage.world);
+        stage.physics->synchronize(stage.world, *stage.assets);
         CHECK(stage.under(-10.0f, 0.0f) == "Crate");
         CHECK(stage.heightAt(-10.0f, 0.0f) == doctest::Approx(3.5f).epsilon(1.0e-4));
         // Five metres along the group's Z, which a quarter turn about Y has made the world's X.
@@ -278,7 +283,7 @@ TEST_SUITE("PhysicsSystem") {
         CHECK(stage.world.transform(crate) == before);
         // Synchronized again, nothing is put anywhere: the body is the one it was.
         const BodyId body = stage.physics->bodyOf(crate);
-        stage.physics->synchronize(stage.world);
+        stage.physics->synchronize(stage.world, *stage.assets);
         CHECK(stage.physics->bodyOf(crate) == body);
         CHECK(stage.world.transform(crate) == before);
 
@@ -293,7 +298,7 @@ TEST_SUITE("PhysicsSystem") {
         Stage stage;
         const Entity wall = stage.world.createEntity("Wall");
         stage.world.add<ColliderComponent>(wall);
-        stage.physics->synchronize(stage.world);
+        stage.physics->synchronize(stage.world, *stage.assets);
         const BodyId body = stage.physics->bodyOf(wall);
         // A thousand frames, each of a movement too small to tell from rounding: five
         // thousandths of a millimetre, and a hundred-thousandth of a radian.
@@ -302,7 +307,7 @@ TEST_SUITE("PhysicsSystem") {
             stage.world.transform(wall).rotation =
                 glm::angleAxis(1.0e-5f * static_cast<float>(frame), Vec3(0.0f, 1.0f, 0.0f));
             if (frame % 2 == 0) {
-                stage.physics->synchronize(stage.world);
+                stage.physics->synchronize(stage.world, *stage.assets);
             } else {
                 stage.run(1);
             }
@@ -323,7 +328,7 @@ TEST_SUITE("PhysicsSystem") {
 
         stage.world.transform(crate).position = Vec3(7.0f, 80.0f, -3.0f);
         stage.world.transform(crate).rotation = glm::angleAxis(1.0f, Vec3(0.0f, 0.0f, 1.0f));
-        stage.physics->synchronize(stage.world);
+        stage.physics->synchronize(stage.world, *stage.assets);
         const BodyId body = stage.physics->bodyOf(crate);
         CHECK(stage.physics->simulation().position(body) == Vec3(7.0f, 80.0f, -3.0f));
         CHECK(stage.physics->simulation().linearVelocity(body) == speed);
@@ -397,7 +402,7 @@ TEST_SUITE("PhysicsSystem") {
 
         // In a frame of several steps it goes the way in all of them together.
         stage.world.transform(platform).position.x = 4.0f;
-        CHECK(stage.physics->update(stage.world, 3.0f * kStep).steps == 3);
+        CHECK(stage.physics->update(stage.world, *stage.assets, 3.0f * kStep).steps == 3);
         CHECK_NEAR(stage.physics->simulation().position(body), Vec3(4.0f, 0.0f, 0.0f), 1.0e-3f);
 
         // Its speeds follow from how its entity is moved: given others, it does not take them.
@@ -423,7 +428,7 @@ TEST_SUITE("PhysicsSystem") {
         // the entity moved in every one of them: every other frame has a step.
         for (int frame = 1; frame <= 40; ++frame) {
             stage.world.transform(platform).position.x = 0.05f * static_cast<float>(frame);
-            const uint32_t steps = stage.physics->update(stage.world, 0.5f * kStep).steps;
+            const uint32_t steps = stage.physics->update(stage.world, *stage.assets, 0.5f * kStep).steps;
             REQUIRE(steps == (frame % 2 == 0 ? 1U : 0U));
             // Without a step the body is where the last one left it. Put ahead at once,
             // it would be inside what it is to push.
@@ -467,7 +472,7 @@ TEST_SUITE("PhysicsSystem") {
         stage.world.add<ColliderComponent>(shade) = {.size = Vec3(0.5f, 0.1f, 0.5f)};
         REQUIRE(stage.world.setParent(shade, lamp, false).has_value());
 
-        CHECK(stage.physics->synchronize(stage.world).bodies == 2);
+        CHECK(stage.physics->synchronize(stage.world, *stage.assets).bodies == 2);
         const BodyId body = stage.physics->bodyOf(table);
         CHECK(stage.physics->simulation().isValid(body));
         // The legs have no bodies of their own: they are parts of the table's.
@@ -493,7 +498,7 @@ TEST_SUITE("PhysicsSystem") {
         stage.world.transform(ledge).position = Vec3(2.0f, 0.0f, 0.0f);
         stage.world.add<ColliderComponent>(ledge);
         REQUIRE(stage.world.setParent(ledge, wall, false).has_value());
-        CHECK(stage.physics->synchronize(stage.world).bodies == 4);
+        CHECK(stage.physics->synchronize(stage.world, *stage.assets).bodies == 4);
         CHECK(stage.under(20.0f, 0.0f) == "Wall");
         CHECK(stage.under(22.0f, 0.0f) == "Ledge");
         CHECK(stage.physics->simulation().motion(stage.physics->bodyOf(ledge)) == BodyMotion::Static);
@@ -511,7 +516,7 @@ TEST_SUITE("PhysicsSystem") {
 
         // A larger collider is another shape, and so another body - that falls on.
         stage.world.tryGet<ColliderComponent>(crate)->size = Vec3(3.0f, 1.0f, 1.0f);
-        stage.physics->synchronize(stage.world);
+        stage.physics->synchronize(stage.world, *stage.assets);
         const BodyId larger = stage.physics->bodyOf(crate);
         CHECK(larger != before);
         CHECK_FALSE(stage.physics->simulation().isValid(before));
@@ -521,15 +526,15 @@ TEST_SUITE("PhysicsSystem") {
 
         // So is a heavier one, a slipperier one, one of another kind, a scaled one.
         stage.world.tryGet<RigidBodyComponent>(crate)->mass = 40.0f;
-        stage.physics->synchronize(stage.world);
+        stage.physics->synchronize(stage.world, *stage.assets);
         const BodyId heavier = stage.physics->bodyOf(crate);
         CHECK(heavier != larger);
         stage.world.tryGet<ColliderComponent>(crate)->friction = 0.1f;
-        stage.physics->synchronize(stage.world);
+        stage.physics->synchronize(stage.world, *stage.assets);
         const BodyId slipperier = stage.physics->bodyOf(crate);
         CHECK(slipperier != heavier);
         stage.world.transform(crate).scale = Vec3(2.0f, 1.0f, 1.0f);
-        stage.physics->synchronize(stage.world);
+        stage.physics->synchronize(stage.world, *stage.assets);
         CHECK(stage.physics->bodyOf(crate) != slipperier);
         CHECK(stage.under(2.9f, 0.0f) == "Crate");
         CHECK(stage.under(3.1f, 0.0f) == "(nothing)");
@@ -594,7 +599,7 @@ TEST_SUITE("PhysicsSystem") {
         shaped("Capsule", ShapeType::Capsule, 20.0f, Vec3(1.0f, 3.0f, 2.0f));
         // Mirrored is as large as not.
         shaped("Mirrored", ShapeType::Box, 30.0f, Vec3(-2.0f, -1.0f, 1.0f));
-        stage.physics->synchronize(stage.world);
+        stage.physics->synchronize(stage.world, *stage.assets);
 
         CHECK(stage.heightAt(0.0f, 0.0f) == doctest::Approx(1.5f).epsilon(1.0e-4));
         CHECK(stage.under(0.0f, 0.9f) == "Box");
@@ -612,10 +617,10 @@ TEST_SUITE("PhysicsSystem") {
         const Entity hanging = stage.world.createEntity("Hanging");
         stage.world.transform(hanging).position = Vec3(60.0f, 10.0f, 0.0f);
         stage.world.add<ColliderComponent>(hanging) = {.center = Vec3(0.0f, 1.0f, 0.0f)};
-        stage.physics->synchronize(stage.world);
+        stage.physics->synchronize(stage.world, *stage.assets);
         CHECK(stage.heightAt(60.0f, 0.0f) == doctest::Approx(11.5f).epsilon(1.0e-4));
         stage.world.transform(hanging).scale = Vec3(1.0f, -1.0f, 1.0f);
-        stage.physics->synchronize(stage.world);
+        stage.physics->synchronize(stage.world, *stage.assets);
         CHECK(stage.heightAt(60.0f, 0.0f) == doctest::Approx(9.5f).epsilon(1.0e-4));
 
         // The centre of a collider is in the space of its entity: scaled and turned with it.
@@ -625,7 +630,7 @@ TEST_SUITE("PhysicsSystem") {
                                          .scale = Vec3(2.0f)};
         stage.world.add<ColliderComponent>(offset) = {
             .shape = ShapeType::Sphere, .radius = 0.25f, .center = Vec3(1.0f, 0.0f, 0.0f)};
-        stage.physics->synchronize(stage.world);
+        stage.physics->synchronize(stage.world, *stage.assets);
         // A metre along the entity's X, which points up and is two metres long.
         CHECK(stage.heightAt(40.0f, 0.0f) == doctest::Approx(2.5f).epsilon(1.0e-4));
     }
@@ -679,7 +684,7 @@ TEST_SUITE("PhysicsSystem") {
                     Ray{middle + Vec3(0.0f, 50.0f, 0.0f), Vec3(0.0f, -1.0f, 0.0f)}, 100.0f);
                 return hit.has_value() && std::abs(hit->position.y - (middle.y + radius)) < 2.0e-3f;
             };
-            stage.physics->synchronize(stage.world);
+            stage.physics->synchronize(stage.world, *stage.assets);
             REQUIRE(ballIsWhereTheEntityHasIt());
 
             // Tumbling for a second, it stays there - and the entity stays the way
@@ -804,7 +809,7 @@ TEST_SUITE("PhysicsSystem") {
             stage.world.transform(entity).position.x = kNotANumber;
         }
         stage.run(3);
-        stage.physics->synchronize(stage.world);
+        stage.physics->synchronize(stage.world, *stage.assets);
         CHECK(stage.under(0.0f, 0.0f) == "Wall");
         CHECK(stage.under(5.0f, 0.0f) == "Lift");
         CHECK(stage.under(10.0f, 0.0f) == "Crate");
@@ -857,6 +862,186 @@ TEST_SUITE("PhysicsSystem") {
         CHECK(stage.world.transform(ball) == before);
     }
 
+    TEST_CASE("a collider is the hull around a mesh, or the triangles of one") {
+        Stage stage;
+        const auto shaped = [&](const char* name, ShapeType shape, BuiltinMesh mesh, float x) {
+            const Entity entity = stage.world.createEntity(name);
+            stage.world.transform(entity).position = Vec3(x, 0.0f, 0.0f);
+            stage.world.add<ColliderComponent>(entity) = {.shape = shape, .mesh = builtinMeshId(mesh)};
+            return entity;
+        };
+        // A cone of a metre, its tip at the top: half a metre across half way up.
+        shaped("Cone", ShapeType::ConvexHull, BuiltinMesh::Cone, 0.0f);
+        // A ring that lies flat: a quarter of a metre high, with a hole of half a metre.
+        // Its triangles have the hole; the hull around them has not.
+        shaped("Ring", ShapeType::Mesh, BuiltinMesh::Torus, 10.0f);
+        shaped("Disc", ShapeType::ConvexHull, BuiltinMesh::Torus, 20.0f);
+        CHECK(stage.physics->synchronize(stage.world, *stage.assets).bodies == 3);
+
+        CHECK(stage.heightAt(0.0f, 0.0f) == doctest::Approx(0.5f).epsilon(0.02));
+        CHECK(stage.heightAt(0.25f, 0.0f) == doctest::Approx(0.0f).epsilon(0.02));
+        CHECK(stage.under(0.55f, 0.0f) == "(nothing)");
+        CHECK(stage.under(10.0f, 0.0f) == "(nothing)");
+        CHECK(stage.under(10.375f, 0.0f) == "Ring");
+        CHECK(stage.heightAt(10.375f, 0.0f) == doctest::Approx(0.125f).epsilon(0.02));
+        CHECK(stage.under(20.0f, 0.0f) == "Disc");
+        CHECK(stage.heightAt(20.0f, 0.0f) == doctest::Approx(0.125f).epsilon(0.02));
+
+        // What was made of a mesh serves every collider of that mesh and shape: three
+        // more cones, of other sizes, and still three geometries.
+        CHECK(stage.physics->simulation().statistics().geometries == 3);
+        const Entity wide = shaped("Wide cone", ShapeType::ConvexHull, BuiltinMesh::Cone, 30.0f);
+        stage.world.transform(wide).scale = Vec3(4.0f, 1.0f, 4.0f);
+        // Upside down: mirrored along Y, its base is at the top.
+        const Entity hanging = shaped("Hanging cone", ShapeType::ConvexHull, BuiltinMesh::Cone, 40.0f);
+        stage.world.transform(hanging).scale = Vec3(1.0f, -1.0f, 1.0f);
+        // And one whose middle is not where its entity is.
+        const Entity raised = shaped("Raised cone", ShapeType::ConvexHull, BuiltinMesh::Cone, 50.0f);
+        stage.world.tryGet<ColliderComponent>(raised)->center = Vec3(0.0f, 3.0f, 0.0f);
+        CHECK(stage.physics->synchronize(stage.world, *stage.assets).bodies == 6);
+        CHECK(stage.physics->simulation().statistics().geometries == 3);
+        CHECK(stage.heightAt(31.0f, 0.0f) == doctest::Approx(0.0f).epsilon(0.02));
+        CHECK(stage.under(31.9f, 0.0f) == "Wide cone");
+        CHECK(stage.heightAt(40.4f, 0.0f) == doctest::Approx(0.5f).epsilon(0.02));
+        CHECK(stage.heightAt(50.0f, 0.0f) == doctest::Approx(3.5f).epsilon(0.02));
+
+        // The system says what it has made of a mesh, for whoever wants to show it.
+        const GeometryId cone = stage.physics->geometryOf(builtinMeshId(BuiltinMesh::Cone), ShapeType::ConvexHull);
+        CHECK(stage.physics->simulation().isValid(cone));
+        CHECK(stage.physics->geometryOf(builtinMeshId(BuiltinMesh::Cone), ShapeType::Mesh).isNull());
+        CHECK(stage.physics->geometryOf(builtinMeshId(BuiltinMesh::Cube), ShapeType::ConvexHull).isNull());
+        CHECK(stage.physics->geometryOf(Uuid(), ShapeType::ConvexHull).isNull());
+    }
+
+    TEST_CASE("a hull can be moved by the simulation, and the triangles of a mesh only by hand") {
+        Stage stage;
+        // A floor of the triangles of the plane, ten metres wide, and a cylinder that
+        // falls on it and comes to rest: a hull has an inside.
+        const Entity floor = stage.world.createEntity("Floor");
+        stage.world.transform(floor).scale = Vec3(10.0f, 1.0f, 10.0f);
+        stage.world.add<ColliderComponent>(floor) = {.shape = ShapeType::Mesh,
+                                                     .mesh = builtinMeshId(BuiltinMesh::Plane)};
+        const Entity drum = stage.world.createEntity("Drum");
+        stage.world.transform(drum).position = Vec3(0.0f, 3.0f, 0.0f);
+        stage.world.add<ColliderComponent>(drum) = {.shape = ShapeType::ConvexHull,
+                                                    .mesh = builtinMeshId(BuiltinMesh::Cylinder)};
+        stage.world.add<RigidBodyComponent>(drum).mass = 20.0f;
+        CHECK(stage.run(240) == PhysicsFrameStatistics{.steps = 1, .bodies = 2, .activeBodies = 0, .geometries = 2});
+        CHECK(stage.world.transform(drum).position.y == doctest::Approx(0.5f).epsilon(0.03));
+
+        // A kinematic body of triangles is moved by its entity, and lifts the drum.
+        stage.world.add<RigidBodyComponent>(floor).motion = BodyMotion::Kinematic;
+        stage.run(1);
+        for (int frame = 1; frame <= 60; ++frame) {
+            stage.world.transform(floor).position.y = static_cast<float>(frame) / 60.0f;
+            stage.run(1);
+        }
+        stage.run(30);
+        CHECK(stage.world.transform(drum).position.y == doctest::Approx(1.5f).epsilon(0.03));
+
+        // A dynamic one is none, and it is said why; the drum falls for want of a floor.
+        const LogCapture log;
+        stage.world.tryGet<RigidBodyComponent>(floor)->motion = BodyMotion::Dynamic;
+        CHECK(stage.run(3).bodies == 1);
+        CHECK(stage.physics->bodyOf(floor).isNull());
+        CHECK(log.count(LogLevel::Error) == 1);
+        CHECK(log.contains("'Floor' has no body: a dynamic body cannot be made of the triangles of a mesh, which have "
+                           "no inside: a convex hull has one"));
+        CHECK(stage.world.transform(drum).position.y < 1.5f);
+    }
+
+    TEST_CASE("a collider of which no shape can be made is left out of its body, and named once") {
+        Stage stage;
+        const LogCapture log;
+        // A table whose top is a box - and whose legs are to be the hull around a mesh
+        // that is not named, and the triangles of one that there is not.
+        const Entity table = stage.world.createEntity("Table");
+        stage.world.transform(table).position = Vec3(0.0f, 1.0f, 0.0f);
+        stage.world.add<ColliderComponent>(table) = {.size = Vec3(2.0f, 0.1f, 1.0f)};
+        stage.world.add<RigidBodyComponent>(table).motion = BodyMotion::Static;
+        const Entity unnamed = stage.world.createEntity("Unnamed leg");
+        stage.world.add<ColliderComponent>(unnamed).shape = ShapeType::ConvexHull;
+        REQUIRE(stage.world.setParent(unnamed, table, false).has_value());
+        const Entity missing = stage.world.createEntity("Missing leg");
+        stage.world.add<ColliderComponent>(missing) = {.shape = ShapeType::Mesh,
+                                                       .mesh = *Uuid::parse("11111111-1111-4111-8111-111111111111")};
+        REQUIRE(stage.world.setParent(missing, table, false).has_value());
+        // The plane has no volume for a hull to be around.
+        const Entity flat = stage.world.createEntity("Flat thing");
+        stage.world.add<ColliderComponent>(flat) = {.shape = ShapeType::ConvexHull,
+                                                    .mesh = builtinMeshId(BuiltinMesh::Plane)};
+
+        // The table is a body of its top alone; the flat thing, left without a shape, is none.
+        CHECK(stage.run(3).bodies == 1);
+        CHECK(stage.heightAt(0.0f, 0.0f) == doctest::Approx(1.05f).epsilon(1.0e-3));
+        CHECK(stage.physics->bodyOf(flat).isNull());
+        CHECK(log.count(LogLevel::Error) == 3);
+        CHECK(log.contains("'Unnamed leg' has a collider that is no shape: a collider of the shape convexHull needs a "
+                           "mesh, and names none"));
+        CHECK(log.contains("'Missing leg' has a collider that is no shape: "));
+        CHECK(log.contains("11111111-1111-4111-8111-111111111111"));
+        CHECK(log.contains("'Flat thing' has a collider that is no shape: the 4 points for a convex hull lie in one "
+                           "plane: there is no volume between them"));
+
+        // Given a mesh, a leg is part of the table - and nothing more is said.
+        stage.world.transform(unnamed).position = Vec3(0.0f, -0.55f, 0.0f);
+        stage.world.tryGet<ColliderComponent>(unnamed)->mesh = builtinMeshId(BuiltinMesh::Cube);
+        CHECK(stage.run(2).bodies == 1);
+        CHECK(stage.physics->bodyOf(unnamed).isNull());
+        const std::optional<RayHit> leg =
+            stage.physics->simulation().raycast(Ray{Vec3(5.0f, 0.3f, 0.0f), Vec3(-1.0f, 0.0f, 0.0f)}, 100.0f);
+        REQUIRE(leg.has_value());
+        CHECK(stage.physics->entityOf(leg->body) == table);
+        CHECK(leg->position.x == doctest::Approx(0.5f).epsilon(1.0e-3));
+        CHECK(log.count(LogLevel::Error) == 3);
+
+        // An entity whose collider is no shape and whose body cannot be made either is
+        // told both, each once - not one after the other, frame for frame.
+        stage.world.add<RigidBodyComponent>(missing).mass = 0.0f;
+        const Entity weight = stage.world.createEntity("Weight");
+        stage.world.add<ColliderComponent>(weight);
+        REQUIRE(stage.world.setParent(weight, missing, false).has_value());
+        stage.run(5);
+        CHECK(log.count(LogLevel::Error) == 4);
+        CHECK(log.contains("'Missing leg' has no body: a dynamic body needs a mass of more than nothing, not 0"));
+    }
+
+    TEST_CASE("what was made of meshes is made again when the assets have been refreshed") {
+        Stage stage;
+        const Entity rock = stage.addCrate(Vec3(0.0f, 50.0f, 0.0f), "Rock");
+        *stage.world.tryGet<ColliderComponent>(rock) = {.shape = ShapeType::ConvexHull,
+                                                        .mesh = builtinMeshId(BuiltinMesh::Sphere)};
+        stage.run(30);
+        const BodyId body = stage.physics->bodyOf(rock);
+        const GeometryId geometry =
+            stage.physics->geometryOf(builtinMeshId(BuiltinMesh::Sphere), ShapeType::ConvexHull);
+        const Vec3 speed = stage.world.tryGet<RigidBodyComponent>(rock)->linearVelocity;
+        REQUIRE(stage.physics->simulation().isValid(geometry));
+
+        // The files may be others now: the geometry is forgotten and prepared anew,
+        // and the body that was made of it with it - which falls on as it fell.
+        REQUIRE(stage.assets->refresh().has_value());
+        stage.run(1);
+        CHECK_FALSE(stage.physics->simulation().isValid(geometry));
+        const GeometryId again = stage.physics->geometryOf(builtinMeshId(BuiltinMesh::Sphere), ShapeType::ConvexHull);
+        CHECK(stage.physics->simulation().isValid(again));
+        CHECK(again != geometry);
+        CHECK(stage.physics->simulation().statistics().geometries == 1);
+        CHECK(stage.physics->bodyOf(rock) != body);
+        CHECK(stage.world.tryGet<RigidBodyComponent>(rock)->linearVelocity.y < speed.y);
+        // Without a refresh, nothing is made again.
+        const BodyId remade = stage.physics->bodyOf(rock);
+        stage.run(5);
+        CHECK(stage.physics->bodyOf(rock) == remade);
+
+        // clear() forgets the geometry with the bodies.
+        stage.physics->clear();
+        CHECK(stage.physics->simulation().statistics().geometries == 0);
+        CHECK(stage.physics->geometryOf(builtinMeshId(BuiltinMesh::Sphere), ShapeType::ConvexHull).isNull());
+        CHECK(stage.run(1).bodies == 1);
+        CHECK(stage.physics->simulation().statistics().geometries == 1);
+    }
+
     TEST_CASE("two worlds given the same frames end up the same") {
         const auto run = [] {
             Stage stage;
@@ -873,7 +1058,7 @@ TEST_SUITE("PhysicsSystem") {
             crates.push_back(ball);
             // Frames of uneven length, as a game has them.
             for (int frame = 0; frame < 200; ++frame) {
-                stage.physics->update(stage.world, frame % 3 == 0 ? 0.021f : 0.013f);
+                stage.physics->update(stage.world, *stage.assets, frame % 3 == 0 ? 0.021f : 0.013f);
             }
             std::vector<Transform> places;
             for (const Entity crate : crates) {
@@ -889,6 +1074,64 @@ TEST_SUITE("PhysicsSystem") {
 }
 
 TEST_SUITE("PhysicsComponents") {
+    TEST_CASE("colliders that no shape or body can be made of are found without making any") {
+        World world;
+        // Nothing wrong: boxes, a hull that names its mesh, triangles that stand still
+        // and triangles that are moved by hand.
+        const Entity crate = world.createEntity("Crate");
+        world.add<ColliderComponent>(crate);
+        world.add<RigidBodyComponent>(crate);
+        const Entity rock = world.createEntity("Rock");
+        world.add<ColliderComponent>(rock) = {.shape = ShapeType::ConvexHull,
+                                              .mesh = builtinMeshId(BuiltinMesh::Sphere)};
+        world.add<RigidBodyComponent>(rock);
+        const Entity ground = world.createEntity("Ground");
+        world.add<ColliderComponent>(ground) = {.shape = ShapeType::Mesh, .mesh = builtinMeshId(BuiltinMesh::Plane)};
+        const Entity lift = world.createEntity("Lift");
+        world.add<ColliderComponent>(lift) = {.shape = ShapeType::Mesh, .mesh = builtinMeshId(BuiltinMesh::Plane)};
+        world.add<RigidBodyComponent>(lift).motion = BodyMotion::Kinematic;
+        // A mesh that is named but not there is another check's to find.
+        const Entity ghost = world.createEntity("Ghost");
+        world.add<ColliderComponent>(ghost) = {.shape = ShapeType::ConvexHull,
+                                               .mesh = *Uuid::parse("11111111-1111-4111-8111-111111111111")};
+        CHECK(findColliderProblems(world).empty());
+
+        // A shape of a mesh that names none.
+        world.tryGet<ColliderComponent>(rock)->mesh = Uuid();
+        // The triangles of a mesh in a dynamic body: by its own rigid body, and by one
+        // above it - also where that is switched off, and also without a mesh.
+        world.tryGet<RigidBodyComponent>(lift)->motion = BodyMotion::Dynamic;
+        const Entity wagon = world.createEntity("Wagon");
+        world.add<RigidBodyComponent>(wagon);
+        world.setEnabled(wagon, false);
+        const Entity axle = world.createEntity("Axle");
+        REQUIRE(world.setParent(axle, wagon, false).has_value());
+        const Entity wheel = world.createEntity("Wheel");
+        world.add<ColliderComponent>(wheel).shape = ShapeType::Mesh;
+        REQUIRE(world.setParent(wheel, axle, false).has_value());
+        // Under a rigid body that stands still, a dynamic one further up does not count.
+        const Entity anchor = world.createEntity("Anchor");
+        world.add<RigidBodyComponent>(anchor).motion = BodyMotion::Static;
+        REQUIRE(world.setParent(anchor, wagon, false).has_value());
+        const Entity plate = world.createEntity("Plate");
+        world.add<ColliderComponent>(plate) = {.shape = ShapeType::Mesh, .mesh = builtinMeshId(BuiltinMesh::Plane)};
+        REQUIRE(world.setParent(plate, anchor, false).has_value());
+
+        const std::vector<ColliderProblem> problems = findColliderProblems(world);
+        REQUIRE(problems.size() == 4);
+        CHECK(problems[0].entity == rock);
+        CHECK(problems[0].message ==
+              "Collider.mesh names no mesh, and a collider of the shape convexHull is made of one");
+        CHECK(problems[1].entity == lift);
+        CHECK(problems[1].message ==
+              "Collider.shape is mesh, and the body it is part of - 'Lift' - is dynamic: the triangles of a mesh "
+              "have no inside, and only a body that the simulation does not move is made of them");
+        CHECK(problems[2].entity == wheel);
+        CHECK(problems[2].message == "Collider.mesh names no mesh, and a collider of the shape mesh is made of one");
+        CHECK(problems[3].entity == wheel);
+        CHECK(problems[3].message.find("the body it is part of - 'Wagon' - is dynamic") != std::string::npos);
+    }
+
     TEST_CASE("the physics components are registered under the names scene files use, and described") {
         ComponentRegistry registry;
         REQUIRE(registerPhysicsComponents(registry).has_value());
@@ -921,16 +1164,29 @@ TEST_SUITE("PhysicsComponents") {
                                          .size = Vec3(1.0f, 2.0f, 3.0f),
                                          .radius = 0.25f,
                                          .height = 1.5f,
+                                         .mesh = *Uuid::parse("0a56c2f1-21e0-819d-8bac-567d1e1c4345"),
                                          .center = Vec3(0.0f, 0.75f, 0.0f),
                                          .friction = 0.25f,
                                          .restitution = 0.5f};
         const Json savedCollider = colliderType.toJson(&collider);
-        CHECK(savedCollider == unwrap(parseJson(R"({"shape": "capsule", "size": [1.0, 2.0, 3.0], "radius": 0.25,
-                                                   "height": 1.5, "center": [0.0, 0.75, 0.0], "friction": 0.25,
-                                                   "restitution": 0.5})")));
+        CHECK(savedCollider ==
+              unwrap(parseJson(R"({"shape": "capsule", "size": [1.0, 2.0, 3.0], "radius": 0.25, "height": 1.5,
+                                  "mesh": "0a56c2f1-21e0-819d-8bac-567d1e1c4345", "center": [0.0, 0.75, 0.0],
+                                  "friction": 0.25, "restitution": 0.5})")));
         ColliderComponent loadedCollider;
         REQUIRE(colliderType.fromJson(&loadedCollider, savedCollider).has_value());
         CHECK(loadedCollider.shape == ShapeType::Capsule);
+        CHECK(loadedCollider.mesh == collider.mesh);
+        // A collider that names no mesh says so, and the shapes made of meshes have
+        // the names files use.
+        CHECK(colliderType.toJson(&loadedCollider)["mesh"].is_string());
+        CHECK(colliderType.toJson(std::make_unique<ColliderComponent>().get())["mesh"].is_null());
+        for (const char* shape : {"convexHull", "mesh"}) {
+            Json named = savedCollider;
+            named["shape"] = shape;
+            REQUIRE(colliderType.fromJson(&loadedCollider, named).has_value());
+            CHECK(nameOf(loadedCollider.shape) == shape);
+        }
         CHECK(loadedCollider.size == Vec3(1.0f, 2.0f, 3.0f));
         CHECK(loadedCollider.center == Vec3(0.0f, 0.75f, 0.0f));
         CHECK(loadedCollider.restitution == 0.5f);

@@ -22,9 +22,11 @@
 
 #include "cordite/core/Base.h"
 #include "cordite/core/Result.h"
+#include "cordite/editor/ColliderOutlines.h"
 #include "cordite/editor/EditorCamera.h"
 #include "cordite/editor/EditorContext.h"
 #include "cordite/engine/Engine.h"
+#include "cordite/physics/PhysicsSystem.h"
 #include "cordite/renderer/DebugDraw.h"
 #include "cordite/renderer/DebugLinePass.h"
 #include "cordite/renderer/PostProcessSettings.h"
@@ -103,11 +105,14 @@ public:
     [[nodiscard]] Entity pick(EditorContext& context, Vec2 pixel) const;
 
 private:
-    ViewportPanel(SceneRenderer& sceneRenderer, DebugLinePass linePass);
+    ViewportPanel(SceneRenderer& sceneRenderer, const PhysicsSystem& physics, DebugLinePass linePass);
 
     void collectLines(EditorContext& context, const CameraView& view);
 
     SceneRenderer* m_sceneRenderer;
+    /// What the colliders that are made of meshes are made of.
+    const PhysicsSystem* m_physics;
+    ColliderOutlines m_colliderOutlines;
     DebugLinePass m_linePass;
     SceneTargets m_targets;
     EditorCamera m_camera;

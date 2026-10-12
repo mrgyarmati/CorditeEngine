@@ -35,7 +35,7 @@ of slowly turning the code base into a ball of mud.
 | `assets` | `core`, `math` | Assets as data, and where they come from: images and mipmaps; meshes, primitives and mesh processing; materials; glTF import and export; the asset database, which knows what exists and under which id; the asset manager, which loads by id. Knows nothing of the GPU. |
 | `world` | `core`, `math` | The scene: entities, their components and their parent/child hierarchy, stored with EnTT; the registry of component types known by name; scene files. |
 | `animation` | `core`, `math`, `assets`, `world` | Movement of skeletons: the functions that make a pose (sampling a clip, blending two poses, the matrices a mesh is skinned with, the bounds of a posed mesh), the `Animator` component, and `AnimationSystem`, which plays the animators of a world and gives each the pose it is in. |
-| `physics` | `core`, `math`, `world` | The simulation of rigid bodies: `PhysicsWorld` holds bodies - shapes, a mass, where each is and how it moves - steps them on in time and answers what a ray hits. Jolt Physics is behind it and shows in none of its headers. The `Collider` and `RigidBody` components say what of a world is simulated, and `PhysicsSystem` keeps the two in step. |
+| `physics` | `core`, `math`, `assets`, `world` | The simulation of rigid bodies: `PhysicsWorld` holds bodies - shapes, a mass, where each is and how it moves - steps them on in time and answers what a ray hits. Jolt Physics is behind it and shows in none of its headers. The `Collider` and `RigidBody` components say what of a world is simulated, and `PhysicsSystem` keeps the two in step; it is also what makes the shapes of colliders out of mesh assets. |
 | `rhi` | `core`, `math`, `platform` | The GPU: Vulkan instance and device creation, the NVRHI device the renderer programs against, the swapchain, and texture readback. The only module that calls Vulkan. |
 | `shaders` | `core` | What a shader *is* to the engine: requests and their permutation keys, compiled binaries, the on-disk cache, and the `ShaderLibrary` that resolves a request from memory, disk or a compiler. |
 | `shader_compiler` | `core`, `shaders` | The Slang-based implementation of `IShaderCompiler`. Kept separate so exported games do not link a compiler. |
@@ -1204,6 +1204,29 @@ edit of any property simply take effect.
 
 One piece of the simulation does show in the world: the speeds of a rigid body, as
 properties that are not saved. A script reads and sets them like anything else.
+
+### A shape of a mesh is made when a collider first asks for it
+
+A collider can be the hull around a mesh or the triangles of one. Jolt has to make
+something of the mesh first - find the hull, sort the triangles into a tree - and
+what it makes is kept as *geometry*, under an id, in the physics world. Shapes refer
+to geometry and scale it; any number of bodies can be made of the same.
+
+The physics system makes geometry the first time it meets a collider of a mesh and a
+shape, and keeps it for all that follow, until the assets are refreshed. That it is
+made then, and not when the mesh is imported, is the simple way and not the fast one:
+the first frame of a scene with many large mesh colliders waits for all of them. What
+Jolt makes can be written to a file, and the place for it is the cache of derived
+data beside the shaders; it is not done yet.
+
+The world of bodies knows nothing of assets: it takes points and triangles. Mesh
+assets are the system's affair, which is why the `physics` module depends on
+`assets` and `PhysicsWorld` does not include a header of it.
+
+A convex hull is what a dynamic body is made of: it has an inside, and so a mass.
+The triangles of a mesh are a surface, and only for what the simulation does not
+move. No shape is made of a mesh by itself - a collider names its mesh, which need
+not be the one its entity is drawn with, and should often be a simpler one.
 
 ### A body of several shapes is an entity with colliders below it
 

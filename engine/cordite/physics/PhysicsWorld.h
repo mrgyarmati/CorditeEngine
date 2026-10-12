@@ -4,8 +4,9 @@
 /// The simulation of rigid bodies: what falls, collides, slides and comes to rest.
 ///
 /// A PhysicsWorld holds bodies - a shape, a mass, where it is and how it moves - and
-/// moves them on by a step of time. It knows nothing of entities or components; the
-/// physics system (PhysicsSystem.h) is what keeps a World and a PhysicsWorld in step.
+/// moves them on by a step of time. It knows nothing of entities, components or
+/// assets; the physics system (PhysicsSystem.h) is what keeps a World and a
+/// PhysicsWorld in step.
 ///
 /// @code
 /// CORDITE_TRY_ASSIGN(const std::unique_ptr<PhysicsWorld> physics, PhysicsWorld::create());
@@ -27,6 +28,23 @@
 /// }
 /// @endcode
 ///
+/// Shapes that are not a box, a ball or a capsule are made of geometry, which is
+/// prepared once and can then be the shape of any number of bodies, at any size:
+///
+/// @code
+/// CORDITE_TRY_ASSIGN(const GeometryId rock, physics->createConvexHull(points));
+/// CORDITE_TRY_ASSIGN(const GeometryId terrain, physics->createTriangleMesh(positions, indices));
+/// CORDITE_TRY_ASSIGN(const BodyId boulder,
+///                    physics->createBody({.shapes = {{.type = ShapeType::ConvexHull,
+///                                                     .geometry = rock,
+///                                                     .scale = Vec3(2.0f)}},
+///                                         .position = Vec3(0.0f, 10.0f, 0.0f),
+///                                         .mass = 500.0f}));
+/// CORDITE_TRY_ASSIGN(const BodyId ground,
+///                    physics->createBody({.motion = BodyMotion::Static,
+///                                         .shapes = {{.type = ShapeType::Mesh, .geometry = terrain}}}));
+/// @endcode
+///
 /// Units and conventions are the engine's: metres, kilograms, seconds; right-handed with
 /// +Y up; rotations as unit quaternions. A simulation is repeatable: the same bodies,
 /// created in the same order and stepped by the same times, end up in the same places,
@@ -46,6 +64,7 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string_view>
 #include <vector>
 
@@ -62,6 +81,20 @@ struct BodyId {
     [[nodiscard]] constexpr bool isNull() const noexcept { return value == kNone; }
 
     constexpr bool operator==(const BodyId&) const noexcept = default;
+};
+
+/// Refers to geometry that one PhysicsWorld has prepared: the hull around a set of
+/// points, or a surface of triangles. A plain value; it stops being valid when its
+/// geometry is destroyed, and is then never mistaken for geometry prepared later.
+struct GeometryId {
+    /// What a default-constructed GeometryId holds: no geometry.
+    static constexpr uint32_t kNone = 0u;
+
+    uint32_t value = kNone;
+
+    [[nodiscard]] constexpr bool isNull() const noexcept { return value == kNone; }
+
+    constexpr bool operator==(const GeometryId&) const noexcept = default;
 };
 
 /// How a body moves.
@@ -90,11 +123,21 @@ enum class ShapeType : uint8_t {
     /// A cylinder along Y with a half ball at either end: ShapeDesc::radius thick and
     /// ShapeDesc::height from end to end.
     Capsule,
+    /// The smallest shape without dents that holds every point of ShapeDesc::geometry,
+    /// which PhysicsWorld::createConvexHull() has prepared; ShapeDesc::scale times as
+    /// large.
+    ConvexHull,
+    /// The triangles of ShapeDesc::geometry, which PhysicsWorld::createTriangleMesh()
+    /// has prepared; ShapeDesc::scale times as large. A surface, with no inside: only
+    /// for bodies that the simulation does not move.
+    Mesh,
 };
 
-inline constexpr std::array<ShapeType, 3> kShapeTypes = {ShapeType::Box, ShapeType::Sphere, ShapeType::Capsule};
+inline constexpr std::array<ShapeType, 5> kShapeTypes = {ShapeType::Box, ShapeType::Sphere, ShapeType::Capsule,
+                                                         ShapeType::ConvexHull, ShapeType::Mesh};
 
-/// The name used in files and by tools: "box", "sphere", "capsule".
+/// The name used in files and by tools: "box", "sphere", "capsule", "convexHull",
+/// "mesh".
 std::string_view nameOf(ShapeType type);
 
 /// A shape, and where it is in the body it belongs to.
@@ -107,6 +150,11 @@ struct ShapeDesc {
     /// Of a capsule: from end to end, in metres. One that is no taller than it is wide
     /// is a sphere.
     float height = 2.0f;
+    /// Of a convex hull and of a mesh: the geometry it is made of, and how many times
+    /// as large as that it is along each axis. Less than nothing mirrors; nothing at
+    /// all leaves no shape.
+    GeometryId geometry;
+    Vec3 scale{1.0f};
     /// Where the middle of the shape is, in the space of its body, and how the shape is
     /// turned there; the rotation of any length but none.
     Vec3 offset{0.0f};
@@ -165,6 +213,11 @@ struct PhysicsWorldDesc {
     /// touch. A step that needs more leaves some contacts out, which is reported.
     uint32_t maxBodyPairs = 65536;
     uint32_t maxContactConstraints = 16384;
+    /// The most points a convex hull is found around, and the most positions and
+    /// triangles a surface of triangles is made of. As given, what a mesh of the engine
+    /// can hold. No memory is taken for these.
+    uint32_t maxGeometryPoints = 1u << 24;
+    uint32_t maxGeometryTriangles = 1u << 24;
 };
 
 /// Where a ray hits a body.
@@ -184,6 +237,8 @@ struct PhysicsStatistics {
     uint32_t bodies = 0;
     /// Bodies that are being simulated: dynamic and kinematic ones that are not asleep.
     uint32_t activeBodies = 0;
+    /// Hulls and surfaces of triangles that are prepared.
+    uint32_t geometries = 0;
     /// Steps taken since the world was made.
     uint64_t steps = 0;
     /// Steps that needed more room than PhysicsWorldDesc gives, and left contacts out.
@@ -199,9 +254,48 @@ public:
     ~PhysicsWorld();
     CORDITE_NON_MOVABLE(PhysicsWorld);
 
+    /// Prepares the smallest shape without dents that holds all of `points`, for
+    /// shapes of the type ConvexHull. Points inside it, and points that are there
+    /// twice, do no harm; a hull of more corners than the simulation handles well is
+    /// made of the 256 that matter most. Fails with InvalidArgument for fewer than four
+    /// points or more than PhysicsWorldDesc::maxGeometryPoints, for points that are not
+    /// numbers, and for points that lie in one plane, between which there is no volume.
+    [[nodiscard]] Result<GeometryId> createConvexHull(std::span<const Vec3> points);
+
+    /// Prepares a surface of triangles, for shapes of the type Mesh: three of `indices`
+    /// to a triangle, each the number of one of `positions`, counter-clockwise seen
+    /// from the side the surface faces. What comes at it from that side is stopped; a
+    /// ray finds it from either. Positions less than a tenth of a millimetre apart are
+    /// taken for one corner, so that the triangles that meet there are known to;
+    /// triangles without area and triangles that are there twice are left out. Fails
+    /// with InvalidArgument for
+    /// indices that are not three to a triangle or name no position, for positions
+    /// that are not numbers, for more positions or triangles than PhysicsWorldDesc
+    /// allows, and when no triangle is left.
+    [[nodiscard]] Result<GeometryId> createTriangleMesh(std::span<const Vec3> positions,
+                                                        std::span<const uint32_t> indices);
+
+    /// Forgets geometry. Bodies that were made of it keep their shapes. An id that is
+    /// no geometry's (any more) is ignored.
+    void destroyGeometry(GeometryId geometry);
+
+    [[nodiscard]] bool isValid(GeometryId geometry) const;
+
+    /// The box around geometry, in the space it was given in; the empty box for an id
+    /// that is no geometry's.
+    [[nodiscard]] Aabb geometryBounds(GeometryId geometry) const;
+
+    /// The edges of geometry, for tools that show it: two points to an edge, in the
+    /// space the geometry was given in. Of a hull, the edges of its faces; of a
+    /// surface, the sides of its triangles, each once. At most `maxEdges` of them:
+    /// where there are more, the result is empty - half a picture says less than
+    /// none. Empty for an id that is no geometry's.
+    [[nodiscard]] std::vector<Vec3> geometryEdges(GeometryId geometry, size_t maxEdges) const;
+
     /// Adds a body. Fails - and adds nothing - for a body without shapes or with too
-    /// many, a shape without volume, a dynamic body without mass, numbers that are none,
-    /// and when the world is full.
+    /// many, a shape without volume or of geometry that is not there, a dynamic body
+    /// without mass or with a shape of the type Mesh, numbers that are none, and when
+    /// the world is full.
     [[nodiscard]] Result<BodyId> createBody(const BodyDesc& desc);
 
     /// Removes a body. An id that is not a body's (any more) is ignored.
@@ -278,4 +372,11 @@ private:
 template <>
 struct std::hash<cordite::BodyId> {
     size_t operator()(const cordite::BodyId& body) const noexcept { return std::hash<uint32_t>{}(body.value); }
+};
+
+template <>
+struct std::hash<cordite::GeometryId> {
+    size_t operator()(const cordite::GeometryId& geometry) const noexcept {
+        return std::hash<uint32_t>{}(geometry.value);
+    }
 };

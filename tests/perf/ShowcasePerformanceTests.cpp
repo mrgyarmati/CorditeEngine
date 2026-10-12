@@ -113,6 +113,7 @@ TEST_SUITE("Performance") {
         Json simulation = Json::object();
         simulation["bodies"] = statistics.physics.bodies;
         simulation["activeBodies"] = statistics.physics.activeBodies;
+        simulation["geometries"] = statistics.physics.geometries;
         simulation["animators"] = statistics.animation.animators;
         simulation["joints"] = statistics.animation.joints;
         report["simulation"] = std::move(simulation);
@@ -147,6 +148,7 @@ TEST_SUITE("Performance") {
         CHECK(statistics.physics.steps == 1);
         CHECK(statistics.physics.activeBodies <= 1);
         checkBudget(budgets, "bodies", statistics.physics.bodies);
+        checkBudget(budgets, "geometries", statistics.physics.geometries);
         checkBudget(budgets, "joints", statistics.animation.joints);
         checkBudget(budgets, "drawCalls", statistics.scene.meshes.drawCalls);
         checkBudget(budgets, "screenPasses", statistics.scene.screenPasses);

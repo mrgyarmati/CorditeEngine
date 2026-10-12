@@ -10,6 +10,7 @@ cordite_add_module(physics
     DEPENDS
         core
         math
+        assets
         world
     PRIVATE_LIBRARIES
         Jolt::Jolt)

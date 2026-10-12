@@ -545,11 +545,15 @@ TEST_SUITE("Engine") {
         CHECK(statistics.skinnedMeshes == 1);
         CHECK(statistics.jointMatrices == 6);
         CHECK(engine->statistics().animation == AnimationStatistics{.animators = 1, .joints = 6});
-        // Seven bodies: the floor, the pillar, the cone, and what the simulation moves -
-        // the crate with its lid, the barrel, the ball and the gas cylinder. A frame of
-        // a sixtieth of a second is one step.
+        // Eight bodies: the floor, the pillar, the cone, the grating, and what the
+        // simulation moves - the crate with its lid, the barrel, the ball and the gas
+        // cylinder. Two of them have shapes made of meshes: the hull around the barrel,
+        // the triangles of the grating. A frame of a sixtieth of a second is one step.
         CHECK(engine->statistics().physics.steps == 1);
-        CHECK(engine->statistics().physics.bodies == 7);
+        CHECK(engine->statistics().physics.bodies == 8);
+        CHECK(engine->statistics().physics.geometries == 2);
+        CHECK(engine->world().transform(engine->world().findByName("Barrel")).position.y ==
+              doctest::Approx(0.45f).epsilon(0.01));
         // They stand and lie on the floor, and stay there.
         CHECK(engine->world().transform(engine->world().findByName("Crate")).position.y ==
               doctest::Approx(0.5f).epsilon(0.01));

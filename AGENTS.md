@@ -127,7 +127,7 @@ by accident.
 | `assets` | `core`, `math` | Assets as data: images and mipmaps, meshes - rigid and skinned - and what prepares them, skeletons, animation clips, materials, glTF import and export, the asset database (ids, `.meta` files) and the asset manager (loading by id) |
 | `world` | `core`, `math` | Entities, components and their hierarchy (EnTT), the component registry, scene files |
 | `animation` | `core`, `math`, `assets`, `world` | Poses of skeletons and what makes them: sampling clips, blending, the matrices a mesh is skinned with and the bounds of a posed mesh; the `Animator` component; `AnimationSystem`, which plays the animators of a world |
-| `physics` | `core`, `math`, `world` | `PhysicsWorld`: rigid bodies, their shapes, stepping and raycasts, over Jolt Physics; the `Collider` and `RigidBody` components; `PhysicsSystem`, which keeps the entities of a world and the bodies of a simulation in step |
+| `physics` | `core`, `math`, `assets`, `world` | `PhysicsWorld`: rigid bodies, their shapes - boxes, balls, capsules, the hulls around sets of points and surfaces of triangles - stepping and raycasts, over Jolt Physics; the `Collider` and `RigidBody` components; `PhysicsSystem`, which keeps the entities of a world and the bodies of a simulation in step and makes shapes of mesh assets |
 | `rhi` | `core`, `math`, `platform` | Vulkan device, swapchain and texture readback over NVRHI |
 | `shaders` | `core` | Shader requests and permutation keys, disk cache, `ShaderLibrary` |
 | `shader_compiler` | `core`, `shaders` | Slang to SPIR-V compiler (not linked into exported games) |
@@ -729,6 +729,32 @@ Step-by-step guide: [work-with-assets](.claude/skills/work-with-assets/SKILL.md)
 - **Colliders are seen in the editor** (`viewport.show`, View > Colliders; those of
   what is selected and of what hangs below it, always), drawn from the components by
   the same rules of scale the physics uses. A new shape needs its lines there too.
+  Those made of meshes are drawn from what the physics has made of the mesh
+  (`ColliderOutlines`, `PhysicsWorld::geometryEdges`), not from the mesh: what is
+  seen is what things collide with.
+- **A shape of a mesh is geometry, prepared once.** `PhysicsWorld::createConvexHull`
+  and `createTriangleMesh` make it and hand out a `GeometryId`; a `ShapeDesc` holds
+  that id and a scale, never points - what a body is made of is compared every frame.
+  `PhysicsSystem` makes geometry of a mesh asset when a collider first asks for it,
+  keeps it by mesh and shape for every collider at every scale, and forgets it all
+  when `AssetDatabase::revision()` changes. A collider of which no shape can be made
+  is left out of its body and named once; `findColliderProblems`, which
+  `scene.validate` reports, finds what can be told without making anything.
+- **The triangles of a mesh have no inside**, and so no mass: a body of them is
+  static or kinematic, never dynamic (`createBody` refuses; a kinematic one is given
+  any mass, which Jolt asks for and never uses). They stop what comes from the side
+  they face - counter-clockwise, like everything the engine draws - and a ray finds
+  them from either side. What is to be moved by the simulation is a convex hull.
+- **A mesh made for drawing has two vertices wherever a seam or a sharp edge runs.**
+  A surface made of it is welded first (`createTriangleMesh` does, with Jolt's own
+  `Indexify`): triangles that are not known to share an edge are taken for the end
+  of the surface there, and what slides across it catches on every one.
+- **Jolt keeps a shape against its centre of mass.** The points of a hull and the
+  bounds of any shape are relative to it; add `GetCenterOfMass()` to be back in the
+  space the geometry was given in. Where a body *is* (`position`) already accounts
+  for it. And around points that lie in one plane Jolt makes a hull without
+  complaint that has no volume - `createConvexHull` refuses it, or a body of it
+  would have a mass of nothing spread over nothing.
 
 ## Editor and automation
 

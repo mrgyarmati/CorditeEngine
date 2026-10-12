@@ -360,10 +360,10 @@ void Engine::updateWorld(WorldClock clock) {
     // or placed against it.
     if (clock == WorldClock::Running && impl.frameOpen) {
         const auto deltaSeconds = static_cast<float>(impl.deltaSeconds);
-        impl.physicsStatistics = impl.physics->update(impl.world, deltaSeconds);
+        impl.physicsStatistics = impl.physics->update(impl.world, *impl.assets, deltaSeconds);
         impl.animationStatistics = impl.animation.update(impl.world, *impl.assets, deltaSeconds);
     } else {
-        impl.physicsStatistics = impl.physics->synchronize(impl.world);
+        impl.physicsStatistics = impl.physics->synchronize(impl.world, *impl.assets);
         impl.animationStatistics = impl.animation.evaluate(impl.world, *impl.assets);
     }
     impl.world.updateWorldTransforms();

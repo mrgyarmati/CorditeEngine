@@ -3,6 +3,7 @@
 #include "cordite/core/Json.h"
 #include "cordite/core/Reflection.h"
 #include "cordite/core/StringUtils.h"
+#include "cordite/physics/PhysicsComponents.h"
 
 #include <optional>
 #include <utility>
@@ -88,6 +89,9 @@ std::vector<SceneProblem> findSceneProblems(const World& world, const ComponentR
                 {use.entity, fmt::format("{}.{} refers to {}, which is {}, not {}", use.component, use.property,
                                          asset->reference(), withArticle(asset->type), wanted)});
         }
+    }
+    for (ColliderProblem& problem : findColliderProblems(world)) {
+        problems.push_back({problem.entity, std::move(problem.message)});
     }
     return problems;
 }

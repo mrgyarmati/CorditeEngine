@@ -139,6 +139,7 @@ cordite_add_test_suite(renderer
 cordite_add_test_suite(editor
     SOURCES
         unit/editor/AssetCommandsTests.cpp
+        unit/editor/ColliderOutlinesTests.cpp
         unit/editor/CommandRegistryTests.cpp
         unit/editor/EditorActionsTests.cpp
         unit/editor/EditorCameraTests.cpp

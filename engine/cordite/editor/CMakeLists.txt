@@ -2,6 +2,8 @@ cordite_add_module(editor
     SOURCES
         AssetCommands.cpp
         AssetCommands.h
+        ColliderOutlines.cpp
+        ColliderOutlines.h
         StatisticsPanel.cpp
         StatisticsPanel.h
         CommandRegistry.cpp

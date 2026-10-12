@@ -3,6 +3,7 @@
 #include "cordite/assets/GltfExporter.h"
 #include "cordite/core/Reflection.h"
 #include "cordite/engine/EngineComponents.h"
+#include "cordite/physics/PhysicsComponents.h"
 #include "cordite/renderer/RenderComponents.h"
 
 #include "support/SkinnedModelSupport.h"
@@ -203,6 +204,34 @@ TEST_SUITE("SceneAssets") {
         const std::vector<SceneProblem> problems = findSceneProblems(fixture.world, fixture.components, fixture.assets);
         REQUIRE(problems.size() == 1);
         CHECK(problems[0].message.find("Emitter.decal.anything") != std::string::npos);
+    }
+
+    TEST_CASE("colliders that no shape or body can be made of are problems of a scene") {
+        Fixture fixture;
+        const Entity ground = fixture.world.createEntity("Ground");
+        fixture.world.add<ColliderComponent>(ground) = {.shape = ShapeType::Mesh,
+                                                        .mesh = builtinMeshId(BuiltinMesh::Plane)};
+        CHECK(findSceneProblems(fixture.world, fixture.components, fixture.assets).empty());
+
+        // A mesh that is not there is found as any reference to nothing is; a shape of
+        // a mesh that names none, and triangles that the simulation is to move, as
+        // what the physics will make nothing of.
+        fixture.world.add<RigidBodyComponent>(ground);
+        const Entity rock = fixture.world.createEntity("Rock");
+        fixture.world.add<ColliderComponent>(rock).shape = ShapeType::ConvexHull;
+        const Entity ghost = fixture.world.createEntity("Ghost");
+        fixture.world.add<ColliderComponent>(ghost) = {.shape = ShapeType::ConvexHull, .mesh = kMissing};
+        const std::vector<SceneProblem> problems = findSceneProblems(fixture.world, fixture.components, fixture.assets);
+        REQUIRE(problems.size() == 3);
+        CHECK(problems[0].entity == ghost);
+        CHECK(problems[0].message ==
+              "Collider.mesh refers to the asset 11111111-1111-4111-8111-111111111111, which does not exist");
+        CHECK(problems[1].entity == ground);
+        CHECK(problems[1].message.find("Collider.shape is mesh, and the body it is part of - 'Ground' - is dynamic") !=
+              std::string::npos);
+        CHECK(problems[2].entity == rock);
+        CHECK(problems[2].message ==
+              "Collider.mesh names no mesh, and a collider of the shape convexHull is made of one");
     }
 
     TEST_CASE("disabled entities are checked like any other") {
