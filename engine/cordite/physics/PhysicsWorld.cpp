@@ -12,6 +12,7 @@
 #include <Jolt/Geometry/AABox.h>
 #include <Jolt/Geometry/Triangle.h>
 #include <Jolt/Math/Float3.h>
+#include <Jolt/Physics/Body/BodyActivationListener.h>
 #include <Jolt/Physics/Body/BodyCreationSettings.h>
 #include <Jolt/Physics/Body/BodyInterface.h>
 #include <Jolt/Physics/Body/BodyLock.h>
@@ -20,6 +21,7 @@
 #include <Jolt/Physics/Collision/CastResult.h>
 #include <Jolt/Physics/Collision/CollideShape.h>
 #include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
+#include <Jolt/Physics/Collision/ContactListener.h>
 #include <Jolt/Physics/Collision/NarrowPhaseQuery.h>
 #include <Jolt/Physics/Collision/ObjectLayerPairFilterTable.h>
 #include <Jolt/Physics/Collision/RayCast.h>
@@ -37,6 +39,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <cstdarg>
 #include <cstddef>
@@ -54,14 +57,30 @@
 namespace cordite {
 namespace {
 
-// Bodies are sorted into layers that decide what is checked against what. Two are
-// enough for now: what never moves is not checked against itself.
+// Bodies are sorted into layers that decide what is checked against what: what never
+// moves is not checked against itself, and what only notices is checked against what
+// moves and nothing else - a sensor that reaches into the ground would otherwise be
+// told so in every step, at the cost of every triangle it reaches.
 constexpr JPH::ObjectLayer kStaticLayer = 0;
 constexpr JPH::ObjectLayer kMovingLayer = 1;
-constexpr JPH::uint kObjectLayerCount = 2;
+constexpr JPH::ObjectLayer kSensorLayer = 2;
+constexpr JPH::uint kObjectLayerCount = 3;
 constexpr JPH::BroadPhaseLayer kStaticBroadPhase(0);
 constexpr JPH::BroadPhaseLayer kMovingBroadPhase(1);
-constexpr JPH::uint kBroadPhaseLayerCount = 2;
+constexpr JPH::BroadPhaseLayer kSensorBroadPhase(2);
+constexpr JPH::uint kBroadPhaseLayerCount = 3;
+
+/// What a ray, a ball or an overlap looks at: everything that can be run into, which
+/// a sensor cannot.
+class SolidBroadPhaseFilter final : public JPH::BroadPhaseLayerFilter {
+public:
+    [[nodiscard]] bool ShouldCollide(JPH::BroadPhaseLayer layer) const override { return layer != kSensorBroadPhase; }
+};
+
+class SolidObjectFilter final : public JPH::ObjectLayerFilter {
+public:
+    [[nodiscard]] bool ShouldCollide(JPH::ObjectLayer layer) const override { return layer != kSensorLayer; }
+};
 
 /// Memory a step works in and gives back at its end. A step that needs more takes it
 /// from the heap, which is slower but not an error.
@@ -314,6 +333,11 @@ Status validateBody(const BodyDesc& desc) {
         return makeError(ErrorCode::InvalidArgument, "a dynamic body needs a mass of more than nothing, not {}",
                          desc.mass);
     }
+    if (desc.sensor && desc.motion == BodyMotion::Static) {
+        return makeError(ErrorCode::InvalidArgument,
+                         "a sensor has to notice what has fallen asleep in it, and a static body does not: make "
+                         "it kinematic");
+    }
     const auto isShare = [](float value) { return isFinite(value) && value >= 0.0f; };
     if (!isShare(desc.friction) || !isShare(desc.restitution) || !isShare(desc.linearDamping) ||
         !isShare(desc.angularDamping) || !isFinite(desc.gravityScale)) {
@@ -323,6 +347,161 @@ Status validateBody(const BodyDesc& desc) {
     }
     return {};
 }
+
+// --- Contacts ---------------------------------------------------------------------------------
+
+/// Two bodies that touch, as the world remembers them from step to step.
+struct Touch {
+    /// What was said when it began. The same, with the other phase, is said when it ends.
+    ContactEvent began;
+    /// The step in which Jolt last spoke of the two.
+    uint64_t heardAtStep = 0;
+    /// Both have stopped moving, and so Jolt says nothing of them any more.
+    bool dormant = false;
+};
+
+/// Where a body is among the bodies of the world: what events are sorted by.
+uint32_t placeOf(BodyId body) {
+    return JPH::BodyID(body.value).GetIndex();
+}
+
+/// What is said of two bodies that have begun to touch.
+ContactEvent describeContact(const JPH::Body& one, const JPH::Body& other, const JPH::ContactManifold& manifold) {
+    // The middle of the points at which they touch.
+    JPH::RVec3 middle = manifold.mBaseOffset;
+    const JPH::uint points = manifold.mRelativeContactPointsOn1.size();
+    for (JPH::uint point = 0; point < points; ++point) {
+        middle += manifold.mRelativeContactPointsOn1[point] / static_cast<float>(points);
+    }
+    // The normal points from the one to the other. Their speeds are those they came
+    // with: the step has not pushed them apart yet.
+    const JPH::Vec3 normal = manifold.mWorldSpaceNormal;
+    const float closing = (one.GetPointVelocity(middle) - other.GetPointVelocity(middle)).Dot(normal);
+
+    // Jolt names the body with the smaller id first. A sensor comes first here.
+    const bool swap = other.IsSensor() && !one.IsSensor();
+    const JPH::Body& first = swap ? other : one;
+    const JPH::Body& second = swap ? one : other;
+    ContactEvent event;
+    event.first = BodyId{first.GetID().GetIndexAndSequenceNumber()};
+    event.second = BodyId{second.GetID().GetIndexAndSequenceNumber()};
+    event.firstUserData = first.GetUserData();
+    event.secondUserData = second.GetUserData();
+    event.sensor = one.IsSensor() || other.IsSensor();
+    event.position = fromJolt(middle);
+    event.normal = normalizeOr(fromJolt(swap ? -normal : normal), kWorldUp);
+    event.speed = isFinite(closing) ? std::max(closing, 0.0f) : 0.0f;
+    return event;
+}
+
+/// Hears from Jolt, while a step is taken, which bodies touch - and works out from
+/// that, after the step, which have begun to and which have stopped.
+///
+/// Jolt speaks of two bodies in every step in which they touch and one of them is
+/// awake, once for each pair of their shapes that meet. It says nothing of two that
+/// have both stopped moving, and it calls a contact removed when a body falls asleep
+/// - which is not what anybody who waits for two things to part wants to be told. So
+/// what Jolt calls removed is not listened to: two bodies have parted when a step
+/// goes by in which nothing is heard of them although one of them is awake, or when
+/// one of them is gone.
+class ContactRecorder final : public JPH::ContactListener, public JPH::BodyActivationListener {
+public:
+    void OnContactAdded(const JPH::Body& one, const JPH::Body& other, const JPH::ContactManifold& manifold,
+                        JPH::ContactSettings& /*settings*/) override {
+        hear(one, other, manifold);
+    }
+
+    void OnContactPersisted(const JPH::Body& one, const JPH::Body& other, const JPH::ContactManifold& manifold,
+                            JPH::ContactSettings& /*settings*/) override {
+        hear(one, other, manifold);
+    }
+
+    void OnBodyActivated(const JPH::BodyID& /*body*/, JPH::uint64 /*userData*/) override { m_wokeOrGone = true; }
+
+    void OnBodyDeactivated(const JPH::BodyID& /*body*/, JPH::uint64 /*userData*/) override {}
+
+    /// A body was destroyed: what it touched, it touches no more.
+    void noteGone() { m_wokeOrGone = true; }
+
+    void beginStep(uint64_t step) {
+        const std::scoped_lock lock(m_mutex);
+        m_step = step;
+        m_began.clear();
+    }
+
+    /// Fills `events` with what began and what ended in the step that was just taken.
+    void endStep(const JPH::BodyInterface& bodies, std::vector<ContactEvent>& events) {
+        const std::scoped_lock lock(m_mutex);
+        events.clear();
+        for (const uint64_t pair : m_began) {
+            events.push_back(m_touches.at(pair).began);
+        }
+        // Two that sleep cannot have parted unless something was woken or destroyed.
+        const bool lookAtDormant = m_wokeOrGone.exchange(false);
+        for (auto entry = m_touches.begin(); entry != m_touches.end();) {
+            Touch& touch = entry->second;
+            if (touch.heardAtStep == m_step) {
+                touch.dormant = false;
+                ++entry;
+                continue;
+            }
+            if (touch.dormant && !lookAtDormant) {
+                ++entry;
+                continue;
+            }
+            const JPH::BodyID first(touch.began.first.value);
+            const JPH::BodyID second(touch.began.second.value);
+            // Two that have both stopped moving - asleep, or never moving - are where
+            // they were, and touch on.
+            if (bodies.IsAdded(first) && bodies.IsAdded(second) && !bodies.IsActive(first) &&
+                !bodies.IsActive(second)) {
+                touch.dormant = true;
+                ++entry;
+                continue;
+            }
+            ContactEvent ended = touch.began;
+            ended.phase = ContactPhase::Ended;
+            ended.position = Vec3(0.0f);
+            ended.normal = kWorldUp;
+            ended.speed = 0.0f;
+            events.push_back(ended);
+            entry = m_touches.erase(entry);
+        }
+        // Jolt hears of contacts in whatever order its work is done in; what is said of
+        // them is in the order of the bodies.
+        std::ranges::sort(events, [](const ContactEvent& left, const ContactEvent& right) {
+            const std::array leftKey{placeOf(left.first), placeOf(left.second), static_cast<uint32_t>(left.phase)};
+            const std::array rightKey{placeOf(right.first), placeOf(right.second), static_cast<uint32_t>(right.phase)};
+            return leftKey < rightKey;
+        });
+    }
+
+private:
+    void hear(const JPH::Body& one, const JPH::Body& other, const JPH::ContactManifold& manifold) {
+        // Jolt may call from several threads at once.
+        const std::scoped_lock lock(m_mutex);
+        const uint64_t low =
+            std::min(one.GetID().GetIndexAndSequenceNumber(), other.GetID().GetIndexAndSequenceNumber());
+        const uint64_t high =
+            std::max(one.GetID().GetIndexAndSequenceNumber(), other.GetID().GetIndexAndSequenceNumber());
+        const uint64_t pair = (low << 32u) | high;
+        const auto [entry, isNew] = m_touches.try_emplace(pair);
+        if (isNew) {
+            entry->second.began = describeContact(one, other, manifold);
+            m_began.push_back(pair);
+        }
+        entry->second.heardAtStep = m_step;
+    }
+
+    std::mutex m_mutex;
+    /// The pairs of bodies that touch, by their two ids.
+    std::unordered_map<uint64_t, Touch> m_touches;
+    /// Those of them that were first heard of in the step that is being taken.
+    std::vector<uint64_t> m_began;
+    uint64_t m_step = 0;
+    /// Since dormant pairs were last looked at. True at first, for what was there before.
+    std::atomic<bool> m_wokeOrGone{true};
+};
 
 // --- Edges, for tools that show geometry -----------------------------------------------------
 
@@ -460,9 +639,12 @@ struct PhysicsWorld::Impl {
     Impl() : broadPhaseLayers(kObjectLayerCount, kBroadPhaseLayerCount), objectLayerPairs(kObjectLayerCount) {
         broadPhaseLayers.MapObjectToBroadPhaseLayer(kStaticLayer, kStaticBroadPhase);
         broadPhaseLayers.MapObjectToBroadPhaseLayer(kMovingLayer, kMovingBroadPhase);
-        // What moves collides with everything; what does not, only with what moves.
+        broadPhaseLayers.MapObjectToBroadPhaseLayer(kSensorLayer, kSensorBroadPhase);
+        // What moves collides with everything; what does not, only with what moves;
+        // and what only notices, notices what moves.
         objectLayerPairs.EnableCollision(kMovingLayer, kMovingLayer);
         objectLayerPairs.EnableCollision(kMovingLayer, kStaticLayer);
+        objectLayerPairs.EnableCollision(kMovingLayer, kSensorLayer);
     }
 
     [[nodiscard]] const JPH::BodyInterface& bodies() const { return system.GetBodyInterface(); }
@@ -477,9 +659,9 @@ struct PhysicsWorld::Impl {
         // A surface of triangles is found from behind as well, as a ray finds it.
         settings.mBackFaceMode = JPH::EBackFaceMode::CollideWithBackFaces;
         JPH::AllHitCollisionCollector<JPH::CollideShapeCollector> collector;
-        system.GetNarrowPhaseQuery().CollideShape(&shape, JPH::Vec3::sOne(),
-                                                  JPH::RMat44::sRotationTranslation(toJolt(rotation), toJolt(center)),
-                                                  settings, toJolt(center), collector);
+        system.GetNarrowPhaseQuery().CollideShape(
+            &shape, JPH::Vec3::sOne(), JPH::RMat44::sRotationTranslation(toJolt(rotation), toJolt(center)), settings,
+            toJolt(center), collector, SolidBroadPhaseFilter(), SolidObjectFilter());
         // A body of several shapes is met once for each of them that is reached.
         std::vector<JPH::BodyID> met;
         met.reserve(collector.mHits.size());
@@ -515,6 +697,10 @@ struct PhysicsWorld::Impl {
     std::unique_ptr<JPH::TempAllocator> stepMemory;
     std::unique_ptr<JPH::JobSystem> jobs;
     JPH::PhysicsSystem system;
+
+    ContactRecorder contacts;
+    /// What began to touch and what stopped in the last step.
+    std::vector<ContactEvent> contactEvents;
 
     GeometryTable geometries;
     uint32_t lastGeometry = GeometryId::kNone;
@@ -562,6 +748,8 @@ Result<std::unique_ptr<PhysicsWorld>> PhysicsWorld::create(const PhysicsWorldDes
     impl->system.Init(desc.maxBodies, kBodyMutexCount, desc.maxBodyPairs, desc.maxContactConstraints,
                       impl->broadPhaseLayers, *impl->objectVsBroadPhase, impl->objectLayerPairs);
     impl->system.SetGravity(toJolt(desc.gravity));
+    impl->system.SetContactListener(&impl->contacts);
+    impl->system.SetBodyActivationListener(&impl->contacts);
     impl->maxGeometryPoints = desc.maxGeometryPoints;
     impl->maxGeometryTriangles = desc.maxGeometryTriangles;
     return std::unique_ptr<PhysicsWorld>(new PhysicsWorld(std::move(impl)));
@@ -693,15 +881,24 @@ Result<BodyId> PhysicsWorld::createBody(const BodyDesc& desc) {
     }
 
     const bool isStatic = desc.motion == BodyMotion::Static;
+    JPH::ObjectLayer layer = isStatic ? kStaticLayer : kMovingLayer;
+    if (desc.sensor) {
+        layer = kSensorLayer;
+    }
     JPH::BodyCreationSettings settings(shape, toJolt(desc.position), toJolt(glm::normalize(desc.rotation)),
-                                       joltMotionOf(desc.motion), isStatic ? kStaticLayer : kMovingLayer);
+                                       joltMotionOf(desc.motion), layer);
+    settings.mIsSensor = desc.sensor;
+    // A sensor notices kinematic bodies as well as dynamic ones. What stands still is
+    // kept from it by its layer.
+    settings.mCollideKinematicVsNonDynamic = desc.sensor;
     settings.mFriction = desc.friction;
     settings.mRestitution = desc.restitution;
     settings.mLinearDamping = desc.linearDamping;
     settings.mAngularDamping = desc.angularDamping;
     settings.mGravityFactor = desc.gravityScale;
     settings.mMotionQuality = desc.continuous ? JPH::EMotionQuality::LinearCast : JPH::EMotionQuality::Discrete;
-    settings.mAllowSleeping = desc.allowSleep;
+    // Asleep, a sensor would notice nothing.
+    settings.mAllowSleeping = desc.allowSleep && !desc.sensor;
     settings.mUserData = desc.userData;
     if (desc.motion == BodyMotion::Dynamic) {
         // The mass is what was asked for; how it is spread follows from the shape.
@@ -731,6 +928,7 @@ void PhysicsWorld::destroyBody(BodyId body) {
     }
     m_impl->bodies().RemoveBody(joltIdOf(body));
     m_impl->bodies().DestroyBody(joltIdOf(body));
+    m_impl->contacts.noteGone();
 }
 
 bool PhysicsWorld::isValid(BodyId body) const {
@@ -740,6 +938,11 @@ bool PhysicsWorld::isValid(BodyId body) const {
 BodyMotion PhysicsWorld::motion(BodyId body) const {
     CORDITE_ASSERT(isValid(body), "{} is not a body of this world", body.value);
     return isValid(body) ? motionOf(m_impl->bodies().GetMotionType(joltIdOf(body))) : BodyMotion::Static;
+}
+
+bool PhysicsWorld::isSensor(BodyId body) const {
+    CORDITE_ASSERT(isValid(body), "{} is not a body of this world", body.value);
+    return isValid(body) && m_impl->bodies().IsSensor(joltIdOf(body));
 }
 
 uint64_t PhysicsWorld::userData(BodyId body) const {
@@ -846,9 +1049,11 @@ void PhysicsWorld::step(float seconds) {
     if (!isFinite(seconds) || seconds <= 0.0f) {
         return;
     }
+    m_impl->contacts.beginStep(m_impl->steps + 1);
     const JPH::EPhysicsUpdateError error =
         m_impl->system.Update(seconds, 1, m_impl->stepMemory.get(), m_impl->jobs.get());
     ++m_impl->steps;
+    m_impl->contacts.endStep(m_impl->bodies(), m_impl->contactEvents);
     if (error != JPH::EPhysicsUpdateError::None) {
         ++m_impl->overflowedSteps;
         if (!m_impl->reportedOverflow) {
@@ -858,6 +1063,10 @@ void PhysicsWorld::step(float seconds) {
             m_impl->reportedOverflow = true;
         }
     }
+}
+
+std::span<const ContactEvent> PhysicsWorld::contactEvents() const {
+    return m_impl->contactEvents;
 }
 
 std::optional<RayHit> PhysicsWorld::raycast(const Ray& ray, float maxDistance) const {
@@ -870,7 +1079,7 @@ std::optional<RayHit> PhysicsWorld::raycast(const Ray& ray, float maxDistance) c
     // Jolt's ray is a segment: where it starts, and how far it goes.
     const JPH::RRayCast segment(toJolt(ray.origin), toJolt(direction * maxDistance));
     JPH::RayCastResult result;
-    if (!m_impl->system.GetNarrowPhaseQuery().CastRay(segment, result)) {
+    if (!m_impl->system.GetNarrowPhaseQuery().CastRay(segment, result, SolidBroadPhaseFilter(), SolidObjectFilter())) {
         return std::nullopt;
     }
 
@@ -903,7 +1112,8 @@ std::optional<RayHit> PhysicsWorld::sphereCast(const Ray& ray, float radius, flo
     // A surface of triangles is found from behind as well, as a ray finds it.
     settings.mBackFaceModeTriangles = JPH::EBackFaceMode::CollideWithBackFaces;
     JPH::ClosestHitCollisionCollector<JPH::CastShapeCollector> collector;
-    m_impl->system.GetNarrowPhaseQuery().CastShape(sweep, settings, toJolt(ray.origin), collector);
+    m_impl->system.GetNarrowPhaseQuery().CastShape(sweep, settings, toJolt(ray.origin), collector,
+                                                   SolidBroadPhaseFilter(), SolidObjectFilter());
     if (!collector.HadHit()) {
         return std::nullopt;
     }

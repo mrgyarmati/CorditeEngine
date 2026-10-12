@@ -124,7 +124,9 @@ set it like any other property:
   `sphere`, `capsule`, or - made of the mesh asset its `mesh` names - `convexHull`
   and `mesh`), a `RigidBody` makes it a body (`motion`: `static`, `kinematic`,
   `dynamic`). The triangles of a mesh (`mesh`) are only for bodies that are not
-  dynamic; `scene.validate` says where that, or a missing mesh, is in the way.
+  dynamic; `scene.validate` says where that, or a missing mesh, is in the way. A
+  collider with `"trigger": true` stops nothing and notices what moves into it; the
+  viewport draws it in orange, and rays and overlaps do not find it.
   `viewport.show` with `{"colliders": true}` draws every collider in the viewport.
   `physics.raycast` and `physics.overlap` ask what is where - in the scene as it is,
   without a frame having to go by first; they name the entity that has the body.

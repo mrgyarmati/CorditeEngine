@@ -1228,6 +1228,25 @@ The triangles of a mesh are a surface, and only for what the simulation does not
 move. No shape is made of a mesh by itself - a collider names its mesh, which need
 not be the one its entity is drawn with, and should often be a simpler one.
 
+### What touches is told, once for each pair, after the step
+
+Games want to know when two things meet and when they part, and when something
+enters a place. The simulation tells that after each step, as a list - `PhysicsWorld`
+of bodies, `PhysicsSystem` of entities - and not by calling anybody from the middle of
+a step, when bodies are locked and nothing may be changed. A script that destroys
+what it is told about is then no trouble.
+
+What Jolt reports is finer and stranger than that: every pair of shapes, every step,
+and "removed" when a body falls asleep. The engine keeps the pairs of bodies that
+touch and says of each that it began and that it ended, once. Two that have both
+stopped moving touch on: a crate that sleeps on the floor has not left it.
+
+A trigger - a collider that stops nothing and only notices - is a sensor body of its
+own, moved by hand to follow its entity. It is not a property of a shape in a body,
+because the library has sensors by the body; and it is not static, because a sensor
+that stands still does not notice what has fallen asleep in it, which is exactly
+what a game asks a trigger most often: is it still there?
+
 ### A body of several shapes is an entity with colliders below it
 
 A rigid body takes its own collider and those of the entities below it, down to the

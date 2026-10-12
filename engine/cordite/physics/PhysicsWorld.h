@@ -199,6 +199,11 @@ struct BodyDesc {
     /// It may fall asleep when it has come to rest, and then costs nothing until
     /// something touches it.
     bool allowSleep = true;
+    /// It stops nothing and is stopped by nothing: it only notices the bodies that
+    /// move - dynamic and kinematic ones - when they reach into it and when they leave,
+    /// and says so (PhysicsWorld::contactEvents()). Never static: what does not move
+    /// does not notice what has fallen asleep in it. No ray, ball or overlap finds it.
+    bool sensor = false;
     /// Whatever the owner of the body wants to find again from a BodyId or a RayHit.
     uint64_t userData = 0;
 
@@ -233,6 +238,37 @@ struct RayHit {
     Vec3 position{0.0f};
     /// Of the surface that was hit, pointing out of the body; unit length.
     Vec3 normal{0.0f, 1.0f, 0.0f};
+};
+
+/// Whether two bodies have begun to touch, or have stopped.
+enum class ContactPhase : uint8_t {
+    Began,
+    Ended,
+};
+
+/// Two bodies that have begun to touch, or have stopped.
+struct ContactEvent {
+    ContactPhase phase = ContactPhase::Began;
+    /// The two bodies. Where one of them is a sensor it is the first; otherwise the
+    /// first is the one that has the earlier place among the bodies of the world. Of a
+    /// contact that ended, an id may be no body's any more: what is destroyed stops
+    /// touching.
+    BodyId first;
+    BodyId second;
+    /// BodyDesc::userData of the two, which says whose they were when they are gone.
+    uint64_t firstUserData = 0;
+    uint64_t secondUserData = 0;
+    /// One of the two is a sensor: nothing was stopped.
+    bool sensor = false;
+    /// Of a contact that began: where the two touch, the direction from the first to
+    /// the second there - of unit length - and how fast they were closing in on each
+    /// other along it, in metres per second: how hard they hit. Of one that ended,
+    /// nothing.
+    Vec3 position{0.0f};
+    Vec3 normal{0.0f, 1.0f, 0.0f};
+    float speed = 0.0f;
+
+    bool operator==(const ContactEvent&) const = default;
 };
 
 /// What a PhysicsWorld holds, and has done.
@@ -297,8 +333,8 @@ public:
 
     /// Adds a body. Fails - and adds nothing - for a body without shapes or with too
     /// many, a shape without volume or of geometry that is not there, a dynamic body
-    /// without mass or with a shape of the type Mesh, numbers that are none, and when
-    /// the world is full.
+    /// without mass or with a shape of the type Mesh, a sensor that is static, numbers
+    /// that are none, and when the world is full.
     [[nodiscard]] Result<BodyId> createBody(const BodyDesc& desc);
 
     /// Removes a body. An id that is not a body's (any more) is ignored.
@@ -312,6 +348,8 @@ public:
 
     [[nodiscard]] BodyMotion motion(BodyId body) const;
     [[nodiscard]] uint64_t userData(BodyId body) const;
+    /// Whether it only notices what reaches into it: BodyDesc::sensor.
+    [[nodiscard]] bool isSensor(BodyId body) const;
 
     /// Where the body is - BodyDesc::position, moved on - and how it is turned.
     [[nodiscard]] Vec3 position(BodyId body) const;
@@ -351,9 +389,17 @@ public:
     /// than none and a time that is no number are no step.
     void step(float seconds);
 
+    /// The bodies that began to touch during the last step(), and those that stopped:
+    /// each pair once, however many of their shapes meet, in an order that is the same
+    /// every time. Two bodies touch a little before they meet - when they are within a
+    /// couple of centimetres and still closing in. Two that come to rest against each
+    /// other and fall asleep touch on, and say nothing until one of them is moved away
+    /// or destroyed. A sensor says the same of what reaches into it.
+    [[nodiscard]] std::span<const ContactEvent> contactEvents() const;
+
     /// The first thing a ray hits within `maxDistance` metres, or nothing. A ray that
     /// starts inside a body hits it at once, at distance zero. A direction of no length
-    /// hits nothing.
+    /// hits nothing. Sensors are not hit - not by this, and not by what follows.
     [[nodiscard]] std::optional<RayHit> raycast(const Ray& ray, float maxDistance) const;
 
     /// The first thing a ball of `radius` touches when its middle is moved along a ray,

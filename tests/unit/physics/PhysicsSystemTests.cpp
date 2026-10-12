@@ -18,6 +18,7 @@
 #include <limits>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -1042,6 +1043,265 @@ TEST_SUITE("PhysicsSystem") {
         CHECK(stage.physics->simulation().statistics().geometries == 1);
     }
 
+    TEST_CASE("what begins to touch and what stops is said of the entities, once for each pair") {
+        Stage stage;
+        const Entity floor = stage.addFloor();
+        const Entity crate = stage.addCrate(Vec3(0.0f, 3.0f, 0.0f));
+        stage.world.tryGet<RigidBodyComponent>(crate)->linearDamping = 0.0f;
+        // A lid on the crate that is part of its body: one body, and so one pair.
+        const Entity lid = stage.world.createEntity("Lid");
+        stage.world.transform(lid) = {.position = Vec3(0.0f, 0.55f, 0.0f), .scale = Vec3(1.2f, 0.1f, 1.2f)};
+        stage.world.add<ColliderComponent>(lid);
+        REQUIRE(stage.world.setParent(lid, crate, false).has_value());
+
+        // Nothing while it falls; then it has landed, and that is said in the update it
+        // happens in, and in no other.
+        std::vector<CollisionEvent> heard;
+        int landedAt = 0;
+        for (int frame = 1; frame <= 60; ++frame) {
+            stage.run(1);
+            const std::span<const CollisionEvent> events = stage.physics->events();
+            if (!events.empty()) {
+                landedAt = frame;
+            }
+            heard.insert(heard.end(), events.begin(), events.end());
+        }
+        REQUIRE(heard.size() == 1);
+        // Two and a half metres take seven tenths of a second: forty-three steps.
+        CHECK(landedAt >= 42);
+        CHECK(landedAt <= 44);
+        CHECK(heard[0].type == CollisionEventType::CollisionBegan);
+        CHECK(heard[0].first == floor);
+        CHECK(heard[0].second == crate);
+        CHECK_NEAR(heard[0].normal, Vec3(0.0f, 1.0f, 0.0f), 1.0e-2f);
+        CHECK(heard[0].position.y == doctest::Approx(0.0f).epsilon(0.05));
+        CHECK(heard[0].speed == doctest::Approx(7.0f).epsilon(0.03));
+
+        // Asleep on the floor it touches on, and nothing is said - also not when no
+        // time passes, which says nothing at all.
+        stage.run(300);
+        CHECK(stage.physics->events().empty());
+        stage.physics->synchronize(stage.world, *stage.assets);
+        CHECK(stage.physics->events().empty());
+
+        // A frame of several steps says what happened in all of them: lifted off and
+        // put down beside the floor, the crate has left it.
+        stage.world.transform(crate).position = Vec3(100.0f, 0.5f, 0.0f);
+        CHECK(stage.physics->update(stage.world, *stage.assets, 3.0f * kStep).steps == 3);
+        REQUIRE(stage.physics->events().size() == 1);
+        CHECK(stage.physics->events()[0] ==
+              CollisionEvent{.type = CollisionEventType::CollisionEnded, .first = floor, .second = crate});
+
+        // An entity that is destroyed stops touching what it touched, and is still named.
+        stage.world.transform(crate).position = Vec3(0.0f, 0.5f, 0.0f);
+        stage.run(1);
+        REQUIRE(stage.physics->events().size() == 1);
+        CHECK(stage.physics->events()[0].type == CollisionEventType::CollisionBegan);
+        stage.world.destroyEntity(crate);
+        stage.run(1);
+        REQUIRE(stage.physics->events().size() == 1);
+        CHECK(stage.physics->events()[0].type == CollisionEventType::CollisionEnded);
+        CHECK(stage.physics->events()[0].second == crate);
+        CHECK_FALSE(stage.world.isValid(stage.physics->events()[0].second));
+        // clear() forgets what was said with everything else.
+        stage.physics->clear();
+        CHECK(stage.physics->events().empty());
+    }
+
+    TEST_CASE("a trigger stops nothing, and says what moves into it and out of it") {
+        Stage stage;
+        const Entity floor = stage.addFloor();
+        // A doorway two metres up that a crate falls through.
+        const Entity doorway = stage.world.createEntity("Doorway");
+        stage.world.transform(doorway).position = Vec3(0.0f, 3.0f, 0.0f);
+        stage.world.add<ColliderComponent>(doorway) = {.size = Vec3(3.0f, 1.0f, 3.0f), .trigger = true};
+        const Entity crate = stage.addCrate(Vec3(0.0f, 6.0f, 0.0f));
+        stage.world.tryGet<RigidBodyComponent>(crate)->linearDamping = 0.0f;
+        stage.physics->synchronize(stage.world, *stage.assets);
+
+        // A trigger is a body of its own: one that is moved by hand, and notices.
+        const BodyId trigger = stage.physics->triggerOf(doorway);
+        REQUIRE(stage.physics->simulation().isValid(trigger));
+        CHECK(stage.physics->simulation().isSensor(trigger));
+        CHECK(stage.physics->simulation().motion(trigger) == BodyMotion::Kinematic);
+        CHECK(stage.physics->entityOf(trigger) == doorway);
+        CHECK(stage.physics->bodyOf(doorway).isNull());
+        CHECK(stage.physics->triggerOf(crate).isNull());
+        // Nothing that looks for bodies finds it.
+        CHECK(stage.under(1.2f, 1.2f) == "Floor");
+
+        // The crate falls through it to the floor: in, out, and down - no slower for it.
+        std::vector<CollisionEvent> heard;
+        for (int frame = 0; frame < 120; ++frame) {
+            stage.run(1);
+            const std::span<const CollisionEvent> events = stage.physics->events();
+            heard.insert(heard.end(), events.begin(), events.end());
+        }
+        REQUIRE(heard.size() == 3);
+        CHECK(heard[0].type == CollisionEventType::TriggerEntered);
+        CHECK(heard[0].first == doorway);
+        CHECK(heard[0].second == crate);
+        CHECK(heard[1] == CollisionEvent{.type = CollisionEventType::TriggerLeft, .first = doorway, .second = crate});
+        CHECK(heard[2].type == CollisionEventType::CollisionBegan);
+        CHECK(heard[2].first == floor);
+        CHECK(heard[2].second == crate);
+        CHECK(heard[2].speed == doctest::Approx(std::sqrt(2.0f * 9.81f * 5.5f)).epsilon(0.03));
+
+        // A trigger goes where its entity goes: brought down around the crate, which
+        // has fallen asleep, it has the crate in it - and the floor, which stands
+        // still, is not something that enters anything.
+        stage.run(300);
+        stage.world.transform(doorway).position = Vec3(0.0f, 0.5f, 0.0f);
+        stage.run(2);
+        REQUIRE(stage.physics->events().size() == 1);
+        CHECK(stage.physics->events()[0].type == CollisionEventType::TriggerEntered);
+        CHECK(stage.physics->events()[0].second == crate);
+        CHECK(stage.physics->triggerOf(doorway) == trigger);
+        // While the crate sleeps in it, it is in it.
+        stage.run(120);
+        CHECK(stage.physics->events().empty());
+        // Switched off, a trigger has nothing in it any more.
+        stage.world.setEnabled(doorway, false);
+        stage.run(1);
+        REQUIRE(stage.physics->events().size() == 1);
+        CHECK(stage.physics->events()[0] ==
+              CollisionEvent{.type = CollisionEventType::TriggerLeft, .first = doorway, .second = crate});
+        CHECK(stage.physics->triggerOf(doorway).isNull());
+    }
+
+    TEST_CASE("a trigger is a body of its own wherever it is, and what hangs beside it is not part of it") {
+        Stage stage;
+        stage.physics->simulation().setGravity(Vec3(0.0f));
+        // A wagon that the simulation moves: its own collider, a trigger of its own on
+        // the same entity, a trigger ahead of it on an entity below, and a bumper below
+        // that trigger which is a part of the wagon like any collider under it.
+        const Entity wagon = stage.addCrate(Vec3(0.0f, 0.0f, 0.0f), "Wagon");
+        *stage.world.tryGet<RigidBodyComponent>(wagon) = {.linearDamping = 0.0f,
+                                                          .linearVelocity = Vec3(2.0f, 0.0f, 0.0f)};
+        const Entity feeler = stage.world.createEntity("Feeler");
+        stage.world.transform(feeler).position = Vec3(3.0f, 0.0f, 0.0f);
+        stage.world.add<ColliderComponent>(feeler) = {.shape = ShapeType::Sphere, .radius = 1.0f, .trigger = true};
+        REQUIRE(stage.world.setParent(feeler, wagon, false).has_value());
+        const Entity bumper = stage.world.createEntity("Bumper");
+        stage.world.transform(bumper).position = Vec3(-2.0f, 0.0f, 0.0f);
+        stage.world.add<ColliderComponent>(bumper) = {.size = Vec3(0.2f, 1.0f, 1.0f)};
+        REQUIRE(stage.world.setParent(bumper, feeler, false).has_value());
+        // Something in its way, six metres ahead, that is moved by hand.
+        const Entity gate = stage.world.createEntity("Gate");
+        stage.world.transform(gate).position = Vec3(8.0f, 0.0f, 0.0f);
+        stage.world.add<ColliderComponent>(gate);
+        stage.world.add<RigidBodyComponent>(gate).motion = BodyMotion::Kinematic;
+
+        // Three bodies: the wagon with its bumper, the feeler, the gate.
+        CHECK(stage.run(1).bodies == 3);
+        CHECK(stage.physics->bodyOf(feeler).isNull());
+        CHECK(stage.physics->bodyOf(bumper).isNull());
+        CHECK(stage.physics->simulation().isSensor(stage.physics->triggerOf(feeler)));
+        // The bumper is where it hangs - a metre ahead of the wagon - and is the wagon's.
+        const std::optional<RayHit> hit =
+            stage.physics->simulation().raycast(Ray{Vec3(1.0f, 10.0f, 0.0f), Vec3(0.0f, -1.0f, 0.0f)}, 100.0f);
+        REQUIRE(hit.has_value());
+        CHECK(stage.physics->entityOf(hit->body) == wagon);
+
+        // The feeler goes ahead of the wagon and reaches the gate before the wagon
+        // does: that is said of the feeler's entity, and nothing of the wagon's - whose
+        // own body the feeler does not notice either, though it hangs in it.
+        std::vector<CollisionEvent> heard;
+        for (int frame = 0; frame < 150 && heard.empty(); ++frame) {
+            stage.run(1);
+            const std::span<const CollisionEvent> events = stage.physics->events();
+            heard.assign(events.begin(), events.end());
+        }
+        REQUIRE(heard.size() == 1);
+        CHECK(heard[0].type == CollisionEventType::TriggerEntered);
+        CHECK(heard[0].first == feeler);
+        CHECK(heard[0].second == gate);
+        // The middle of the feeler was three and a half metres short of the gate then,
+        // give or take a step: the wagon half a metre behind that.
+        CHECK(stage.positionOf(wagon).x == doctest::Approx(3.5f).epsilon(0.03));
+
+        // A trigger on the entity of a rigid body is a body beside that one.
+        stage.world.add<ColliderComponent>(gate).trigger = true;
+        CHECK(stage.run(1).bodies == 3);
+        CHECK(stage.physics->bodyOf(gate).isNull());
+        const Entity bar = stage.world.createEntity("Bar");
+        stage.world.add<ColliderComponent>(bar) = {.size = Vec3(0.2f, 3.0f, 0.2f)};
+        REQUIRE(stage.world.setParent(bar, gate, false).has_value());
+        CHECK(stage.run(1).bodies == 4);
+        CHECK(stage.physics->simulation().isValid(stage.physics->bodyOf(gate)));
+        CHECK(stage.physics->simulation().isValid(stage.physics->triggerOf(gate)));
+        CHECK(stage.physics->bodyOf(gate) != stage.physics->triggerOf(gate));
+        CHECK(stage.physics->entityOf(stage.physics->bodyOf(gate)) == gate);
+        CHECK(stage.physics->entityOf(stage.physics->triggerOf(gate)) == gate);
+        // The speeds of a rigid body are those of its body, not of its trigger.
+        stage.world.transform(gate).position.x += 1.0f;
+        stage.run(1);
+        CHECK(stage.world.tryGet<RigidBodyComponent>(gate)->linearVelocity.x == doctest::Approx(60.0f).epsilon(1.0e-3));
+    }
+
+    TEST_CASE("a body that is made anew does not stop and begin to touch what it still touches") {
+        Stage stage;
+        const Entity floor = stage.addFloor();
+        const Entity crate = stage.addCrate(Vec3(0.0f, 0.5f, 0.0f));
+        const Entity zone = stage.world.createEntity("Zone");
+        stage.world.transform(zone).position = Vec3(0.0f, 0.5f, 0.0f);
+        stage.world.add<ColliderComponent>(zone) = {.size = Vec3(4.0f), .trigger = true};
+        stage.run(1);
+        REQUIRE(stage.physics->events().size() == 2);
+        CHECK(stage.physics->events()[0].type == CollisionEventType::CollisionBegan);
+        CHECK(stage.physics->events()[1].type == CollisionEventType::TriggerEntered);
+        stage.run(10);
+
+        // Heavier, it is another body to the simulation - and the same crate to
+        // everybody else: on the floor and in the zone as it was.
+        const BodyId before = stage.physics->bodyOf(crate);
+        stage.world.tryGet<RigidBodyComponent>(crate)->mass = 50.0f;
+        stage.run(1);
+        CHECK(stage.physics->bodyOf(crate) != before);
+        CHECK(stage.physics->events().empty());
+        // Also when it is made anew in a frame without a step, or while no time passes,
+        // and the step that tells of it comes later.
+        stage.world.tryGet<RigidBodyComponent>(crate)->mass = 60.0f;
+        CHECK(stage.physics->update(stage.world, *stage.assets, 0.0f).steps == 0);
+        CHECK(stage.physics->events().empty());
+        stage.world.tryGet<ColliderComponent>(crate)->friction = 0.9f;
+        stage.physics->synchronize(stage.world, *stage.assets);
+        CHECK(stage.physics->bodyOf(crate) != before);
+        stage.run(1);
+        CHECK(stage.physics->events().empty());
+        stage.run(1);
+        CHECK(stage.physics->events().empty());
+        // So is a trigger that is given another size and still has the crate in it.
+        stage.world.tryGet<ColliderComponent>(zone)->size = Vec3(3.0f);
+        stage.run(1);
+        CHECK(stage.physics->events().empty());
+
+        // Made so small that the crate is no longer in it, the crate has left it.
+        stage.world.tryGet<ColliderComponent>(zone)->size = Vec3(0.2f);
+        stage.world.transform(zone).position = Vec3(0.0f, 5.0f, 0.0f);
+        stage.run(1);
+        REQUIRE(stage.physics->events().size() == 1);
+        CHECK(stage.physics->events()[0] ==
+              CollisionEvent{.type = CollisionEventType::TriggerLeft, .first = zone, .second = crate});
+        // And what a remade body newly touches is said like anything else: a crate
+        // made wide enough to reach a post beside it.
+        const Entity post = stage.world.createEntity("Post");
+        stage.world.transform(post).position = Vec3(1.5f, 1.0f, 0.0f);
+        stage.world.add<ColliderComponent>(post) = {.size = Vec3(0.2f, 2.0f, 0.2f)};
+        stage.run(2);
+        CHECK(stage.physics->events().empty());
+        stage.world.tryGet<ColliderComponent>(crate)->size = Vec3(2.9f, 1.0f, 1.0f);
+        stage.run(1);
+        REQUIRE(stage.physics->events().size() == 1);
+        const CollisionEvent reached = stage.physics->events()[0];
+        CHECK(reached.type == CollisionEventType::CollisionBegan);
+        // Which of two bodies that collide is named first follows from the places they
+        // have in the simulation, which a body that is made anew does not keep.
+        CHECK(
+            ((reached.first == crate && reached.second == post) || (reached.first == post && reached.second == crate)));
+        CHECK(stage.world.isValid(floor));
+    }
+
     TEST_CASE("two worlds given the same frames end up the same") {
         const auto run = [] {
             Stage stage;
@@ -1109,6 +1369,12 @@ TEST_SUITE("PhysicsComponents") {
         const Entity wheel = world.createEntity("Wheel");
         world.add<ColliderComponent>(wheel).shape = ShapeType::Mesh;
         REQUIRE(world.setParent(wheel, axle, false).has_value());
+        // A trigger of the triangles of a mesh is a body of its own that follows its
+        // entity: nothing wrong with it under a body that the simulation moves.
+        const Entity feeler = world.createEntity("Feeler");
+        world.add<ColliderComponent>(feeler) = {
+            .shape = ShapeType::Mesh, .mesh = builtinMeshId(BuiltinMesh::Plane), .trigger = true};
+        REQUIRE(world.setParent(feeler, wagon, false).has_value());
         // Under a rigid body that stands still, a dynamic one further up does not count.
         const Entity anchor = world.createEntity("Anchor");
         world.add<RigidBodyComponent>(anchor).motion = BodyMotion::Static;
@@ -1165,17 +1431,19 @@ TEST_SUITE("PhysicsComponents") {
                                          .radius = 0.25f,
                                          .height = 1.5f,
                                          .mesh = *Uuid::parse("0a56c2f1-21e0-819d-8bac-567d1e1c4345"),
+                                         .trigger = true,
                                          .center = Vec3(0.0f, 0.75f, 0.0f),
                                          .friction = 0.25f,
                                          .restitution = 0.5f};
         const Json savedCollider = colliderType.toJson(&collider);
         CHECK(savedCollider ==
               unwrap(parseJson(R"({"shape": "capsule", "size": [1.0, 2.0, 3.0], "radius": 0.25, "height": 1.5,
-                                  "mesh": "0a56c2f1-21e0-819d-8bac-567d1e1c4345", "center": [0.0, 0.75, 0.0],
-                                  "friction": 0.25, "restitution": 0.5})")));
+                                  "mesh": "0a56c2f1-21e0-819d-8bac-567d1e1c4345", "trigger": true,
+                                  "center": [0.0, 0.75, 0.0], "friction": 0.25, "restitution": 0.5})")));
         ColliderComponent loadedCollider;
         REQUIRE(colliderType.fromJson(&loadedCollider, savedCollider).has_value());
         CHECK(loadedCollider.shape == ShapeType::Capsule);
+        CHECK(loadedCollider.trigger);
         CHECK(loadedCollider.mesh == collider.mesh);
         // A collider that names no mesh says so, and the shapes made of meshes have
         // the names files use.
@@ -1224,7 +1492,7 @@ TEST_SUITE("PhysicsComponents") {
         // What makes no sense is refused.
         for (const char* text :
              {R"({"shape": "cylinder"})", R"({"size": [1, 0, 1]})", R"({"radius": 0})", R"({"height": -1})",
-              R"({"friction": -0.5})", R"({"restitution": 1.5})", R"({"trigger": true})"}) {
+              R"({"friction": -0.5})", R"({"restitution": 1.5})", R"({"trigger": 1})", R"({"solid": true})"}) {
             CAPTURE(std::string(text));
             CHECK_FALSE(colliderType.fromJson(&loadedCollider, unwrap(parseJson(text))).has_value());
         }

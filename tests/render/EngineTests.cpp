@@ -545,12 +545,13 @@ TEST_SUITE("Engine") {
         CHECK(statistics.skinnedMeshes == 1);
         CHECK(statistics.jointMatrices == 6);
         CHECK(engine->statistics().animation == AnimationStatistics{.animators = 1, .joints = 6});
-        // Eight bodies: the floor, the pillar, the cone, the grating, and what the
-        // simulation moves - the crate with its lid, the barrel, the ball and the gas
-        // cylinder. Two of them have shapes made of meshes: the hull around the barrel,
-        // the triangles of the grating. A frame of a sixtieth of a second is one step.
+        // Nine bodies: the floor, the pillar, the cone, the grating, the trigger over
+        // the walkway, and what the simulation moves - the crate with its lid, the
+        // barrel, the ball and the gas cylinder. Two of them have shapes made of meshes:
+        // the hull around the barrel, the triangles of the grating. A frame of a
+        // sixtieth of a second is one step.
         CHECK(engine->statistics().physics.steps == 1);
-        CHECK(engine->statistics().physics.bodies == 8);
+        CHECK(engine->statistics().physics.bodies == 9);
         CHECK(engine->statistics().physics.geometries == 2);
         CHECK(engine->world().transform(engine->world().findByName("Barrel")).position.y ==
               doctest::Approx(0.45f).epsilon(0.01));
@@ -593,6 +594,21 @@ TEST_SUITE("Engine") {
         runFrames(*engine, 239);
         CHECK(world.transform(crate).position.y == doctest::Approx(0.5f).epsilon(0.02));
         CHECK(engine->statistics().physics == PhysicsFrameStatistics{.steps = 1, .bodies = 2, .activeBodies = 0});
+
+        // What the frame brought together is there to be read after it: the crate has
+        // long landed, and nothing was said in the last frame.
+        CHECK(engine->physics().events().empty());
+        const Entity zone = world.createEntity("Zone");
+        world.add<ColliderComponent>(zone) = {.size = Vec3(4.0f), .trigger = true};
+        runFrames(*engine, 1);
+        REQUIRE(engine->physics().events().size() == 1);
+        CHECK(engine->physics().events()[0].type == CollisionEventType::TriggerEntered);
+        CHECK(engine->physics().events()[0].first == zone);
+        CHECK(engine->physics().events()[0].second == crate);
+        world.destroyEntity(zone);
+        runFrames(*engine, 1);
+        REQUIRE(engine->physics().events().size() == 1);
+        CHECK(engine->physics().events()[0].type == CollisionEventType::TriggerLeft);
 
         // The simulation answers what a ray hits, and whose body that is.
         const std::optional<RayHit> hit =

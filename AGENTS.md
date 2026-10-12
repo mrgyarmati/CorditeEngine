@@ -731,7 +731,7 @@ Step-by-step guide: [work-with-assets](.claude/skills/work-with-assets/SKILL.md)
   the same rules of scale the physics uses. A new shape needs its lines there too.
   Those made of meshes are drawn from what the physics has made of the mesh
   (`ColliderOutlines`, `PhysicsWorld::geometryEdges`), not from the mesh: what is
-  seen is what things collide with.
+  seen is what things collide with. A trigger is drawn in a color of its own.
 - **A shape of a mesh is geometry, prepared once.** `PhysicsWorld::createConvexHull`
   and `createTriangleMesh` make it and hand out a `GeometryId`; a `ShapeDesc` holds
   that id and a scale, never points - what a body is made of is compared every frame.
@@ -740,6 +740,27 @@ Step-by-step guide: [work-with-assets](.claude/skills/work-with-assets/SKILL.md)
   when `AssetDatabase::revision()` changes. A collider of which no shape can be made
   is left out of its body and named once; `findColliderProblems`, which
   `scene.validate` reports, finds what can be told without making anything.
+- **What touches is said after a step, not asked for**: `PhysicsWorld::contactEvents`,
+  and for entities `PhysicsSystem::events` after every update - began, ended, entered
+  a trigger, left it. Jolt speaks of two bodies once for every pair of their shapes
+  that meet, in every step, and calls a contact removed when a body falls asleep;
+  `ContactRecorder` makes of that what is wanted: each pair of bodies once, and two
+  that sleep against each other touch on. It does not listen to `OnContactRemoved`
+  at all - two have parted when a step passes without word of them although one is
+  awake. Events are sorted by the places of the bodies, since Jolt hears of contacts
+  in the order its jobs happen to run.
+- **A trigger is a sensor: a kinematic body of its own, in a layer of its own.**
+  Kinematic, because a sensor that stands still loses what falls asleep in it; of
+  its own, because Jolt has sensors by the body, not by the shape - so a collider
+  with `trigger` never joins the body it hangs under, and an entity can have a body
+  and a trigger (`bodyOf`, `triggerOf`). In its layer it is checked against what
+  moves and nothing else: not against what stands still, which would be told of in
+  every step, and not by rays, casts and overlaps, which look for what can be run
+  into.
+- **A body that is made anew is another body to the simulation**, which says that
+  the old one has stopped touching things and the new one has begun to.
+  `PhysicsSystem` takes both out where they are about the same two entities
+  (`dropEchoesOfRemaking`): changing a mass must not sound like an impact.
 - **What is where is asked of `PhysicsWorld`**: `raycast`, `sphereCast` - a ball
   moved along a ray - and `overlapSphere`/`overlapBox`. Rays are exact; what is done
   with a shape meets a box whose edges are five hundredths of a metre round

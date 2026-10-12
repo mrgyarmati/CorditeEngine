@@ -73,6 +73,17 @@ std::string refusalOf(const Result<T>& result) {
     return result.error().message;
 }
 
+/// Takes steps, and gathers what the bodies say of touching in each of them.
+std::vector<ContactEvent> stepAndListen(PhysicsWorld& physics, int steps) {
+    std::vector<ContactEvent> heard;
+    for (int step = 0; step < steps; ++step) {
+        physics.step(kStep);
+        const std::span<const ContactEvent> events = physics.contactEvents();
+        heard.insert(heard.end(), events.begin(), events.end());
+    }
+    return heard;
+}
+
 /// A body that nothing slows down but what it hits.
 BodyDesc undamped(const ShapeDesc& shape, const Vec3& position) {
     return {.shapes = {shape}, .position = position, .linearDamping = 0.0f, .angularDamping = 0.0f};
@@ -615,6 +626,196 @@ TEST_SUITE("PhysicsWorld") {
         // A body that is gone is not found any more.
         physics->destroyBody(crate);
         CHECK(physics->overlapSphere(middle, 2.0f) == Bodies{floor});
+    }
+
+    TEST_CASE("bodies say when they begin to touch, and when they stop") {
+        const std::unique_ptr<PhysicsWorld> physics = unwrap(PhysicsWorld::create());
+        const BodyId floor = addFloor(*physics);
+        const BodyId ball = unwrap(physics->createBody({.shapes = {{.type = ShapeType::Sphere, .radius = 0.5f}},
+                                                        .position = Vec3(0.0f, 3.0f, 0.0f),
+                                                        .linearDamping = 0.0f,
+                                                        .userData = 7}));
+        CHECK(physics->contactEvents().empty());
+
+        // While the ball falls there is nothing to say. Then it lands, and that is said
+        // once: who, where, which way, and how hard - after two and a half metres it
+        // comes down at seven metres a second.
+        CHECK(stepAndListen(*physics, 30).empty());
+        std::vector<ContactEvent> heard = stepAndListen(*physics, 30);
+        REQUIRE(heard.size() == 1);
+        CHECK(heard[0].phase == ContactPhase::Began);
+        CHECK(heard[0].first == floor);
+        CHECK(heard[0].second == ball);
+        CHECK(heard[0].firstUserData == 0);
+        CHECK(heard[0].secondUserData == 7);
+        CHECK_FALSE(heard[0].sensor);
+        CHECK_NEAR(heard[0].position, Vec3(0.0f), 0.05f);
+        CHECK_NEAR(heard[0].normal, Vec3(0.0f, 1.0f, 0.0f), 1.0e-3f);
+        CHECK(heard[0].speed == doctest::Approx(7.0f).epsilon(0.03));
+
+        // While it lies there and falls asleep, and when it is woken where it lies,
+        // the two touch on: nothing is said.
+        CHECK(stepAndListen(*physics, 300).empty());
+        CHECK_FALSE(physics->isActive(ball));
+        physics->activate(ball);
+        CHECK(stepAndListen(*physics, 10).empty());
+
+        // Lifted off, they have stopped touching.
+        physics->setPlacement(ball, Vec3(0.0f, 2.0f, 0.0f), kIdentityQuat);
+        heard = stepAndListen(*physics, 1);
+        REQUIRE(heard.size() == 1);
+        CHECK(heard[0] ==
+              ContactEvent{.phase = ContactPhase::Ended, .first = floor, .second = ball, .secondUserData = 7});
+        // It falls again, and they touch again.
+        heard = stepAndListen(*physics, 60);
+        REQUIRE(heard.size() == 1);
+        CHECK(heard[0].phase == ContactPhase::Began);
+        CHECK(heard[0].speed == doctest::Approx(std::sqrt(2.0f * 9.81f * 1.5f)).epsilon(0.03));
+
+        // What is destroyed stops touching - also asleep - and is still named.
+        CHECK(stepAndListen(*physics, 300).empty());
+        physics->destroyBody(ball);
+        heard = stepAndListen(*physics, 1);
+        REQUIRE(heard.size() == 1);
+        CHECK(heard[0].phase == ContactPhase::Ended);
+        CHECK(heard[0].second == ball);
+        CHECK(heard[0].secondUserData == 7);
+        CHECK_FALSE(physics->isValid(heard[0].second));
+        // What is said is of the last step, and no longer.
+        physics->step(kStep);
+        CHECK(physics->contactEvents().empty());
+    }
+
+    TEST_CASE("two bodies touch once however many of their shapes meet, and are named in the order of the bodies") {
+        const std::unique_ptr<PhysicsWorld> physics = unwrap(PhysicsWorld::create());
+        const BodyId floor = addFloor(*physics);
+        // A table that comes down on its four legs at once, and beside it a crate with
+        // another above it.
+        std::vector<ShapeDesc> legs;
+        for (const float x : {-1.0f, 1.0f}) {
+            for (const float z : {-0.5f, 0.5f}) {
+                legs.push_back({.type = ShapeType::Box, .size = Vec3(0.2f, 1.0f, 0.2f), .offset = Vec3(x, 0.0f, z)});
+            }
+        }
+        const BodyId table = unwrap(physics->createBody({.shapes = legs, .position = Vec3(0.0f, 0.6f, 0.0f)}));
+        const BodyId lower = unwrap(physics->createBody({.position = Vec3(10.0f, 0.6f, 0.0f)}));
+        const BodyId upper = unwrap(physics->createBody({.position = Vec3(10.0f, 2.0f, 0.0f)}));
+
+        // The table and the lower crate land in the same step: first the pair whose
+        // bodies come first. The upper crate lands on the lower one later.
+        const std::vector<ContactEvent> heard = stepAndListen(*physics, 240);
+        REQUIRE(heard.size() == 3);
+        CHECK(heard[0].first == floor);
+        CHECK(heard[0].second == table);
+        CHECK(heard[1].first == floor);
+        CHECK(heard[1].second == lower);
+        CHECK(heard[2].first == lower);
+        CHECK(heard[2].second == upper);
+        // The lower crate is under the upper one: the normal points from the first to the second.
+        CHECK_NEAR(heard[2].normal, Vec3(0.0f, 1.0f, 0.0f), 1.0e-2f);
+        CHECK(heard[2].position.y == doctest::Approx(1.0f).epsilon(0.03));
+        for (const ContactEvent& event : heard) {
+            CHECK(event.phase == ContactPhase::Began);
+        }
+    }
+
+    TEST_CASE("a sensor notices what reaches into it, and stops nothing") {
+        const std::unique_ptr<PhysicsWorld> physics = unwrap(PhysicsWorld::create());
+        const BodyId floor = addFloor(*physics);
+        // The ball is made before the sensor. Of the two, the sensor is named first all the same.
+        const BodyId ball = unwrap(physics->createBody({.shapes = {{.type = ShapeType::Sphere, .radius = 0.25f}},
+                                                        .position = Vec3(0.0f, 6.0f, 0.0f),
+                                                        .linearDamping = 0.0f,
+                                                        .userData = 7}));
+        const BodyId gate =
+            unwrap(physics->createBody({.motion = BodyMotion::Kinematic,
+                                        .shapes = {{.type = ShapeType::Box, .size = Vec3(2.0f, 1.0f, 2.0f)}},
+                                        .position = Vec3(0.0f, 3.0f, 0.0f),
+                                        .sensor = true,
+                                        .userData = 100}));
+        CHECK(physics->isSensor(gate));
+        CHECK_FALSE(physics->isSensor(ball));
+        CHECK(physics->motion(gate) == BodyMotion::Kinematic);
+
+        // Nothing that looks for bodies finds a sensor: a ray and a ball go through it
+        // to the floor, and nothing reaches into a ball in the middle of it.
+        const Ray down{Vec3(0.5f, 10.0f, 0.5f), Vec3(0.0f, -1.0f, 0.0f)};
+        std::optional<RayHit> hit = physics->raycast(down, 100.0f);
+        REQUIRE(hit.has_value());
+        CHECK(hit->body == floor);
+        hit = physics->sphereCast(down, 0.1f, 100.0f);
+        REQUIRE(hit.has_value());
+        CHECK(hit->body == floor);
+        CHECK(physics->overlapSphere(Vec3(0.5f, 3.0f, 0.5f), 0.3f).empty());
+        CHECK(physics->overlapBox(Vec3(0.5f, 3.0f, 0.5f), Vec3(0.5f)).empty());
+
+        // The ball falls through it to the floor: into the sensor, out of it, and down
+        // on the floor - as fast as a fall of five and three quarter metres makes it.
+        std::vector<ContactEvent> heard = stepAndListen(*physics, 120);
+        REQUIRE(heard.size() == 3);
+        CHECK(heard[0].phase == ContactPhase::Began);
+        CHECK(heard[0].first == gate);
+        CHECK(heard[0].second == ball);
+        CHECK(heard[0].firstUserData == 100);
+        CHECK(heard[0].secondUserData == 7);
+        CHECK(heard[0].sensor);
+        CHECK(heard[1].phase == ContactPhase::Ended);
+        CHECK(heard[1].first == gate);
+        CHECK(heard[1].second == ball);
+        CHECK(heard[1].sensor);
+        CHECK(heard[2].phase == ContactPhase::Began);
+        CHECK(heard[2].first == floor);
+        CHECK(heard[2].second == ball);
+        CHECK_FALSE(heard[2].sensor);
+        CHECK(heard[2].speed == doctest::Approx(std::sqrt(2.0f * 9.81f * 5.75f)).epsilon(0.03));
+
+        // What comes to rest in a sensor and falls asleep is still in it. The floor,
+        // which the sensor reaches into, was never noticed: it does not move.
+        const BodyId zone =
+            unwrap(physics->createBody({.motion = BodyMotion::Kinematic,
+                                        .shapes = {{.type = ShapeType::Box, .size = Vec3(4.0f, 2.0f, 4.0f)}},
+                                        .position = Vec3(20.0f, 0.5f, 0.0f),
+                                        .sensor = true}));
+        const BodyId crate = unwrap(physics->createBody({.position = Vec3(20.0f, 0.5f, 0.0f)}));
+        heard = stepAndListen(*physics, 400);
+        REQUIRE(heard.size() == 2);
+        CHECK(heard[0].first == floor);
+        CHECK(heard[0].second == crate);
+        CHECK(heard[1].first == zone);
+        CHECK(heard[1].second == crate);
+        CHECK(heard[1].phase == ContactPhase::Began);
+        CHECK_FALSE(physics->isActive(crate));
+
+        // The sensor is taken away from around it: the crate has left it, and sleeps on.
+        physics->setPlacement(zone, Vec3(40.0f, 0.5f, 0.0f), kIdentityQuat);
+        heard = stepAndListen(*physics, 3);
+        REQUIRE(heard.size() == 1);
+        CHECK(heard[0].phase == ContactPhase::Ended);
+        CHECK(heard[0].first == zone);
+        CHECK(heard[0].second == crate);
+        CHECK_FALSE(physics->isActive(crate));
+
+        // A body that is moved by hand is noticed like one that the simulation moves.
+        const BodyId lift =
+            unwrap(physics->createBody({.motion = BodyMotion::Kinematic, .position = Vec3(40.0f, 10.0f, 0.0f)}));
+        CHECK(stepAndListen(*physics, 3).empty());
+        physics->setPlacement(lift, Vec3(40.0f, 0.5f, 0.0f), kIdentityQuat);
+        heard = stepAndListen(*physics, 3);
+        REQUIRE(heard.size() == 1);
+        CHECK(heard[0].phase == ContactPhase::Began);
+        CHECK(heard[0].first == zone);
+        CHECK(heard[0].second == lift);
+
+        // Two sensors say nothing of each other.
+        unwrap(physics->createBody(
+            {.motion = BodyMotion::Kinematic, .position = Vec3(60.0f, 5.0f, 0.0f), .sensor = true}));
+        unwrap(physics->createBody(
+            {.motion = BodyMotion::Kinematic, .position = Vec3(60.2f, 5.0f, 0.0f), .sensor = true}));
+        CHECK(stepAndListen(*physics, 5).empty());
+
+        // A sensor that stands still would not notice what sleeps in it, and is refused.
+        CHECK(refusalOf(physics->createBody({.motion = BodyMotion::Static, .sensor = true})) ==
+              "a sensor has to notice what has fallen asleep in it, and a static body does not: make it kinematic");
     }
 
     TEST_CASE("a body that is destroyed is gone, and its id is no body's again") {

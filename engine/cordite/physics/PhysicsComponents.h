@@ -19,7 +19,8 @@
 ///
 /// @code{.json}
 /// "Collider": {"shape": "capsule", "size": [1, 1, 1], "radius": 0.3, "height": 1.8,
-///              "mesh": null, "center": [0, 0.9, 0], "friction": 0.5, "restitution": 0},
+///              "mesh": null, "trigger": false, "center": [0, 0.9, 0], "friction": 0.5,
+///              "restitution": 0},
 /// "RigidBody": {"motion": "dynamic", "mass": 80, "linearDamping": 0.05, "angularDamping": 0.05,
 ///               "gravityScale": 1, "continuous": false, "allowSleep": true}
 /// @endcode
@@ -32,6 +33,8 @@
 /// - A Collider with no RigidBody on its entity or above it is a body that stands
 ///   still: the ground, a wall.
 /// - A RigidBody without any Collider has no shape, and is no body.
+/// - A Collider that is a trigger is never part of another body: it is one of its own
+///   that nothing runs into, and that says what moves into it and out of it.
 ///
 /// A shape is as large as its entity is scaled - by its own scale and by the scales of
 /// everything above it, multiplied: a box by each axis, a sphere by the largest of the
@@ -68,6 +71,10 @@ struct ColliderComponent {
     float height = 2.0f;
     /// Of a convex hull and of a mesh: the mesh asset the shape is made of.
     Uuid mesh;
+    /// It stops nothing: it only notices the bodies that move into it and out of it
+    /// (PhysicsSystem::events()). A trigger is a body of its own, wherever its entity
+    /// is in the hierarchy, and goes where its entity goes.
+    bool trigger = false;
     /// Where the middle of the shape is, in the space of the entity.
     Vec3 center{0.0f};
     /// How much the surface resists sliding: 0 ice, 1 rubber.

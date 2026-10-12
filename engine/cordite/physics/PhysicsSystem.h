@@ -23,6 +23,13 @@
 /// for (const BodyId body : physics->simulation().overlapSphere(blast, 5.0f)) {
 ///     const Entity caught = physics->entityOf(body);
 /// }
+///
+/// // What the last update brought together, and apart.
+/// for (const CollisionEvent& event : physics->events()) {
+///     if (event.type == CollisionEventType::TriggerEntered && event.first == doorway) {
+///         open(door);
+///     }
+/// }
 /// @endcode
 ///
 /// Who moves whom while time passes - update():
@@ -51,6 +58,11 @@
 /// What is shown is the simulation after its last whole step: between two steps nothing
 /// is moved, so at frame rates other than the step's a body moves in steps of its own.
 ///
+/// A collider that is a trigger is a body of its own wherever it is in the hierarchy,
+/// and never part of another: it follows its entity, stops nothing, and notices the
+/// bodies that move into it and out of it. What bodies begin to touch and stop
+/// touching, and what enters and leaves triggers, is in events() after every update.
+///
 /// A collider that is the hull around a mesh, or the triangles of one, is made of the
 /// mesh asset it names. The mesh is loaded and prepared when a collider first asks for
 /// it, and what was prepared serves every collider of that mesh and shape, at any
@@ -75,9 +87,11 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <span>
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace cordite {
@@ -107,6 +121,36 @@ struct PhysicsFrameStatistics {
     bool operator==(const PhysicsFrameStatistics&) const = default;
 };
 
+/// What can happen between the bodies of two entities.
+enum class CollisionEventType : uint8_t {
+    /// Two bodies have begun to touch.
+    CollisionBegan,
+    /// They have stopped: they have parted, or one of them is gone.
+    CollisionEnded,
+    /// A body has reached into a trigger.
+    TriggerEntered,
+    /// It has left it again, or one of the two is gone.
+    TriggerLeft,
+};
+
+/// Something that happened between the bodies of two entities during an update.
+struct CollisionEvent {
+    CollisionEventType type = CollisionEventType::CollisionBegan;
+    /// The entities that have the bodies. Of a trigger, the first is the entity whose
+    /// collider the trigger is, and the second what entered or left it. An entity may
+    /// be gone by the time this is read: ask World::isValid().
+    Entity first;
+    Entity second;
+    /// Of CollisionBegan and TriggerEntered: where the two touch, the direction from
+    /// the first to the second there, and how fast they were closing in on each other
+    /// along it, in metres per second - how hard they hit.
+    Vec3 position{0.0f};
+    Vec3 normal{0.0f, 1.0f, 0.0f};
+    float speed = 0.0f;
+
+    bool operator==(const CollisionEvent&) const = default;
+};
+
 class PhysicsSystem {
 public:
     /// Fails as PhysicsWorld::create() does, and for steps of no length or none at all.
@@ -133,11 +177,21 @@ public:
 
     [[nodiscard]] const PhysicsWorld& simulation() const { return *m_physics; }
 
-    /// The body of an entity - of the entity itself, not of one above it that its
-    /// collider is a part of - or the null id.
+    /// The body of an entity that collides - of the entity itself, not of one above it
+    /// that its collider is a part of - or the null id.
     [[nodiscard]] BodyId bodyOf(Entity entity) const;
+    /// The body of the trigger that an entity's collider is, or the null id.
+    [[nodiscard]] BodyId triggerOf(Entity entity) const;
     /// The entity a body belongs to, or the null entity.
     [[nodiscard]] Entity entityOf(BodyId body) const;
+
+    /// What happened during the last update(): which bodies began to touch and which
+    /// stopped, what entered a trigger and what left one - each pair of entities once,
+    /// step by step in the order it happened, and within a step in the order of the
+    /// bodies. Two bodies that fall asleep against each other touch on. A body that
+    /// was made anew because what it is made of changed does not stop and begin to
+    /// touch what it still touches. None after synchronize(), in which no time passes.
+    [[nodiscard]] std::span<const CollisionEvent> events() const { return m_events; }
 
     /// The geometry that colliders of `shape` - a convex hull, or a mesh - of the mesh
     /// asset `mesh` are made of: prepared by the update that first met such a collider.
@@ -149,6 +203,18 @@ public:
     void clear();
 
 private:
+    /// Which body of an entity: the one that collides, or the trigger its collider is.
+    struct BodyKey {
+        Entity entity;
+        bool trigger = false;
+
+        bool operator==(const BodyKey&) const = default;
+    };
+
+    struct BodyKeyHash {
+        size_t operator()(const BodyKey& key) const noexcept;
+    };
+
     /// Who has the say over where a dynamic body and its entity are: the simulation
     /// while time passes, the world while it does not.
     enum class Authority : uint8_t {
@@ -182,6 +248,8 @@ private:
     /// A body that the world asks for.
     struct Wanted {
         Entity entity;
+        /// It is the trigger that the entity's collider is, not a body that collides.
+        bool trigger = false;
         /// What it is to be made of: its description, without where it is.
         BodyDesc blueprint;
         /// Where it is to be: where its entity is in the world.
@@ -270,6 +338,11 @@ private:
     /// Gives a dynamic body the speeds its RigidBody was given since they were last
     /// written.
     void applyVelocities(const World& world, Entity entity, Record& record);
+    /// Adds to m_events what the bodies said of touching in the step that was just taken.
+    void hearContacts();
+    /// Takes out of m_events what only came of a body being made anew: that it stopped
+    /// touching something, and began to touch it.
+    void dropEchoesOfRemaking();
     /// Writes the speeds of the bodies that move to their RigidBody components, and
     /// puts the entities of dynamic bodies where the bodies are.
     void writeBack(World& world);
@@ -282,9 +355,14 @@ private:
 
     std::unique_ptr<PhysicsWorld> m_physics;
     FixedTimestep m_timestep;
-    std::unordered_map<Entity, Record> m_records;
-    /// The entities that have bodies, parents before what is below them.
-    std::vector<Entity> m_order;
+    std::unordered_map<BodyKey, Record, BodyKeyHash> m_records;
+    /// The bodies there are, parents before what is below them.
+    std::vector<BodyKey> m_order;
+    /// What happened in the last update.
+    std::vector<CollisionEvent> m_events;
+    /// The entities whose bodies were made anew since the last step was taken: what
+    /// the next step says of their bodies stopping and beginning to touch is no news.
+    std::unordered_set<Entity> m_remade;
     /// The bodies the world asked for at the last update: the first m_wantedCount. The
     /// rest are kept for what they have allocated, as is m_levels.
     std::vector<Wanted> m_wanted;

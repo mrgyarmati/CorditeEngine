@@ -44,7 +44,7 @@
         // What is simulated: the bodies of the scene, of which a kinematic one is
         // awake at most once the rest has settled, the shapes that were made of meshes
         // for their colliders, and the joints its animators pose.
-        "bodies": 8,
+        "bodies": 9,
         "geometries": 2,
         "joints": 8,
         // The image of the sky is 1.4 MiB of this.

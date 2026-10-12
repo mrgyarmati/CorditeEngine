@@ -41,6 +41,7 @@
                     "radius": 0.5,
                     "height": 2.0,
                     "mesh": null,
+                    "trigger": false,
                     "center": [0.0, -0.1, 0.0],
                     "friction": 0.8,
                     "restitution": 0.0
@@ -178,6 +179,7 @@
                     "radius": 0.5,
                     "height": 2.0,
                     "mesh": null,
+                    "trigger": false,
                     "center": [0.0, 0.0, 0.0],
                     "friction": 0.6,
                     "restitution": 0.0
@@ -211,6 +213,7 @@
                     "radius": 0.5,
                     "height": 2.0,
                     "mesh": null,
+                    "trigger": false,
                     "center": [0.0, 0.0, 0.0],
                     "friction": 0.6,
                     "restitution": 0.0
@@ -236,6 +239,7 @@
                     "radius": 0.5,
                     "height": 2.0,
                     "mesh": null,
+                    "trigger": false,
                     "center": [0.0, 0.0, 0.0],
                     "friction": 0.8,
                     "restitution": 0.0
@@ -271,6 +275,7 @@
                     "radius": 0.5,
                     "height": 2.0,
                     "mesh": "a5666847-8761-8114-8630-d4dc8f686f5a",
+                    "trigger": false,
                     "center": [0.0, 0.0, 0.0],
                     "friction": 0.5,
                     "restitution": 0.0
@@ -408,6 +413,7 @@
                     "radius": 0.5,
                     "height": 2.0,
                     "mesh": "8db36b6b-2606-8b2d-b7f0-6bd7af0a9d8c",
+                    "trigger": false,
                     "center": [0.0, 0.0, 0.0],
                     "friction": 0.7,
                     "restitution": 0.0
@@ -438,6 +444,29 @@
                 "MeshRenderer": {
                     "mesh": "0a56c2f1-21e0-819d-8bac-567d1e1c4345",
                     "materials": ["63f57b0d-f370-8781-a32a-57a1be8dd15a"]
+                }
+            }
+        },
+        {
+            // A trigger: a collider that stops nothing, and says what moves into it and
+            // out of it - here, what comes onto the walkway. It is a body of its own
+            // that goes where its entity goes.
+            "id": "10000000-0000-4000-8000-00000000002e",
+            "name": "Walkway zone",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-000000000016",
+            "components": {
+                "Transform": { "position": [0.0, 0.95, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [1.0, 1.0, 1.0] },
+                "Collider": {
+                    "shape": "box",
+                    "size": [2.4, 1.0, 2.4],
+                    "radius": 0.5,
+                    "height": 2.0,
+                    "mesh": null,
+                    "trigger": true,
+                    "center": [0.0, 0.0, 0.0],
+                    "friction": 0.5,
+                    "restitution": 0.0
                 }
             }
         },
@@ -474,6 +503,7 @@
                     "radius": 0.5,
                     "height": 2.0,
                     "mesh": null,
+                    "trigger": false,
                     "center": [0.0, 0.0, 0.0],
                     "friction": 0.4,
                     "restitution": 0.6
@@ -528,6 +558,7 @@
                     "radius": 0.5,
                     "height": 2.0,
                     "mesh": null,
+                    "trigger": false,
                     "center": [0.0, 0.0, 0.0],
                     "friction": 0.5,
                     "restitution": 0.0
@@ -567,6 +598,7 @@
                     "radius": 0.5,
                     "height": 1.0,
                     "mesh": null,
+                    "trigger": false,
                     "center": [0.0, 0.0, 0.0],
                     "friction": 0.5,
                     "restitution": 0.1

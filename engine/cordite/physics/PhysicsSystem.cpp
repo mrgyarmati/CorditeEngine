@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <functional>
 #include <span>
 #include <utility>
@@ -76,6 +77,34 @@ Mat4 parentMatrixOf(const World& world, Entity entity) {
     return parent.isNull() ? Mat4(1.0f) : world.computeWorldMatrix(parent);
 }
 
+/// A body carries the handle of its entity, and whether it is the entity's trigger.
+constexpr uint64_t kTriggerBit = 1ull << 32u;
+
+uint64_t userDataOf(Entity entity, bool trigger) {
+    return static_cast<uint64_t>(entt::to_integral(entity.handle)) | (trigger ? kTriggerBit : 0ull);
+}
+
+Entity entityOfUserData(uint64_t userData) {
+    return Entity{static_cast<entt::entity>(static_cast<uint32_t>(userData))};
+}
+
+bool isEnd(CollisionEventType type) {
+    return type == CollisionEventType::CollisionEnded || type == CollisionEventType::TriggerLeft;
+}
+
+/// Whether an event says of the same two entities that they have begun what `ended`
+/// says they have stopped. Two bodies that touch are a pair either way round; a
+/// trigger is always the first.
+bool isBeginningOf(const CollisionEvent& event, const CollisionEvent& ended) {
+    if (ended.type == CollisionEventType::TriggerLeft) {
+        return event.type == CollisionEventType::TriggerEntered && event.first == ended.first &&
+               event.second == ended.second;
+    }
+    return event.type == CollisionEventType::CollisionBegan &&
+           ((event.first == ended.first && event.second == ended.second) ||
+            (event.first == ended.second && event.second == ended.first));
+}
+
 bool isMadeOfMesh(ShapeType shape) {
     return shape == ShapeType::ConvexHull || shape == ShapeType::Mesh;
 }
@@ -131,6 +160,10 @@ PhysicsSystem::PhysicsSystem(std::unique_ptr<PhysicsWorld> physics, const Physic
 
 PhysicsSystem::~PhysicsSystem() = default;
 
+size_t PhysicsSystem::BodyKeyHash::operator()(const BodyKey& key) const noexcept {
+    return static_cast<size_t>(hashCombine(std::hash<Entity>{}(key.entity), key.trigger ? 1u : 0u));
+}
+
 size_t PhysicsSystem::ReportKeyHash::operator()(const ReportKey& key) const noexcept {
     return static_cast<size_t>(hashCombine(std::hash<Entity>{}(key.entity), static_cast<uint64_t>(key.about)));
 }
@@ -151,7 +184,12 @@ Result<std::unique_ptr<PhysicsSystem>> PhysicsSystem::create(const PhysicsSystem
 }
 
 BodyId PhysicsSystem::bodyOf(Entity entity) const {
-    const auto found = m_records.find(entity);
+    const auto found = m_records.find(BodyKey{.entity = entity, .trigger = false});
+    return found != m_records.end() ? found->second.body : BodyId();
+}
+
+BodyId PhysicsSystem::triggerOf(Entity entity) const {
+    const auto found = m_records.find(BodyKey{.entity = entity, .trigger = true});
     return found != m_records.end() ? found->second.body : BodyId();
 }
 
@@ -159,9 +197,9 @@ Entity PhysicsSystem::entityOf(BodyId body) const {
     if (!m_physics->isValid(body)) {
         return Entity{};
     }
-    // A body carries the handle of its entity.
-    const Entity entity{static_cast<entt::entity>(static_cast<uint32_t>(m_physics->userData(body)))};
-    const auto found = m_records.find(entity);
+    const uint64_t userData = m_physics->userData(body);
+    const Entity entity = entityOfUserData(userData);
+    const auto found = m_records.find(BodyKey{.entity = entity, .trigger = (userData & kTriggerBit) != 0});
     return found != m_records.end() && found->second.body == body ? entity : Entity{};
 }
 
@@ -207,6 +245,8 @@ void PhysicsSystem::clear() {
     forgetGeometry();
     m_records.clear();
     m_order.clear();
+    m_events.clear();
+    m_remade.clear();
     m_wantedCount = 0;
     m_reported.clear();
     m_timestep.reset();
@@ -235,11 +275,11 @@ void PhysicsSystem::gather(const World& world, AssetManager& assets) {
         level.scale = (above != nullptr ? above->scale : Vec3(1.0f)) * local.scale;
         level.toBody = level.body != kNoBody ? above->toBody * local.toMatrix() : Mat4(1.0f);
 
-        const auto startBody = [&](BodyMotion motion) {
-            // The body is where its entity is, and turned as it is. It has no scale:
-            // its entity is as large in it as everything above has made it.
-            const Vec3 scale = foldedScale(level.scale);
-            level.toBody = glm::scale(Mat4(1.0f), scale);
+        // A body of the entity's own is where the entity is, and turned as it is. It
+        // has no scale: the entity is as large in it as everything above has made it.
+        const Vec3 ownScale = foldedScale(level.scale);
+        const Mat4 ownToBody = glm::scale(Mat4(1.0f), ownScale);
+        const auto startBody = [&](BodyMotion motion, bool trigger) {
             const Transform placed = Transform::fromMatrix(world.worldMatrix(entity));
             if (m_wantedCount == m_wanted.size()) {
                 m_wanted.emplace_back();
@@ -250,17 +290,20 @@ void PhysicsSystem::gather(const World& world, AssetManager& assets) {
             std::vector<ShapeDesc> shapes = std::move(wanted.blueprint.shapes);
             shapes.clear();
             wanted = Wanted{.entity = entity,
+                            .trigger = trigger,
                             .blueprint = BodyDesc{.motion = motion,
                                                   .shapes = std::move(shapes),
-                                                  .userData = entt::to_integral(entity.handle)},
+                                                  .sensor = trigger,
+                                                  .userData = userDataOf(entity, trigger)},
                             .position = placed.position,
                             .rotation = placed.rotation,
-                            .scale = scale};
+                            .scale = ownScale};
             return static_cast<int32_t>(m_wantedCount++);
         };
 
         if (const auto* rigidBody = world.tryGet<RigidBodyComponent>(entity)) {
-            level.body = startBody(rigidBody->motion);
+            level.body = startBody(rigidBody->motion, false);
+            level.toBody = ownToBody;
             BodyDesc& body = m_wanted[static_cast<size_t>(level.body)].blueprint;
             body.mass = rigidBody->mass;
             body.linearDamping = rigidBody->linearDamping;
@@ -275,8 +318,12 @@ void PhysicsSystem::gather(const World& world, AssetManager& assets) {
         }
         // A collider is part of the nearest rigid body at or above it. With none, it is
         // a body of its own that stands still - and what hangs below it is not part of
-        // that one.
-        const int32_t index = level.body != kNoBody ? level.body : startBody(BodyMotion::Static);
+        // that one. A trigger is a body of its own wherever it is: one that follows its
+        // entity, moved by hand, so that it notices what sleeps in it too.
+        const bool alone = collider->trigger || level.body == kNoBody;
+        const int32_t index =
+            !alone ? level.body
+                   : startBody(collider->trigger ? BodyMotion::Kinematic : BodyMotion::Static, collider->trigger);
         GeometryId geometry;
         if (isMadeOfMesh(collider->shape)) {
             const MeshGeometry& made = prepareGeometry(assets, collider->mesh, collider->shape);
@@ -296,12 +343,15 @@ void PhysicsSystem::gather(const World& world, AssetManager& assets) {
             body.friction = collider->friction;
             body.restitution = collider->restitution;
         }
-        body.shapes.push_back(shapeOf(*collider, level.toBody, geometry));
+        body.shapes.push_back(shapeOf(*collider, alone ? ownToBody : level.toBody, geometry));
     });
 }
 
 PhysicsSystem::Record* PhysicsSystem::makeBody(const World& world, const Wanted& wanted, const Record* previous) {
-    const auto* rigidBody = world.tryGet<RigidBodyComponent>(wanted.entity);
+    const BodyKey key{.entity = wanted.entity, .trigger = wanted.trigger};
+    // The speeds of an entity's rigid body are those of the body that collides, not
+    // of the trigger that its collider may be.
+    const auto* rigidBody = wanted.trigger ? nullptr : world.tryGet<RigidBodyComponent>(wanted.entity);
     // What it was doing it goes on doing: the speeds of the body it replaces, unless
     // its RigidBody was given others since those were written.
     Vec3 linearVelocity = rigidBody != nullptr ? rigidBody->linearVelocity : Vec3(0.0f);
@@ -314,7 +364,8 @@ PhysicsSystem::Record* PhysicsSystem::makeBody(const World& world, const Wanted&
             angularVelocity = m_physics->angularVelocity(previous->body);
         }
         m_physics->destroyBody(previous->body);
-        m_records.erase(wanted.entity);
+        m_records.erase(key);
+        m_remade.insert(wanted.entity);
     }
 
     BodyDesc desc = wanted.blueprint;
@@ -342,7 +393,7 @@ PhysicsSystem::Record* PhysicsSystem::makeBody(const World& world, const Wanted&
         record.linearVelocity = linearVelocity;
         record.angularVelocity = angularVelocity;
     }
-    return &m_records.insert_or_assign(wanted.entity, std::move(record)).first->second;
+    return &m_records.insert_or_assign(key, std::move(record)).first->second;
 }
 
 void PhysicsSystem::placeBody(const World& world, const Wanted& wanted, Record& record, uint32_t steps,
@@ -410,7 +461,7 @@ void PhysicsSystem::applyVelocities(const World& world, Entity entity, Record& r
 }
 
 void PhysicsSystem::reconcile(const World& world, uint32_t steps, Authority authority) {
-    for (auto& [entity, record] : m_records) {
+    for (auto& [key, record] : m_records) {
         record.seen = false;
     }
     m_order.clear();
@@ -420,17 +471,20 @@ void PhysicsSystem::reconcile(const World& world, uint32_t steps, Authority auth
             // A rigid body without a collider has no shape, and is no body.
             continue;
         }
-        const auto found = m_records.find(wanted.entity);
+        const BodyKey key{.entity = wanted.entity, .trigger = wanted.trigger};
+        const auto found = m_records.find(key);
         Record* record = found != m_records.end() ? &found->second : nullptr;
         if (record == nullptr || !(record->blueprint == wanted.blueprint)) {
             record = makeBody(world, wanted, record);
         } else {
             placeBody(world, wanted, *record, steps, authority);
-            applyVelocities(world, wanted.entity, *record);
+            if (!wanted.trigger) {
+                applyVelocities(world, wanted.entity, *record);
+            }
         }
         if (record != nullptr) {
             record->seen = true;
-            m_order.push_back(wanted.entity);
+            m_order.push_back(key);
         }
     }
 
@@ -455,9 +509,11 @@ void PhysicsSystem::reconcile(const World& world, uint32_t steps, Authority auth
 void PhysicsSystem::writeBack(World& world) {
     // Parents before what is below them: an entity is placed against what it hangs
     // under, which may itself just have been moved.
-    for (const Entity entity : m_order) {
-        Record& record = m_records.at(entity);
-        auto* rigidBody = world.tryGet<RigidBodyComponent>(entity);
+    for (const BodyKey& key : m_order) {
+        const Entity entity = key.entity;
+        Record& record = m_records.at(key);
+        // A trigger follows its entity and has nothing to say to it.
+        auto* rigidBody = key.trigger ? nullptr : world.tryGet<RigidBodyComponent>(entity);
         if (rigidBody == nullptr || record.blueprint.motion == BodyMotion::Static) {
             continue;
         }
@@ -525,7 +581,55 @@ PhysicsFrameStatistics PhysicsSystem::statistics(uint32_t steps) const {
             .geometries = simulation.geometries};
 }
 
+void PhysicsSystem::hearContacts() {
+    for (const ContactEvent& contact : m_physics->contactEvents()) {
+        const bool began = contact.phase == ContactPhase::Began;
+        CollisionEvent event;
+        if (contact.sensor) {
+            event.type = began ? CollisionEventType::TriggerEntered : CollisionEventType::TriggerLeft;
+        } else {
+            event.type = began ? CollisionEventType::CollisionBegan : CollisionEventType::CollisionEnded;
+        }
+        // By what the bodies carry, which says whose they were when they are gone.
+        event.first = entityOfUserData(contact.firstUserData);
+        event.second = entityOfUserData(contact.secondUserData);
+        event.position = contact.position;
+        event.normal = contact.normal;
+        event.speed = contact.speed;
+        m_events.push_back(event);
+    }
+}
+
+void PhysicsSystem::dropEchoesOfRemaking() {
+    // A body that is made anew is another body to the simulation: the old one stops
+    // touching what it touched, and the new one begins to. Nobody who listens for
+    // things that meet and part wants to hear that.
+    const auto wasRemade = [&](Entity entity) { return m_remade.contains(entity); };
+    for (size_t index = 0; !m_remade.empty() && index < m_events.size();) {
+        const CollisionEvent ended = m_events[index];
+        if (!isEnd(ended.type) || !(wasRemade(ended.first) || wasRemade(ended.second))) {
+            ++index;
+            continue;
+        }
+        const auto beginning =
+            std::ranges::find_if(m_events, [&](const CollisionEvent& event) { return isBeginningOf(event, ended); });
+        if (beginning == m_events.end()) {
+            // It touches no more what it touched: that is to be heard.
+            ++index;
+            continue;
+        }
+        // Both go. What follows the two moves up, to this place or the one before it.
+        const auto other = static_cast<size_t>(beginning - m_events.begin());
+        m_events.erase(m_events.begin() + static_cast<std::ptrdiff_t>(std::max(index, other)));
+        m_events.erase(m_events.begin() + static_cast<std::ptrdiff_t>(std::min(index, other)));
+        if (other < index) {
+            --index;
+        }
+    }
+}
+
 PhysicsFrameStatistics PhysicsSystem::update(World& world, AssetManager& assets, float deltaSeconds) {
+    m_events.clear();
     world.updateWorldTransforms();
     followAssets(assets);
     gather(world, assets);
@@ -533,6 +637,13 @@ PhysicsFrameStatistics PhysicsSystem::update(World& world, AssetManager& assets,
     reconcile(world, steps, Authority::Simulation);
     for (uint32_t step = 0; step < steps; ++step) {
         m_physics->step(static_cast<float>(m_timestep.stepSeconds()));
+        hearContacts();
+    }
+    if (steps > 0) {
+        // What was made anew in a frame without a step is heard of in the next that
+        // has one, and remembered until then.
+        dropEchoesOfRemaking();
+        m_remade.clear();
     }
     // Also after no step at all: an entity that something above it has carried off is
     // put back where its body is.
@@ -541,10 +652,14 @@ PhysicsFrameStatistics PhysicsSystem::update(World& world, AssetManager& assets,
 }
 
 PhysicsFrameStatistics PhysicsSystem::synchronize(World& world, AssetManager& assets) {
+    m_events.clear();
     world.updateWorldTransforms();
     followAssets(assets);
     gather(world, assets);
     reconcile(world, 0, Authority::World);
+    // No step follows, here or perhaps ever: an editor only synchronizes. What is
+    // remembered for the next step is kept to the entities there still are.
+    std::erase_if(m_remade, [&](Entity entity) { return !world.isValid(entity); });
     return statistics(0);
 }
 

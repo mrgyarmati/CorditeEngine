@@ -536,9 +536,9 @@ TEST_SUITE("EditorApp") {
         // The cable of the hoist is posed by its animator: one skeleton of six joints.
         CHECK(statistics["animation"]["animators"] == 1);
         CHECK(statistics["animation"]["joints"] == 6);
-        // The bodies of the scene are there - eight of them, two with shapes made of
+        // The bodies of the scene are there - nine of them, two with shapes made of
         // meshes - and none is simulated: the editor shows a scene, it does not run it.
-        CHECK(statistics["physics"]["bodies"] == 8);
+        CHECK(statistics["physics"]["bodies"] == 9);
         CHECK(statistics["physics"]["geometries"] == 2);
         CHECK(statistics["physics"]["steps"] == 0);
         CHECK(scene["skinned"]["meshes"] == 1);
@@ -800,6 +800,26 @@ TEST_SUITE("EditorApp") {
         run(*editor, "selection.set", R"({"entities": ["Crate"]})");
         CHECK_FALSE(hasColliderLine(unwrap(editor->captureViewport(UVec2(size))), onTip));
         run(*editor, "entity.delete", R"({"entities": ["Marker"]})");
+
+        // A trigger is drawn in a color of its own.
+        run(*editor, "entity.create",
+            R"({"name": "Zone", "components": {"Transform": {"position": [-3, 2, 0]},
+                "Collider": {"shape": "box", "size": [1, 1, 1], "trigger": true}}})");
+        run(*editor, "selection.set", R"({"entities": ["Zone"]})");
+        const Vec2 onZone = worldToScreen(view, Vec3(-3.0f, 2.5f, 0.5f), size).value();
+        const Image zoned = unwrap(editor->captureViewport(UVec2(size)));
+        CHECK_FALSE(hasColliderLine(zoned, onZone));
+        bool hasTriggerLine = false;
+        for (int32_t dy = -1; dy <= 1; ++dy) {
+            for (int32_t dx = -1; dx <= 1; ++dx) {
+                const Vec4 pixel = zoned.pixel(static_cast<uint32_t>(static_cast<int32_t>(onZone.x) + dx),
+                                               static_cast<uint32_t>(static_cast<int32_t>(onZone.y) + dy));
+                hasTriggerLine = hasTriggerLine || glm::distance(Vec3(pixel), Vec3(1.00f, 0.55f, 0.20f)) < 0.05f;
+            }
+        }
+        CHECK(hasTriggerLine);
+        run(*editor, "entity.delete", R"({"entities": ["Zone"]})");
+        run(*editor, "selection.set", R"({"entities": ["Crate"]})");
 
         // Frames go by, and the crate hangs where the scene has it: nothing is simulated,
         // and nothing has changed the document since it was made.

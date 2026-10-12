@@ -51,6 +51,9 @@ TypeInfo describeCollider() {
                   {.description = "Convex hull and mesh: the mesh the shape is made of",
                    .semantic = PropertySemantic::AssetReference,
                    .referenceType = "Mesh"})
+        .property("trigger", &ColliderComponent::trigger,
+                  {.description = "It stops nothing: it only notices the bodies that move into it and out of "
+                                  "it. A body of its own, which goes where its entity goes"})
         .property("center", &ColliderComponent::center,
                   {.description = "Where the middle of the shape is, in the space of the entity",
                    .minimum = -kMaxShapeExtent,
@@ -148,7 +151,9 @@ std::vector<ColliderProblem> findColliderProblems(const World& world) {
                 {entity, fmt::format("Collider.mesh names no mesh, and a collider of the shape {} is made of one",
                                      nameOf(collider->shape))});
         }
-        const Entity body = collider->shape == ShapeType::Mesh ? bodyEntityOf(world, entity) : Entity{};
+        // A trigger is a body of its own, which the simulation does not move.
+        const bool isPartOfBody = collider->shape == ShapeType::Mesh && !collider->trigger;
+        const Entity body = isPartOfBody ? bodyEntityOf(world, entity) : Entity{};
         if (!body.isNull() && world.tryGet<RigidBodyComponent>(body)->motion == BodyMotion::Dynamic) {
             problems.push_back(
                 {entity, fmt::format("Collider.shape is mesh, and the body it is part of - '{}' - is dynamic: the "

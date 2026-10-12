@@ -33,6 +33,8 @@ constexpr Vec4 kLightColor(1.0f, 0.86f, 0.38f, 1.0f);
 constexpr Vec4 kVolumeColor(0.55f, 0.85f, 0.80f, 1.0f);
 /// The shape something collides with: it is not drawn, and is seen only like this.
 constexpr Vec4 kColliderColor(0.40f, 0.95f, 0.50f, 1.0f);
+/// The shape of a trigger, which stops nothing and notices what moves into it.
+constexpr Vec4 kTriggerColor(1.00f, 0.55f, 0.20f, 1.0f);
 /// The bones of a skeleton: joints are not entities, and are seen only like this.
 constexpr Vec4 kSkeletonColor(0.95f, 0.45f, 0.85f, 1.0f);
 
@@ -120,7 +122,7 @@ struct ColliderShapes {
 /// shape of too many edges to draw is the box around it; one that the physics has not
 /// made, or could not make, is nothing.
 void drawMeshCollider(const ColliderComponent& collider, const Mat4& placement, ColliderShapes& shapes,
-                      DebugDraw& lines) {
+                      const Vec4& color, DebugDraw& lines) {
     const ColliderOutline* outline = shapes.outlines.find(shapes.physics, collider.mesh, collider.shape);
     if (outline == nullptr) {
         return;
@@ -128,12 +130,12 @@ void drawMeshCollider(const ColliderComponent& collider, const Mat4& placement, 
     // The middle of the collider is where the origin of its mesh goes.
     const Mat4 meshToWorld = placement * glm::translate(Mat4(1.0f), collider.center);
     if (outline->edges.empty()) {
-        lines.box(outline->bounds, meshToWorld, kColliderColor);
+        lines.box(outline->bounds, meshToWorld, color);
         return;
     }
     for (size_t edge = 0; edge + 1 < outline->edges.size(); edge += 2) {
         lines.line(Vec3(meshToWorld * Vec4(outline->edges[edge], 1.0f)),
-                   Vec3(meshToWorld * Vec4(outline->edges[edge + 1], 1.0f)), kColliderColor);
+                   Vec3(meshToWorld * Vec4(outline->edges[edge + 1], 1.0f)), color);
     }
 }
 
@@ -146,26 +148,27 @@ void drawCollider(const World& world, Entity entity, const Mat4& placement, Coll
     if (collider == nullptr) {
         return;
     }
+    const Vec4& color = collider->trigger ? kTriggerColor : kColliderColor;
     const Transform placed = Transform::fromMatrix(placement);
     const Vec3 scale = glm::abs(placed.scale);
     const Vec3 center(placement * Vec4(collider->center, 1.0f));
     switch (collider->shape) {
         case ShapeType::Box:
-            lines.box(Aabb::fromCenterExtents(collider->center, 0.5f * collider->size), placement, kColliderColor);
+            lines.box(Aabb::fromCenterExtents(collider->center, 0.5f * collider->size), placement, color);
             break;
         case ShapeType::Sphere:
-            lines.sphere(center, collider->radius * std::max({scale.x, scale.y, scale.z}), kColliderColor);
+            lines.sphere(center, collider->radius * std::max({scale.x, scale.y, scale.z}), color);
             break;
         case ShapeType::Capsule: {
             const float radius = collider->radius * std::max(scale.x, scale.z);
             const float halfCylinder = std::max(0.5f * collider->height * scale.y - radius, 0.0f);
             const Vec3 axis = placed.rotation * kWorldUp;
-            lines.capsule(center - axis * halfCylinder, center + axis * halfCylinder, radius, kColliderColor);
+            lines.capsule(center - axis * halfCylinder, center + axis * halfCylinder, radius, color);
             break;
         }
         case ShapeType::ConvexHull:
         case ShapeType::Mesh:
-            drawMeshCollider(*collider, placement, shapes, lines);
+            drawMeshCollider(*collider, placement, shapes, color, lines);
             break;
     }
 }
