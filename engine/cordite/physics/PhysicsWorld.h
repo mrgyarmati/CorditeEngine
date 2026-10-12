@@ -31,6 +31,22 @@
 /// const std::vector<BodyId> near = physics->overlapSphere(Vec3(0.0f, 0.5f, 0.0f), 1.0f);
 /// @endcode
 ///
+/// Bodies are held together by joints:
+///
+/// @code
+/// // A door that turns about its edge, a quarter turn either way. Points and directions are in
+/// // the space of each body: here the frame stands where the world begins, and is not turned.
+/// CORDITE_TRY_ASSIGN(const JointId hinge,
+///                    physics->createJoint({.type = JointType::Hinge,
+///                                          .first = door,
+///                                          .second = frame,
+///                                          .firstPoint = Vec3(-0.5f, 0.0f, 0.0f),
+///                                          .secondPoint = Vec3(1.0f, 1.0f, 0.0f),
+///                                          .limited = true,
+///                                          .minimum = -kHalfPi,
+///                                          .maximum = kHalfPi}));
+/// @endcode
+///
 /// Shapes that are not a box, a ball or a capsule are made of geometry, which is
 /// prepared once and can then be the shape of any number of bodies, at any size:
 ///
@@ -98,6 +114,88 @@ struct GeometryId {
     [[nodiscard]] constexpr bool isNull() const noexcept { return value == kNone; }
 
     constexpr bool operator==(const GeometryId&) const noexcept = default;
+};
+
+/// Refers to a joint between bodies of one PhysicsWorld. A plain value; it stops being
+/// valid when the joint is destroyed - which it is with either of its bodies - and is
+/// then never mistaken for a joint made later.
+struct JointId {
+    /// What a default-constructed JointId holds: no joint.
+    static constexpr uint32_t kNone = 0u;
+
+    uint32_t value = kNone;
+
+    [[nodiscard]] constexpr bool isNull() const noexcept { return value == kNone; }
+
+    constexpr bool operator==(const JointId&) const noexcept = default;
+};
+
+/// How a joint holds two bodies together.
+enum class JointType : uint8_t {
+    /// As they are: the two move as one.
+    Fixed,
+    /// At a point, about which each turns as it likes: a ball in a socket.
+    Ball,
+    /// At an axis, about which they turn against each other: a door on its hinges.
+    Hinge,
+    /// Along an axis, on which they slide against each other without turning: a drawer.
+    Slider,
+    /// By how far apart a point of the one and a point of the other are: a rod, a rope,
+    /// a spring.
+    Distance,
+};
+
+inline constexpr std::array<JointType, 5> kJointTypes = {JointType::Fixed, JointType::Ball, JointType::Hinge,
+                                                         JointType::Slider, JointType::Distance};
+
+/// The name used in files and by tools: "fixed", "ball", "hinge", "slider", "distance".
+std::string_view nameOf(JointType type);
+
+/// What a joint is made with. Points and directions are in the space of the body they
+/// are on - where the body is, turned as it is - and in that of the world for the
+/// second body of a joint to the world.
+struct JointDesc {
+    JointType type = JointType::Fixed;
+    /// The body that is joined, and the one it is joined to - or none, for the world.
+    /// At least one of the two is dynamic: nothing else can be held by a joint.
+    BodyId first;
+    BodyId second;
+    /// Where the joint is on each body: the point about which a ball turns, a point on
+    /// the axis of a hinge or of a slider, an end of a distance. A fixed joint holds the
+    /// two points in one place.
+    Vec3 firstPoint{0.0f};
+    Vec3 secondPoint{0.0f};
+    /// Of a hinge the axis it turns about and of a slider the axis it slides along, on
+    /// each body; of any length but none. A fixed joint holds the two axes, and the two
+    /// normals, pointing the same way.
+    Vec3 firstAxis{0.0f, 1.0f, 0.0f};
+    Vec3 secondAxis{0.0f, 1.0f, 0.0f};
+    /// A direction across the axis on each body: a hinge is turned by nothing where the
+    /// two point the same way. Made to stand across the axis where it does not.
+    Vec3 firstNormal{1.0f, 0.0f, 0.0f};
+    Vec3 secondNormal{1.0f, 0.0f, 0.0f};
+    /// Whether what the joint leaves free is limited, and to what. A hinge: the angle by
+    /// which the first body is turned against the second about the second one's axis,
+    /// in radians, from `minimum` - between -pi and 0 - to `maximum` - between 0 and
+    /// pi. A slider: how far the first has slid against the second along the second
+    /// one's axis, in metres, from at most 0 to at least 0. Both are at nothing where
+    /// the two points are in one place and the two normals point the same way; limited
+    /// to nothing at all, they would be fixed joints, and are refused. A distance: how
+    /// far apart its ends may be in metres, from 0 up; one that is not limited keeps
+    /// them as far apart as they are when it is made.
+    bool limited = false;
+    float minimum = 0.0f;
+    float maximum = 0.0f;
+    /// How a distance, or the limit of a hinge or a slider, gives: the frequency in
+    /// hertz at which it swings - 0 for not at all - and how fast that dies away, from
+    /// 0 for never to 1 for at once.
+    float frequency = 0.0f;
+    float damping = 0.0f;
+    /// Whether the two bodies collide with each other. Mostly they must not: what is
+    /// joined is close together, or reaches into each other.
+    bool collide = false;
+
+    bool operator==(const JointDesc&) const = default;
 };
 
 /// How a body moves.
@@ -278,6 +376,7 @@ struct PhysicsStatistics {
     uint32_t activeBodies = 0;
     /// Hulls and surfaces of triangles that are prepared.
     uint32_t geometries = 0;
+    uint32_t joints = 0;
     /// Steps taken since the world was made.
     uint64_t steps = 0;
     /// Steps that needed more room than PhysicsWorldDesc gives, and left contacts out.
@@ -337,9 +436,22 @@ public:
     /// that are none, and when the world is full.
     [[nodiscard]] Result<BodyId> createBody(const BodyDesc& desc);
 
-    /// Removes a body. What slept against it wakes: it may have lost what held it. An
-    /// id that is not a body's (any more) is ignored.
+    /// Removes a body, and with it the joints it is held by. What slept against it
+    /// wakes: it may have lost what held it. An id that is not a body's (any more) is
+    /// ignored.
     void destroyBody(BodyId body);
+
+    /// Joins two bodies, or a body and the world, and wakes them. Fails with
+    /// InvalidArgument for bodies that are none or one and the same, for two of which
+    /// neither is dynamic, for points and directions that are not numbers, an axis of
+    /// no length, and limits that are not what JointDesc says they are.
+    [[nodiscard]] Result<JointId> createJoint(const JointDesc& desc);
+
+    /// Takes a joint away, and wakes what it held. An id that is no joint's (any more)
+    /// is ignored.
+    void destroyJoint(JointId joint);
+
+    [[nodiscard]] bool isValid(JointId joint) const;
 
     [[nodiscard]] bool isValid(BodyId body) const;
 
@@ -442,6 +554,11 @@ private:
 template <>
 struct std::hash<cordite::BodyId> {
     size_t operator()(const cordite::BodyId& body) const noexcept { return std::hash<uint32_t>{}(body.value); }
+};
+
+template <>
+struct std::hash<cordite::JointId> {
+    size_t operator()(const cordite::JointId& joint) const noexcept { return std::hash<uint32_t>{}(joint.value); }
 };
 
 template <>

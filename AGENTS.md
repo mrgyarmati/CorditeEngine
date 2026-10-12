@@ -761,6 +761,22 @@ Step-by-step guide: [work-with-assets](.claude/skills/work-with-assets/SKILL.md)
   the old one has stopped touching things and the new one has begun to.
   `PhysicsSystem` takes both out where they are about the same two entities
   (`dropEchoesOfRemaking`): changing a mass must not sound like an impact.
+- **A joint is measured by the body that is joined against what it is joined to**:
+  how far a hinge is turned, how far a slider has slid (`JointDesc::first` against
+  `second`). Jolt measures its second body against its first, and wants the one that
+  does not move to be the first - so `makeConstraint` hands it the two the other way
+  round. A test with limits that are not the same both ways pins the direction.
+  The points and axes of a joint are given in the space of each body, and turned
+  into Jolt's, which are against the centre of mass.
+- **A joint holds on to its bodies.** `destroyBody` takes the joints of a body away
+  first, and their ids are then no joint's; whoever keeps a `JointId` asks
+  `isValid`. What a joint held is woken when the joint goes, and when it is made:
+  a sleeping body does not feel that it is held, or let go of.
+- **Bodies that are joined do not collide with each other** unless the joint says so
+  (`JointDesc::collide`): every body is a collision group of its own, and
+  `JoinedPairFilter` keeps the pairs that joints hold, counted, since two bodies may
+  be held by several. A hinge or a slider that is limited to where it is and does
+  not give is refused - Jolt asserts on it, and it is a fixed joint.
 - **A sleeping body notices nothing by itself.** Jolt looks at one only when a body
   that is awake comes near - and a body that is destroyed, put somewhere else or
   standing still never is. So `destroyBody`, `setPlacement` and the making of a

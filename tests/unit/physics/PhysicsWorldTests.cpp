@@ -12,6 +12,8 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <tuple>
+#include <utility>
 #include <vector>
 
 using namespace cordite;
@@ -101,8 +103,14 @@ TEST_SUITE("PhysicsWorld") {
         CHECK(nameOf(ShapeType::Capsule) == "capsule");
         CHECK(nameOf(ShapeType::ConvexHull) == "convexHull");
         CHECK(nameOf(ShapeType::Mesh) == "mesh");
+        CHECK(nameOf(JointType::Fixed) == "fixed");
+        CHECK(nameOf(JointType::Ball) == "ball");
+        CHECK(nameOf(JointType::Hinge) == "hinge");
+        CHECK(nameOf(JointType::Slider) == "slider");
+        CHECK(nameOf(JointType::Distance) == "distance");
         CHECK(kBodyMotions.size() == 3);
         CHECK(kShapeTypes.size() == 5);
+        CHECK(kJointTypes.size() == 5);
     }
 
     TEST_CASE("a new world is empty, and pulls down as hard as the earth does") {
@@ -1441,6 +1449,365 @@ TEST_SUITE("PhysicsWorld") {
         CHECK(physics->geometryBounds(GeometryId()).isEmpty());
         physics->destroyGeometry(box);
         CHECK(physics->geometryEdges(box, 100).empty());
+    }
+
+    TEST_CASE("a fixed joint holds a body to the world, and two bodies to each other") {
+        const std::unique_ptr<PhysicsWorld> physics = unwrap(PhysicsWorld::create());
+        // A crate that is joined to the world where it is hangs in the air.
+        const BodyId crate = unwrap(physics->createBody({.position = Vec3(0.0f, 5.0f, 0.0f)}));
+        const JointId toWorld = unwrap(
+            physics->createJoint({.type = JointType::Fixed, .first = crate, .secondPoint = Vec3(0.0f, 5.0f, 0.0f)}));
+        CHECK_FALSE(toWorld.isNull());
+        CHECK(physics->isValid(toWorld));
+        CHECK(physics->statistics().joints == 1);
+        stepFor(*physics, 120);
+        CHECK_NEAR(physics->position(crate), Vec3(0.0f, 5.0f, 0.0f), 5.0e-3f);
+
+        // A second one joined to its side - a metre and a half along the first one's X -
+        // is held out there, though nothing is under it.
+        const BodyId beside = unwrap(physics->createBody({.position = Vec3(1.5f, 5.0f, 0.0f)}));
+        const JointId toCrate = unwrap(physics->createJoint(
+            {.type = JointType::Fixed, .first = beside, .second = crate, .secondPoint = Vec3(1.5f, 0.0f, 0.0f)}));
+        CHECK(toCrate != toWorld);
+        CHECK(physics->statistics().joints == 2);
+        stepFor(*physics, 120);
+        CHECK_NEAR(physics->position(crate), Vec3(0.0f, 5.0f, 0.0f), 0.02f);
+        CHECK_NEAR(physics->position(beside), Vec3(1.5f, 5.0f, 0.0f), 0.03f);
+
+        // Let go of by the world, the two fall as one: side by side, as far apart as they were.
+        physics->destroyJoint(toWorld);
+        CHECK_FALSE(physics->isValid(toWorld));
+        CHECK(physics->isValid(toCrate));
+        stepFor(*physics, 30);
+        CHECK(physics->position(crate).y < 4.0f);
+        CHECK(physics->position(beside).y < 4.1f);
+        CHECK(glm::distance(physics->position(beside), physics->position(crate)) ==
+              doctest::Approx(1.5f).epsilon(0.01));
+    }
+
+    TEST_CASE("a ball joint holds a point, and lets a body swing about it") {
+        const std::unique_ptr<PhysicsWorld> physics = unwrap(PhysicsWorld::create());
+        // A pendulum of two metres, let go level with what it hangs from.
+        const Vec3 pivot(0.0f, 5.0f, 0.0f);
+        const BodyId bob =
+            unwrap(physics->createBody(undamped({.type = ShapeType::Sphere, .radius = 0.25f}, Vec3(2.0f, 5.0f, 0.0f))));
+        unwrap(physics->createJoint(
+            {.type = JointType::Ball, .first = bob, .firstPoint = Vec3(-2.0f, 0.0f, 0.0f), .secondPoint = pivot}));
+
+        float lowest = 5.0f;
+        float farthest = 2.0f;
+        for (int step = 0; step < 240; ++step) {
+            physics->step(kStep);
+            // Wherever it is, it is two metres from the pivot.
+            REQUIRE(glm::distance(physics->position(bob), pivot) == doctest::Approx(2.0f).epsilon(0.01));
+            lowest = std::min(lowest, physics->position(bob).y);
+            farthest = std::min(farthest, physics->position(bob).x);
+        }
+        // It went through the bottom, and well up the other side.
+        CHECK(lowest == doctest::Approx(3.0f).epsilon(0.01));
+        CHECK(farthest < -1.5f);
+    }
+
+    TEST_CASE("a hinge lets a body turn about its axis, and no further than it is limited to") {
+        const std::unique_ptr<PhysicsWorld> physics = unwrap(PhysicsWorld::create({.gravity = Vec3(0.0f)}));
+        // Two doors of a metre, hinged to the world at an edge about Y and pushed open
+        // at two radians a second. The second may open an eighth of a turn that way, and
+        // half as far the other.
+        const auto doorAt = [&](float x, bool limited) {
+            const BodyId door = unwrap(physics->createBody(
+                undamped({.type = ShapeType::Box, .size = Vec3(1.0f, 2.0f, 0.1f)}, Vec3(x + 0.5f, 1.0f, 0.0f))));
+            unwrap(physics->createJoint({.type = JointType::Hinge,
+                                         .first = door,
+                                         .firstPoint = Vec3(-0.5f, 0.0f, 0.0f),
+                                         .secondPoint = Vec3(x, 1.0f, 0.0f),
+                                         .limited = limited,
+                                         .minimum = -0.125f * kPi,
+                                         .maximum = 0.25f * kPi}));
+            // Turning about the hinge, its middle goes round at half a metre.
+            physics->setAngularVelocity(door, Vec3(0.0f, 2.0f, 0.0f));
+            physics->setLinearVelocity(door, Vec3(0.0f, 0.0f, -1.0f));
+            return door;
+        };
+        const BodyId open = doorAt(0.0f, false);
+        const BodyId held = doorAt(10.0f, true);
+
+        float widest = 0.0f;
+        for (int step = 0; step < 60; ++step) {
+            physics->step(kStep);
+            // Each stays on its hinge: half a metre from the axis, at the height it was.
+            for (const auto& [door, x] : {std::pair{open, 0.0f}, std::pair{held, 10.0f}}) {
+                const Vec3 middle = physics->position(door) - Vec3(x, 0.0f, 0.0f);
+                REQUIRE(glm::length(Vec2(middle.x, middle.z)) == doctest::Approx(0.5f).epsilon(0.02));
+                REQUIRE(middle.y == doctest::Approx(1.0f).epsilon(0.01));
+            }
+            widest = std::max(widest, glm::angle(physics->rotation(held)));
+            REQUIRE(glm::angle(physics->rotation(held)) < 0.25f * kPi + 0.03f);
+        }
+        // After a second the one that is free has turned two radians about Y.
+        CHECK_NEAR(physics->position(open), Vec3(0.5f * std::cos(2.0f), 1.0f, -0.5f * std::sin(2.0f)), 0.03f);
+        // The other went as far as it may: an eighth of a turn about +Y, the way it was
+        // pushed, which takes its middle towards -Z.
+        CHECK(widest == doctest::Approx(0.25f * kPi).epsilon(0.03));
+        // Pushed back the other way - turning about the hinge again, its middle going
+        // round with it - it goes half as far past where it started.
+        const Vec3 spin(0.0f, -2.0f, 0.0f);
+        physics->setAngularVelocity(held, spin);
+        physics->setLinearVelocity(held, glm::cross(spin, physics->position(held) - Vec3(10.0f, 1.0f, 0.0f)));
+        float back = 0.0f;
+        for (int step = 0; step < 90; ++step) {
+            physics->step(kStep);
+            back = std::max(back, physics->position(held).z);
+        }
+        CHECK(back == doctest::Approx(0.5f * std::sin(0.125f * kPi)).epsilon(0.03));
+    }
+
+    TEST_CASE("a slider lets a body slide along its axis, and no further than it is limited to") {
+        const std::unique_ptr<PhysicsWorld> physics = unwrap(PhysicsWorld::create());
+        // A drawer that slides along X: from half a metre back to a metre out.
+        const BodyId drawer = unwrap(physics->createBody(undamped({.type = ShapeType::Box}, Vec3(0.0f, 1.0f, 0.0f))));
+        unwrap(physics->createJoint({.type = JointType::Slider,
+                                     .first = drawer,
+                                     .secondPoint = Vec3(0.0f, 1.0f, 0.0f),
+                                     .firstAxis = Vec3(1.0f, 0.0f, 0.0f),
+                                     .secondAxis = Vec3(1.0f, 0.0f, 0.0f),
+                                     .firstNormal = Vec3(0.0f, 1.0f, 0.0f),
+                                     .secondNormal = Vec3(0.0f, 1.0f, 0.0f),
+                                     .limited = true,
+                                     .minimum = -0.5f,
+                                     .maximum = 1.0f}));
+        // It does not fall, and does not turn: it has only the one way to go.
+        physics->setAngularVelocity(drawer, Vec3(1.0f, 2.0f, 3.0f));
+        stepFor(*physics, 60);
+        CHECK_NEAR(physics->position(drawer), Vec3(0.0f, 1.0f, 0.0f), 0.02f);
+        CHECK(glm::angle(physics->rotation(drawer)) < 0.05f);
+
+        // Pulled out, it stops at a metre; pushed in, at half a metre the other way. It
+        // arrives at speed, and may be past the end by what it goes in a step.
+        physics->setLinearVelocity(drawer, Vec3(3.0f, 0.0f, 0.0f));
+        for (int step = 0; step < 120; ++step) {
+            physics->step(kStep);
+            REQUIRE(physics->position(drawer).x < 1.0f + 3.0f * kStep + 0.01f);
+        }
+        CHECK(physics->position(drawer).x == doctest::Approx(1.0f).epsilon(0.02));
+        physics->setLinearVelocity(drawer, Vec3(-5.0f, 0.0f, 0.0f));
+        for (int step = 0; step < 120; ++step) {
+            physics->step(kStep);
+            REQUIRE(physics->position(drawer).x > -0.5f - 5.0f * kStep - 0.01f);
+        }
+        CHECK(physics->position(drawer).x == doctest::Approx(-0.5f).epsilon(0.02));
+        CHECK(physics->position(drawer).y == doctest::Approx(1.0f).epsilon(0.01));
+    }
+
+    TEST_CASE("a distance joint keeps two points as far apart as it is told: a rod, a rope, a spring") {
+        const std::unique_ptr<PhysicsWorld> physics = unwrap(PhysicsWorld::create());
+        const auto weightAt = [&](const Vec3& position) {
+            return unwrap(physics->createBody(undamped({.type = ShapeType::Sphere, .radius = 0.25f}, position)));
+        };
+        // A rod: not limited, it keeps the weight as far from what it hangs on as it is.
+        const BodyId onRod = weightAt(Vec3(0.0f, 6.0f, 0.0f));
+        unwrap(
+            physics->createJoint({.type = JointType::Distance, .first = onRod, .secondPoint = Vec3(0.0f, 8.0f, 0.0f)}));
+        // A rope of two metres: the weight, let go a metre below, falls another metre.
+        const BodyId onRope = weightAt(Vec3(10.0f, 7.0f, 0.0f));
+        unwrap(physics->createJoint({.type = JointType::Distance,
+                                     .first = onRope,
+                                     .secondPoint = Vec3(10.0f, 8.0f, 0.0f),
+                                     .limited = true,
+                                     .maximum = 2.0f}));
+        // A spring of two metres that swings twice a second: the weight pulls it a
+        // little longer - by what gravity is to the square of that swing - and stops.
+        const BodyId onSpring = weightAt(Vec3(20.0f, 6.0f, 0.0f));
+        unwrap(physics->createJoint({.type = JointType::Distance,
+                                     .first = onSpring,
+                                     .secondPoint = Vec3(20.0f, 8.0f, 0.0f),
+                                     .limited = true,
+                                     .minimum = 2.0f,
+                                     .maximum = 2.0f,
+                                     .frequency = 2.0f,
+                                     .damping = 0.5f}));
+
+        // Pushed sideways the rod swings, and is two metres long all the while.
+        physics->setLinearVelocity(onRod, Vec3(3.0f, 0.0f, 0.0f));
+        for (int step = 0; step < 300; ++step) {
+            physics->step(kStep);
+            REQUIRE(glm::distance(physics->position(onRod), Vec3(0.0f, 8.0f, 0.0f)) ==
+                    doctest::Approx(2.0f).epsilon(0.01));
+            // It reaches the end of the rope at speed, and is a little past it for a step.
+            REQUIRE(glm::distance(physics->position(onRope), Vec3(10.0f, 8.0f, 0.0f)) < 2.0f + 0.08f);
+        }
+        CHECK(physics->position(onRope).y == doctest::Approx(6.0f).epsilon(5.0e-3));
+        const float stretch = 9.81f / ((kTwoPi * 2.0f) * (kTwoPi * 2.0f));
+        CHECK(physics->position(onSpring).y == doctest::Approx(6.0f - stretch).epsilon(2.0e-3));
+    }
+
+    TEST_CASE("bodies that are joined do not collide with each other unless they are to") {
+        const std::unique_ptr<PhysicsWorld> physics = unwrap(PhysicsWorld::create({.gravity = Vec3(0.0f)}));
+        // Two crates that reach into each other, joined as they are. And two more
+        // beside them that are joined and to collide.
+        const auto pairAt = [&](float x, bool collide) {
+            const BodyId one = unwrap(physics->createBody({.position = Vec3(x, 5.0f, 0.0f)}));
+            const BodyId other = unwrap(physics->createBody({.position = Vec3(x + 0.6f, 5.0f, 0.0f)}));
+            const JointId joint = unwrap(physics->createJoint({.type = JointType::Ball,
+                                                               .first = other,
+                                                               .second = one,
+                                                               .firstPoint = Vec3(-0.3f, 0.0f, 0.0f),
+                                                               .secondPoint = Vec3(0.3f, 0.0f, 0.0f),
+                                                               .collide = collide}));
+            return std::tuple{one, other, joint};
+        };
+        const auto [one, other, joint] = pairAt(0.0f, false);
+        const auto [third, fourth, colliding] = pairAt(10.0f, true);
+        // A second joint between the first two.
+        const JointId second = unwrap(physics->createJoint({.type = JointType::Ball,
+                                                            .first = other,
+                                                            .second = one,
+                                                            .firstPoint = Vec3(-0.3f, 0.0f, 0.0f),
+                                                            .secondPoint = Vec3(0.3f, 0.0f, 0.0f)}));
+
+        // Only of the two that are to collide is anything said.
+        std::vector<ContactEvent> heard = stepAndListen(*physics, 20);
+        REQUIRE(heard.size() == 1);
+        CHECK(heard[0].first == third);
+        CHECK(heard[0].second == fourth);
+        CHECK(glm::distance(physics->position(one), physics->position(other)) == doctest::Approx(0.6f).epsilon(0.01));
+
+        // With one of two joints gone they are still joined, and still do not collide.
+        physics->destroyJoint(second);
+        CHECK(stepAndListen(*physics, 20).empty());
+        // With the other gone too, they are two crates in each other's way.
+        physics->destroyJoint(joint);
+        heard = stepAndListen(*physics, 60);
+        REQUIRE_FALSE(heard.empty());
+        CHECK(heard[0].phase == ContactPhase::Began);
+        CHECK(heard[0].first == one);
+        CHECK(heard[0].second == other);
+        CHECK(glm::distance(physics->position(one), physics->position(other)) > 0.95f);
+        CHECK(physics->isValid(colliding));
+        CHECK(physics->statistics().joints == 1);
+    }
+
+    TEST_CASE("a joint goes with either of its bodies, and what it held wakes") {
+        const std::unique_ptr<PhysicsWorld> physics = unwrap(PhysicsWorld::create());
+        addFloor(*physics);
+        // A crate that hangs from the world, and one that hangs from a post.
+        const BodyId hanging = unwrap(physics->createBody({.position = Vec3(0.0f, 5.0f, 0.0f)}));
+        const JointId toWorld = unwrap(
+            physics->createJoint({.type = JointType::Fixed, .first = hanging, .secondPoint = Vec3(0.0f, 5.0f, 0.0f)}));
+        const BodyId post =
+            unwrap(physics->createBody({.motion = BodyMotion::Static, .position = Vec3(10.0f, 8.0f, 0.0f)}));
+        const BodyId lamp = unwrap(physics->createBody({.position = Vec3(10.0f, 5.0f, 0.0f)}));
+        const JointId toPost = unwrap(physics->createJoint(
+            {.type = JointType::Fixed, .first = lamp, .second = post, .secondPoint = Vec3(0.0f, -3.0f, 0.0f)}));
+        stepFor(*physics, 300);
+        REQUIRE_FALSE(physics->isActive(hanging));
+        REQUIRE_FALSE(physics->isActive(lamp));
+        CHECK_NEAR(physics->position(lamp), Vec3(10.0f, 5.0f, 0.0f), 0.02f);
+
+        // The joint is taken away: the crate wakes, and falls.
+        physics->destroyJoint(toWorld);
+        CHECK(physics->isActive(hanging));
+        // The post is destroyed: its joint is none any more, and the lamp falls too.
+        physics->destroyBody(post);
+        CHECK_FALSE(physics->isValid(toPost));
+        CHECK(physics->statistics().joints == 0);
+        CHECK(physics->isActive(lamp));
+        stepFor(*physics, 300);
+        CHECK(physics->position(hanging).y == doctest::Approx(0.5f).epsilon(0.02));
+        CHECK(physics->position(lamp).y == doctest::Approx(0.5f).epsilon(0.02));
+
+        // Taking away what is none is nothing, and a joint that is made later is another.
+        physics->destroyJoint(toWorld);
+        physics->destroyJoint(JointId());
+        physics->destroyJoint(JointId{999});
+        const JointId again = unwrap(
+            physics->createJoint({.type = JointType::Ball, .first = hanging, .secondPoint = Vec3(0.0f, 0.5f, 0.0f)}));
+        CHECK(again != toWorld);
+        CHECK(again != toPost);
+        // The body that is joined going, the joint goes as well.
+        physics->destroyBody(hanging);
+        CHECK_FALSE(physics->isValid(again));
+    }
+
+    TEST_CASE("joints that make no sense are refused, and it is said why") {
+        const std::unique_ptr<PhysicsWorld> physics = unwrap(PhysicsWorld::create());
+        const BodyId crate = unwrap(physics->createBody({.position = Vec3(0.0f, 5.0f, 0.0f)}));
+        const BodyId wall =
+            unwrap(physics->createBody({.motion = BodyMotion::Static, .position = Vec3(5.0f, 5.0f, 0.0f)}));
+        const BodyId lift =
+            unwrap(physics->createBody({.motion = BodyMotion::Kinematic, .position = Vec3(9.0f, 5.0f, 0.0f)}));
+        const BodyId gone = unwrap(physics->createBody({.position = Vec3(20.0f, 5.0f, 0.0f)}));
+        physics->destroyBody(gone);
+
+        // Bodies that are none, that are gone, or one and the same.
+        const std::string noBodies =
+            "a hinge joint joins a body to another body of this world, or to none for the world";
+        CHECK(refusalOf(physics->createJoint({.type = JointType::Hinge})) == noBodies);
+        CHECK(refusalOf(physics->createJoint({.type = JointType::Hinge, .first = gone})) == noBodies);
+        CHECK(refusalOf(physics->createJoint({.type = JointType::Hinge, .first = crate, .second = gone})) == noBodies);
+        CHECK(refusalOf(physics->createJoint({.type = JointType::Hinge, .first = crate, .second = crate})) == noBodies);
+        // Bodies of which none is moved by the simulation.
+        const std::string nothingHeld = "a fixed joint holds nothing: neither of its bodies is dynamic, and only what "
+                                        "the simulation moves can be held";
+        CHECK(refusalOf(physics->createJoint({.first = wall})) == nothingHeld);
+        CHECK(refusalOf(physics->createJoint({.first = lift})) == nothingHeld);
+        CHECK(refusalOf(physics->createJoint({.first = lift, .second = wall})) == nothingHeld);
+        // One that is, joined to one that is not, is held: a door on a wall, a crate on a lift.
+        CHECK(physics->createJoint({.first = wall, .second = crate}).has_value());
+        CHECK(physics->createJoint({.first = crate, .second = lift}).has_value());
+
+        // Points and directions that are no numbers, and an axis that has no length.
+        CHECK_FALSE(physics->createJoint({.first = crate, .firstPoint = Vec3(kNotANumber)}).has_value());
+        CHECK_FALSE(physics->createJoint({.first = crate, .secondPoint = Vec3(0.0f, kNotANumber, 0.0f)}).has_value());
+        CHECK_FALSE(physics->createJoint({.first = crate, .firstAxis = Vec3(kNotANumber)}).has_value());
+        CHECK_FALSE(physics->createJoint({.first = crate, .secondNormal = Vec3(kNotANumber)}).has_value());
+        CHECK(refusalOf(physics->createJoint({.type = JointType::Slider, .first = crate, .firstAxis = Vec3(0.0f)})) ==
+              "the axis of a slider joint has no length, and so no direction");
+        CHECK_FALSE(
+            physics->createJoint({.type = JointType::Hinge, .first = crate, .secondAxis = Vec3(0.0f)}).has_value());
+        // A ball has no axis to be without, and a normal that runs along the axis is made one that does not.
+        CHECK(physics->createJoint({.type = JointType::Ball, .first = crate, .firstAxis = Vec3(0.0f)}).has_value());
+        CHECK(physics->createJoint({.type = JointType::Hinge, .first = crate, .firstNormal = Vec3(0.0f, 3.0f, 0.0f)})
+                  .has_value());
+
+        // Limits that are not what the kind of joint has.
+        const auto limited = [&](JointType type, float minimum, float maximum) {
+            return physics->createJoint(
+                {.type = type, .first = crate, .limited = true, .minimum = minimum, .maximum = maximum});
+        };
+        CHECK(refusalOf(limited(JointType::Hinge, 0.5f, 1.0f)) ==
+              "a hinge turns from between -pi and 0 to between 0 and pi, not from 0.5 to 1");
+        CHECK_FALSE(limited(JointType::Hinge, -1.0f, -0.5f).has_value());
+        CHECK_FALSE(limited(JointType::Hinge, -4.0f, 1.0f).has_value());
+        CHECK_FALSE(limited(JointType::Hinge, -1.0f, 4.0f).has_value());
+        CHECK_FALSE(limited(JointType::Hinge, kNotANumber, 1.0f).has_value());
+        CHECK(limited(JointType::Hinge, -kPi, kPi).has_value());
+        // A hinge or a slider that may not move at all is no hinge and no slider -
+        // unless it gives, and is a spring about where it is.
+        CHECK(refusalOf(limited(JointType::Hinge, 0.0f, 0.0f)) ==
+              "a hinge that is limited to where it is, and does not give, is a fixed joint: use one");
+        CHECK_FALSE(limited(JointType::Slider, 0.0f, 0.0f).has_value());
+        CHECK(physics->createJoint({.type = JointType::Hinge, .first = crate, .limited = true, .frequency = 2.0f})
+                  .has_value());
+        CHECK(refusalOf(limited(JointType::Slider, 0.5f, 1.0f)) ==
+              "a slider slides from at most 0 to at least 0, not from 0.5 to 1");
+        CHECK_FALSE(limited(JointType::Slider, -1.0f, -0.5f).has_value());
+        CHECK(limited(JointType::Slider, -100.0f, 100.0f).has_value());
+        CHECK(refusalOf(limited(JointType::Distance, -1.0f, 1.0f)) ==
+              "the ends of a distance are from 0 or more to as much or more apart, not from -1 to 1");
+        CHECK_FALSE(limited(JointType::Distance, 2.0f, 1.0f).has_value());
+        CHECK(limited(JointType::Distance, 0.0f, 0.0f).has_value());
+        // Limits that are not asked for are not looked at, and a joint without any has none.
+        CHECK(physics->createJoint({.type = JointType::Hinge, .first = crate, .minimum = 9.0f, .maximum = -9.0f})
+                  .has_value());
+        CHECK(limited(JointType::Fixed, 9.0f, -9.0f).has_value());
+        CHECK(limited(JointType::Ball, 9.0f, -9.0f).has_value());
+
+        // A spring that swings less than never, or dies away faster than at once.
+        CHECK_FALSE(
+            physics->createJoint({.type = JointType::Distance, .first = crate, .frequency = -1.0f}).has_value());
+        CHECK_FALSE(physics->createJoint({.type = JointType::Distance, .first = crate, .damping = -0.1f}).has_value());
+        CHECK_FALSE(
+            physics->createJoint({.type = JointType::Distance, .first = crate, .frequency = kNotANumber}).has_value());
     }
 
     TEST_CASE("a simulation is the same every time it is run") {

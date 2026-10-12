@@ -22,6 +22,7 @@
 #include <Jolt/Physics/Collision/CollideShape.h>
 #include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
 #include <Jolt/Physics/Collision/ContactListener.h>
+#include <Jolt/Physics/Collision/GroupFilter.h>
 #include <Jolt/Physics/Collision/NarrowPhaseQuery.h>
 #include <Jolt/Physics/Collision/ObjectLayerPairFilterTable.h>
 #include <Jolt/Physics/Collision/RayCast.h>
@@ -33,6 +34,12 @@
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Collision/Shape/StaticCompoundShape.h>
 #include <Jolt/Physics/Collision/ShapeCast.h>
+#include <Jolt/Physics/Constraints/DistanceConstraint.h>
+#include <Jolt/Physics/Constraints/FixedConstraint.h>
+#include <Jolt/Physics/Constraints/HingeConstraint.h>
+#include <Jolt/Physics/Constraints/PointConstraint.h>
+#include <Jolt/Physics/Constraints/SliderConstraint.h>
+#include <Jolt/Physics/Constraints/TwoBodyConstraint.h>
 #include <Jolt/Physics/PhysicsSettings.h>
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/RegisterTypes.h>
@@ -351,6 +358,221 @@ Status validateBody(const BodyDesc& desc) {
     return {};
 }
 
+// --- Joints -----------------------------------------------------------------------------------
+
+/// Decides which bodies may collide beside what their layers say: all of them, but for
+/// two that a joint holds together and that are not to. Every body is a group of its
+/// own; the pairs that do not collide are kept here, counted - two bodies may be held
+/// by several joints.
+class JoinedPairFilter final : public JPH::GroupFilter {
+public:
+    [[nodiscard]] bool CanCollide(const JPH::CollisionGroup& one, const JPH::CollisionGroup& other) const override {
+        return m_joined.empty() || !m_joined.contains(pairOf(one.GetGroupID(), other.GetGroupID()));
+    }
+
+    void join(JPH::CollisionGroup::GroupID one, JPH::CollisionGroup::GroupID other) { ++m_joined[pairOf(one, other)]; }
+
+    void part(JPH::CollisionGroup::GroupID one, JPH::CollisionGroup::GroupID other) {
+        const auto found = m_joined.find(pairOf(one, other));
+        if (found != m_joined.end() && --found->second == 0) {
+            m_joined.erase(found);
+        }
+    }
+
+private:
+    static uint64_t pairOf(JPH::CollisionGroup::GroupID one, JPH::CollisionGroup::GroupID other) {
+        return (static_cast<uint64_t>(std::min(one, other)) << 32u) | std::max(one, other);
+    }
+
+    /// How many joints hold each pair of groups that does not collide.
+    std::unordered_map<uint64_t, uint32_t> m_joined;
+};
+
+/// A joint that was made: what Jolt holds of it, and what is needed to take it away.
+struct Joint {
+    JPH::Ref<JPH::Constraint> constraint;
+    BodyId first;
+    BodyId second;
+    /// The groups of the two bodies, where the joint keeps them from colliding.
+    bool keepsApart = false;
+    JPH::CollisionGroup::GroupID firstGroup = 0;
+    JPH::CollisionGroup::GroupID secondGroup = 0;
+};
+
+/// A direction across `axis` that is as near to `normal` as one can be; any, where
+/// `normal` runs along the axis or is none. Both of unit length.
+Vec3 normalAcross(const Vec3& axis, const Vec3& normal) {
+    const Vec3 across = normal - axis * glm::dot(normal, axis);
+    if (isFinite(across) && glm::length(across) > 1.0e-4f) {
+        return glm::normalize(across);
+    }
+    return fromJolt(toJolt(axis).GetNormalizedPerpendicular());
+}
+
+/// A spring as Jolt wants it: none where the frequency is nothing.
+JPH::SpringSettings springOf(const JointDesc& desc) {
+    return {JPH::ESpringMode::FrequencyAndDamping, desc.frequency, desc.damping};
+}
+
+/// Checks what can be checked of a joint without its bodies.
+Status validateJoint(const JointDesc& desc) {
+    if (!isFinite(desc.firstPoint) || !isFinite(desc.secondPoint) || !isFinite(desc.firstAxis) ||
+        !isFinite(desc.secondAxis) || !isFinite(desc.firstNormal) || !isFinite(desc.secondNormal)) {
+        return makeError(ErrorCode::InvalidArgument,
+                         "the points and directions of a {} joint are not all made of numbers", nameOf(desc.type));
+    }
+    const bool hasAxis =
+        desc.type == JointType::Hinge || desc.type == JointType::Slider || desc.type == JointType::Fixed;
+    if (hasAxis && (glm::length(desc.firstAxis) <= kEpsilon || glm::length(desc.secondAxis) <= kEpsilon)) {
+        return makeError(ErrorCode::InvalidArgument, "the axis of a {} joint has no length, and so no direction",
+                         nameOf(desc.type));
+    }
+    if (!isFinite(desc.frequency) || desc.frequency < 0.0f || !isFinite(desc.damping) || desc.damping < 0.0f) {
+        return makeError(ErrorCode::InvalidArgument,
+                         "how much a {} joint gives is a frequency and a damping that are not negative, not {} and {}",
+                         nameOf(desc.type), desc.frequency, desc.damping);
+    }
+    if (!desc.limited) {
+        return {};
+    }
+    if (!isFinite(desc.minimum) || !isFinite(desc.maximum)) {
+        return makeError(ErrorCode::InvalidArgument, "the limits of a {} joint are not numbers", nameOf(desc.type));
+    }
+    const bool leavesNothing = desc.minimum == desc.maximum && desc.frequency <= 0.0f;
+    if (leavesNothing && (desc.type == JointType::Hinge || desc.type == JointType::Slider)) {
+        return makeError(ErrorCode::InvalidArgument,
+                         "a {} that is limited to where it is, and does not give, is a fixed joint: use one",
+                         nameOf(desc.type));
+    }
+    switch (desc.type) {
+        case JointType::Hinge:
+            if (desc.minimum > 0.0f || desc.maximum < 0.0f || desc.minimum < -kPi || desc.maximum > kPi) {
+                return makeError(ErrorCode::InvalidArgument,
+                                 "a hinge turns from between -pi and 0 to between 0 and pi, not from {} to {}",
+                                 desc.minimum, desc.maximum);
+            }
+            break;
+        case JointType::Slider:
+            if (desc.minimum > 0.0f || desc.maximum < 0.0f) {
+                return makeError(ErrorCode::InvalidArgument,
+                                 "a slider slides from at most 0 to at least 0, not from {} to {}", desc.minimum,
+                                 desc.maximum);
+            }
+            break;
+        case JointType::Distance:
+            if (desc.minimum < 0.0f || desc.maximum < desc.minimum) {
+                return makeError(
+                    ErrorCode::InvalidArgument,
+                    "the ends of a distance are from 0 or more to as much or more apart, not from {} to {}",
+                    desc.minimum, desc.maximum);
+            }
+            break;
+        case JointType::Fixed:
+        case JointType::Ball:
+            break;
+    }
+    return {};
+}
+
+/// The frame of a joint on one body, as Jolt wants it: against the centre of mass of
+/// the body, which is where Jolt has its shapes.
+struct JointFrame {
+    JPH::RVec3 point;
+    JPH::Vec3 axis;
+    JPH::Vec3 normal;
+};
+
+JointFrame frameOn(const JPH::Body& body, const Vec3& point, const Vec3& axis, const Vec3& normal) {
+    // The world has no shape, and no centre of mass that is anywhere but where it begins.
+    const JPH::Vec3 middle = body.GetShape() != nullptr ? body.GetShape()->GetCenterOfMass() : JPH::Vec3::sZero();
+    const Vec3 along = normalizeOr(axis, kWorldUp);
+    return {.point = JPH::RVec3(toJolt(point) - middle),
+            .axis = toJolt(along),
+            .normal = toJolt(normalAcross(along, normal))};
+}
+
+/// Where a point of a body is in the world.
+Vec3 worldPointOf(const JPH::Body& body, const JPH::RVec3& pointFromMiddle) {
+    return fromJolt(JPH::Vec3(body.GetCenterOfMassTransform() * pointFromMiddle));
+}
+
+/// What Jolt makes of a joint between two bodies, of which the second may be the world.
+///
+/// Jolt measures how far a hinge is turned and a slider has slid by its second body
+/// against its first, about the first one's axis - and wants the heavier of the two, or
+/// the one that does not move, to be the first. A joint here is measured by the body
+/// that is joined against what it is joined to. So Jolt is given the two the other way
+/// round: what is joined to is its first body.
+JPH::Ref<JPH::Constraint> makeConstraint(const JointDesc& desc, JPH::Body& first, JPH::Body& second) {
+    const JointFrame one = frameOn(first, desc.firstPoint, desc.firstAxis, desc.firstNormal);
+    const JointFrame other = frameOn(second, desc.secondPoint, desc.secondAxis, desc.secondNormal);
+    switch (desc.type) {
+        case JointType::Fixed: {
+            JPH::FixedConstraintSettings settings;
+            settings.mSpace = JPH::EConstraintSpace::LocalToBodyCOM;
+            settings.mPoint1 = other.point;
+            settings.mAxisX1 = other.axis;
+            settings.mAxisY1 = other.normal;
+            settings.mPoint2 = one.point;
+            settings.mAxisX2 = one.axis;
+            settings.mAxisY2 = one.normal;
+            return settings.Create(second, first);
+        }
+        case JointType::Ball: {
+            JPH::PointConstraintSettings settings;
+            settings.mSpace = JPH::EConstraintSpace::LocalToBodyCOM;
+            settings.mPoint1 = other.point;
+            settings.mPoint2 = one.point;
+            return settings.Create(second, first);
+        }
+        case JointType::Hinge: {
+            JPH::HingeConstraintSettings settings;
+            settings.mSpace = JPH::EConstraintSpace::LocalToBodyCOM;
+            settings.mPoint1 = other.point;
+            settings.mHingeAxis1 = other.axis;
+            settings.mNormalAxis1 = other.normal;
+            settings.mPoint2 = one.point;
+            settings.mHingeAxis2 = one.axis;
+            settings.mNormalAxis2 = one.normal;
+            if (desc.limited) {
+                settings.mLimitsMin = desc.minimum;
+                settings.mLimitsMax = desc.maximum;
+                settings.mLimitsSpringSettings = springOf(desc);
+            }
+            return settings.Create(second, first);
+        }
+        case JointType::Slider: {
+            JPH::SliderConstraintSettings settings;
+            settings.mSpace = JPH::EConstraintSpace::LocalToBodyCOM;
+            settings.mPoint1 = other.point;
+            settings.mSliderAxis1 = other.axis;
+            settings.mNormalAxis1 = other.normal;
+            settings.mPoint2 = one.point;
+            settings.mSliderAxis2 = one.axis;
+            settings.mNormalAxis2 = one.normal;
+            if (desc.limited) {
+                settings.mLimitsMin = desc.minimum;
+                settings.mLimitsMax = desc.maximum;
+                settings.mLimitsSpringSettings = springOf(desc);
+            }
+            return settings.Create(second, first);
+        }
+        case JointType::Distance: {
+            JPH::DistanceConstraintSettings settings;
+            settings.mSpace = JPH::EConstraintSpace::LocalToBodyCOM;
+            settings.mPoint1 = other.point;
+            settings.mPoint2 = one.point;
+            // Not limited, the ends stay as far apart as they are now.
+            const float apart = glm::distance(worldPointOf(first, one.point), worldPointOf(second, other.point));
+            settings.mMinDistance = desc.limited ? desc.minimum : apart;
+            settings.mMaxDistance = desc.limited ? desc.maximum : apart;
+            settings.mLimitsSpringSettings = springOf(desc);
+            return settings.Create(second, first);
+        }
+    }
+    return nullptr;
+}
+
 // --- Contacts ---------------------------------------------------------------------------------
 
 /// Two bodies that touch, as the world remembers them from step to step.
@@ -622,6 +844,22 @@ std::string_view nameOf(BodyMotion motion) {
     return "unknown";
 }
 
+std::string_view nameOf(JointType type) {
+    switch (type) {
+        case JointType::Fixed:
+            return "fixed";
+        case JointType::Ball:
+            return "ball";
+        case JointType::Hinge:
+            return "hinge";
+        case JointType::Slider:
+            return "slider";
+        case JointType::Distance:
+            return "distance";
+    }
+    return "unknown";
+}
+
 std::string_view nameOf(ShapeType type) {
     switch (type) {
         case ShapeType::Box:
@@ -716,6 +954,32 @@ struct PhysicsWorld::Impl {
         return GeometryId{lastGeometry};
     }
 
+    /// Takes a joint away: out of the simulation, and out of what keeps its bodies from
+    /// colliding.
+    void removeJoint(const Joint& joint) {
+        system.RemoveConstraint(joint.constraint);
+        if (joint.keepsApart) {
+            joinedPairs->part(joint.firstGroup, joint.secondGroup);
+        }
+    }
+
+    /// Takes away the joints that hold a body, which is about to go.
+    void removeJointsOf(BodyId body) {
+        for (auto entry = joints.begin(); entry != joints.end();) {
+            if (entry->second.first == body || entry->second.second == body) {
+                removeJoint(entry->second);
+                // What hung on the body by the joint hangs no more.
+                const BodyId other = entry->second.first == body ? entry->second.second : entry->second.first;
+                if (!other.isNull()) {
+                    bodies().ActivateBody(JPH::BodyID(other.value));
+                }
+                entry = joints.erase(entry);
+            } else {
+                ++entry;
+            }
+        }
+    }
+
     // Declared in the order the library needs them made, and unmade in reverse.
     JPH::BroadPhaseLayerInterfaceTable broadPhaseLayers;
     JPH::ObjectLayerPairFilterTable objectLayerPairs;
@@ -727,6 +991,13 @@ struct PhysicsWorld::Impl {
     ContactRecorder contacts;
     /// What began to touch and what stopped in the last step.
     std::vector<ContactEvent> contactEvents;
+
+    /// The joints, by the value of their JointId, and the pairs of bodies that they keep
+    /// from colliding. Every body is given a group of its own, counted up.
+    std::unordered_map<uint32_t, Joint> joints;
+    uint32_t lastJoint = JointId::kNone;
+    JPH::Ref<JoinedPairFilter> joinedPairs = new JoinedPairFilter();
+    JPH::CollisionGroup::GroupID lastGroup = 0;
 
     GeometryTable geometries;
     uint32_t lastGeometry = GeometryId::kNone;
@@ -926,6 +1197,7 @@ Result<BodyId> PhysicsWorld::createBody(const BodyDesc& desc) {
     // Asleep, a sensor would notice nothing.
     settings.mAllowSleeping = desc.allowSleep && !desc.sensor;
     settings.mUserData = desc.userData;
+    settings.mCollisionGroup = JPH::CollisionGroup(m_impl->joinedPairs, ++m_impl->lastGroup, 0);
     if (desc.motion == BodyMotion::Dynamic) {
         // The mass is what was asked for; how it is spread follows from the shape.
         settings.mOverrideMassProperties = JPH::EOverrideMassProperties::CalculateInertia;
@@ -957,10 +1229,80 @@ void PhysicsWorld::destroyBody(BodyId body) {
         return;
     }
     const JPH::AABox where = m_impl->solidBoundsOf(joltIdOf(body));
+    // A joint holds on to its bodies, and has to go before either of them does.
+    m_impl->removeJointsOf(body);
     m_impl->bodies().RemoveBody(joltIdOf(body));
     m_impl->bodies().DestroyBody(joltIdOf(body));
     m_impl->contacts.noteGone();
     m_impl->wakeWhatIsIn(where);
+}
+
+Result<JointId> PhysicsWorld::createJoint(const JointDesc& desc) {
+    if (!isValid(desc.first) || (!desc.second.isNull() && !isValid(desc.second)) || desc.first == desc.second) {
+        return makeError(ErrorCode::InvalidArgument,
+                         "a {} joint joins a body to another body of this world, or to none for the world",
+                         nameOf(desc.type));
+    }
+    const bool hasDynamic = motion(desc.first) == BodyMotion::Dynamic ||
+                            (!desc.second.isNull() && motion(desc.second) == BodyMotion::Dynamic);
+    if (!hasDynamic) {
+        return makeError(ErrorCode::InvalidArgument,
+                         "a {} joint holds nothing: neither of its bodies is dynamic, and only what the simulation "
+                         "moves can be held",
+                         nameOf(desc.type));
+    }
+    CORDITE_TRY(validateJoint(desc));
+
+    // Nothing is stepping, and nobody else has the bodies: no lock is needed to take them.
+    const JPH::BodyLockInterfaceNoLock& locks = m_impl->system.GetBodyLockInterfaceNoLock();
+    JPH::Body* first = locks.TryGetBody(joltIdOf(desc.first));
+    JPH::Body* second = desc.second.isNull() ? &JPH::Body::sFixedToWorld : locks.TryGetBody(joltIdOf(desc.second));
+    if (first == nullptr || second == nullptr) {
+        return makeError(ErrorCode::InvalidArgument, "a body of a {} joint is not there", nameOf(desc.type));
+    }
+    Joint joint;
+    joint.constraint = makeConstraint(desc, *first, *second);
+    if (joint.constraint == nullptr) {
+        return makeError(ErrorCode::InvalidArgument, "no {} joint could be made", nameOf(desc.type));
+    }
+    joint.first = desc.first;
+    joint.second = desc.second;
+    if (!desc.collide && !desc.second.isNull()) {
+        joint.keepsApart = true;
+        joint.firstGroup = first->GetCollisionGroup().GetGroupID();
+        joint.secondGroup = second->GetCollisionGroup().GetGroupID();
+        m_impl->joinedPairs->join(joint.firstGroup, joint.secondGroup);
+    }
+    m_impl->system.AddConstraint(joint.constraint);
+    // What sleeps does not feel that it is held.
+    m_impl->bodies().ActivateBody(joltIdOf(desc.first));
+    if (!desc.second.isNull()) {
+        m_impl->bodies().ActivateBody(joltIdOf(desc.second));
+    }
+
+    do {
+        ++m_impl->lastJoint;
+    } while (m_impl->lastJoint == JointId::kNone || m_impl->joints.contains(m_impl->lastJoint));
+    m_impl->joints.emplace(m_impl->lastJoint, std::move(joint));
+    return JointId{m_impl->lastJoint};
+}
+
+void PhysicsWorld::destroyJoint(JointId joint) {
+    const auto found = m_impl->joints.find(joint.value);
+    if (found == m_impl->joints.end()) {
+        return;
+    }
+    m_impl->removeJoint(found->second);
+    // What it held is held no more.
+    m_impl->bodies().ActivateBody(joltIdOf(found->second.first));
+    if (!found->second.second.isNull()) {
+        m_impl->bodies().ActivateBody(joltIdOf(found->second.second));
+    }
+    m_impl->joints.erase(found);
+}
+
+bool PhysicsWorld::isValid(JointId joint) const {
+    return m_impl->joints.contains(joint.value);
 }
 
 bool PhysicsWorld::isValid(BodyId body) const {
@@ -1206,6 +1548,7 @@ PhysicsStatistics PhysicsWorld::statistics() const {
     statistics.bodies = m_impl->system.GetNumBodies();
     statistics.activeBodies = m_impl->system.GetNumActiveBodies(JPH::EBodyType::RigidBody);
     statistics.geometries = static_cast<uint32_t>(m_impl->geometries.size());
+    statistics.joints = static_cast<uint32_t>(m_impl->joints.size());
     statistics.steps = m_impl->steps;
     statistics.overflowedSteps = m_impl->overflowedSteps;
     return statistics;
