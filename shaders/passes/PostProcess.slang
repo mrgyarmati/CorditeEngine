@@ -4,6 +4,10 @@
 // mapping, grading, the lookup table, film grain, and the encoding of a display. What
 // each of them does, and to what numbers, is described in
 // engine/cordite/renderer/PostProcessSettings.h.
+//
+// When the edges of the picture are to be smoothed (passes/AntiAliasing.slang), this is
+// the last pass but one: it leaves the grain to that pass, which would take every
+// grain for an edge, and writes how bright each pixel is into alpha for it.
 
 #include "common/Color.slang"
 #include "common/Fullscreen.slang"
@@ -21,21 +25,6 @@ Texture2D<float4> exposure : register(t2, space0);
 // those of a display (sRGB-encoded), as an image editor has them.
 Texture2D<float4> colorLut : register(t3, space0);
 SamplerState linearClamp : register(s0, space0);
-
-// A number that looks random, from another (M. Jarzynski and M. Olano, "Hash Functions
-// for GPU Rendering", 2020).
-uint hash(uint value)
-{
-    const uint state = value * 747796405u + 2891336453u;
-    const uint word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
-    return (word >> 22u) ^ word;
-}
-
-// Between 0 and 1, different for every pixel and every seed, the same on every run.
-float randomAt(uint2 pixel, uint seed)
-{
-    return float(hash(pixel.x + hash(pixel.y + hash(seed)))) * (1.0 / 4294967296.0);
-}
 
 // The color the lookup table has for a color: of the two slices on either side of its
 // blue, the texels around its red and green, blended.
@@ -90,11 +79,9 @@ float4 postProcessPixel(FullscreenVaryings input) : SV_Target0
     {
         shown = lerp(shown, lookUpColor(shown), colorLutIntensity);
     }
-    if (filmGrain > 0.0)
+    if (antiAliased < 0.5)
     {
-        // Less of it in the highlights, where film has little.
-        const float grain = randomAt(pixel, grainSeed) - 0.5;
-        shown += grain * filmGrain * (1.0 - 0.5 * luminance(shown));
+        shown = withGrain(shown, pixel);
     }
     if (dither > 0.5)
     {
@@ -104,5 +91,6 @@ float4 postProcessPixel(FullscreenVaryings input) : SV_Target0
         const float3 room = saturate(min(shown, 1.0 - shown) * 255.0);
         shown += room * (randomAt(pixel, 0xD17Eu) + randomAt(pixel, 0xD17Fu) - 1.0) / 255.0;
     }
-    return float4(saturate(shown), 1.0);
+    shown = saturate(shown);
+    return float4(shown, antiAliased > 0.5 ? luminance(shown) : 1.0);
 }

@@ -47,9 +47,14 @@ struct PostProcessConstants {
     float exposureMaximum;
     float adaptationUp;
     float adaptationDown;
+
+    float antiAliased;
+    float antiAliasingEdgeThreshold;
+    float antiAliasingEdgeMinimum;
+    uint32_t antiAliasingSteps;
 };
 
-static_assert(sizeof(PostProcessConstants) == 128, "must match the cbuffer layout in PostProcess.slang");
+static_assert(sizeof(PostProcessConstants) == 144, "must match the cbuffer layout in PostProcess.slang");
 
 // The shader tells the tone mappers apart by these numbers.
 static_assert(static_cast<uint32_t>(ToneMapper::Filmic) == 0 && static_cast<uint32_t>(ToneMapper::Aces) == 1 &&
@@ -131,7 +136,8 @@ PostProcessPass::PostProcessPass(Parts parts)
       m_downsample(std::move(parts.downsample)),
       m_upsample(std::move(parts.upsample)),
       m_exposure(std::move(parts.exposure)),
-      m_final(std::move(parts.final)) {}
+      m_final(std::move(parts.final)),
+      m_antiAliasing(std::move(parts.antiAliasing)) {}
 
 Result<PostProcessPass> PostProcessPass::create(nvrhi::IDevice* device, ShaderManager& shaders) {
     CORDITE_ASSERT(device != nullptr, "the post-processing pass needs a device");
@@ -151,7 +157,7 @@ Result<PostProcessPass> PostProcessPass::create(nvrhi::IDevice* device, ShaderMa
     noLutDesc.keepInitialState = true;
     nvrhi::TextureHandle noLut = device->createTexture(noLutDesc);
 
-    // One texture and the sampler: the bloom passes.
+    // One texture and the sampler: the bloom passes, and the anti-aliasing.
     nvrhi::BindingLayoutDesc sampleDesc;
     sampleDesc.visibility = nvrhi::ShaderType::Pixel;
     sampleDesc.bindings = {nvrhi::BindingLayoutItem::VolatileConstantBuffer(0),
@@ -202,6 +208,10 @@ Result<PostProcessPass> PostProcessPass::create(nvrhi::IDevice* device, ShaderMa
         FullscreenPass final,
         FullscreenPass::create(
             device, shaders, passDesc("Post-processing", "passes/PostProcess.slang", "postProcessPixel", finalLayout)));
+    CORDITE_TRY_ASSIGN(FullscreenPass antiAliasing,
+                       FullscreenPass::create(
+                           device, shaders,
+                           passDesc("Anti-aliasing", "passes/AntiAliasing.slang", "antiAliasingPixel", sampleLayout)));
 
     return PostProcessPass(Parts{.device = device,
                                  .constants = std::move(constants),
@@ -214,7 +224,8 @@ Result<PostProcessPass> PostProcessPass::create(nvrhi::IDevice* device, ShaderMa
                                  .downsample = std::move(downsample),
                                  .upsample = std::move(upsample),
                                  .exposure = std::move(exposure),
-                                 .final = std::move(final)});
+                                 .final = std::move(final),
+                                 .antiAliasing = std::move(antiAliasing)});
 }
 
 PostProcessPass::ViewCache& PostProcessPass::cacheFor(const SceneTargets& targets) {
@@ -240,6 +251,29 @@ nvrhi::IBindingSet* PostProcessPass::sampleBindings(nvrhi::BindingSetHandle& set
         set = m_device->createBindingSet(desc, m_sampleLayout);
     }
     return set;
+}
+
+nvrhi::IBindingSet* PostProcessPass::antiAliasingBindings(ViewCache& view, SceneTargets& targets) {
+    Status prepared = targets.prepareAliased(m_device);
+    if (prepared && (!view.antiAliasing || view.aliased != targets.aliased())) {
+        nvrhi::BindingSetDesc desc;
+        desc.bindings = {nvrhi::BindingSetItem::ConstantBuffer(0, m_constants),
+                         nvrhi::BindingSetItem::Texture_SRV(0, targets.aliased()),
+                         nvrhi::BindingSetItem::Sampler(0, m_sampler)};
+        view.antiAliasing = m_device->createBindingSet(desc, m_sampleLayout);
+        view.aliased = targets.aliased();
+        if (!view.antiAliasing) {
+            prepared = makeError(ErrorCode::DeviceError, "cannot bind what the anti-aliasing reads");
+        }
+    }
+    if (!prepared) {
+        if (!m_reportedAntiAliasing) {
+            CORDITE_LOG_WARN("Renderer", "the picture is finished without anti-aliasing: {}", prepared.error().message);
+            m_reportedAntiAliasing = true;
+        }
+        return nullptr;
+    }
+    return view.antiAliasing;
 }
 
 uint32_t PostProcessPass::draw(nvrhi::ICommandList* commandList, SceneTargets& targets,
@@ -270,6 +304,17 @@ uint32_t PostProcessPass::draw(nvrhi::ICommandList* commandList, SceneTargets& t
     }
     nvrhi::ITexture* lut = lutSize > 0 ? frame.colorLut : m_noLut.Get();
 
+    // A picture whose edges are smoothed is finished into an image of its own first.
+    // A view that is not to have that, or cannot, gives the image back.
+    ViewCache& view = cacheFor(targets);
+    nvrhi::IBindingSet* smoothing =
+        frame.antiAliasing == AntiAliasing::Fxaa ? antiAliasingBindings(view, targets) : nullptr;
+    if (smoothing == nullptr) {
+        view.antiAliasing = nullptr;
+        view.aliased = nullptr;
+        targets.releaseAliased();
+    }
+
     PostProcessConstants constants{};
     constants.exposureScale = exposureScale(look.exposure);
     constants.autoExposure = automatic ? 1.0f : 0.0f;
@@ -296,9 +341,11 @@ uint32_t PostProcessPass::draw(nvrhi::ICommandList* commandList, SceneTargets& t
     const float seconds = std::isfinite(frame.deltaSeconds) ? frame.deltaSeconds : 0.0f;
     constants.adaptationUp = adaptationShare(seconds, look.adaptationSpeedUp);
     constants.adaptationDown = adaptationShare(seconds, look.adaptationSpeedDown);
+    constants.antiAliased = smoothing != nullptr ? 1.0f : 0.0f;
+    constants.antiAliasingEdgeThreshold = quality.antiAliasingEdgeThreshold;
+    constants.antiAliasingEdgeMinimum = quality.antiAliasingEdgeMinimum;
+    constants.antiAliasingSteps = quality.antiAliasingSteps;
     commandList->writeBuffer(m_constants, &constants, sizeof(constants));
-
-    ViewCache& view = cacheFor(targets);
 
     // The bloom chain, down: needed for the bloom, and for measuring how bright the
     // picture is.
@@ -354,7 +401,11 @@ uint32_t PostProcessPass::draw(nvrhi::ICommandList* commandList, SceneTargets& t
         CORDITE_LOG_ERROR("Renderer", "cannot bind what the post-processing reads; the image is not updated");
         return passes;
     }
-    return passes + drawPass(commandList, m_final, targets.displayFramebuffer(), finalSet);
+    if (smoothing == nullptr) {
+        return passes + drawPass(commandList, m_final, targets.displayFramebuffer(), finalSet);
+    }
+    passes += drawPass(commandList, m_final, targets.aliasedFramebuffer(), finalSet);
+    return passes + drawPass(commandList, m_antiAliasing, targets.displayFramebuffer(), smoothing);
 }
 
 } // namespace cordite

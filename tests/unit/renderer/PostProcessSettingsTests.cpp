@@ -47,15 +47,55 @@ TEST_SUITE("PostProcessSettings") {
         CHECK(postProcessQualityFromName("Off") == PostProcessQuality::Off);
         CHECK_FALSE(postProcessQualityFromName("ultra").has_value());
         CHECK_FALSE(postProcessQualityFromName("").has_value());
+
+        CHECK(nameOf(AntiAliasing::Off) == "off");
+        CHECK(nameOf(AntiAliasing::Fxaa) == "fxaa");
+        CHECK(displayNameOf(AntiAliasing::Off) == "Off");
+        CHECK(displayNameOf(AntiAliasing::Fxaa) == "FXAA");
+        for (const AntiAliasing antiAliasing : kAntiAliasingModes) {
+            CHECK(antiAliasingFromName(nameOf(antiAliasing)) == antiAliasing);
+        }
+        CHECK(kAntiAliasingModes.size() == 2);
+        CHECK(antiAliasingFromName("FXAA") == AntiAliasing::Fxaa);
+        CHECK(antiAliasingFromName("Off") == AntiAliasing::Off);
+        CHECK_FALSE(antiAliasingFromName("msaa").has_value());
+        CHECK_FALSE(antiAliasingFromName("").has_value());
     }
 
-    TEST_CASE("a quality says where the bloom starts, how far it goes and whether the lens shows") {
+    TEST_CASE("a quality says where the bloom starts, how far it goes, whether the lens shows, and how "
+              "closely edges are looked at") {
         CHECK(postProcessSettingsFor(PostProcessQuality::Low) ==
-              PostProcessQualitySettings{.bloomFirstLevel = 1, .bloomLevels = 4, .lensEffects = false});
+              PostProcessQualitySettings{.bloomFirstLevel = 1,
+                                         .bloomLevels = 4,
+                                         .lensEffects = false,
+                                         .antiAliasingSteps = 5,
+                                         .antiAliasingEdgeThreshold = 0.25f,
+                                         .antiAliasingEdgeMinimum = 0.0833f});
         CHECK(postProcessSettingsFor(PostProcessQuality::Medium) ==
-              PostProcessQualitySettings{.bloomFirstLevel = 0, .bloomLevels = 5, .lensEffects = true});
+              PostProcessQualitySettings{.bloomFirstLevel = 0,
+                                         .bloomLevels = 5,
+                                         .lensEffects = true,
+                                         .antiAliasingSteps = 8,
+                                         .antiAliasingEdgeThreshold = 0.166f,
+                                         .antiAliasingEdgeMinimum = 0.0625f});
         CHECK(postProcessSettingsFor(PostProcessQuality::High) ==
-              PostProcessQualitySettings{.bloomFirstLevel = 0, .bloomLevels = 7, .lensEffects = true});
+              PostProcessQualitySettings{.bloomFirstLevel = 0,
+                                         .bloomLevels = 7,
+                                         .lensEffects = true,
+                                         .antiAliasingSteps = 12,
+                                         .antiAliasingEdgeThreshold = 0.125f,
+                                         .antiAliasingEdgeMinimum = 0.0312f});
+        // The higher the quality, the further an edge is followed and the fainter the
+        // edges that are looked at; an edge always has to be something.
+        PostProcessQualitySettings before = postProcessSettingsFor(PostProcessQuality::Low);
+        for (const PostProcessQuality quality : {PostProcessQuality::Medium, PostProcessQuality::High}) {
+            const PostProcessQualitySettings settings = postProcessSettingsFor(quality);
+            CHECK(settings.antiAliasingSteps > before.antiAliasingSteps);
+            CHECK(settings.antiAliasingEdgeThreshold < before.antiAliasingEdgeThreshold);
+            CHECK(settings.antiAliasingEdgeMinimum < before.antiAliasingEdgeMinimum);
+            CHECK(settings.antiAliasingEdgeMinimum > 0.0f);
+            before = settings;
+        }
         // What the defaults of the struct are, a medium quality is.
         CHECK(postProcessSettingsFor(PostProcessQuality::Medium) == PostProcessQualitySettings());
         // Off finishes nothing; asked all the same, it answers as the lowest quality.

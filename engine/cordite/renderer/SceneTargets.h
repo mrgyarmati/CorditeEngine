@@ -177,6 +177,24 @@ public:
     /// The memory of that image, in bytes: nothing when there is none.
     [[nodiscard]] uint64_t tracedOcclusionBytes() const;
 
+    /// Makes sure there is an image for the finished picture to be drawn into before
+    /// its edges are smoothed (PostProcessPass): as large as the display image, in the
+    /// colors of a display, with the brightness of each pixel in alpha. Fails when the
+    /// device cannot create it; the targets then hold none.
+    [[nodiscard]] Status prepareAliased(nvrhi::IDevice* device);
+
+    /// Lets go of that image: for a view whose picture is not anti-aliased any more.
+    void releaseAliased();
+
+    /// The image prepareAliased() made, and the framebuffer that draws into it. Null
+    /// before that call and after releaseAliased().
+    [[nodiscard]] nvrhi::ITexture* aliased() const { return m_aliased; }
+
+    [[nodiscard]] nvrhi::IFramebuffer* aliasedFramebuffer() const { return m_aliasedFramebuffer; }
+
+    /// The memory of that image, in bytes: nothing when there is none.
+    [[nodiscard]] uint64_t aliasedBytes() const;
+
     /// Scene color alone: what the passes that read the depth as a texture draw into,
     /// the lighting first of all.
     [[nodiscard]] nvrhi::IFramebuffer* lightingFramebuffer() const { return m_lightingFramebuffer; }
@@ -211,6 +229,7 @@ private:
     /// The divisor m_tracedOcclusion was made for.
     uint32_t m_tracedOcclusionDivisor = 0;
     nvrhi::TextureHandle m_display;
+    nvrhi::TextureHandle m_aliased;
     std::array<nvrhi::TextureHandle, kMaxBloomLevels> m_bloom;
     std::array<nvrhi::FramebufferHandle, kMaxBloomLevels> m_bloomFramebuffers;
     uint32_t m_bloomLevelCount = 0;
@@ -227,6 +246,7 @@ private:
     nvrhi::FramebufferHandle m_lightingFramebuffer;
     nvrhi::FramebufferHandle m_sceneFramebuffer;
     nvrhi::FramebufferHandle m_displayFramebuffer;
+    nvrhi::FramebufferHandle m_aliasedFramebuffer;
     nvrhi::FramebufferHandle m_overlayFramebuffer;
 };
 

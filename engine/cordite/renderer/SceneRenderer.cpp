@@ -466,10 +466,13 @@ void SceneRenderer::render(nvrhi::ICommandList* commandList, const World& world,
         m_resources->flushUploads();
         m_statistics.screenPasses += m_passes.postProcess.draw(commandList, targets, look,
                                                                {.quality = settings.postProcessQuality,
+                                                                .antiAliasing = settings.antiAliasing,
                                                                 .deltaSeconds = settings.deltaSeconds,
                                                                 .timeSeconds = settings.timeSeconds,
                                                                 .colorLut = colorLut});
     } else {
+        // A picture that is not finished is not anti-aliased, and needs no room for it.
+        targets.releaseAliased();
         m_passes.encode.draw(commandList, targets.sceneColor(), targets.displayFramebuffer());
         ++m_statistics.screenPasses;
     }

@@ -131,8 +131,9 @@ G-buffer + depth + clusters + shadow atlas + environment + ambient occlusion ─
 translucent surfaces + clusters + shadow atlas + environment ──> forward pass ──> scene color, blended over it
 scene color ──> bloom levels, down ──> exposure: how many stops the view adds
                               └────> bloom levels, up again
-scene color + bloom + exposure + lookup table ──> post-processing ──> display image (sRGB, 8 bit)
-                                                                      ^ overlays: debug lines, gizmos
+scene color + bloom + exposure + lookup table ──> post-processing ──> the finished picture (sRGB, 8 bit)
+the finished picture ──> anti-aliasing ──> display image (sRGB, 8 bit)
+                                           ^ overlays: debug lines, gizmos
 ```
 
 The deferred path is what makes many lights affordable: every solid surface is written
@@ -924,6 +925,48 @@ neighbours: the glint of a highlight on metal. Averaged plainly, such a pixel be
 blot that flickers whenever it moves. The first pass therefore weights each of its
 reads by one over one plus its brightness, within each group of four that it averages:
 a glint among dark pixels adds little, a lamp that fills the group blooms in full.
+
+### Edges are smoothed from the finished picture
+
+A picture made of pixels shows a slanted edge as a staircase. The ways to mend that
+differ in what they need. Drawing every pixel several times (multisampling) needs a
+G-buffer several times the size and lighting that knows about it. Adding up frames
+(temporal anti-aliasing) needs to know how every pixel has moved since the last one,
+and gets it wrong where it cannot. Looking for the staircases in the finished picture
+needs the picture, and nothing else: it is one pass, it cannot lag behind anything,
+and nothing in the renderer has to know of it. That is what is here - "fast
+approximate anti-aliasing" (T. Lottes, 2011), the way of the engines this one takes
+its look from - and what moving pixels need can be added beside it when the renderer
+has their motion.
+
+It finds edges by contrast, decides whether an edge runs along the rows or the
+columns, follows it both ways to where it steps to the next row, and blends each pixel
+with its neighbour across the edge by as much as the edge must cover of it: nearly
+half at the end of a run, nothing in its middle. What it does to a bar at eight angles
+is held against how much of each pixel the bar really covers: a third to a half of
+what was wrong goes. What it cannot do is said by tests as well: at exactly 45
+degrees, where every run is one pixel long, it does little; a line one pixel wide
+loses a third of its light; near the end of an edge that runs along the pixels, the
+end is taken for a step.
+
+Three things follow from where it stands in the frame:
+
+- **It works on the colors of a display**, after the tone mapping. Contrast is what
+  an eye sees, and light without an upper limit has edges that no blend can smooth:
+  half way between a lamp and a wall is still a lamp.
+- **The final pass draws into an image of its own** when the picture is to be
+  smoothed, and writes the brightness of each pixel into its alpha, which is all the
+  search for edges reads. The image belongs to the view's targets and is given back
+  when the view is no longer smoothed.
+- **Film grain comes after it.** Grain is contrast from pixel to pixel: smoothed, it
+  would be blurred away where it is strong and kept where it is weak. The noise that
+  keeps slow gradients from banding stays where it was, before the smoothing: it is a
+  level at the most, far below what counts as an edge.
+
+The algorithm is written out in the shader rather than taken from its author's
+header, which is a file of macros for a dozen compilers of 2011 and none for Slang;
+what there is to get wrong in it - up for down, the side of the edge, the end of a
+run - is what the tests turn the picture round for.
 
 ### Not finishing a picture is a quality
 

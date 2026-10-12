@@ -16,7 +16,9 @@
 /// 5. tone mapping: the unlimited range is bent into the range of a display;
 /// 6. grading: saturation, contrast, lift / gamma / gain, and a lookup table that can
 ///    hold any change of color an image editor can make;
-/// 7. film grain, and the encoding a screen expects.
+/// 7. the encoding a screen expects;
+/// 8. anti-aliasing: the steps of slanted edges are smoothed, from the picture itself;
+/// 9. film grain - last, or the smoothing would take every grain for an edge.
 ///
 /// PostProcessSettings holds the numbers of all that. A scene sets them with
 /// PostProcess components (RenderComponents.h, ScenePostProcess.h), which say where they
@@ -104,6 +106,34 @@ std::string_view displayNameOf(PostProcessQuality quality);
 /// The quality with the given nameOf(), or nothing. Upper and lower case are not told
 /// apart.
 [[nodiscard]] std::optional<PostProcessQuality> postProcessQualityFromName(std::string_view name);
+
+/// How the steps that slanted edges have in a picture made of pixels are smoothed.
+/// A picture that is not finished (PostProcessQuality::Off, debug views) never is.
+enum class AntiAliasing : uint8_t {
+    /// Not at all: every pixel has the color of what is in its middle.
+    Off,
+    /// From the finished picture alone ("fast approximate anti-aliasing", T. Lottes,
+    /// 2011). Where neighbouring pixels differ enough to be an edge, the edge is
+    /// followed both ways to where its step ends, and the pixel is blended with its
+    /// neighbour across the edge by as much as the edge must cover of it. One more
+    /// pass over the picture; nothing lags behind what moves, and nothing in a scene
+    /// has to know of it. What it cannot mend is what is finer than a pixel to begin
+    /// with - a wire, a glint - which flickers as it moves. How far edges are
+    /// followed goes by the PostProcessQuality.
+    Fxaa,
+};
+
+inline constexpr std::array<AntiAliasing, 2> kAntiAliasingModes = {AntiAliasing::Off, AntiAliasing::Fxaa};
+
+/// The name used in files and by tools: "off", "fxaa".
+std::string_view nameOf(AntiAliasing antiAliasing);
+
+/// The name shown to people: "Off", "FXAA".
+std::string_view displayNameOf(AntiAliasing antiAliasing);
+
+/// The way of anti-aliasing with the given nameOf(), or nothing. Upper and lower case
+/// are not told apart.
+[[nodiscard]] std::optional<AntiAliasing> antiAliasingFromName(std::string_view name);
 
 /// The numbers of finishing a picture. As they are here, a picture is tone mapped and
 /// otherwise left alone, but for a little bloom around what is brighter than white.
@@ -214,6 +244,16 @@ struct PostProcessQualitySettings {
     uint32_t bloomLevels = 5;
     /// Whether chromatic aberration and film grain are drawn at all.
     bool lensEffects = true;
+    /// Anti-aliasing: how many times an edge is looked along, either way, for where
+    /// its step ends - 5, 8 or 12; the more, the shallower the slants that come out
+    /// smooth.
+    uint32_t antiAliasingSteps = 8;
+    /// Anti-aliasing: what counts as an edge. A pixel and its four neighbours must
+    /// differ in brightness by this share of the brightest of them, and by this much
+    /// (of white, as a display has it) at the least. The lower, the more of the
+    /// picture is looked at.
+    float antiAliasingEdgeThreshold = 0.166f;
+    float antiAliasingEdgeMinimum = 0.0625f;
 
     bool operator==(const PostProcessQualitySettings&) const = default;
 };

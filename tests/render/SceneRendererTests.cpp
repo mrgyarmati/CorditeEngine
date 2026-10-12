@@ -1025,8 +1025,12 @@ TEST_SUITE("SceneRenderer") {
                                                .sunColor = Vec3(0.5f, 0.3f, 0.1f)};
         // Lit the way a scene is: a key light and light from the sky and the ground.
         // Without what is worked out from the screen: a surface that is drawn forward
-        // is not in the depth buffer when that is done, and gets none of it.
-        const SceneRenderSettings settings{.defaultLighting = true, .screenEffectsQuality = ScreenEffectsQuality::Off};
+        // is not in the depth buffer when that is done, and gets none of it. And with
+        // the edges left as they are: smoothing them makes of a difference of one
+        // level, here and there, the choice between two neighbours.
+        const SceneRenderSettings settings{.defaultLighting = true,
+                                           .screenEffectsQuality = ScreenEffectsQuality::Off,
+                                           .antiAliasing = AntiAliasing::Off};
 
         const Image deferred = scene.render(view, settings);
         CHECK(scene.renderer->statistics().forwardPass.drawCalls == 0);

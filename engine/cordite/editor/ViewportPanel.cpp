@@ -238,6 +238,7 @@ Status ViewportPanel::render(nvrhi::IDevice* device, nvrhi::ICommandList* comman
     settings.shadowQuality = m_shadowQuality;
     settings.screenEffectsQuality = m_screenEffectsQuality;
     settings.postProcessQuality = m_postProcessQuality;
+    settings.antiAliasing = m_antiAliasing;
     settings.deltaSeconds = deltaSeconds;
     settings.timeSeconds = timeSeconds;
     // A scene that is being started has no lights yet, and would be black.

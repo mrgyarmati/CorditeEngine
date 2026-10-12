@@ -41,10 +41,13 @@ PostProcessSettings plain() {
     return look;
 }
 
-/// A black background, and the picture finished with `look` whatever the world says.
+/// A black background, and the picture finished with `look` whatever the world says -
+/// with its edges left as they are: these tests say what a pixel must be, and what
+/// smoothing them does is tested on its own (AntiAliasingTests.cpp).
 SceneRenderSettings finishedWith(const PostProcessSettings& look) {
     SceneRenderSettings settings;
     settings.backgroundColor = Vec3(0.0f);
+    settings.antiAliasing = AntiAliasing::Off;
     settings.postProcess = look;
     return settings;
 }
@@ -856,6 +859,11 @@ TEST_SUITE("PostProcess") {
         CHECK(passesWith(settings) == 2);
         // Finished without bloom and with the exposure set by hand: one pass does it.
         settings.postProcessQuality = PostProcessQuality::Medium;
+        CHECK(passesWith(settings) == 2);
+        // Smoothing its edges is one more; a picture that is not finished has none.
+        settings.antiAliasing = AntiAliasing::Fxaa;
+        CHECK(passesWith(settings) == 3);
+        settings.postProcessQuality = PostProcessQuality::Off;
         CHECK(passesWith(settings) == 2);
 
         // With bloom: into its first level, down the others and up again. Four levels

@@ -21,8 +21,8 @@
         "triangles": 19500,
         // Passes over the whole picture: the two of the ambient occlusion, the lighting,
         // and what finishes the picture as the scene says - five levels of bloom down
-        // and up, the automatic exposure, and the last pass.
-        "screenPasses": 14,
+        // and up, the automatic exposure, the final pass and the smoothing of its edges.
+        "screenPasses": 15,
         // The image the ambient occlusion is worked out in: at medium quality a texel
         // for one pixel in four of the 960 by 540 the tests draw, two half floats each.
         "ambientOcclusionBytes": 518400,
@@ -60,8 +60,8 @@
         // The field is two draw calls a pass, the floor one.
         "drawCalls": 6,
         // The ambient occlusion, the lighting and what finishes a picture when a scene
-        // says nothing: bloom and the last pass.
-        "screenPasses": 13,
+        // says nothing: bloom, the final pass and the smoothing of its edges.
+        "screenPasses": 14,
         "ambientOcclusionBytes": 518400,
         "triangles": 340000,
         // Most of the lights are in view. The entries of the cluster lists say how well
@@ -93,7 +93,7 @@
         "shadowMaps": 60,
         "shadowAtlasBytes": 67108864,
         "drawCalls": 165,
-        "screenPasses": 13,
+        "screenPasses": 14,
         "ambientOcclusionBytes": 518400,
         "triangles": 800000,
         "lights": 600,

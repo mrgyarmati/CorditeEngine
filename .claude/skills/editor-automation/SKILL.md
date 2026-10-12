@@ -187,7 +187,10 @@ scene black. Lights are components like any other:
   (`off`, `low`, `medium`, `high`). It is the editor's view, not a setting of the
   scene. With `postProcess` off the viewport shows the light as the renderer worked it
   out - no exposure, no bloom, no curve, no grade - which is the picture to judge
-  materials and lights by.
+  materials and lights by. `{"antiAliasing": "off"}` leaves the steps of slanted
+  edges as they are and `"fxaa"` smooths them (the default); no preset changes it.
+  Turn it off to look at single pixels: it blends what is on an edge with its
+  neighbour.
 - How the picture is finished is a component, `PostProcess`: on any entity it applies
   everywhere (`"global": true`) or in the box the entity's transform makes of a cube
   of one metre; on a camera it applies to that camera's views. `component.types` lists

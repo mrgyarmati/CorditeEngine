@@ -9,7 +9,8 @@
 ///
 /// // After everything has been drawn into targets.sceneColor():
 /// postProcess.draw(commandList, targets, settings,
-///                  {.quality = PostProcessQuality::Medium, .deltaSeconds = frameSeconds, .timeSeconds = now});
+///                  {.quality = PostProcessQuality::Medium, .antiAliasing = AntiAliasing::Fxaa,
+///                   .deltaSeconds = frameSeconds, .timeSeconds = now});
 /// showOrSave(targets.display());
 /// @endcode
 ///
@@ -23,9 +24,13 @@
 /// | Exposure         | the smallest level, exposure   | the exposure of this frame     |
 /// | Bloom upsample   | a bloom level                  | the next larger one, blended   |
 /// | Final            | scene color, bloom, exposure, the lookup table | the display image |
+/// | Anti-aliasing    | the picture of the final pass  | the display image              |
 ///
 /// The bloom levels are only filled when something asks for them - bloom or automatic
-/// exposure - and the exposure is only measured when it is automatic.
+/// exposure - and the exposure is only measured when it is automatic. With
+/// anti-aliasing the final pass draws into an image of its own, which the view's targets
+/// hold for as long as their picture is anti-aliased (SceneTargets::aliased()), and the
+/// last pass smooths that into the display image.
 
 #include "cordite/core/Result.h"
 #include "cordite/renderer/FullscreenPass.h"
@@ -47,6 +52,9 @@ struct PostProcessFrame {
     /// Off is for whoever draws the view to act on, by not finishing the picture at
     /// all; this pass takes it for the lowest quality.
     PostProcessQuality quality = PostProcessQuality::Medium;
+    /// How the edges of the finished picture are smoothed. Left off, the final pass is
+    /// the last one.
+    AntiAliasing antiAliasing = AntiAliasing::Off;
     /// How long ago the view was last drawn, in seconds: automatic exposure gets used
     /// to light over time.
     float deltaSeconds = 1.0f / 60.0f;
@@ -65,7 +73,9 @@ public:
     /// Finishes the picture: reads the scene color of `targets`, writes their display
     /// image, and uses their bloom levels and exposure on the way. The command list
     /// must be open. `settings` are brought into their ranges first (sanitized()).
-    /// Returns how many passes it took: one, and those of the bloom and the exposure.
+    /// Returns how many passes it took: one, those of the bloom and the exposure, and
+    /// that of the anti-aliasing. A picture that cannot be anti-aliased - the device
+    /// has no room for the image that takes - is finished without, and the log says so.
     uint32_t draw(nvrhi::ICommandList* commandList, SceneTargets& targets, const PostProcessSettings& settings,
                   const PostProcessFrame& frame);
 
@@ -89,6 +99,9 @@ private:
         /// one; each for the lookup table it was made with.
         std::array<std::array<nvrhi::BindingSetHandle, 2>, kMaxBloomLevels> final;
         std::array<std::array<nvrhi::ITexture*, 2>, kMaxBloomLevels> finalLut{};
+        /// What the anti-aliasing reads, and the image it was made for.
+        nvrhi::BindingSetHandle antiAliasing;
+        nvrhi::ITexture* aliased = nullptr;
     };
 
     /// What create() makes, handed to the constructor in one piece.
@@ -105,12 +118,17 @@ private:
         FullscreenPass upsample;
         FullscreenPass exposure;
         FullscreenPass final;
+        FullscreenPass antiAliasing;
     };
 
     explicit PostProcessPass(Parts parts);
 
     [[nodiscard]] ViewCache& cacheFor(const SceneTargets& targets);
     [[nodiscard]] nvrhi::IBindingSet* sampleBindings(nvrhi::BindingSetHandle& set, nvrhi::ITexture* texture);
+    /// What the anti-aliasing of `targets` is drawn with, having made sure that they
+    /// hold the image it reads; null, with what is in the way reported once, when
+    /// that cannot be had.
+    [[nodiscard]] nvrhi::IBindingSet* antiAliasingBindings(ViewCache& view, SceneTargets& targets);
 
     nvrhi::IDevice* m_device;
     nvrhi::BufferHandle m_constants;
@@ -125,10 +143,13 @@ private:
     FullscreenPass m_upsample;
     FullscreenPass m_exposure;
     FullscreenPass m_final;
+    FullscreenPass m_antiAliasing;
     std::vector<ViewCache> m_views;
     uint64_t m_drawCount = 0;
-    /// So that a lookup table of the wrong shape is reported once, not every frame.
+    /// So that a lookup table of the wrong shape is reported once, not every frame,
+    /// and a picture that cannot be anti-aliased likewise.
     bool m_reportedLut = false;
+    bool m_reportedAntiAliasing = false;
 };
 
 } // namespace cordite

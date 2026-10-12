@@ -419,7 +419,9 @@ Status EditorApp::registerApplicationCommands() {
                        "occlusion (\"off\" draws none; \"low\" and \"medium\" work it out for one pixel in "
                        "four, \"high\" for every pixel) - and \"postProcess\" the finishing of the picture "
                        "alone (\"off\" shows the light as the renderer worked it out, without exposure, bloom, "
-                       "tone mapping or grading). Returns what is now in use and all there is to choose from; "
+                       "tone mapping or grading). \"antiAliasing\" says how the steps of slanted edges are "
+                       "smoothed in a finished picture: \"fxaa\" from the picture itself, \"off\" not at all; "
+                       "no preset changes it. Returns what is now in use and all there is to choose from; "
                        "without parameters it changes nothing. A game sets its own quality; this is the "
                        "editor's view of the scene.",
         .parameters = {{"preset", Type::String,
@@ -428,7 +430,8 @@ Status EditorApp::registerApplicationCommands() {
                        {"effects", Type::String,
                         "The quality of what is worked out from the screen; applied after the preset.", false},
                        {"postProcess", Type::String,
-                        "The quality of the finishing of the picture; applied after the preset.", false}},
+                        "The quality of the finishing of the picture; applied after the preset.", false},
+                       {"antiAliasing", Type::String, "How edges are smoothed: \"fxaa\" or \"off\".", false}},
         .handler = [this](const Json& parameters) -> Result<Json> {
             // All of them are checked before any of them is applied.
             SceneRenderSettings wanted;
@@ -473,9 +476,21 @@ Status EditorApp::registerApplicationCommands() {
                 }
                 wanted.postProcessQuality = *quality;
             }
+            wanted.antiAliasing = m_viewport->antiAliasing();
+            if (const auto name = jsonGetOr<std::string>(parameters, "antiAliasing", ""); !name.empty()) {
+                const std::optional<AntiAliasing> antiAliasing = antiAliasingFromName(name);
+                if (!antiAliasing) {
+                    return makeError(ErrorCode::InvalidArgument,
+                                     "'{}' is not a way of anti-aliasing; viewport.quality without parameters "
+                                     "lists them",
+                                     name);
+                }
+                wanted.antiAliasing = *antiAliasing;
+            }
             m_viewport->setShadowQuality(wanted.shadowQuality);
             m_viewport->setScreenEffectsQuality(wanted.screenEffectsQuality);
             m_viewport->setPostProcessQuality(wanted.postProcessQuality);
+            m_viewport->setAntiAliasing(wanted.antiAliasing);
 
             Json result = Json::object();
             const std::optional<RenderQuality> preset = renderQualityOf(wanted);
@@ -483,6 +498,7 @@ Status EditorApp::registerApplicationCommands() {
             result["shadows"] = nameOf(wanted.shadowQuality);
             result["effects"] = nameOf(wanted.screenEffectsQuality);
             result["postProcess"] = nameOf(wanted.postProcessQuality);
+            result["antiAliasing"] = nameOf(wanted.antiAliasing);
             result["presets"] = Json::array();
             for (const RenderQuality quality : kRenderQualities) {
                 result["presets"].push_back(nameOf(quality));
@@ -498,6 +514,10 @@ Status EditorApp::registerApplicationCommands() {
             result["postProcessQualities"] = Json::array();
             for (const PostProcessQuality quality : kPostProcessQualities) {
                 result["postProcessQualities"].push_back(nameOf(quality));
+            }
+            result["antiAliasingModes"] = Json::array();
+            for (const AntiAliasing antiAliasing : kAntiAliasingModes) {
+                result["antiAliasingModes"].push_back(nameOf(antiAliasing));
             }
             return result;
         },
@@ -689,19 +709,34 @@ void EditorApp::drawMainMenu() {
     ImGui::EndMainMenuBar();
 }
 
+namespace {
+
+/// A menu that offers the values of an enumeration by the names people know them by,
+/// with a mark at the one in use. Returns the one that was picked, if one was.
+template <typename Value, size_t Count>
+std::optional<Value> chooseFromMenu(const char* label, const std::array<Value, Count>& values, Value inUse) {
+    std::optional<Value> chosen;
+    if (ImGui::BeginMenu(label)) {
+        for (const Value value : values) {
+            const std::string name(displayNameOf(value));
+            if (ImGui::MenuItem(name.c_str(), nullptr, value == inUse)) {
+                chosen = value;
+            }
+        }
+        ImGui::EndMenu();
+    }
+    return chosen;
+}
+
+} // namespace
+
 void EditorApp::drawViewMenu() {
     if (!ImGui::BeginMenu("View")) {
         return;
     }
     // What the viewport shows: the picture, or a look into the renderer.
-    if (ImGui::BeginMenu("Render view")) {
-        for (const RenderDebugView view : kRenderDebugViews) {
-            const std::string label(displayNameOf(view));
-            if (ImGui::MenuItem(label.c_str(), nullptr, m_viewport->debugView() == view)) {
-                m_viewport->setDebugView(view);
-            }
-        }
-        ImGui::EndMenu();
+    if (const auto view = chooseFromMenu("Render view", kRenderDebugViews, m_viewport->debugView())) {
+        m_viewport->setDebugView(*view);
     }
     // What the picture in the viewport may cost: everything by one word, or piece by piece.
     if (ImGui::BeginMenu("Quality")) {
@@ -720,32 +755,19 @@ void EditorApp::drawViewMenu() {
             }
         }
         ImGui::Separator();
-        if (ImGui::BeginMenu("Shadows")) {
-            for (const ShadowQuality quality : kShadowQualities) {
-                const std::string label(displayNameOf(quality));
-                if (ImGui::MenuItem(label.c_str(), nullptr, m_viewport->shadowQuality() == quality)) {
-                    m_viewport->setShadowQuality(quality);
-                }
-            }
-            ImGui::EndMenu();
+        if (const auto quality = chooseFromMenu("Shadows", kShadowQualities, m_viewport->shadowQuality())) {
+            m_viewport->setShadowQuality(*quality);
         }
-        if (ImGui::BeginMenu("Screen effects")) {
-            for (const ScreenEffectsQuality quality : kScreenEffectsQualities) {
-                const std::string label(displayNameOf(quality));
-                if (ImGui::MenuItem(label.c_str(), nullptr, m_viewport->screenEffectsQuality() == quality)) {
-                    m_viewport->setScreenEffectsQuality(quality);
-                }
-            }
-            ImGui::EndMenu();
+        if (const auto quality =
+                chooseFromMenu("Screen effects", kScreenEffectsQualities, m_viewport->screenEffectsQuality())) {
+            m_viewport->setScreenEffectsQuality(*quality);
         }
-        if (ImGui::BeginMenu("Post-processing")) {
-            for (const PostProcessQuality quality : kPostProcessQualities) {
-                const std::string label(displayNameOf(quality));
-                if (ImGui::MenuItem(label.c_str(), nullptr, m_viewport->postProcessQuality() == quality)) {
-                    m_viewport->setPostProcessQuality(quality);
-                }
-            }
-            ImGui::EndMenu();
+        if (const auto quality =
+                chooseFromMenu("Post-processing", kPostProcessQualities, m_viewport->postProcessQuality())) {
+            m_viewport->setPostProcessQuality(*quality);
+        }
+        if (const auto antiAliasing = chooseFromMenu("Anti-aliasing", kAntiAliasingModes, m_viewport->antiAliasing())) {
+            m_viewport->setAntiAliasing(*antiAliasing);
         }
         ImGui::EndMenu();
     }

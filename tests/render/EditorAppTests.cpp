@@ -544,8 +544,8 @@ TEST_SUITE("EditorApp") {
         CHECK(scene["shadows"]["lightsWithout"] == 0);
         // Passes over the whole picture: the two of the ambient occlusion, the lighting,
         // and what finishes the picture as the showcase says - five levels of bloom down
-        // and up, the exposure, the last.
-        CHECK(scene["screenPasses"] == 14);
+        // and up, the exposure, the final pass, the smoothing of its edges.
+        CHECK(scene["screenPasses"] == 15);
         // The ambient occlusion is worked out for one pixel in four of the viewport, in
         // two half floats each.
         const UVec2 viewportSize = editor->viewport().targets().size();
@@ -631,6 +631,9 @@ TEST_SUITE("EditorApp") {
         CHECK(answer["shadows"] == "medium");
         CHECK(answer["effects"] == "medium");
         CHECK(answer["postProcess"] == "medium");
+        CHECK(answer["antiAliasing"] == "fxaa");
+        CHECK(answer["antiAliasingModes"] == json(R"(["off", "fxaa"])"));
+        CHECK(editor->viewport().antiAliasing() == AntiAliasing::Fxaa);
         CHECK(answer["presets"] == json(R"(["low", "medium", "high"])"));
         CHECK(answer["shadowQualities"] == json(R"(["off", "low", "medium", "high"])"));
         CHECK(answer["effectsQualities"] == json(R"(["off", "low", "medium", "high"])"));
@@ -687,6 +690,25 @@ TEST_SUITE("EditorApp") {
         CHECK(unwrap(compareImages(medium, withoutEffects, {.channelTolerance = 3})).differingPixels > 200);
         CHECK(unwrap(compareImages(medium, withoutEffects, {.channelTolerance = 40})).differingPixels == 0);
 
+        // Without anti-aliasing the edges in the picture have their steps: some pixels
+        // differ, a few of them by much, and most of the picture not at all. It is no
+        // part of a preset: the picture is still at the medium quality, and choosing a
+        // preset does not bring the smoothing back.
+        run(*editor, "viewport.quality", R"({"preset": "medium"})");
+        answer = run(*editor, "viewport.quality", R"({"antiAliasing": "off"})");
+        CHECK(answer["antiAliasing"] == "off");
+        CHECK(answer["preset"] == "medium");
+        CHECK(editor->viewport().antiAliasing() == AntiAliasing::Off);
+        const Image stepped = unwrap(editor->captureViewport(UVec2(320, 180)));
+        const ImageComparison steps = unwrap(compareImages(medium, stepped, {.channelTolerance = 24}));
+        CHECK(steps.differingPixels > 50);
+        CHECK(steps.differingPixels < 320 * 180 / 10);
+        answer = run(*editor, "viewport.quality", R"({"preset": "high"})");
+        CHECK(answer["antiAliasing"] == "off");
+        answer = run(*editor, "viewport.quality", R"({"antiAliasing": "FXAA"})");
+        CHECK(answer["antiAliasing"] == "fxaa");
+        CHECK(editor->viewport().antiAliasing() == AntiAliasing::Fxaa);
+
         // A preset and single settings in one call: the preset first, then the rest.
         answer = run(*editor, "viewport.quality", R"({"preset": "high", "shadows": "LOW"})");
         CHECK(answer["shadows"] == "low");
@@ -697,8 +719,9 @@ TEST_SUITE("EditorApp") {
         // An unknown name is refused, and then nothing of the call is applied.
         for (const char* parameters :
              {R"({"preset": "ultra"})", R"({"shadows": "ultra"})", R"({"postProcess": "ultra"})",
-              R"({"effects": "ultra"})", R"({"effects": "off", "shadows": "ultra"})",
-              R"({"preset": "medium", "postProcess": "ultra"})", R"({"shadows": "off", "postProcess": "ultra"})"}) {
+              R"({"effects": "ultra"})", R"({"effects": "off", "shadows": "ultra"})", R"({"antiAliasing": "ultra"})",
+              R"({"shadows": "off", "antiAliasing": "ultra"})", R"({"preset": "medium", "postProcess": "ultra"})",
+              R"({"shadows": "off", "postProcess": "ultra"})"}) {
             CAPTURE(std::string(parameters));
             const Result<Json> unknown = editor->commands().execute("viewport.quality", json(parameters));
             REQUIRE_FALSE(unknown.has_value());
@@ -707,6 +730,7 @@ TEST_SUITE("EditorApp") {
             CHECK(editor->viewport().shadowQuality() == ShadowQuality::Low);
             CHECK(editor->viewport().screenEffectsQuality() == ScreenEffectsQuality::High);
             CHECK(editor->viewport().postProcessQuality() == PostProcessQuality::High);
+            CHECK(editor->viewport().antiAliasing() == AntiAliasing::Fxaa);
         }
         checkNoValidationIssues(editor->engine().graphics());
     }

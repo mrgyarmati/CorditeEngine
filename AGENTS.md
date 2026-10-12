@@ -374,7 +374,7 @@ Vulkan directly. Step-by-step guide for adding a pass:
 - **A pass that samples the depth buffer cannot draw into a framebuffer that has it
   attached.** Use `SceneTargets::lightingFramebuffer()`, which has color only.
 - **The renderer works out light; `PostProcessPass` makes a picture of it.** Scene
-  color has no upper limit. The last pass exposes it, adds the bloom, tone maps and
+  color has no upper limit. The final pass exposes it, adds the bloom, tone maps and
   grades it, in the order `PostProcessSettings.h` lists. The curves and the arithmetic
   are written down twice - in `PostProcessSettings.cpp` and in
   `common/ToneMapping.slang` - and `PostProcessTests` holds the pictures of the one
@@ -384,7 +384,17 @@ Vulkan directly. Step-by-step guide for adding a pass:
 - **A test that says what a pixel must be draws a picture that is not finished**
   (`PostProcessQuality::Off`, which `SceneFixture::flatSettings()` asks for): the light
   as it was worked out, encoded and nothing else. Debug views are never finished
-  either. What finishing does is tested on its own, on flat fields of known light.
+  either. What finishing does is tested on its own, on flat fields of known light -
+  and with `AntiAliasing::Off`, wherever a picture has edges in it.
+- **Anti-aliasing is the last step of finishing a picture** (`AntiAliasing::Fxaa`,
+  `passes/AntiAliasing.slang`), and one more pass of `PostProcessPass`: the final pass
+  then draws into an image of the view's own (`SceneTargets::aliased()`), with the
+  brightness of each pixel in alpha, and the smoothing writes the display image. It
+  works on the colors of a display, after the tone mapping, and film grain is laid
+  over its result (`withGrain`), never under it: every grain would be an edge. Its
+  tests hold a slanted bar against how much of each pixel the bar covers, and against
+  itself turned round (`AntiAliasingTests`). It is a switch of the view, like the
+  debug view; how far it follows edges goes by the `PostProcessQuality`.
 - **What lasts from one frame to the next belongs to the view**, which is its
   `SceneTargets`: the exposure a view has got used to is kept there, and is gone when
   the view changes its size. What a pass keeps for a view - `PostProcessPass` its

@@ -196,6 +196,11 @@ Texture2D<float4> sceneDepth : register(t4, space1);
   `shadeSurroundings`, which is also what the `reflections` debug view shows.
   `shadeSurface` ends by putting the surface into the fog (`common/Fog.slang`); a pass
   that writes scene color some other way calls `seenThroughFog` itself.
+- What changes the finished picture - the colors of a display, after the tone mapping -
+  is a step of `PostProcessPass`, in the order `PostProcessSettings.h` lists.
+  Anti-aliasing is the last but one, and film grain the last: a pass that adds
+  contrast from pixel to pixel comes after the smoothing (`withGrain` in
+  `common/PostProcess.slang` is called by whichever pass writes the display image).
 - A pass that fills the screen writes every pixel. Where it has nothing to draw it
   writes `backgroundColor` (`common/View.slang`), it does not `discard`: one driver
   threw away whole blocks of pixels for one discarded pixel in them (AGENTS.md, known

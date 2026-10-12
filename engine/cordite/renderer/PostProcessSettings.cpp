@@ -120,6 +120,35 @@ std::optional<PostProcessQuality> postProcessQualityFromName(std::string_view na
     return std::nullopt;
 }
 
+std::string_view nameOf(AntiAliasing antiAliasing) {
+    switch (antiAliasing) {
+        case AntiAliasing::Off:
+            return "off";
+        case AntiAliasing::Fxaa:
+            return "fxaa";
+    }
+    return "unknown";
+}
+
+std::string_view displayNameOf(AntiAliasing antiAliasing) {
+    switch (antiAliasing) {
+        case AntiAliasing::Off:
+            return "Off";
+        case AntiAliasing::Fxaa:
+            return "FXAA";
+    }
+    return "Unknown";
+}
+
+std::optional<AntiAliasing> antiAliasingFromName(std::string_view name) {
+    for (const AntiAliasing antiAliasing : kAntiAliasingModes) {
+        if (equalsIgnoreCase(name, nameOf(antiAliasing))) {
+            return antiAliasing;
+        }
+    }
+    return std::nullopt;
+}
+
 PostProcessSettings sanitized(const PostProcessSettings& settings) {
     const PostProcessSettings defaults;
     PostProcessSettings result = settings;
@@ -245,11 +274,26 @@ PostProcessQualitySettings postProcessSettingsFor(PostProcessQuality quality) {
     switch (quality) {
         case PostProcessQuality::Off:
         case PostProcessQuality::Low:
-            return {.bloomFirstLevel = 1, .bloomLevels = 4, .lensEffects = false};
+            return {.bloomFirstLevel = 1,
+                    .bloomLevels = 4,
+                    .lensEffects = false,
+                    .antiAliasingSteps = 5,
+                    .antiAliasingEdgeThreshold = 0.25f,
+                    .antiAliasingEdgeMinimum = 0.0833f};
         case PostProcessQuality::Medium:
-            return {.bloomFirstLevel = 0, .bloomLevels = 5, .lensEffects = true};
+            return {.bloomFirstLevel = 0,
+                    .bloomLevels = 5,
+                    .lensEffects = true,
+                    .antiAliasingSteps = 8,
+                    .antiAliasingEdgeThreshold = 0.166f,
+                    .antiAliasingEdgeMinimum = 0.0625f};
         case PostProcessQuality::High:
-            return {.bloomFirstLevel = 0, .bloomLevels = 7, .lensEffects = true};
+            return {.bloomFirstLevel = 0,
+                    .bloomLevels = 7,
+                    .lensEffects = true,
+                    .antiAliasingSteps = 12,
+                    .antiAliasingEdgeThreshold = 0.125f,
+                    .antiAliasingEdgeMinimum = 0.0312f};
     }
     return {};
 }

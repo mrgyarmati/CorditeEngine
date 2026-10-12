@@ -23,7 +23,7 @@ number are what its list of milestones leaves out and its requirements ask for:
 | 7 | Shadows: shadow maps in an atlas for directional, point and spot lights, cascades for the sun, soft filtered edges | Done |
 | 8 | HDR and post-processing: exposure by hand or automatic, bloom, filmic and ACES tone mapping, color grading with lookup tables, vignette, grain, quality presets | Done |
 | - | Image-based lighting: HDR images of the sky as environments - the sky itself, its light on matte surfaces, its reflection on shiny ones | Done |
-| 9 | Screen-space effects: ambient occlusion and fog done; reflections and anti-aliasing to come | In progress |
+| 9 | Screen-space effects: ambient occlusion, fog and anti-aliasing done; reflections to come | In progress |
 | - | Skeletal meshes and animation: skinned glTF models, skeletons, animation clips, playback and blending, an animated mesh in the showcase | Planned |
 | 10 | Physics and gameplay | Planned |
 | 11 | Editor maturity | Planned |
@@ -128,6 +128,11 @@ that it can lie on the ground while what stands tall rises out of it; towards th
 it glows in a second color. `density` is the part of the light that is lost with
 every metre, `heightFalloff` how fast it thins out; the "Fog" view of the editor shows
 how much of each pixel is fog.
+
+The steps that slanted edges have in a picture made of pixels are smoothed in the
+finished picture (FXAA): one more pass, which needs nothing of the scene. It is a
+switch of the view - View > Quality > Anti-aliasing in the editor,
+`SceneRenderSettings::antiAliasing` in code - and on unless it is turned off.
 
 A light casts shadows when it is told to (`castsShadows`): the sun through up to four
 cascades that reach as far as its shadow distance, a spot light through one shadow map,

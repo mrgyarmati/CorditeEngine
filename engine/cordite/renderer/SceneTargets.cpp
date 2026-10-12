@@ -199,6 +199,43 @@ uint64_t SceneTargets::tracedOcclusionBytes() const {
     return uint64_t{desc.width} * desc.height * 4;
 }
 
+Status SceneTargets::prepareAliased(nvrhi::IDevice* device) {
+    CORDITE_ASSERT(isValid() && device != nullptr, "the picture before anti-aliasing needs valid targets and a device");
+    if (!isValid() || device == nullptr) {
+        return makeError(ErrorCode::InvalidArgument,
+                         "the picture before anti-aliasing needs valid targets and a device");
+    }
+    if (m_aliased) {
+        return {};
+    }
+    nvrhi::TextureHandle aliased =
+        createTexture(device, m_size, nvrhi::Format::RGBA8_UNORM, m_debugName + " before anti-aliasing",
+                      nvrhi::ResourceStates::ShaderResource);
+    nvrhi::FramebufferHandle framebuffer;
+    if (aliased) {
+        framebuffer = device->createFramebuffer(nvrhi::FramebufferDesc().addColorAttachment(aliased));
+    }
+    if (!framebuffer) {
+        return makeError(ErrorCode::DeviceError,
+                         "cannot create the {}x{} image the picture of '{}' is in before its edges are smoothed",
+                         m_size.x, m_size.y, m_debugName);
+    }
+    m_aliased = std::move(aliased);
+    m_aliasedFramebuffer = std::move(framebuffer);
+    return {};
+}
+
+void SceneTargets::releaseAliased() {
+    // What a command list on its way still draws into is kept alive by that list.
+    m_aliasedFramebuffer = nullptr;
+    m_aliased = nullptr;
+}
+
+uint64_t SceneTargets::aliasedBytes() const {
+    // Four bytes a pixel.
+    return m_aliased ? uint64_t{m_size.x} * m_size.y * 4 : 0;
+}
+
 nvrhi::ITexture* SceneTargets::bloomLevel(uint32_t level) const {
     CORDITE_ASSERT(level < m_bloomLevelCount, "there is no bloom level {}", level);
     return level < m_bloomLevelCount ? m_bloom[level].Get() : nullptr;

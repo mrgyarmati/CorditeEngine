@@ -122,6 +122,9 @@ struct SceneRenderSettings {
     /// with whatever is brighter than white cut off. Debug views are never finished:
     /// they show numbers.
     PostProcessQuality postProcessQuality = PostProcessQuality::Medium;
+    /// How the edges of the finished picture are smoothed. How finely goes by the
+    /// quality above; a picture that is not finished is not anti-aliased either.
+    AntiAliasing antiAliasing = AntiAliasing::Fxaa;
     /// What the picture is finished with, and what its screen effects look like. Left
     /// empty, the PostProcess components of the world say (ScenePostProcess.h). A tool
     /// or a test that wants one look whatever the scene says sets it here.
@@ -178,7 +181,7 @@ struct SceneRenderStatistics {
     /// Passes that draw over the whole picture, or over a smaller copy of it, rather
     /// than meshes: the two of the ambient occlusion, the lighting or the debug view,
     /// and what finishes the picture - the levels of the bloom down and up, the
-    /// exposure, the last pass.
+    /// exposure, the final pass, the anti-aliasing.
     uint32_t screenPasses = 0;
 
     /// The lights that reach something in view: directional ones, and point and spot

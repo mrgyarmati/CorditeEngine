@@ -159,6 +159,7 @@ cordite_add_test_suite(shader_compiler
 cordite_add_test_suite(render
     SOURCES
         render/AmbientOcclusionTests.cpp
+        render/AntiAliasingTests.cpp
         render/DebugLineTests.cpp
         render/EditorAppTests.cpp
         render/EngineTests.cpp

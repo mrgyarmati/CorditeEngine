@@ -29,6 +29,7 @@ std::vector<ShaderRequest> engineShaders() {
         {.path = "passes/Bloom.slang", .entryPoint = "bloomUpsamplePixel", .stage = ShaderStage::Pixel},
         {.path = "passes/Exposure.slang", .entryPoint = "exposureMeterPixel", .stage = ShaderStage::Pixel},
         {.path = "passes/PostProcess.slang", .entryPoint = "postProcessPixel", .stage = ShaderStage::Pixel},
+        {.path = "passes/AntiAliasing.slang", .entryPoint = "antiAliasingPixel", .stage = ShaderStage::Pixel},
         {.path = "passes/DebugView.slang", .entryPoint = "debugViewPixel", .stage = ShaderStage::Pixel},
         {.path = "passes/DeferredLighting.slang", .entryPoint = "deferredLightingPixel", .stage = ShaderStage::Pixel},
         {.path = "passes/DeferredLighting.slang",

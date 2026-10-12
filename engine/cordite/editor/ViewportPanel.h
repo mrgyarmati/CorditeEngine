@@ -82,6 +82,11 @@ public:
 
     void setPostProcessQuality(PostProcessQuality quality) { m_postProcessQuality = quality; }
 
+    /// How the edges of the finished picture are smoothed in the viewport.
+    [[nodiscard]] AntiAliasing antiAliasing() const { return m_antiAliasing; }
+
+    void setAntiAliasing(AntiAliasing antiAliasing) { m_antiAliasing = antiAliasing; }
+
     [[nodiscard]] EditorCamera& camera() { return m_camera; }
 
     [[nodiscard]] const EditorCamera& camera() const { return m_camera; }
@@ -104,6 +109,7 @@ private:
     ShadowQuality m_shadowQuality = ShadowQuality::Medium;
     ScreenEffectsQuality m_screenEffectsQuality = ScreenEffectsQuality::Medium;
     PostProcessQuality m_postProcessQuality = PostProcessQuality::Medium;
+    AntiAliasing m_antiAliasing = AntiAliasing::Fxaa;
     /// The view render() last used, for pick().
     CameraView m_view;
     /// Rebuilt every frame; members so that their memory is reused. Grid and scene

@@ -139,14 +139,14 @@ TEST_SUITE("Engine") {
             // display encoding, what makes the cube map of an environment, the two of
             // the ambient occlusion, and the five that finish the picture: three for the
             // bloom, one for the exposure and the last pass.
-            CHECK(engine->shaders().stats().compilations == 24);
+            CHECK(engine->shaders().stats().compilations == 25);
             CHECK(engine->shaders().stats().diskHits == 0);
         }
 
         const std::unique_ptr<Engine> engine = createEngine(desc);
         runFrames(*engine, 1);
         CHECK(engine->shaders().stats().compilations == 0);
-        CHECK(engine->shaders().stats().diskHits == 24);
+        CHECK(engine->shaders().stats().diskHits == 25);
         checkNoValidationIssues(engine->graphics());
     }
 
