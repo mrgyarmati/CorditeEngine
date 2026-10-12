@@ -1,7 +1,8 @@
 #pragma once
 
 /// @file
-/// The simulation of rigid bodies: what falls, collides, slides and comes to rest.
+/// The simulation of rigid bodies: what falls, collides, slides and comes to rest -
+/// and of the characters that walk among them.
 ///
 /// A PhysicsWorld holds bodies - a shape, a mass, where it is and how it moves - and
 /// moves them on by a step of time. It knows nothing of entities, components or
@@ -45,6 +46,21 @@
 ///                                          .limited = true,
 ///                                          .minimum = -kHalfPi,
 ///                                          .maximum = kHalfPi}));
+/// @endcode
+///
+/// A character is no body: it does not fall over, bounce or slide by itself. It is a
+/// capsule that stands upright and goes where it is told to walk - along the ground,
+/// up slopes and steps, around what stands in its way:
+///
+/// @code
+/// CORDITE_TRY_ASSIGN(const CharacterId guard, physics->createCharacter({.position = Vec3(0.0f, 0.0f, 4.0f)}));
+/// physics->walk(guard, Vec3(1.5f, 0.0f, 0.0f));       // a metre and a half a second, until told otherwise
+/// physics->jump(guard, 4.0f);                          // with the next step, if it stands on ground then
+/// physics->step(1.0f / 60.0f);
+/// const CharacterState state = physics->characterState(guard);
+/// if (state.ground == GroundState::OnGround) {
+///     // state.position is where its soles are, state.groundBody what it stands on
+/// }
 /// @endcode
 ///
 /// Shapes that are not a box, a ball or a capsule are made of geometry, which is
@@ -128,6 +144,19 @@ struct JointId {
     [[nodiscard]] constexpr bool isNull() const noexcept { return value == kNone; }
 
     constexpr bool operator==(const JointId&) const noexcept = default;
+};
+
+/// Refers to a character of one PhysicsWorld. A plain value; it stops being valid when
+/// its character is destroyed, and is then never mistaken for a character made later.
+struct CharacterId {
+    /// What a default-constructed CharacterId holds: no character.
+    static constexpr uint32_t kNone = 0u;
+
+    uint32_t value = kNone;
+
+    [[nodiscard]] constexpr bool isNull() const noexcept { return value == kNone; }
+
+    constexpr bool operator==(const CharacterId&) const noexcept = default;
 };
 
 /// How a joint holds two bodies together.
@@ -308,12 +337,80 @@ struct BodyDesc {
     bool operator==(const BodyDesc&) const = default;
 };
 
+/// What a character has under its feet.
+enum class GroundState : uint8_t {
+    /// Ground it can walk on.
+    OnGround,
+    /// Ground that is too steep for it: it does not get up it, and slides down.
+    OnSteepGround,
+    /// Nothing that carries it: it falls.
+    InAir,
+};
+
+inline constexpr std::array<GroundState, 3> kGroundStates = {GroundState::OnGround, GroundState::OnSteepGround,
+                                                             GroundState::InAir};
+
+/// The name used in files and by tools: "onGround", "onSteepGround", "inAir".
+std::string_view nameOf(GroundState state);
+
+/// The least a character is around, in metres.
+inline constexpr float kMinCharacterRadius = 0.05f;
+
+/// What a character is made with.
+struct CharacterDesc {
+    /// The capsule it is, upright: how far around, and how tall from its soles to the
+    /// top of its head, in metres. One that is no taller than it is wide is a ball.
+    float radius = 0.3f;
+    float height = 1.8f;
+    /// Where its soles are, in metres.
+    Vec3 position{0.0f};
+    /// In kilograms: how hard it presses on what it stands on.
+    float mass = 70.0f;
+    /// The steepest ground it walks on, in radians from level: from 0 to less than a
+    /// quarter turn. As given, fifty degrees. On steeper ground it does not get up,
+    /// and slides down.
+    float maxSlope = 0.87266463f;
+    /// The highest step it walks up as if it were a ramp, in metres; 0 for none.
+    float stepHeight = 0.35f;
+    /// The most force it pushes a dynamic body in its way with, in newtons. What that
+    /// does not move stops it.
+    float pushForce = 100.0f;
+    /// How much gravity pulls at it: 1 as at everything, 0 not at all.
+    float gravityScale = 1.0f;
+    /// How much say walk() has while it is in the air, from 0 to 1: its speed sideways
+    /// is that much of what walk() asks for, and the rest of what it left the ground
+    /// with. 1 as much as on the ground; 0 none, it goes on as it left.
+    float airControl = 1.0f;
+    /// Whatever the owner of the character wants to find again; also the userData of
+    /// the body that stands for it (PhysicsWorld::characterBody()).
+    uint64_t userData = 0;
+
+    bool operator==(const CharacterDesc&) const = default;
+};
+
+/// Where a character is, and what it is doing.
+struct CharacterState {
+    /// Where its soles are, in metres.
+    Vec3 position{0.0f};
+    /// How fast it moved in the last step, in metres per second: as fast as it got on,
+    /// not as fast as it was told to - nothing, against a wall. On the ground it rises
+    /// and falls as the ground does; the step it climbs does not count.
+    Vec3 velocity{0.0f};
+    GroundState ground = GroundState::InAir;
+    /// Which way the ground under it faces, of unit length; up, in the air.
+    Vec3 groundNormal{0.0f, 1.0f, 0.0f};
+    /// The body it stands on; none in the air.
+    BodyId groundBody;
+
+    bool operator==(const CharacterState&) const = default;
+};
+
 /// How large a simulation may become. The memory for all of it is taken when the world
 /// is made.
 struct PhysicsWorldDesc {
     /// The pull on every dynamic body, in metres per second squared.
     Vec3 gravity{0.0f, -9.81f, 0.0f};
-    /// Bodies of all kinds together.
+    /// Bodies of all kinds together, and one for every character.
     uint32_t maxBodies = 16384;
     /// Pairs of bodies that are near each other in one step, and points at which bodies
     /// touch. A step that needs more leaves some contacts out, which is reported.
@@ -371,12 +468,14 @@ struct ContactEvent {
 
 /// What a PhysicsWorld holds, and has done.
 struct PhysicsStatistics {
+    /// Bodies of all kinds, those that stand for characters among them.
     uint32_t bodies = 0;
     /// Bodies that are being simulated: dynamic and kinematic ones that are not asleep.
     uint32_t activeBodies = 0;
     /// Hulls and surfaces of triangles that are prepared.
     uint32_t geometries = 0;
     uint32_t joints = 0;
+    uint32_t characters = 0;
     /// Steps taken since the world was made.
     uint64_t steps = 0;
     /// Steps that needed more room than PhysicsWorldDesc gives, and left contacts out.
@@ -438,7 +537,8 @@ public:
 
     /// Removes a body, and with it the joints it is held by. What slept against it
     /// wakes: it may have lost what held it. An id that is not a body's (any more) is
-    /// ignored.
+    /// ignored. The body that stands for a character is the character's, and is not
+    /// removed by this: asking is a mistake of the caller, asserted.
     void destroyBody(BodyId body);
 
     /// Joins two bodies, or a body and the world, and wakes them. Fails with
@@ -452,6 +552,68 @@ public:
     void destroyJoint(JointId joint);
 
     [[nodiscard]] bool isValid(JointId joint) const;
+
+    /// Adds a character: a capsule that stands upright and is moved by walk() and
+    /// jump(), not by forces. It goes along the ground, up slopes and up steps, falls
+    /// where there is no ground, is stopped by what stands still, carried by what it
+    /// stands on, and pushes the dynamic bodies in its way as hard as it can. Sensors
+    /// are nothing to it, and neither is a dynamic body that lies on top of it: that
+    /// rests on the body of the character, and is left behind when the character
+    /// goes. Fails - and adds nothing - for a radius of less than
+    /// kMinCharacterRadius, a height or a mass of nothing, a slope of a quarter turn or
+    /// more, a step or a force of less than nothing, a say in the air that is not
+    /// from 0 to 1, numbers that are none, and when the world is full.
+    [[nodiscard]] Result<CharacterId> createCharacter(const CharacterDesc& desc);
+
+    /// Removes a character and the body that stands for it, with the joints that
+    /// body is held by. An id that is no character's (any more) is ignored.
+    void destroyCharacter(CharacterId character);
+
+    [[nodiscard]] bool isValid(CharacterId character) const;
+
+    // What follows takes the id of a character that exists. Any other id is a mistake
+    // of the caller, asserted; without assertions, questions are answered with nothing
+    // - a character at the origin, in the air - and requests are ignored.
+
+    /// Where a character is. What it has under its feet is as the last step found it:
+    /// a character that was just made, or put somewhere, is in the air until a step
+    /// has looked.
+    [[nodiscard]] CharacterState characterState(CharacterId character) const;
+
+    /// The body that stands for a character among the bodies: what rays and overlaps
+    /// find, what sensors notice, what contact events name, and what bodies that fall
+    /// on the character come to rest on. Kinematic, and a tenth smaller than the
+    /// character, which has to meet what it runs into itself. It goes where the
+    /// character goes; where the character is, characterState() says - the place of
+    /// the body is a little above its soles.
+    [[nodiscard]] BodyId characterBody(CharacterId character) const;
+
+    /// The character that a body stands for, or the null id for any other body.
+    [[nodiscard]] CharacterId characterOf(BodyId body) const;
+
+    /// The speed a character is to walk with along the ground, in metres per second,
+    /// from the next step until it is told otherwise. What of it points up or down
+    /// is left out: a character rises by jumping, and falls by gravity. A speed that
+    /// is not made of numbers is ignored.
+    void walk(CharacterId character, const Vec3& velocity);
+
+    /// Has a character leave the ground upwards at `speed` metres per second in the
+    /// next step - if it stands on ground it can walk on then. One that does not, does
+    /// not jump: the request is forgotten with that step. A speed of nothing, or less,
+    /// takes a request back.
+    void jump(CharacterId character, float speed);
+
+    /// Puts a character somewhere else at once, whatever is there: its soles at
+    /// `position`. It keeps its speed. A place that is not made of numbers is ignored.
+    void placeCharacter(CharacterId character, const Vec3& position);
+
+    /// Gives a character a speed: what a blow gives it, or what it had before it was
+    /// made anew. A character that stands takes the speed of the ground and of its
+    /// walk again with the next step, unless this one takes it off the ground; in the
+    /// air, what of the speed goes sideways is what it left the ground with, and lasts
+    /// as far as CharacterDesc::airControl leaves walk() no say. A speed that is not
+    /// made of numbers is ignored.
+    void setCharacterVelocity(CharacterId character, const Vec3& velocity);
 
     [[nodiscard]] bool isValid(BodyId body) const;
 
@@ -470,7 +632,9 @@ public:
 
     /// Puts a body somewhere else at once, whatever is there: it does not move through
     /// what lies between, and keeps its speed. Wakes it, what slept against it where
-    /// it was, and what sleeps where it is now.
+    /// it was, and what sleeps where it is now. Ignored - as moveKinematic() and the
+    /// two speeds below are - for the body of a character, which is where its
+    /// character is: see placeCharacter() and setCharacterVelocity().
     void setPlacement(BodyId body, const Vec3& position, const Quat& rotation);
 
     /// Has a kinematic body be at a place after the next step of `seconds`, moving
@@ -498,7 +662,8 @@ public:
     /// Wakes a body that is asleep.
     void activate(BodyId body);
 
-    /// Lets `seconds` pass in one step. Steps of the same length every time - a sixtieth
+    /// Lets `seconds` pass in one step: the characters move first, in the order they
+    /// were made, and then the bodies. Steps of the same length every time - a sixtieth
     /// of a second is usual - keep a simulation stable and repeatable; no time, less
     /// than none and a time that is no number are no step.
     void step(float seconds);
@@ -554,6 +719,13 @@ private:
 template <>
 struct std::hash<cordite::BodyId> {
     size_t operator()(const cordite::BodyId& body) const noexcept { return std::hash<uint32_t>{}(body.value); }
+};
+
+template <>
+struct std::hash<cordite::CharacterId> {
+    size_t operator()(const cordite::CharacterId& character) const noexcept {
+        return std::hash<uint32_t>{}(character.value);
+    }
 };
 
 template <>

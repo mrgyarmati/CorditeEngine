@@ -2,6 +2,7 @@
 
 #include "cordite/core/Assert.h"
 #include "cordite/core/Log.h"
+#include "cordite/physics/CharacterSet.h"
 #include "cordite/physics/JoltSupport.h"
 
 #include <Jolt/Core/Factory.h>
@@ -844,6 +845,18 @@ std::string_view nameOf(BodyMotion motion) {
     return "unknown";
 }
 
+std::string_view nameOf(GroundState state) {
+    switch (state) {
+        case GroundState::OnGround:
+            return "onGround";
+        case GroundState::OnSteepGround:
+            return "onSteepGround";
+        case GroundState::InAir:
+            return "inAir";
+    }
+    return "unknown";
+}
+
 std::string_view nameOf(JointType type) {
     switch (type) {
         case JointType::Fixed:
@@ -891,6 +904,10 @@ struct PhysicsWorld::Impl {
     [[nodiscard]] const JPH::BodyInterface& bodies() const { return system.GetBodyInterface(); }
 
     [[nodiscard]] JPH::BodyInterface& bodies() { return system.GetBodyInterface(); }
+
+    /// Whether a body stands for a character: such a body is where its character is,
+    /// and is not put anywhere or given a speed by anybody else.
+    [[nodiscard]] bool isOfCharacter(BodyId body) const { return !characters.ownerOf(body).isNull(); }
 
     /// The box around a body in the world - or the box that holds nothing, for a body
     /// that nothing rests against: a sensor, and one that is not there.
@@ -1007,6 +1024,12 @@ struct PhysicsWorld::Impl {
     uint64_t steps = 0;
     uint64_t overflowedSteps = 0;
     bool reportedOverflow = false;
+
+    /// Declared after the system they are in, and so gone before it.
+    CharacterSet characters;
+    /// Where the bodies of the characters were before the characters moved, during a
+    /// step: kept from one step to the next for the memory it has.
+    std::vector<JPH::AABox> characterBounds;
 };
 
 PhysicsWorld::PhysicsWorld(std::unique_ptr<Impl> impl) : m_impl(std::move(impl)) {}
@@ -1228,6 +1251,11 @@ void PhysicsWorld::destroyBody(BodyId body) {
     if (!isValid(body)) {
         return;
     }
+    const bool isOfCharacter = m_impl->isOfCharacter(body);
+    CORDITE_ASSERT(!isOfCharacter, "{} is the body of a character, which goes with its character", body.value);
+    if (isOfCharacter) {
+        return;
+    }
     const JPH::AABox where = m_impl->solidBoundsOf(joltIdOf(body));
     // A joint holds on to its bodies, and has to go before either of them does.
     m_impl->removeJointsOf(body);
@@ -1305,6 +1333,72 @@ bool PhysicsWorld::isValid(JointId joint) const {
     return m_impl->joints.contains(joint.value);
 }
 
+Result<CharacterId> PhysicsWorld::createCharacter(const CharacterDesc& desc) {
+    // Its body is one among the bodies, and a group of its own like each of them.
+    CORDITE_TRY_ASSIGN(const CharacterId character,
+                       m_impl->characters.create(desc, m_impl->system, kMovingLayer,
+                                                 JPH::CollisionGroup(m_impl->joinedPairs, ++m_impl->lastGroup, 0)));
+    return character;
+}
+
+void PhysicsWorld::destroyCharacter(CharacterId character) {
+    const BodyId body = m_impl->characters.bodyOf(character);
+    if (body.isNull()) {
+        return;
+    }
+    // As with any body: its joints go first, and what rested on it wakes.
+    const JPH::AABox where = m_impl->solidBoundsOf(joltIdOf(body));
+    m_impl->removeJointsOf(body);
+    m_impl->characters.destroy(character);
+    m_impl->contacts.noteGone();
+    m_impl->wakeWhatIsIn(where);
+}
+
+bool PhysicsWorld::isValid(CharacterId character) const {
+    return m_impl->characters.contains(character);
+}
+
+CharacterState PhysicsWorld::characterState(CharacterId character) const {
+    CORDITE_ASSERT(isValid(character), "{} is not a character of this world", character.value);
+    return m_impl->characters.state(character);
+}
+
+BodyId PhysicsWorld::characterBody(CharacterId character) const {
+    CORDITE_ASSERT(isValid(character), "{} is not a character of this world", character.value);
+    return m_impl->characters.bodyOf(character);
+}
+
+CharacterId PhysicsWorld::characterOf(BodyId body) const {
+    return m_impl->characters.ownerOf(body);
+}
+
+void PhysicsWorld::walk(CharacterId character, const Vec3& velocity) {
+    CORDITE_ASSERT(isValid(character), "{} is not a character of this world", character.value);
+    m_impl->characters.walk(character, velocity);
+}
+
+void PhysicsWorld::jump(CharacterId character, float speed) {
+    CORDITE_ASSERT(isValid(character), "{} is not a character of this world", character.value);
+    m_impl->characters.jump(character, speed);
+}
+
+void PhysicsWorld::placeCharacter(CharacterId character, const Vec3& position) {
+    CORDITE_ASSERT(isValid(character), "{} is not a character of this world", character.value);
+    // What rested on its body rests on nothing; what sleeps where it is now is in its way.
+    const BodyId body = m_impl->characters.bodyOf(character);
+    if (body.isNull() || !isFinite(position)) {
+        return;
+    }
+    m_impl->wakeWhatIsIn(m_impl->solidBoundsOf(joltIdOf(body)));
+    m_impl->characters.place(character, position);
+    m_impl->wakeWhatIsIn(m_impl->solidBoundsOf(joltIdOf(body)));
+}
+
+void PhysicsWorld::setCharacterVelocity(CharacterId character, const Vec3& velocity) {
+    CORDITE_ASSERT(isValid(character), "{} is not a character of this world", character.value);
+    m_impl->characters.setVelocity(character, velocity);
+}
+
 bool PhysicsWorld::isValid(BodyId body) const {
     return !body.isNull() && m_impl->bodies().IsAdded(joltIdOf(body));
 }
@@ -1337,7 +1431,7 @@ Quat PhysicsWorld::rotation(BodyId body) const {
 void PhysicsWorld::setPlacement(BodyId body, const Vec3& position, const Quat& rotation) {
     const bool usable = isFinite(position) && isRotation(rotation);
     CORDITE_ASSERT(isValid(body) && usable, "a body of this world and a placement made of numbers are needed");
-    if (!isValid(body) || !usable) {
+    if (!isValid(body) || !usable || m_impl->isOfCharacter(body)) {
         return;
     }
     // What rested against it where it was has lost it, and what sleeps where it is
@@ -1353,7 +1447,7 @@ void PhysicsWorld::moveKinematic(BodyId body, const Vec3& position, const Quat& 
     const bool usable = isFinite(position) && isRotation(rotation) && isFinite(seconds) && seconds > 0.0f;
     CORDITE_ASSERT(isValid(body) && usable,
                    "a body of this world, a placement made of numbers and a time of more than nothing are needed");
-    if (!isValid(body) || !usable || motion(body) != BodyMotion::Kinematic) {
+    if (!isValid(body) || !usable || motion(body) != BodyMotion::Kinematic || m_impl->isOfCharacter(body)) {
         return;
     }
     m_impl->bodies().MoveKinematic(joltIdOf(body), toJolt(position), toJolt(glm::normalize(rotation)), seconds);
@@ -1372,7 +1466,7 @@ Vec3 PhysicsWorld::angularVelocity(BodyId body) const {
 void PhysicsWorld::setLinearVelocity(BodyId body, const Vec3& velocity) {
     CORDITE_ASSERT(isValid(body) && isFinite(velocity),
                    "a body of this world and a velocity made of numbers are needed");
-    if (!isValid(body) || !isFinite(velocity) || motion(body) == BodyMotion::Static) {
+    if (!isValid(body) || !isFinite(velocity) || motion(body) == BodyMotion::Static || m_impl->isOfCharacter(body)) {
         return;
     }
     m_impl->bodies().SetLinearVelocity(joltIdOf(body), toJolt(velocity));
@@ -1381,7 +1475,7 @@ void PhysicsWorld::setLinearVelocity(BodyId body, const Vec3& velocity) {
 void PhysicsWorld::setAngularVelocity(BodyId body, const Vec3& velocity) {
     CORDITE_ASSERT(isValid(body) && isFinite(velocity),
                    "a body of this world and a velocity made of numbers are needed");
-    if (!isValid(body) || !isFinite(velocity) || motion(body) == BodyMotion::Static) {
+    if (!isValid(body) || !isFinite(velocity) || motion(body) == BodyMotion::Static || m_impl->isOfCharacter(body)) {
         return;
     }
     m_impl->bodies().SetAngularVelocity(joltIdOf(body), toJolt(velocity));
@@ -1428,6 +1522,23 @@ void PhysicsWorld::step(float seconds) {
     if (!isFinite(seconds) || seconds <= 0.0f) {
         return;
     }
+    // The characters first: what they push is moved by the step of the bodies that
+    // follows, and the sensors they have walked into notice them in it.
+    std::vector<JPH::AABox>& stoodIn = m_impl->characterBounds;
+    stoodIn.clear();
+    m_impl->characters.forEachBody([&](BodyId body) { stoodIn.push_back(m_impl->solidBoundsOf(joltIdOf(body))); });
+    m_impl->characters.step(seconds, fromJolt(m_impl->system.GetGravity()), SolidBroadPhaseFilter(),
+                            SolidObjectFilter(), *m_impl->stepMemory);
+    // Jolt puts the body of a character where the character has gone and wakes
+    // nothing: what slept on a character that has walked off would go on sleeping, in
+    // the air.
+    size_t character = 0;
+    m_impl->characters.forEachBody([&](BodyId body) {
+        const JPH::AABox& stood = stoodIn[character++];
+        if (m_impl->solidBoundsOf(joltIdOf(body)) != stood) {
+            m_impl->wakeWhatIsIn(stood);
+        }
+    });
     m_impl->contacts.beginStep(m_impl->steps + 1);
     const JPH::EPhysicsUpdateError error =
         m_impl->system.Update(seconds, 1, m_impl->stepMemory.get(), m_impl->jobs.get());
@@ -1549,6 +1660,7 @@ PhysicsStatistics PhysicsWorld::statistics() const {
     statistics.activeBodies = m_impl->system.GetNumActiveBodies(JPH::EBodyType::RigidBody);
     statistics.geometries = static_cast<uint32_t>(m_impl->geometries.size());
     statistics.joints = static_cast<uint32_t>(m_impl->joints.size());
+    statistics.characters = static_cast<uint32_t>(m_impl->characters.size());
     statistics.steps = m_impl->steps;
     statistics.overflowedSteps = m_impl->overflowedSteps;
     return statistics;

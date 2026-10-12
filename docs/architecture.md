@@ -1273,6 +1273,30 @@ in the simulation. One pair of numbers serves all kinds - degrees for a hinge, m
 for a slider and a distance - because a joint is one kind at a time, and three pairs
 of which two are dead would be worse to read than one that says what it is.
 
+### A character is moved by asking what is in its way, not by forces
+
+What walks is not a rigid body. A capsule that the simulation moves falls over
+unless it is kept from turning, slides down every slope unless friction is tuned
+against it, is stopped by a kerb, and is thrown about by whatever hits it; each of
+these can be worked against, and each such fix shows somewhere else. A character
+here is Jolt's `CharacterVirtual` instead: a shape that is moved by a speed it is
+given, as far as queries against the world let it go - along the ground, up slopes
+it can walk on, up steps, around what stands still. It stands where it is put, and
+what it does is the same every time.
+
+The price is that the simulation does not know of it: a character is in no broad
+phase. So each has a kinematic body inside it, a little smaller than itself, that
+Jolt keeps where the character is - which is what a ray hits, what a trigger
+notices, and what a crate that falls on the character comes to rest on. What the
+character runs into it has to meet itself, with the force it has; its body would
+push with all the force there is.
+
+Jolt moves a character and leaves it to its user how fast: what gravity does, what
+a jump is, how much there is to steer by in the air. That is decided once, in the
+simulation (`CharacterSet::step`), and not by every game: it needs what the last
+step found under the character's feet, in every step, and a frame may be two steps
+or none. A game says where a character is to walk and when it is to jump.
+
 ### A body of several shapes is an entity with colliders below it
 
 A rigid body takes its own collider and those of the entities below it, down to the

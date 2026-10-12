@@ -127,7 +127,7 @@ by accident.
 | `assets` | `core`, `math` | Assets as data: images and mipmaps, meshes - rigid and skinned - and what prepares them, skeletons, animation clips, materials, glTF import and export, the asset database (ids, `.meta` files) and the asset manager (loading by id) |
 | `world` | `core`, `math` | Entities, components and their hierarchy (EnTT), the component registry, scene files |
 | `animation` | `core`, `math`, `assets`, `world` | Poses of skeletons and what makes them: sampling clips, blending, the matrices a mesh is skinned with and the bounds of a posed mesh; the `Animator` component; `AnimationSystem`, which plays the animators of a world |
-| `physics` | `core`, `math`, `assets`, `world` | `PhysicsWorld`: rigid bodies, their shapes - boxes, balls, capsules, the hulls around sets of points and surfaces of triangles - joints between them, stepping, contact events and queries, over Jolt Physics; the `Collider`, `RigidBody` and `Joint` components; `PhysicsSystem`, which keeps the entities of a world and the bodies of a simulation in step and makes shapes of mesh assets |
+| `physics` | `core`, `math`, `assets`, `world` | `PhysicsWorld`: rigid bodies, their shapes - boxes, balls, capsules, the hulls around sets of points and surfaces of triangles - joints between them, the characters that walk among them, stepping, contact events and queries, over Jolt Physics; the `Collider`, `RigidBody` and `Joint` components; `PhysicsSystem`, which keeps the entities of a world and the bodies of a simulation in step and makes shapes of mesh assets |
 | `rhi` | `core`, `math`, `platform` | Vulkan device, swapchain and texture readback over NVRHI |
 | `shaders` | `core` | Shader requests and permutation keys, disk cache, `ShaderLibrary` |
 | `shader_compiler` | `core`, `shaders` | Slang to SPIR-V compiler (not linked into exported games) |
@@ -819,6 +819,41 @@ Step-by-step guide: [work-with-assets](.claude/skills/work-with-assets/SKILL.md)
   A surface made of it is welded first (`createTriangleMesh` does, with Jolt's own
   `Indexify`): triangles that are not known to share an edge are taken for the end
   of the surface there, and what slides across it catches on every one.
+- **A character is no body.** It is Jolt's `CharacterVirtual`: a capsule that is
+  moved through the world by asking what is in its way, in `PhysicsWorld::step`
+  before the bodies, in the order the characters were made. It does not fall over,
+  bounce or slide by itself, which is what one wants of something that walks. All
+  of it is in `CharacterSet` (`CharacterSet.h`, for the module alone).
+- **How a character's speed comes about is the engine's to say**, in
+  `CharacterSet::step` - Jolt moves a character at the speed it is given, and gives
+  none. A character that stands has the speed of what it stands on and of its walk,
+  and is *not* pulled at by gravity: pulled at, it creeps down every slope it
+  stands on, and drifts downhill when it walks across one. One in the air falls, and
+  goes sideways as it left the ground as far as `airControl` leaves `walk` no say -
+  a share of the two speeds, not a pull towards one, so that it does not depend on
+  the length of a step. Tests pin each of these; take one out and see which fails.
+- **Jolt leaves the speed of a character as it was given**, whatever stopped the
+  character. `CharacterState::velocity` is therefore worked out from where the
+  character got to; and the speed it rises or falls with is taken from it where it
+  did not rise or fall at all, or it hangs under a ceiling until gravity has used
+  its jump up.
+- **Jolt keeps the shape of a character a little away from everything**
+  (`kCharacterPadding`), and puts it that far above where the character is. The
+  shape is made smaller by as much all round, with its lowest point where the
+  character is: then what is kept out of the world is as large as was asked for,
+  and the soles are on the ground. Make it smaller *and* raise it, and the
+  character stands two centimetres deep in the floor.
+- **A body stands for each character** (`characterBody`): kinematic, a tenth
+  smaller, kept where the character is by Jolt. It is what rays find, what
+  triggers notice and what contact events name - a character itself is in no broad
+  phase. It is the character's: `destroyBody` refuses it, and placing it or giving
+  it a speed is ignored.
+- **What lies on a character rests on its body, and is nothing to the character**
+  (`CarriedBodyFilter`). Between a contact that presses down and ground that
+  presses up Jolt lets a character go nowhere: a crate on its head would pin it to
+  the spot. And Jolt puts that body where the character has gone without waking
+  anything, so `PhysicsWorld::step` wakes what rested where it was - or what
+  slept on a character that left in one step would go on sleeping in the air.
 - **Jolt keeps a shape against its centre of mass.** The points of a hull and the
   bounds of any shape are relative to it; add `GetCenterOfMass()` to be back in the
   space the geometry was given in. Where a body *is* (`position`) already accounts

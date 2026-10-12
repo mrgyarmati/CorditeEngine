@@ -1,5 +1,7 @@
 cordite_add_module(physics
     SOURCES
+        CharacterSet.cpp
+        CharacterSet.h
         JoltSupport.h
         PhysicsComponents.cpp
         PhysicsComponents.h
