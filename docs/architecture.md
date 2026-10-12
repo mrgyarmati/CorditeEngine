@@ -34,6 +34,7 @@ of slowly turning the code base into a ball of mud.
 | `platform` | `core`, `math` | The window system and windows (GLFW), and per-window keyboard, mouse and gamepad state with an injection API for tests and automation. |
 | `assets` | `core`, `math` | Assets as data, and where they come from: images and mipmaps; meshes, primitives and mesh processing; materials; glTF import and export; the asset database, which knows what exists and under which id; the asset manager, which loads by id. Knows nothing of the GPU. |
 | `world` | `core`, `math` | The scene: entities, their components and their parent/child hierarchy, stored with EnTT; the registry of component types known by name; scene files. |
+| `animation` | `core`, `math`, `assets`, `world` | Movement of skeletons: the functions that make a pose (sampling a clip, blending two poses, the matrices a mesh is skinned with), the `Animator` component, and `AnimationSystem`, which plays the animators of a world and gives each the pose it is in. The renderer and the engine do not use it yet. |
 | `rhi` | `core`, `math`, `platform` | The GPU: Vulkan instance and device creation, the NVRHI device the renderer programs against, the swapchain, and texture readback. The only module that calls Vulkan. |
 | `shaders` | `core` | What a shader *is* to the engine: requests and their permutation keys, compiled binaries, the on-disk cache, and the `ShaderLibrary` that resolves a request from memory, disk or a compiler. |
 | `shader_compiler` | `core`, `shaders` | The Slang-based implementation of `IShaderCompiler`. Kept separate so exported games do not link a compiler. |
@@ -1023,6 +1024,43 @@ running `dev.ps1 perf` before and after a change instead.
 The time on the GPU comes from a timer query that is read only after the GPU has
 finished the command list it is in. Read earlier, a driver may combine the start time
 of the new measurement with the end time of the one before.
+
+### Joints are not entities
+
+A skeleton is an asset, and an entity that is animated has one component, the
+`Animator`: which skeleton, which clip, where in the clip. `AnimationSystem` works the
+pose out from that every frame, into a `SkeletonPoseComponent` that exists only while
+the program runs.
+
+The other way - an entity for every joint, as glTF has a node for each - was not taken,
+for three reasons. Playing an animation would change the transforms of entities, which
+are what a scene file saves and what the editor's undo history watches: every frame of
+a clip would be an edit. A crowd of a hundred figures of sixty joints would be six
+thousand entities whose world matrices are worked out, sorted through and saved, for
+nothing anyone looks at. And a pose would be spread over the registry instead of lying
+in one array, which is how the GPU needs it.
+
+What it costs: something that hangs on a joint - a weapon in a hand - cannot simply be
+made a child of it. That needs a component that names a joint, and is not built yet.
+
+### A clip finds its joints by name
+
+A track of an `AnimationData` names the joint it moves; `bindTracks` turns the names
+into indices once for a clip and a skeleton, and `AnimationSystem` keeps the result. So
+a clip made for one figure moves every figure whose joints are called the same, which
+is what makes a library of clips possible, and a track for a joint a skeleton does not
+have is passed over instead of being an error. Indices would have tied every clip to
+the one file it came from.
+
+### An editor poses, a game plays
+
+`AnimationSystem::update` moves the clocks of the animators on and poses;
+`evaluate` only poses, and writes nothing to an animator - it does not even bring a
+time that lies beyond its clip into the clip, but reads it as a clock that ran there
+would stand. The time of an animator is a property like any other: a person sets it to
+look through a clip, the edit is in the undo history, and the scene file gets what was
+set. A system that tidied the number up afterwards would change the document behind
+the back of everything that keeps track of it.
 
 ### Enum names use `nameOf`, not `toString`
 

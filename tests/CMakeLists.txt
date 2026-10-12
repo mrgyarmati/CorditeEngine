@@ -61,6 +61,14 @@ cordite_add_test_suite(world
     LIBRARIES
         cordite::world)
 
+cordite_add_test_suite(animation
+    SOURCES
+        support/SkinnedModelSupport.h
+        unit/animation/AnimationSystemTests.cpp
+        unit/animation/PoseTests.cpp
+    LIBRARIES
+        cordite::animation)
+
 cordite_add_test_suite(platform
     SOURCES
         unit/platform/InputTests.cpp

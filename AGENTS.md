@@ -126,6 +126,7 @@ by accident.
 | `platform` | `core`, `math` | Windows (GLFW), keyboard / mouse / gamepad input |
 | `assets` | `core`, `math` | Assets as data: images and mipmaps, meshes - rigid and skinned - and what prepares them, skeletons, animation clips, materials, glTF import and export, the asset database (ids, `.meta` files) and the asset manager (loading by id) |
 | `world` | `core`, `math` | Entities, components and their hierarchy (EnTT), the component registry, scene files |
+| `animation` | `core`, `math`, `assets`, `world` | Poses of skeletons and what makes them: sampling clips, blending, the matrices a mesh is skinned with; the `Animator` component; `AnimationSystem`, which plays the animators of a world. Not used by the renderer and the engine yet |
 | `rhi` | `core`, `math`, `platform` | Vulkan device, swapchain and texture readback over NVRHI |
 | `shaders` | `core` | Shader requests and permutation keys, disk cache, `ShaderLibrary` |
 | `shader_compiler` | `core`, `shaders` | Slang to SPIR-V compiler (not linked into exported games) |
@@ -573,6 +574,37 @@ Step-by-step guide: [work-with-assets](.claude/skills/work-with-assets/SKILL.md)
 - **The showcase's textures and models are generated**, by `tools/sample-assets`.
   Change the generator, run it, look at the result, commit both. Its materials and its
   scene are written by hand, with comments: they are the reference for the file formats.
+
+## Animation
+
+- **Joints are not entities.** A skeleton is an asset. Where its joints are at a moment
+  is worked out from an `Animator` into a `SkeletonPoseComponent`, which is not in the
+  component registry: it is not saved, not shown and not undone. Playing an animation
+  therefore changes nothing a scene file holds but the animator's own clocks, and a
+  crowd costs a pose each, not an entity for every joint.
+- **A pose is made in steps** (`animation/Pose.h`): `restPose`, then `sampleClip` over
+  it - which changes of a joint only what the clip has keys for - then `blendPoses`;
+  `jointMatrices` puts the joints in the model, parents first (`jointOrder`), and
+  `skinningMatrices` is that times the inverse bind matrix. A clip is bound to a
+  skeleton once, by the names of its joints (`bindTracks`), not for every frame.
+- **A rotation between two keys is on the arc between them** (`sampleRotation`), as
+  glTF asks: a third of the time is a third of the angle. `Curve<Vec4>::evaluate`
+  goes the straight way through four numbers, which is neither a rotation nor at an
+  even speed; only a cubic spline is taken from it, and brought back to unit length.
+- **`AnimationSystem::update` lets time pass, `evaluate` only poses.** A program that
+  shows a scene without running it calls `evaluate`, which changes nothing an animator
+  holds - not even a time beyond its clip, which it reads as a clock that ran there
+  would stand. A clock is written only when it moves, so nothing changes a scene
+  behind the back of the editor's undo history.
+- **The end of a clip is a time it has**, also when it loops (`clipTime`): a clock set
+  to the duration shows the last pose, not the first. Only a time beyond the ends goes
+  round.
+- **What an animator cannot use is reported once** and poses nothing or the rest pose;
+  numbers that are none - a speed, a weight, a time - count as nothing. Skeletons and
+  clips are held until `AssetDatabase::revision()` changes.
+- **Animation is tested with numbers.** `tests/support/SkinnedModelSupport.h` is a bar
+  of three joints whose every pose can be worked out by hand: half way through "Bend"
+  its middle joint is turned 45 degrees.
 
 ## Editor and automation
 

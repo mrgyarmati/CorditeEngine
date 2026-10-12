@@ -1,0 +1,13 @@
+cordite_add_module(animation
+    SOURCES
+        AnimationComponents.cpp
+        AnimationComponents.h
+        AnimationSystem.cpp
+        AnimationSystem.h
+        Pose.cpp
+        Pose.h
+    DEPENDS
+        core
+        math
+        assets
+        world)
