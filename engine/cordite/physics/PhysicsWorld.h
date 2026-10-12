@@ -11,10 +11,11 @@
 /// CORDITE_TRY_ASSIGN(const std::unique_ptr<PhysicsWorld> physics, PhysicsWorld::create());
 /// CORDITE_TRY_ASSIGN(const BodyId floor,
 ///                    physics->createBody({.motion = BodyMotion::Static,
-///                                         .shape = {.type = ShapeType::Box, .size = Vec3(20.0f, 1.0f, 20.0f)},
+///                                         .shapes = {{.type = ShapeType::Box, .size = Vec3(20.0f, 1.0f, 20.0f)}},
 ///                                         .position = Vec3(0.0f, -0.5f, 0.0f)}));
-/// CORDITE_TRY_ASSIGN(const BodyId ball, physics->createBody({.shape = {.type = ShapeType::Sphere, .radius = 0.5f},
-///                                                            .position = Vec3(0.0f, 4.0f, 0.0f)}));
+/// CORDITE_TRY_ASSIGN(const BodyId ball,
+///                    physics->createBody({.shapes = {{.type = ShapeType::Sphere, .radius = 0.5f}},
+///                                         .position = Vec3(0.0f, 4.0f, 0.0f)}));
 ///
 /// for (int step = 0; step < 120; ++step) {
 ///     physics->step(1.0f / 60.0f);
@@ -46,6 +47,7 @@
 #include <memory>
 #include <optional>
 #include <string_view>
+#include <vector>
 
 namespace cordite {
 
@@ -95,7 +97,7 @@ inline constexpr std::array<ShapeType, 3> kShapeTypes = {ShapeType::Box, ShapeTy
 /// The name used in files and by tools: "box", "sphere", "capsule".
 std::string_view nameOf(ShapeType type);
 
-/// A shape, centred on the body it belongs to.
+/// A shape, and where it is in the body it belongs to.
 struct ShapeDesc {
     ShapeType type = ShapeType::Box;
     /// Of a box: its edge lengths, in metres.
@@ -105,13 +107,24 @@ struct ShapeDesc {
     /// Of a capsule: from end to end, in metres. One that is no taller than it is wide
     /// is a sphere.
     float height = 2.0f;
+    /// Where the middle of the shape is, in the space of its body, and how the shape is
+    /// turned there; the rotation of any length but none.
+    Vec3 offset{0.0f};
+    Quat rotation = kIdentityQuat;
+
+    bool operator==(const ShapeDesc&) const = default;
 };
+
+/// The most shapes a body can be put together of.
+inline constexpr uint32_t kMaxBodyShapes = 1024;
 
 /// What a body is made with.
 struct BodyDesc {
     BodyMotion motion = BodyMotion::Dynamic;
-    ShapeDesc shape;
-    /// Where its centre is, in metres.
+    /// What it is put together of: one shape at least, kMaxBodyShapes at most. They
+    /// move as one, and may overlap.
+    std::vector<ShapeDesc> shapes = {ShapeDesc()};
+    /// Where the body is, in metres: the point its shapes are placed against.
     Vec3 position{0.0f};
     /// Of any length but none; brought to unit length.
     Quat rotation = kIdentityQuat;
@@ -137,6 +150,8 @@ struct BodyDesc {
     bool allowSleep = true;
     /// Whatever the owner of the body wants to find again from a BodyId or a RayHit.
     uint64_t userData = 0;
+
+    bool operator==(const BodyDesc&) const = default;
 };
 
 /// How large a simulation may become. The memory for all of it is taken when the world
@@ -184,8 +199,9 @@ public:
     ~PhysicsWorld();
     CORDITE_NON_MOVABLE(PhysicsWorld);
 
-    /// Adds a body. Fails - and adds nothing - for a shape without volume, a dynamic
-    /// body without mass, numbers that are none, and when the world is full.
+    /// Adds a body. Fails - and adds nothing - for a body without shapes or with too
+    /// many, a shape without volume, a dynamic body without mass, numbers that are none,
+    /// and when the world is full.
     [[nodiscard]] Result<BodyId> createBody(const BodyDesc& desc);
 
     /// Removes a body. An id that is not a body's (any more) is ignored.
@@ -200,7 +216,7 @@ public:
     [[nodiscard]] BodyMotion motion(BodyId body) const;
     [[nodiscard]] uint64_t userData(BodyId body) const;
 
-    /// Where the centre of the body is, and how it is turned.
+    /// Where the body is - BodyDesc::position, moved on - and how it is turned.
     [[nodiscard]] Vec3 position(BodyId body) const;
     [[nodiscard]] Quat rotation(BodyId body) const;
 

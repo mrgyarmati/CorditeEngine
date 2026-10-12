@@ -110,6 +110,12 @@ TEST_SUITE("Performance") {
         report["assets"] = assetCount;
         report["milliseconds"] = milliseconds;
         report["scene"] = test::describeScene(statistics.scene);
+        Json simulation = Json::object();
+        simulation["bodies"] = statistics.physics.bodies;
+        simulation["activeBodies"] = statistics.physics.activeBodies;
+        simulation["animators"] = statistics.animation.animators;
+        simulation["joints"] = statistics.animation.joints;
+        report["simulation"] = std::move(simulation);
         report["resources"] = test::describeResources(statistics.resources);
         test::writeReport(report);
 
@@ -137,6 +143,11 @@ TEST_SUITE("Performance") {
         CHECK(statistics.scene.environmentsMade == 0);
         CHECK(assetCount > 0);
 
+        // What stands and lies in the showcase has come to rest by now, and sleeps.
+        CHECK(statistics.physics.steps == 1);
+        CHECK(statistics.physics.activeBodies <= 1);
+        checkBudget(budgets, "bodies", statistics.physics.bodies);
+        checkBudget(budgets, "joints", statistics.animation.joints);
         checkBudget(budgets, "drawCalls", statistics.scene.meshes.drawCalls);
         checkBudget(budgets, "screenPasses", statistics.scene.screenPasses);
         checkBudget(budgets, "triangles", static_cast<double>(statistics.scene.meshes.triangles));

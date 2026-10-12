@@ -35,7 +35,7 @@ of slowly turning the code base into a ball of mud.
 | `assets` | `core`, `math` | Assets as data, and where they come from: images and mipmaps; meshes, primitives and mesh processing; materials; glTF import and export; the asset database, which knows what exists and under which id; the asset manager, which loads by id. Knows nothing of the GPU. |
 | `world` | `core`, `math` | The scene: entities, their components and their parent/child hierarchy, stored with EnTT; the registry of component types known by name; scene files. |
 | `animation` | `core`, `math`, `assets`, `world` | Movement of skeletons: the functions that make a pose (sampling a clip, blending two poses, the matrices a mesh is skinned with, the bounds of a posed mesh), the `Animator` component, and `AnimationSystem`, which plays the animators of a world and gives each the pose it is in. |
-| `physics` | `core`, `math` | The simulation of rigid bodies: `PhysicsWorld` holds bodies - a shape, a mass, where each is and how it moves - steps them on in time and answers what a ray hits. Jolt Physics is behind it and shows in none of its headers. The engine does not use it yet. |
+| `physics` | `core`, `math`, `world` | The simulation of rigid bodies: `PhysicsWorld` holds bodies - shapes, a mass, where each is and how it moves - steps them on in time and answers what a ray hits. Jolt Physics is behind it and shows in none of its headers. The `Collider` and `RigidBody` components say what of a world is simulated, and `PhysicsSystem` keeps the two in step. |
 | `rhi` | `core`, `math`, `platform` | The GPU: Vulkan instance and device creation, the NVRHI device the renderer programs against, the swapchain, and texture readback. The only module that calls Vulkan. |
 | `shaders` | `core` | What a shader *is* to the engine: requests and their permutation keys, compiled binaries, the on-disk cache, and the `ShaderLibrary` that resolves a request from memory, disk or a compiler. |
 | `shader_compiler` | `core`, `shaders` | The Slang-based implementation of `IShaderCompiler`. Kept separate so exported games do not link a compiler. |
@@ -59,8 +59,9 @@ with and without a window:
 3. It opens the frame's command list, clears the engine's offscreen frame target and
    starts the interface frame.
 4. The program does its work: it changes the world as it sees fit, then calls
-   `Engine::updateWorld()`, which plays the animations on by the time of the frame,
-   poses the skeletons and works out where every entity is; it records render passes
+   `Engine::updateWorld()`, which steps the simulation of the world's bodies and
+   puts the entities where their bodies have gone, plays the animations on by the
+   time of the frame, poses the skeletons and works out where every entity is; it records render passes
    into the command list, and describes its interface with ImGui calls. A game calls
    `Engine::drawWorld()`, which renders the world through its primary camera; the
    editor renders it from the viewport's own camera into the viewport panel instead,
@@ -1188,6 +1189,70 @@ all configurations.
 Jolt's jobs are run on the calling thread for now. Simulations on several threads
 are deterministic in Jolt as well, and running its jobs on the engine's job system is
 the next step when scenes need it.
+
+### The world says what is simulated, and the simulation is not kept in the world
+
+A `Collider` is a shape and a `RigidBody` a way of moving; both are plain data that
+scenes hold, the inspector shows and commands set. The bodies made of them belong to
+`PhysicsSystem`, in a table by entity, and nothing of them is a component - no handle,
+no cached shape. A world can then be saved, copied, undone and loaded without anything
+of the simulation to carry along or to repair, and a world that is emptied leaves the
+system with bodies that no entity asks for, which it removes at its next update. The
+cost is that every update walks the hierarchy and compares what each body is made of
+with what it was made of; that is cheap beside the simulation, and it is what lets any
+edit of any property simply take effect.
+
+One piece of the simulation does show in the world: the speeds of a rigid body, as
+properties that are not saved. A script reads and sets them like anything else.
+
+### A body of several shapes is an entity with colliders below it
+
+A rigid body takes its own collider and those of the entities below it, down to the
+next rigid body. A table is a top with four legs hanging under it, each placed, turned
+and scaled by its own transform - which is how everything else in a scene is put
+together, and so needs no editor of its own. The other way, a list of shapes in one
+component, would need one.
+
+A body has no scale; its shapes are as large as the scales above them, multiplied.
+They are worked out from the transforms the entities hold, never from where things
+are in the world: taken apart, the matrix of a body that turns gives a scale and a
+rotation that differ in the last digit from frame to frame, and a body is made anew
+whenever what it is made of changes.
+
+### While time passes the simulation places dynamic bodies; while it does not, the world does
+
+In a game the simulation has the say over a dynamic body: after every update its
+entity is where the body is. Two things can put the body elsewhere - a new transform
+given to its entity, and nothing else. What the entity hangs under does not: a crate
+that stands on a platform and hangs under it in the scene would otherwise be moved
+twice, by its parent and by the friction, and slide off. Its entity is put back where
+the body is instead, also in a frame without a step, and also while the body sleeps.
+
+In an editor, where no time passes, it is the other way round: the scene is the
+truth, every body is where its entity is however the entity came to be there, and
+the system writes nothing - a document must not change because it was looked at.
+
+Whether an entity was moved is told exactly: its own transform and the matrix of
+what it hangs under are kept from the last time body and entity were brought in
+line, and compared number for number. Nothing is decided by how far apart an entity
+and its body are in the world, because taking a world matrix apart and putting it
+together again does not give the same numbers, and under a parent that is turned and
+scaled unevenly not even nearly: a tolerance would wake bodies that nobody touched.
+
+A kinematic body is moved through steps and never put somewhere while time passes.
+On a display faster than the simulation most frames have no step; putting the body
+ahead in those would leave only the last frame's part of the way for it to push
+anything along.
+
+### Time passes for bodies in steps of one length
+
+A frame takes what it takes; the simulation takes steps of a sixtieth of a second, as
+many as have come together, and at most eight to a frame. Steps of one length are what
+keep stacks standing and make a simulation repeatable. What is shown is the state
+after the last whole step: nothing is moved between two steps, so on a display that
+does not run at the step's rate bodies move a little unevenly. Showing a state
+between the last two steps would smooth that, at the price of showing everything one
+step late; it is not done yet.
 
 ### Enum names use `nameOf`, not `toString`
 

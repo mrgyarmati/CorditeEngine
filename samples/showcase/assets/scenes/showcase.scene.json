@@ -32,6 +32,17 @@
                 "MeshRenderer": {
                     "mesh": "8db36b6b-2606-8b2d-b7f0-6bd7af0a9d8c",
                     "materials": ["b0c85c3e-486e-830d-96b7-7d0ad6399db6"]
+                },
+                // A collider alone is a body that stands still. The shape is as large as its
+                // entity is scaled: a slab of 20 by 0.2 by 20 metres whose top is the floor.
+                "Collider": {
+                    "shape": "box",
+                    "size": [1.0, 0.2, 1.0],
+                    "radius": 0.5,
+                    "height": 2.0,
+                    "center": [0.0, -0.1, 0.0],
+                    "friction": 0.8,
+                    "restitution": 0.0
                 }
             }
         },
@@ -156,6 +167,27 @@
                 "MeshRenderer": {
                     "mesh": "ebd09deb-748e-82c7-9dcd-3ddac4a52316",
                     "materials": ["7cde9ddc-faf9-89ce-810c-b0ed1b1226a0", "dfe6fed0-c45a-88fe-b544-dc69debd984a"]
+                },
+                // With a rigid body the simulation moves the entity: the crate can be pushed
+                // over, and falls when what it stands on goes. Its lid, below it, has a collider
+                // and no rigid body of its own, and so is part of the same body.
+                "Collider": {
+                    "shape": "box",
+                    "size": [1.0, 1.0, 1.0],
+                    "radius": 0.5,
+                    "height": 2.0,
+                    "center": [0.0, 0.0, 0.0],
+                    "friction": 0.6,
+                    "restitution": 0.0
+                },
+                "RigidBody": {
+                    "motion": "dynamic",
+                    "mass": 25.0,
+                    "linearDamping": 0.05,
+                    "angularDamping": 0.05,
+                    "gravityScale": 1.0,
+                    "continuous": false,
+                    "allowSleep": true
                 }
             }
         },
@@ -170,6 +202,15 @@
                 "MeshRenderer": {
                     "mesh": "0a56c2f1-21e0-819d-8bac-567d1e1c4345",
                     "materials": ["c40ceb3a-92fb-8ca6-8c0c-a72bda94bf24"]
+                },
+                "Collider": {
+                    "shape": "box",
+                    "size": [1.0, 1.0, 1.0],
+                    "radius": 0.5,
+                    "height": 2.0,
+                    "center": [0.0, 0.0, 0.0],
+                    "friction": 0.6,
+                    "restitution": 0.0
                 }
             }
         },
@@ -183,6 +224,26 @@
                 "MeshRenderer": {
                     "mesh": "2c51a473-c570-8ef1-a45b-3b3ba054e8e5",
                     "materials": ["8733a23e-9efb-81d0-8529-eb712ff4332a"]
+                },
+                // A rigid body that is static stands still like a collider alone, and takes the
+                // colliders below it into one body.
+                "Collider": {
+                    "shape": "box",
+                    "size": [1.0, 1.0, 1.0],
+                    "radius": 0.5,
+                    "height": 2.0,
+                    "center": [0.0, 0.0, 0.0],
+                    "friction": 0.8,
+                    "restitution": 0.0
+                },
+                "RigidBody": {
+                    "motion": "static",
+                    "mass": 1.0,
+                    "linearDamping": 0.05,
+                    "angularDamping": 0.05,
+                    "gravityScale": 1.0,
+                    "continuous": false,
+                    "allowSleep": true
                 }
             }
         },
@@ -197,6 +258,25 @@
                 "MeshRenderer": {
                     "mesh": "a5666847-8761-8114-8630-d4dc8f686f5a",
                     "materials": ["ff5563c6-273e-802e-8ce8-6b3d0fa35656"]
+                },
+                // A box around the barrel, until colliders can be made of meshes.
+                "Collider": {
+                    "shape": "box",
+                    "size": [0.6, 0.9, 0.6],
+                    "radius": 0.5,
+                    "height": 2.0,
+                    "center": [0.0, 0.0, 0.0],
+                    "friction": 0.5,
+                    "restitution": 0.0
+                },
+                "RigidBody": {
+                    "motion": "dynamic",
+                    "mass": 15.0,
+                    "linearDamping": 0.05,
+                    "angularDamping": 0.05,
+                    "gravityScale": 1.0,
+                    "continuous": false,
+                    "allowSleep": true
                 }
             }
         },
@@ -368,7 +448,26 @@
             "parent": "10000000-0000-4000-8000-000000000001",
             "components": {
                 "Transform": { "position": [0.9, 0.3, 0.2], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [0.6, 0.6, 0.6] },
-                "MeshRenderer": { "mesh": "aa35bb57-6b9a-8ecb-9eda-83a2a1be3014", "materials": [], "lightChannels": 3 }
+                "MeshRenderer": { "mesh": "aa35bb57-6b9a-8ecb-9eda-83a2a1be3014", "materials": [], "lightChannels": 3 },
+                // A sphere that keeps more than half its speed when it bounces.
+                "Collider": {
+                    "shape": "sphere",
+                    "size": [1.0, 1.0, 1.0],
+                    "radius": 0.5,
+                    "height": 2.0,
+                    "center": [0.0, 0.0, 0.0],
+                    "friction": 0.4,
+                    "restitution": 0.6
+                },
+                "RigidBody": {
+                    "motion": "dynamic",
+                    "mass": 2.0,
+                    "linearDamping": 0.05,
+                    "angularDamping": 0.05,
+                    "gravityScale": 1.0,
+                    "continuous": false,
+                    "allowSleep": true
+                }
             }
         },
         {
@@ -401,6 +500,26 @@
                 "MeshRenderer": {
                     "mesh": "da2fbb43-a0e2-821e-af4c-1593d5470916",
                     "materials": ["c40ceb3a-92fb-8ca6-8c0c-a72bda94bf24"]
+                },
+                // A kinematic body goes where its entity is put, and pushes what is in its way:
+                // what a game moves by hand - a door, a lift, a cone that is carried about.
+                "Collider": {
+                    "shape": "box",
+                    "size": [1.0, 1.0, 1.0],
+                    "radius": 0.5,
+                    "height": 2.0,
+                    "center": [0.0, 0.0, 0.0],
+                    "friction": 0.5,
+                    "restitution": 0.0
+                },
+                "RigidBody": {
+                    "motion": "kinematic",
+                    "mass": 1.0,
+                    "linearDamping": 0.05,
+                    "angularDamping": 0.05,
+                    "gravityScale": 1.0,
+                    "continuous": false,
+                    "allowSleep": true
                 }
             }
         },
@@ -419,6 +538,26 @@
                 "MeshRenderer": {
                     "mesh": "6bb53bca-6ca5-84c3-8341-8ac61212f240",
                     "materials": ["63f57b0d-f370-8781-a32a-57a1be8dd15a"]
+                },
+                // A capsule: a cylinder along the entity's Y axis with round ends, here lying on
+                // its side. It grows with the entity by Y in height and by X and Z across.
+                "Collider": {
+                    "shape": "capsule",
+                    "size": [1.0, 1.0, 1.0],
+                    "radius": 0.5,
+                    "height": 1.0,
+                    "center": [0.0, 0.0, 0.0],
+                    "friction": 0.5,
+                    "restitution": 0.1
+                },
+                "RigidBody": {
+                    "motion": "dynamic",
+                    "mass": 8.0,
+                    "linearDamping": 0.05,
+                    "angularDamping": 0.05,
+                    "gravityScale": 1.0,
+                    "continuous": false,
+                    "allowSleep": true
                 }
             }
         },

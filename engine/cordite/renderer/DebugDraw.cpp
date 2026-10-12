@@ -99,6 +99,32 @@ void DebugDraw::sphere(const Vec3& center, float radius, const Vec4& color, uint
     circle(center, kWorldForward, radius, color, segments);
 }
 
+void DebugDraw::capsule(const Vec3& from, const Vec3& to, float radius, const Vec4& color, uint32_t segments) {
+    constexpr uint32_t kMinimumHalfSegments = 3;
+    const uint32_t half = std::max(segments / 2, kMinimumHalfSegments);
+    const Vec3 axis = normalizeOr(to - from, kWorldUp);
+    const auto [first, second] = perpendicularBasis(axis);
+
+    circle(from, axis, radius, color, segments);
+    circle(to, axis, radius, color, segments);
+    // Half a circle from `side` over `over` to the other side.
+    const auto halfCircle = [&](const Vec3& center, const Vec3& side, const Vec3& over) {
+        Vec3 previous = center + side * radius;
+        for (uint32_t index = 1; index <= half; ++index) {
+            const float angle = kPi * static_cast<float>(index) / static_cast<float>(half);
+            const Vec3 current = center + (side * std::cos(angle) + over * std::sin(angle)) * radius;
+            line(previous, current, color);
+            previous = current;
+        }
+    };
+    for (const Vec3& side : {first, second}) {
+        line(from + side * radius, to + side * radius, color);
+        line(from - side * radius, to - side * radius, color);
+        halfCircle(to, side, axis);
+        halfCircle(from, side, -axis);
+    }
+}
+
 void DebugDraw::arrow(const Vec3& from, const Vec3& to, const Vec4& color) {
     // The head, as fractions of the arrow's length.
     constexpr float kHeadLength = 0.2f;

@@ -7,6 +7,7 @@
 #include "support/MathTestSupport.h"
 #include "support/TestSupport.h"
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
 #include <span>
@@ -144,6 +145,37 @@ TEST_SUITE("DebugDraw") {
         REQUIRE(lines.lineCount() == 36);
         for (const DebugVertex& vertex : lines.vertices()) {
             CHECK(glm::distance(vertex.position, Vec3(0.0f, 5.0f, 0.0f)) == doctest::Approx(1.5f));
+        }
+    }
+
+    TEST_CASE("a capsule is two circles, four lines between them and half circles over its ends") {
+        DebugDraw draw;
+        const Vec3 from(1.0f, 0.0f, 2.0f);
+        const Vec3 to(1.0f, 3.0f, 2.0f);
+        draw.capsule(from, to, 0.5f, DebugDraw::kGreen, 16);
+        // Two circles of sixteen, four lines, four half circles of eight.
+        CHECK(draw.lineCount() == 16 * 2 + 4 + 8 * 4);
+        // Every point is half a metre from the line between the two ends - on the
+        // cylinder, or on one of the round ends - and nothing reaches further.
+        float lowest = 100.0f;
+        float highest = -100.0f;
+        for (const DebugVertex& vertex : draw.vertices()) {
+            const float along = std::clamp(vertex.position.y, from.y, to.y);
+            CHECK(glm::distance(vertex.position, Vec3(from.x, along, from.z)) == doctest::Approx(0.5f).epsilon(1.0e-4));
+            CHECK(vertex.color == packRgba8(DebugDraw::kGreen));
+            lowest = std::min(lowest, vertex.position.y);
+            highest = std::max(highest, vertex.position.y);
+        }
+        // From end to end it is as long as the cylinder and both round ends.
+        CHECK(lowest == doctest::Approx(-0.5f).epsilon(1.0e-4));
+        CHECK(highest == doctest::Approx(3.5f).epsilon(1.0e-4));
+
+        // With both ends in one place it is the outline of a ball, and still a shape.
+        draw.clear();
+        draw.capsule(from, from, 2.0f, DebugDraw::kRed, 1);
+        CHECK(draw.lineCount() > 0);
+        for (const DebugVertex& vertex : draw.vertices()) {
+            CHECK(glm::distance(vertex.position, from) == doctest::Approx(2.0f).epsilon(1.0e-4));
         }
     }
 

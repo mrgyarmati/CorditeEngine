@@ -87,6 +87,12 @@ public:
 
     void setAntiAliasing(AntiAliasing antiAliasing) { m_antiAliasing = antiAliasing; }
 
+    /// Whether the collider of every entity that has one is drawn, as lines. Those of
+    /// selected entities, and of what hangs below them, always are.
+    [[nodiscard]] bool showsColliders() const { return m_showColliders; }
+
+    void setShowColliders(bool show) { m_showColliders = show; }
+
     [[nodiscard]] EditorCamera& camera() { return m_camera; }
 
     [[nodiscard]] const EditorCamera& camera() const { return m_camera; }
@@ -110,6 +116,7 @@ private:
     ScreenEffectsQuality m_screenEffectsQuality = ScreenEffectsQuality::Medium;
     PostProcessQuality m_postProcessQuality = PostProcessQuality::Medium;
     AntiAliasing m_antiAliasing = AntiAliasing::Fxaa;
+    bool m_showColliders = false;
     /// The view render() last used, for pick().
     CameraView m_view;
     /// Rebuilt every frame; members so that their memory is reused. Grid and scene

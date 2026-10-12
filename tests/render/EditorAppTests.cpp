@@ -535,6 +535,10 @@ TEST_SUITE("EditorApp") {
         // The cable of the hoist is posed by its animator: one skeleton of six joints.
         CHECK(statistics["animation"]["animators"] == 1);
         CHECK(statistics["animation"]["joints"] == 6);
+        // The bodies of the scene are there - seven of them - and none is simulated:
+        // the editor shows a scene, it does not run it.
+        CHECK(statistics["physics"]["bodies"] == 7);
+        CHECK(statistics["physics"]["steps"] == 0);
         CHECK(scene["skinned"]["meshes"] == 1);
         CHECK(scene["skinned"]["jointMatrices"] == 6);
         CHECK(scene["drawCalls"].get<uint32_t>() > 0);
@@ -718,6 +722,81 @@ TEST_SUITE("EditorApp") {
         // Half way between two joints there is the bone.
         const Vec2 between = pixelOf(0.5f * (jointAt(2) + jointAt(3)));
         CHECK(added(bones, static_cast<uint32_t>(between.x), static_cast<uint32_t>(between.y)));
+        checkNoValidationIssues(editor->engine().graphics());
+    }
+
+    TEST_CASE("the editor shows the colliders of a scene, and does not let its bodies fall") {
+        const std::unique_ptr<EditorApp> editor = createEditor(headlessDesc(UVec2(640, 360)));
+        // A crate in the air: a body that would fall, in a game.
+        run(*editor, "entity.create",
+            R"({"name": "Crate", "components": {"Transform": {"position": [0, 2, 0]},
+                "Collider": {"shape": "box", "size": [2, 1, 1]}, "RigidBody": {"mass": 10}}})");
+        run(*editor, "selection.set", R"({"entities": []})");
+        run(*editor, "viewport.lookAt", R"({"position": [0, 2, 8], "target": [0, 2, 0]})");
+        const Vec2 size(640.0f, 360.0f);
+        const CameraView view = editor->camera().view(size.x / size.y);
+        // The middle of an edge of the collider that faces the viewer: its upper front one.
+        const Vec2 onEdge = worldToScreen(view, Vec3(0.0f, 2.5f, 0.5f), size).value();
+        const Vec3 colliderColor(0.40f, 0.95f, 0.50f);
+        // Whether a line of the colliders' color runs through a point of the picture: a
+        // line is one pixel wide, and lies on the pixel the point is in or on one beside it.
+        const auto hasColliderLine = [&](const Image& image, const Vec2& point) {
+            for (int32_t dy = -1; dy <= 1; ++dy) {
+                for (int32_t dx = -1; dx <= 1; ++dx) {
+                    const Vec4 pixel = image.pixel(static_cast<uint32_t>(static_cast<int32_t>(point.x) + dx),
+                                                   static_cast<uint32_t>(static_cast<int32_t>(point.y) + dy));
+                    if (glm::distance(Vec3(pixel), colliderColor) < 0.05f) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        };
+
+        // Asking changes nothing: colliders are not shown until they are asked for.
+        CHECK(run(*editor, "viewport.show")["colliders"] == false);
+        const Image plain = unwrap(editor->captureViewport(UVec2(size)));
+        CHECK_FALSE(hasColliderLine(plain, onEdge));
+
+        CHECK(run(*editor, "viewport.show", R"({"colliders": true})")["colliders"] == true);
+        CHECK(editor->viewport().showsColliders());
+        const Image shown = unwrap(editor->captureViewport(UVec2(size)));
+        CHECK(hasColliderLine(shown, onEdge));
+        // Beside the collider there is none.
+        CHECK_FALSE(hasColliderLine(shown, worldToScreen(view, Vec3(0.0f, 3.0f, 0.5f), size).value()));
+        CHECK(run(*editor, "viewport.show", R"({"colliders": false})")["colliders"] == false);
+        // What is no yes or no is refused.
+        CHECK_FALSE(editor->commands().execute("viewport.show", json(R"({"colliders": "yes"})")).has_value());
+
+        // The collider of what is selected is always drawn - and those of what hangs
+        // below it, which are parts of the same body: here a handle on top of the crate.
+        run(*editor, "entity.create",
+            R"({"name": "Handle", "parent": "Crate", "components": {"Transform": {"position": [0, 1.5, 0]},
+                "Collider": {"shape": "box", "size": [0.5, 0.5, 0.5]}}})");
+        const Vec2 onHandle = worldToScreen(view, Vec3(0.0f, 3.75f, 0.25f), size).value();
+        run(*editor, "selection.set", R"({"entities": []})");
+        const Image unselected = unwrap(editor->captureViewport(UVec2(size)));
+        CHECK_FALSE(hasColliderLine(unselected, onEdge));
+        CHECK_FALSE(hasColliderLine(unselected, onHandle));
+        run(*editor, "selection.set", R"({"entities": ["Crate"]})");
+        const Image selected = unwrap(editor->captureViewport(UVec2(size)));
+        CHECK(hasColliderLine(selected, onEdge));
+        CHECK(hasColliderLine(selected, onHandle));
+
+        // Frames go by, and the crate hangs where the scene has it: nothing is simulated,
+        // and nothing has changed the document since it was made.
+        REQUIRE(editor->runFrames(30).has_value());
+        const Json transform = run(*editor, "component.get", R"({"entity": "Crate", "component": "Transform"})");
+        CHECK(transform["position"] == json("[0.0, 2.0, 0.0]"));
+        const Json statistics = run(*editor, "editor.statistics");
+        // One body: the crate, with its handle as a part of it.
+        CHECK(statistics["physics"]["bodies"] == 1);
+        CHECK(statistics["physics"]["steps"] == 0);
+        // The speed of a body is not part of a scene, but can be asked for and set.
+        run(*editor, "component.set",
+            R"({"entity": "Crate", "component": "RigidBody", "properties": {"linearVelocity": [0, 3, 0]}})");
+        const Json rigidBody = run(*editor, "component.get", R"({"entity": "Crate", "component": "RigidBody"})");
+        CHECK(rigidBody["mass"] == 10.0);
         checkNoValidationIssues(editor->engine().graphics());
     }
 

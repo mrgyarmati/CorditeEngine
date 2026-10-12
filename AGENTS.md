@@ -127,7 +127,7 @@ by accident.
 | `assets` | `core`, `math` | Assets as data: images and mipmaps, meshes - rigid and skinned - and what prepares them, skeletons, animation clips, materials, glTF import and export, the asset database (ids, `.meta` files) and the asset manager (loading by id) |
 | `world` | `core`, `math` | Entities, components and their hierarchy (EnTT), the component registry, scene files |
 | `animation` | `core`, `math`, `assets`, `world` | Poses of skeletons and what makes them: sampling clips, blending, the matrices a mesh is skinned with and the bounds of a posed mesh; the `Animator` component; `AnimationSystem`, which plays the animators of a world |
-| `physics` | `core`, `math` | `PhysicsWorld`: rigid bodies, their shapes, stepping and raycasts, over Jolt Physics. Not used by the engine yet |
+| `physics` | `core`, `math`, `world` | `PhysicsWorld`: rigid bodies, their shapes, stepping and raycasts, over Jolt Physics; the `Collider` and `RigidBody` components; `PhysicsSystem`, which keeps the entities of a world and the bodies of a simulation in step |
 | `rhi` | `core`, `math`, `platform` | Vulkan device, swapchain and texture readback over NVRHI |
 | `shaders` | `core` | Shader requests and permutation keys, disk cache, `ShaderLibrary` |
 | `shader_compiler` | `core`, `shaders` | Slang to SPIR-V compiler (not linked into exported games) |
@@ -678,6 +678,57 @@ Step-by-step guide: [work-with-assets](.claude/skills/work-with-assets/SKILL.md)
   as the engine's own.
 - **Jolt is built without what it would look for on the machine**: its simulations on
   the GPU want a shader compiler, and are switched off.
+- **Entities say what there is, `PhysicsSystem` makes bodies of it.** A `Collider`
+  alone stands still; a `RigidBody` is one body made of its own collider and of the
+  colliders below it that have no rigid body of their own. Nothing of the simulation
+  is kept in the world but the speeds of a rigid body, which are `transient`: bodies
+  are the system's, and are found again by entity (`bodyOf`, `entityOf`).
+- **Who moves whom, while time passes** (`PhysicsSystem::update`): the simulation
+  moves a dynamic body and its entity follows; a kinematic body follows its entity,
+  through the steps of the frame, and pushes what is in its way; a static body is
+  where its entity is. A dynamic body is put elsewhere by giving its entity another
+  transform. What the entity hangs under does not carry the body along: after every
+  update - with a step or without - the entity is where its body is, in the world.
+  Carried along, a crate that stands on the platform it hangs under would be moved
+  twice, once by its parent and once by the friction.
+- **While no time passes** (`synchronize`) **the world alone has the say**: every body
+  is where its entity is, however the entity came to be there, and nothing is
+  written to the world - an editor's document is not the simulation's to change.
+- **That an entity was moved is told exactly, never within a tolerance:** its own
+  transform, and the matrix of what it hangs under, are compared with what they were
+  when body and entity were last brought in line. A tolerance on where things are
+  in the world would either take rounding for a movement and keep waking bodies, or
+  take a movement for rounding. Where a tolerance is used - bodies that stand still -
+  it is against where the body *is*, not against where its entity was a frame ago,
+  or an entity that creeps is never followed.
+- **A kinematic body is moved in steps only.** A frame without a step - most frames,
+  on a fast display - leaves it where it is, and the next step takes it all the way.
+  Put ahead at once it would be inside what it is to push. Its speeds follow from
+  how its entity is moved; only a dynamic body takes the speeds its `RigidBody` is
+  given.
+- **A body is turned as `Transform::fromMatrix` finds its entity turned**, and that
+  function puts a mirroring into the X scale. How large an entity is in its body
+  must be worked out to match (`foldedScale`), and the rotation written back must
+  leave the entity's own scale as it is (`rotationOf`): otherwise the collider of
+  an entity mirrored along Y or Z is on the wrong side of it, and the entity turns
+  over the first time its body moves.
+- **What is not made of numbers stops at the system.** An entity whose transform is
+  none leaves its body where it was and is named once in the log; a place that
+  cannot be worked out - under something scaled to nothing - is not written.
+  `PhysicsWorld` asserts on such values, and a script must not be able to get there.
+- **What a body is made of must be the same numbers every frame**, because a body is
+  made anew when they change. Shapes are therefore worked out from the entities' own
+  transforms - the scales multiplied down the hierarchy, the transforms from the body
+  to its colliders - and never from world matrices taken apart, which differ in the
+  last digit as a body turns: that remade every turning body every frame, and a test
+  tumbles a body for two seconds to keep it from coming back.
+- **The engine simulates, the editor does not.** `Engine::updateWorld` steps the
+  simulation with a running clock, in steps of a fixed length (`FixedTimestep`), and
+  only brings bodies in line with a stopped one - so that rays still hit what is in a
+  scene that is being edited, and nothing in it falls.
+- **Colliders are seen in the editor** (`viewport.show`, View > Colliders; those of
+  what is selected and of what hangs below it, always), drawn from the components by
+  the same rules of scale the physics uses. A new shape needs its lines there too.
 
 ## Editor and automation
 
@@ -873,6 +924,11 @@ body explaining what changed and why. One logical change per commit.
   computes its last column from index zero instead, or the seam is a crack.
 - `-0.0f` and `0.0f` compare equal but differ in their bits; code that compares
   vertices by bytes (`meshopt_generateVertexRemap`) must normalize it first.
+- Multiplying matrices in another order gives another last digit:
+  `World::computeWorldMatrix` works from the entity upwards, `updateWorldTransforms`
+  from the root downwards, and for an entity three deep the two can differ. Compare a
+  matrix exactly only with one worked out the same way (`PhysicsSystem` uses
+  `computeWorldMatrix` for both sides).
 - No 8-bit number is one half. A "flat" normal map of (128, 128, 255) tilts every
   normal by a third of a degree, which showed as a floor seven percent too dark or too
   bright under a low sun, depending on where the sun stood. The default normal

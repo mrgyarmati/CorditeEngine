@@ -97,6 +97,9 @@ struct Engine::Impl {
 
     ComponentRegistry components;
     World world;
+    std::unique_ptr<PhysicsSystem> physics;
+    /// What the last updateWorld() since the frame began did.
+    PhysicsFrameStatistics physicsStatistics;
     AnimationSystem animation;
     /// What the last updateWorld() since the frame began did.
     AnimationStatistics animationStatistics;
@@ -172,6 +175,7 @@ Status Engine::Impl::initialize() {
                                              {.supportsWireframe = graphics->adapter().supportsWireframe}));
 
     CORDITE_TRY(registerEngineComponents(components));
+    CORDITE_TRY_ASSIGN(physics, PhysicsSystem::create(desc.physics));
     frameClock.restart();
     return {};
 }
@@ -247,6 +251,7 @@ Result<bool> Engine::beginFrame() {
     // What was drawn between frames - a picture taken of a viewport, say - is not part
     // of this frame, so its numbers are dropped here.
     (void)impl.sceneRenderer->takeFrameStatistics();
+    impl.physicsStatistics = {};
     impl.animationStatistics = {};
     impl.frameOpen = true;
     return true;
@@ -274,6 +279,7 @@ Status Engine::endFrame() {
     impl.statistics.frameIndex = impl.frameIndex;
     impl.statistics.cpuMilliseconds = impl.workClock.elapsedSeconds() * 1000.0;
     impl.statistics.gpuMilliseconds = impl.gpuTimer->latestMilliseconds();
+    impl.statistics.physics = impl.physicsStatistics;
     impl.statistics.animation = impl.animationStatistics;
     impl.statistics.scene = impl.sceneRenderer->takeFrameStatistics();
     impl.statistics.resources = impl.sceneRenderer->resources().statistics();
@@ -350,10 +356,14 @@ void Engine::updateWorld(WorldClock clock) {
     Impl& impl = *m_impl;
     // How much time passes is what a frame says; between frames there is none to pass.
     CORDITE_ASSERT(clock == WorldClock::Stopped || impl.frameOpen, "the clock of the world runs only during a frame");
+    // Bodies first: what the simulation moves is where it is before anything is posed
+    // or placed against it.
     if (clock == WorldClock::Running && impl.frameOpen) {
-        impl.animationStatistics =
-            impl.animation.update(impl.world, *impl.assets, static_cast<float>(impl.deltaSeconds));
+        const auto deltaSeconds = static_cast<float>(impl.deltaSeconds);
+        impl.physicsStatistics = impl.physics->update(impl.world, deltaSeconds);
+        impl.animationStatistics = impl.animation.update(impl.world, *impl.assets, deltaSeconds);
     } else {
+        impl.physicsStatistics = impl.physics->synchronize(impl.world);
         impl.animationStatistics = impl.animation.evaluate(impl.world, *impl.assets);
     }
     impl.world.updateWorldTransforms();
@@ -439,6 +449,10 @@ ComponentRegistry& Engine::components() {
 
 AssetManager& Engine::assets() {
     return *m_impl->assets;
+}
+
+PhysicsSystem& Engine::physics() {
+    return *m_impl->physics;
 }
 
 SceneRenderer& Engine::sceneRenderer() {

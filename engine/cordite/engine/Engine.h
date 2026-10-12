@@ -39,6 +39,7 @@
 #include "cordite/core/Base.h"
 #include "cordite/core/Result.h"
 #include "cordite/math/Math.h"
+#include "cordite/physics/PhysicsSystem.h"
 #include "cordite/platform/Input.h"
 #include "cordite/platform/Window.h"
 #include "cordite/renderer/RenderResources.h"
@@ -73,6 +74,9 @@ struct FrameStatistics {
     /// measurement is a few frames old when it arrives; there is none before the first
     /// has arrived, and never one on an adapter that cannot time its work.
     std::optional<double> gpuMilliseconds;
+    /// The steps the simulation took in the frame, and the bodies it holds: what the
+    /// last updateWorld() of the frame did. All zero for a frame without one.
+    PhysicsFrameStatistics physics;
     /// The animators that were posed in the frame, and their joints: what the last
     /// updateWorld() of the frame did. All zero for a frame without one.
     AnimationStatistics animation;
@@ -124,6 +128,10 @@ struct EngineDesc {
     /// Zero uses the real clock. Tests and frame captures set it so that every run
     /// produces the same frames.
     double fixedTimeStep = 0.0;
+
+    /// How the bodies of the world are simulated: the pull of gravity, how large the
+    /// simulation may become, and how long its steps are. See PhysicsSystemDesc.
+    PhysicsSystemDesc physics;
 };
 
 /// Whether time passes for a world. See Engine::updateWorld().
@@ -159,10 +167,12 @@ public:
     void drawTestPattern();
 
     /// Brings the world up to date for drawing, after the program has changed what it
-    /// wanted to change: the animators play on by deltaSeconds() and every skeleton is
-    /// posed (AnimationSystem), then the world transforms are worked out. With the clock
-    /// stopped the animators are left as they are, and the poses are those of the times
-    /// they hold.
+    /// wanted to change: the simulation of its bodies moves on by deltaSeconds(), in
+    /// steps of a fixed length, and the entities follow their bodies (PhysicsSystem);
+    /// the animators play on by as much and every skeleton is posed (AnimationSystem);
+    /// then the world transforms are worked out. With the clock stopped nothing is
+    /// simulated and nothing plays: bodies are where their entities are, and the poses
+    /// are those of the times the animators hold.
     ///
     /// Call it once per frame with a running clock, between beginFrame() and drawing:
     /// each call lets the time of a frame pass. A running clock outside a frame is a
@@ -232,6 +242,10 @@ public:
 
     /// The assets of the game, and of the engine itself.
     [[nodiscard]] AssetManager& assets();
+
+    /// The simulation of the world's bodies, for what is asked of it directly: what a
+    /// ray hits (physics().simulation()), which entity a body belongs to.
+    [[nodiscard]] PhysicsSystem& physics();
 
     /// Draws worlds. The editor uses it for its viewports as the game does for its view.
     [[nodiscard]] SceneRenderer& sceneRenderer();

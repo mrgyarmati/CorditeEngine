@@ -7,6 +7,7 @@
 #include "cordite/assets/ImageCompare.h"
 #include "cordite/math/Color.h"
 #include "cordite/math/Transform.h"
+#include "cordite/physics/PhysicsComponents.h"
 #include "cordite/renderer/RenderComponents.h"
 #include "cordite/world/Components.h"
 #include "cordite/world/SceneSerializer.h"
@@ -19,6 +20,7 @@
 #include <cmath>
 #include <cstdint>
 #include <memory>
+#include <optional>
 
 using namespace cordite;
 using cordite::test::checkNoValidationIssues;
@@ -543,6 +545,16 @@ TEST_SUITE("Engine") {
         CHECK(statistics.skinnedMeshes == 1);
         CHECK(statistics.jointMatrices == 6);
         CHECK(engine->statistics().animation == AnimationStatistics{.animators = 1, .joints = 6});
+        // Seven bodies: the floor, the pillar, the cone, and what the simulation moves -
+        // the crate with its lid, the barrel, the ball and the gas cylinder. A frame of
+        // a sixtieth of a second is one step.
+        CHECK(engine->statistics().physics.steps == 1);
+        CHECK(engine->statistics().physics.bodies == 7);
+        // They stand and lie on the floor, and stay there.
+        CHECK(engine->world().transform(engine->world().findByName("Crate")).position.y ==
+              doctest::Approx(0.5f).epsilon(0.01));
+        CHECK(engine->world().transform(engine->world().findByName("Ball")).position.y ==
+              doctest::Approx(0.3f).epsilon(0.02));
         const Entity skeleton = engine->world().findByName("Skeleton");
         REQUIRE(engine->world().has<AnimatorComponent>(skeleton));
         CHECK(engine->world().tryGet<AnimatorComponent>(skeleton)->time == doctest::Approx(0.75 + 2.0 / 60.0));
@@ -552,6 +564,88 @@ TEST_SUITE("Engine") {
         // The glass pane is the one surface that is blended over the rest.
         CHECK(statistics.forwardPass.drawCalls == 1);
         checkNoValidationIssues(engine->graphics());
+    }
+
+    TEST_CASE("the engine simulates the bodies of its world while its clock runs") {
+        const std::unique_ptr<Engine> engine = createEngine(headlessDesc());
+        // The physics components are among those a scene can hold.
+        CHECK(engine->components().find("Collider") != nullptr);
+        CHECK(engine->components().find("RigidBody") != nullptr);
+
+        World& world = engine->world();
+        const Entity floor = world.createEntity("Floor");
+        world.add<ColliderComponent>(floor) = {.size = Vec3(20.0f, 1.0f, 20.0f), .center = Vec3(0.0f, -0.5f, 0.0f)};
+        const Entity crate = world.createEntity("Crate");
+        world.transform(crate).position = Vec3(0.0f, 4.0f, 0.0f);
+        world.add<ColliderComponent>(crate);
+        world.add<RigidBodyComponent>(crate);
+
+        // runFrame() lets the time of a frame pass: a sixtieth of a second, one step.
+        runFrames(*engine, 1);
+        CHECK(engine->statistics().physics == PhysicsFrameStatistics{.steps = 1, .bodies = 2, .activeBodies = 1});
+        CHECK(world.transform(crate).position.y < 4.0f);
+        // The world transforms are up to date with where the body has gone.
+        CHECK(world.worldMatrix(crate)[3].y == world.transform(crate).position.y);
+        runFrames(*engine, 239);
+        CHECK(world.transform(crate).position.y == doctest::Approx(0.5f).epsilon(0.02));
+        CHECK(engine->statistics().physics == PhysicsFrameStatistics{.steps = 1, .bodies = 2, .activeBodies = 0});
+
+        // The simulation answers what a ray hits, and whose body that is.
+        const std::optional<RayHit> hit =
+            engine->physics().simulation().raycast(Ray{Vec3(0.2f, 10.0f, 0.2f), Vec3(0.0f, -1.0f, 0.0f)}, 100.0f);
+        REQUIRE(hit.has_value());
+        CHECK(engine->physics().entityOf(hit->body) == crate);
+        CHECK(hit->position.y == doctest::Approx(1.0f).epsilon(0.02));
+
+        // With the clock stopped nothing is simulated: a crate put in the air stays
+        // there, and its body is with it.
+        world.transform(crate).position = Vec3(5.0f, 8.0f, 0.0f);
+        for (int frame = 0; frame < 10; ++frame) {
+            REQUIRE(test::unwrap(engine->beginFrame()));
+            engine->updateWorld(WorldClock::Stopped);
+            REQUIRE(engine->endFrame().has_value());
+        }
+        CHECK(world.transform(crate).position == Vec3(5.0f, 8.0f, 0.0f));
+        CHECK(engine->statistics().physics.steps == 0);
+        CHECK(engine->statistics().physics.bodies == 2);
+        CHECK(engine->physics().simulation().position(engine->physics().bodyOf(crate)) == Vec3(5.0f, 8.0f, 0.0f));
+        // And falls from there when time passes again.
+        runFrames(*engine, 1);
+        CHECK(world.transform(crate).position.y < 8.0f);
+        checkNoValidationIssues(engine->graphics());
+    }
+
+    TEST_CASE("the engine simulates as it is told to: gravity, and the length of a step") {
+        {
+            // No gravity, and steps of a thirtieth of a second: every other frame has one.
+            EngineDesc desc = headlessDesc();
+            desc.physics = {.world = {.gravity = Vec3(0.0f)}, .stepSeconds = 1.0 / 30.0};
+            const std::unique_ptr<Engine> engine = createEngine(desc);
+            CHECK(engine->physics().simulation().gravity() == Vec3(0.0f));
+            World& world = engine->world();
+            const Entity crate = world.createEntity("Crate");
+            world.transform(crate).position = Vec3(0.0f, 4.0f, 0.0f);
+            world.add<ColliderComponent>(crate);
+            world.add<RigidBodyComponent>(crate) = {.linearDamping = 0.0f, .linearVelocity = Vec3(3.0f, 0.0f, 0.0f)};
+            uint32_t steps = 0;
+            for (int frame = 0; frame < 60; ++frame) {
+                runFrames(*engine, 1);
+                steps += engine->statistics().physics.steps;
+            }
+            CHECK(steps == 30);
+            // A second at three metres a second, and nothing pulls it down.
+            CHECK(world.transform(crate).position.x == doctest::Approx(3.0f).epsilon(1.0e-3));
+            CHECK(world.transform(crate).position.y == 4.0f);
+        }
+        // Steps of no length are refused, with everything else left as it was.
+        EngineDesc desc = headlessDesc();
+        desc.physics.stepSeconds = 0.0;
+        const Result<std::unique_ptr<Engine>> refused = Engine::create(desc);
+        REQUIRE_FALSE(refused.has_value());
+        CHECK(refused.error().code == ErrorCode::InvalidArgument);
+        // And an engine can be made right after.
+        const std::unique_ptr<Engine> engine = createEngine(headlessDesc());
+        CHECK(engine->physics().simulation().gravity() == Vec3(0.0f, -9.81f, 0.0f));
     }
 
     TEST_CASE("the engine plays the animators of its world while its clock runs") {

@@ -413,6 +413,23 @@ Status EditorApp::registerApplicationCommands() {
     }));
 
     CORDITE_TRY(m_commands.add({
+        .name = "viewport.show",
+        .description = "Chooses what the viewport draws over the scene that is not part of it: the collider "
+                       "of every entity that has one, as lines (`colliders`; those of selected entities and "
+                       "of what hangs below them are always drawn). Returns what is shown now; without a "
+                       "parameter it changes nothing.",
+        .parameters = {{"colliders", Type::Boolean, "Draw the colliders of all entities.", false}},
+        .handler = [this](const Json& parameters) -> Result<Json> {
+            if (parameters.contains("colliders")) {
+                m_viewport->setShowColliders(jsonGetOr<bool>(parameters, "colliders", false));
+            }
+            Json shown = Json::object();
+            shown["colliders"] = m_viewport->showsColliders();
+            return shown;
+        },
+    }));
+
+    CORDITE_TRY(m_commands.add({
         .name = "viewport.quality",
         .description = "Chooses how much the picture in the viewport may cost. \"preset\" sets everything by "
                        "one word (\"low\", \"medium\", \"high\"); \"shadows\" sets the shadows alone (\"off\" "
@@ -739,6 +756,10 @@ void EditorApp::drawViewMenu() {
     // What the viewport shows: the picture, or a look into the renderer.
     if (const auto view = chooseFromMenu("Render view", kRenderDebugViews, m_viewport->debugView())) {
         m_viewport->setDebugView(*view);
+    }
+    // What is drawn over the scene that is not part of it.
+    if (ImGui::MenuItem("Colliders", nullptr, m_viewport->showsColliders())) {
+        m_viewport->setShowColliders(!m_viewport->showsColliders());
     }
     // What the picture in the viewport may cost: everything by one word, or piece by piece.
     if (ImGui::BeginMenu("Quality")) {

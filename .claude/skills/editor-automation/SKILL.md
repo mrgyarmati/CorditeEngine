@@ -118,6 +118,11 @@ set it like any other property:
 - The built-in meshes (cube, sphere, plane, cylinder, cone, capsule, torus) have the
   same ids in every project. `materials` takes one entry per submesh (`asset.get` tells
   how many a mesh has); a missing or null entry is drawn with the default material.
+- Physics is components: a `Collider` gives an entity a shape, a `RigidBody` makes it
+  a body (`motion`: `static`, `kinematic`, `dynamic`). `viewport.show` with
+  `{"colliders": true}` draws every collider in the viewport. The editor does not
+  simulate: nothing falls, and `editor.statistics` reports the bodies there are and no
+  steps.
 - A new material is a `.material.json` file written into the project's `assets`
   directory, followed by `asset.refresh` (skill: `work-with-assets`).
 - Run `scene.validate` after editing references; a reference to nothing draws nothing

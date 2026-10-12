@@ -73,6 +73,11 @@ public:
     /// Three perpendicular circles: the outline of a sphere from any side.
     void sphere(const Vec3& center, float radius, const Vec4& color, uint32_t segments = 32);
 
+    /// The outline of a capsule: `from` and `to` are the middles of its two round ends.
+    /// A circle around each, four lines between them, and two half circles over each
+    /// end. With both ends in one place it is the outline of a ball.
+    void capsule(const Vec3& from, const Vec3& to, float radius, const Vec4& color, uint32_t segments = 32);
+
     /// A line with a head at `to`: four short lines back from the tip, a fifth as long
     /// as the arrow. An arrow without length draws nothing.
     void arrow(const Vec3& from, const Vec3& to, const Vec4& color);

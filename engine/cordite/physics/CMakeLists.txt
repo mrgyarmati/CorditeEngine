@@ -1,10 +1,15 @@
 cordite_add_module(physics
     SOURCES
         JoltSupport.h
+        PhysicsComponents.cpp
+        PhysicsComponents.h
+        PhysicsSystem.cpp
+        PhysicsSystem.h
         PhysicsWorld.cpp
         PhysicsWorld.h
     DEPENDS
         core
         math
+        world
     PRIVATE_LIBRARIES
         Jolt::Jolt)

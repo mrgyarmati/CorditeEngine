@@ -32,13 +32,13 @@ void stepFor(PhysicsWorld& physics, int steps) {
 /// A floor: a slab whose top is the plane y = 0.
 BodyId addFloor(PhysicsWorld& physics) {
     return unwrap(physics.createBody({.motion = BodyMotion::Static,
-                                      .shape = {.type = ShapeType::Box, .size = Vec3(50.0f, 1.0f, 50.0f)},
+                                      .shapes = {{.type = ShapeType::Box, .size = Vec3(50.0f, 1.0f, 50.0f)}},
                                       .position = Vec3(0.0f, -0.5f, 0.0f)}));
 }
 
 /// A body that nothing slows down but what it hits.
 BodyDesc undamped(const ShapeDesc& shape, const Vec3& position) {
-    return {.shape = shape, .position = position, .linearDamping = 0.0f, .angularDamping = 0.0f};
+    return {.shapes = {shape}, .position = position, .linearDamping = 0.0f, .angularDamping = 0.0f};
 }
 
 } // namespace
@@ -120,12 +120,13 @@ TEST_SUITE("PhysicsWorld") {
         CHECK(physics->motion(floor) == BodyMotion::Static);
         CHECK_FALSE(physics->isActive(floor));
 
-        const BodyId box = unwrap(physics->createBody(
-            {.shape = {.type = ShapeType::Box, .size = Vec3(1.0f, 2.0f, 1.0f)}, .position = Vec3(0.0f, 3.0f, 0.0f)}));
+        const BodyId box =
+            unwrap(physics->createBody({.shapes = {{.type = ShapeType::Box, .size = Vec3(1.0f, 2.0f, 1.0f)}},
+                                        .position = Vec3(0.0f, 3.0f, 0.0f)}));
         const BodyId ball = unwrap(physics->createBody(
-            {.shape = {.type = ShapeType::Sphere, .radius = 0.25f}, .position = Vec3(3.0f, 2.0f, 0.0f)}));
+            {.shapes = {{.type = ShapeType::Sphere, .radius = 0.25f}}, .position = Vec3(3.0f, 2.0f, 0.0f)}));
         const BodyId capsule =
-            unwrap(physics->createBody({.shape = {.type = ShapeType::Capsule, .radius = 0.3f, .height = 1.8f},
+            unwrap(physics->createBody({.shapes = {{.type = ShapeType::Capsule, .radius = 0.3f, .height = 1.8f}},
                                         .position = Vec3(-3.0f, 2.0f, 0.0f)}));
         stepFor(*physics, 240);
 
@@ -155,7 +156,7 @@ TEST_SUITE("PhysicsWorld") {
         const std::unique_ptr<PhysicsWorld> physics = unwrap(PhysicsWorld::create());
         addFloor(*physics);
         const BodyId box = unwrap(physics->createBody(
-            {.shape = {.type = ShapeType::Box}, .position = Vec3(0.0f, 0.6f, 0.0f), .allowSleep = false}));
+            {.shapes = {{.type = ShapeType::Box}}, .position = Vec3(0.0f, 0.6f, 0.0f), .allowSleep = false}));
         stepFor(*physics, 240);
         CHECK(physics->position(box).y == doctest::Approx(0.5f).epsilon(0.02));
         CHECK(physics->isActive(box));
@@ -164,7 +165,7 @@ TEST_SUITE("PhysicsWorld") {
     TEST_CASE("a body bounces as much as it is made to") {
         const std::unique_ptr<PhysicsWorld> physics = unwrap(PhysicsWorld::create());
         BodyDesc floor{.motion = BodyMotion::Static,
-                       .shape = {.type = ShapeType::Box, .size = Vec3(50.0f, 1.0f, 50.0f)},
+                       .shapes = {{.type = ShapeType::Box, .size = Vec3(50.0f, 1.0f, 50.0f)}},
                        .position = Vec3(0.0f, -0.5f, 0.0f)};
         floor.restitution = 0.0f;
         REQUIRE(physics->createBody(floor).has_value());
@@ -196,13 +197,14 @@ TEST_SUITE("PhysicsWorld") {
         // the tangent of that, 0.36, and slides when it is less.
         const Quat tilt = glm::angleAxis(toRadians(20.0f), Vec3(0.0f, 0.0f, 1.0f));
         BodyDesc slope{.motion = BodyMotion::Static,
-                       .shape = {.type = ShapeType::Box, .size = Vec3(40.0f, 1.0f, 40.0f)},
+                       .shapes = {{.type = ShapeType::Box, .size = Vec3(40.0f, 1.0f, 40.0f)}},
                        .rotation = tilt};
         slope.friction = 1.0f;
         REQUIRE(physics->createBody(slope).has_value());
         const auto boxOnSlope = [&](float z, float friction) {
             // Lying on the slope: half a metre of slab and half a metre of box above its middle.
-            BodyDesc box{.shape = {.type = ShapeType::Box}, .position = tilt * Vec3(0.0f, 1.01f, z), .rotation = tilt};
+            BodyDesc box{
+                .shapes = {{.type = ShapeType::Box}}, .position = tilt * Vec3(0.0f, 1.01f, z), .rotation = tilt};
             box.friction = friction;
             return unwrap(physics->createBody(box));
         };
@@ -253,9 +255,10 @@ TEST_SUITE("PhysicsWorld") {
 
         // A static body is moved by none of it, and a kinematic one only by its own speed.
         const BodyId wall = unwrap(physics->createBody(
-            {.motion = BodyMotion::Static, .shape = {.type = ShapeType::Box}, .position = Vec3(20.0f, 0.0f, 0.0f)}));
-        const BodyId lift = unwrap(physics->createBody(
-            {.motion = BodyMotion::Kinematic, .shape = {.type = ShapeType::Box}, .position = Vec3(40.0f, 0.0f, 0.0f)}));
+            {.motion = BodyMotion::Static, .shapes = {{.type = ShapeType::Box}}, .position = Vec3(20.0f, 0.0f, 0.0f)}));
+        const BodyId lift = unwrap(physics->createBody({.motion = BodyMotion::Kinematic,
+                                                        .shapes = {{.type = ShapeType::Box}},
+                                                        .position = Vec3(40.0f, 0.0f, 0.0f)}));
         for (const BodyId body : {wall, lift}) {
             physics->addForce(body, Vec3(100.0f));
             physics->addImpulse(body, Vec3(100.0f));
@@ -272,7 +275,7 @@ TEST_SUITE("PhysicsWorld") {
 
     TEST_CASE("damping takes speed away by itself") {
         const std::unique_ptr<PhysicsWorld> physics = unwrap(PhysicsWorld::create({.gravity = Vec3(0.0f)}));
-        BodyDesc desc{.shape = {.type = ShapeType::Sphere}};
+        BodyDesc desc{.shapes = {{.type = ShapeType::Sphere}}};
         desc.linearDamping = 0.5f;
         desc.angularDamping = 0.5f;
         const BodyId slowed = unwrap(physics->createBody(desc));
@@ -307,7 +310,7 @@ TEST_SUITE("PhysicsWorld") {
         // A platform that moves a metre in a step pushes what lies before it.
         const BodyId platform =
             unwrap(physics->createBody({.motion = BodyMotion::Kinematic,
-                                        .shape = {.type = ShapeType::Box, .size = Vec3(1.0f, 4.0f, 4.0f)},
+                                        .shapes = {{.type = ShapeType::Box, .size = Vec3(1.0f, 4.0f, 4.0f)}},
                                         .position = Vec3(-20.0f, 0.0f, 0.0f)}));
         const BodyId crate = unwrap(physics->createBody(undamped({.type = ShapeType::Box}, Vec3(-18.5f, 0.0f, 0.0f))));
         for (int step = 1; step <= 30; ++step) {
@@ -334,7 +337,7 @@ TEST_SUITE("PhysicsWorld") {
         const std::unique_ptr<PhysicsWorld> physics = unwrap(PhysicsWorld::create({.gravity = Vec3(0.0f)}));
         REQUIRE(physics
                     ->createBody({.motion = BodyMotion::Static,
-                                  .shape = {.type = ShapeType::Box, .size = Vec3(0.1f, 10.0f, 10.0f)},
+                                  .shapes = {{.type = ShapeType::Box, .size = Vec3(0.1f, 10.0f, 10.0f)}},
                                   .position = Vec3(5.0f, 0.0f, 0.0f)})
                     .has_value());
         // Two hundred metres a second: more than three metres a step.
@@ -354,12 +357,12 @@ TEST_SUITE("PhysicsWorld") {
         const std::unique_ptr<PhysicsWorld> physics = unwrap(PhysicsWorld::create());
         addFloor(*physics);
         BodyDesc crateDesc{.motion = BodyMotion::Static,
-                           .shape = {.type = ShapeType::Box, .size = Vec3(2.0f, 2.0f, 2.0f)},
+                           .shapes = {{.type = ShapeType::Box, .size = Vec3(2.0f, 2.0f, 2.0f)}},
                            .position = Vec3(0.0f, 1.0f, 0.0f)};
         crateDesc.userData = 0x1234'5678'9abc'def0ull;
         const BodyId crate = unwrap(physics->createBody(crateDesc));
         const BodyId ball = unwrap(physics->createBody({.motion = BodyMotion::Static,
-                                                        .shape = {.type = ShapeType::Sphere, .radius = 1.0f},
+                                                        .shapes = {{.type = ShapeType::Sphere, .radius = 1.0f}},
                                                         .position = Vec3(10.0f, 1.0f, 0.0f)}));
         CHECK(physics->userData(crate) == 0x1234'5678'9abc'def0ull);
         CHECK(physics->userData(ball) == 0);
@@ -410,7 +413,7 @@ TEST_SUITE("PhysicsWorld") {
 
     TEST_CASE("a body that is destroyed is gone, and its id is no body's again") {
         const std::unique_ptr<PhysicsWorld> physics = unwrap(PhysicsWorld::create({.maxBodies = 4}));
-        const BodyId first = unwrap(physics->createBody({.shape = {.type = ShapeType::Sphere}}));
+        const BodyId first = unwrap(physics->createBody({.shapes = {{.type = ShapeType::Sphere}}}));
         CHECK(physics->statistics().bodies == 1);
         physics->destroyBody(first);
         CHECK_FALSE(physics->isValid(first));
@@ -421,7 +424,7 @@ TEST_SUITE("PhysicsWorld") {
         physics->destroyBody(BodyId{12345});
 
         // The next body takes its place, under an id of its own.
-        const BodyId second = unwrap(physics->createBody({.shape = {.type = ShapeType::Sphere}}));
+        const BodyId second = unwrap(physics->createBody({.shapes = {{.type = ShapeType::Sphere}}}));
         CHECK(second != first);
         CHECK(physics->isValid(second));
         CHECK_FALSE(physics->isValid(first));
@@ -432,17 +435,17 @@ TEST_SUITE("PhysicsWorld") {
         std::vector<BodyId> bodies;
         for (int index = 0; index < 3; ++index) {
             bodies.push_back(
-                unwrap(physics->createBody({.shape = {.type = ShapeType::Sphere},
+                unwrap(physics->createBody({.shapes = {{.type = ShapeType::Sphere}},
                                             .position = Vec3(static_cast<float>(index) * 3.0f, 0.0f, 0.0f)})));
         }
-        const Result<BodyId> oneTooMany = physics->createBody({.shape = {.type = ShapeType::Sphere}});
+        const Result<BodyId> oneTooMany = physics->createBody({.shapes = {{.type = ShapeType::Sphere}}});
         REQUIRE_FALSE(oneTooMany.has_value());
         CHECK(oneTooMany.error().code == ErrorCode::OutOfRange);
         CHECK(oneTooMany.error().message == "the physics world is full: it holds 3 bodies");
         CHECK(physics->statistics().bodies == 3);
         // Room is given back with a body.
         physics->destroyBody(bodies[1]);
-        CHECK(physics->createBody({.shape = {.type = ShapeType::Sphere}}).has_value());
+        CHECK(physics->createBody({.shapes = {{.type = ShapeType::Sphere}}}).has_value());
     }
 
     TEST_CASE("bodies that make no sense are refused, and say why") {
@@ -454,18 +457,18 @@ TEST_SUITE("PhysicsWorld") {
             return body.error().message;
         };
         // Shapes without volume, and shapes that are not made of numbers.
-        CHECK(refused({.shape = {.type = ShapeType::Box, .size = Vec3(1.0f, 0.0f, 1.0f)}}) ==
+        CHECK(refused({.shapes = {{.type = ShapeType::Box, .size = Vec3(1.0f, 0.0f, 1.0f)}}}) ==
               "a box of 1 by 0 by 1 metres has no volume to collide with");
-        refused({.shape = {.type = ShapeType::Box, .size = Vec3(1.0f, -2.0f, 1.0f)}});
-        refused({.shape = {.type = ShapeType::Box, .size = Vec3(kNotANumber)}});
-        CHECK(refused({.shape = {.type = ShapeType::Sphere, .radius = 0.0f}}) ==
+        refused({.shapes = {{.type = ShapeType::Box, .size = Vec3(1.0f, -2.0f, 1.0f)}}});
+        refused({.shapes = {{.type = ShapeType::Box, .size = Vec3(kNotANumber)}}});
+        CHECK(refused({.shapes = {{.type = ShapeType::Sphere, .radius = 0.0f}}}) ==
               "a sphere of radius 0 has no volume to collide with");
-        refused({.shape = {.type = ShapeType::Sphere, .radius = -1.0f}});
-        refused({.shape = {.type = ShapeType::Sphere, .radius = kNotANumber}});
-        CHECK(refused({.shape = {.type = ShapeType::Capsule, .radius = 0.5f, .height = 0.0f}}) ==
+        refused({.shapes = {{.type = ShapeType::Sphere, .radius = -1.0f}}});
+        refused({.shapes = {{.type = ShapeType::Sphere, .radius = kNotANumber}}});
+        CHECK(refused({.shapes = {{.type = ShapeType::Capsule, .radius = 0.5f, .height = 0.0f}}}) ==
               "a capsule of radius 0.5 and height 0 has no volume to collide with");
-        refused({.shape = {.type = ShapeType::Capsule, .radius = 0.0f, .height = 2.0f}});
-        refused({.shape = {.type = ShapeType::Capsule, .radius = 0.5f, .height = kNotANumber}});
+        refused({.shapes = {{.type = ShapeType::Capsule, .radius = 0.0f, .height = 2.0f}}});
+        refused({.shapes = {{.type = ShapeType::Capsule, .radius = 0.5f, .height = kNotANumber}}});
 
         // Placements that are none.
         refused({.position = Vec3(0.0f, kNotANumber, 0.0f)});
@@ -501,16 +504,114 @@ TEST_SUITE("PhysicsWorld") {
         const std::unique_ptr<PhysicsWorld> physics = unwrap(PhysicsWorld::create());
         addFloor(*physics);
         const BodyId stubby =
-            unwrap(physics->createBody({.shape = {.type = ShapeType::Capsule, .radius = 0.5f, .height = 0.6f},
+            unwrap(physics->createBody({.shapes = {{.type = ShapeType::Capsule, .radius = 0.5f, .height = 0.6f}},
                                         .position = Vec3(0.0f, 2.0f, 0.0f)}));
         // A box thinner than its edges would be rounded by: a centimetre.
-        const BodyId sliver = unwrap(physics->createBody(
-            {.shape = {.type = ShapeType::Box, .size = Vec3(1.0f, 0.01f, 1.0f)}, .position = Vec3(5.0f, 0.5f, 0.0f)}));
+        const BodyId sliver =
+            unwrap(physics->createBody({.shapes = {{.type = ShapeType::Box, .size = Vec3(1.0f, 0.01f, 1.0f)}},
+                                        .position = Vec3(5.0f, 0.5f, 0.0f)}));
         stepFor(*physics, 240);
         CHECK(physics->position(stubby).y == doctest::Approx(0.5f).epsilon(0.03));
         // Lying on the floor, give or take what bodies may sink into each other.
         CHECK(physics->position(sliver).y > -0.03f);
         CHECK(physics->position(sliver).y < 0.03f);
+    }
+
+    TEST_CASE("a body is put together of shapes that are placed in it, and move as one") {
+        const std::unique_ptr<PhysicsWorld> physics = unwrap(PhysicsWorld::create());
+        // Two balls a metre to either side of where the body is, and a capsule laid
+        // across between them, a metre up: turned a quarter turn about Z, it lies along X.
+        const Quat lyingDown = glm::angleAxis(kHalfPi, Vec3(0.0f, 0.0f, 1.0f));
+        const BodyId dumbbell = unwrap(physics->createBody(
+            {.motion = BodyMotion::Static,
+             .shapes = {{.type = ShapeType::Sphere, .radius = 0.25f, .offset = Vec3(-1.0f, 0.0f, 0.0f)},
+                        {.type = ShapeType::Sphere, .radius = 0.25f, .offset = Vec3(1.0f, 0.0f, 0.0f)},
+                        {.type = ShapeType::Capsule,
+                         .radius = 0.1f,
+                         .height = 3.0f,
+                         .offset = Vec3(0.0f, 1.0f, 0.0f),
+                         .rotation = lyingDown * 2.0f}},
+             .position = Vec3(10.0f, 5.0f, 0.0f)}));
+        CHECK(physics->position(dumbbell) == Vec3(10.0f, 5.0f, 0.0f));
+        CHECK(physics->statistics().bodies == 1);
+
+        const auto hitFromAbove = [&](float x) {
+            return physics->raycast(Ray{Vec3(x, 20.0f, 0.0f), Vec3(0.0f, -1.0f, 0.0f)}, 100.0f);
+        };
+        // Over the middle: the capsule, whose top is 1.1 above the body.
+        std::optional<RayHit> hit = hitFromAbove(10.0f);
+        REQUIRE(hit.has_value());
+        CHECK(hit->body == dumbbell);
+        CHECK(hit->position.y == doctest::Approx(6.1f).epsilon(1.0e-4));
+        // It reaches a metre and a half to either side, and no further.
+        CHECK(hitFromAbove(11.4f).has_value());
+        CHECK(hitFromAbove(8.6f).has_value());
+        CHECK_FALSE(hitFromAbove(11.6f).has_value());
+        // From the side, below the capsule: a ball, a quarter of a metre round.
+        hit = physics->raycast(Ray{Vec3(20.0f, 5.0f, 0.0f), Vec3(-1.0f, 0.0f, 0.0f)}, 100.0f);
+        REQUIRE(hit.has_value());
+        CHECK(hit->position.x == doctest::Approx(11.25f).epsilon(1.0e-4));
+        // Between the balls there is nothing.
+        CHECK_FALSE(physics->raycast(Ray{Vec3(10.0f, 5.0f, 20.0f), Vec3(0.0f, 0.0f, -1.0f)}, 100.0f).has_value());
+
+        // Turned and moved, the shapes go along: a quarter turn about Y puts the balls
+        // on the Z axis.
+        physics->setPlacement(dumbbell, Vec3(0.0f), glm::angleAxis(kHalfPi, Vec3(0.0f, 1.0f, 0.0f)));
+        hit = physics->raycast(Ray{Vec3(0.0f, 0.0f, 20.0f), Vec3(0.0f, 0.0f, -1.0f)}, 100.0f);
+        REQUIRE(hit.has_value());
+        CHECK(hit->position.z == doctest::Approx(1.25f).epsilon(1.0e-4));
+
+        // A table: a top on four legs. It stands on its legs, and its body - placed
+        // where the middle of the top is - rests that high above the floor.
+        addFloor(*physics);
+        std::vector<ShapeDesc> table = {{.type = ShapeType::Box, .size = Vec3(2.0f, 0.1f, 1.0f)}};
+        for (const float x : {-0.9f, 0.9f}) {
+            for (const float z : {-0.4f, 0.4f}) {
+                table.push_back({.type = ShapeType::Box, .size = Vec3(0.1f, 0.8f, 0.1f), .offset = Vec3(x, -0.45f, z)});
+            }
+        }
+        const BodyId standing = unwrap(physics->createBody({.shapes = table, .position = Vec3(-20.0f, 1.2f, 0.0f)}));
+        stepFor(*physics, 240);
+        CHECK(physics->position(standing).y == doctest::Approx(0.85f).epsilon(0.02));
+        CHECK(std::abs(physics->position(standing).x + 20.0f) < 0.01f);
+        CHECK_FALSE(physics->isActive(standing));
+        // The top is hit where it is, and between the legs under it there is the floor.
+        hit = physics->raycast(Ray{Vec3(-20.0f, 10.0f, 0.0f), Vec3(0.0f, -1.0f, 0.0f)}, 100.0f);
+        REQUIRE(hit.has_value());
+        CHECK(hit->body == standing);
+        CHECK(hit->position.y == doctest::Approx(0.9f).epsilon(0.02));
+        hit = physics->raycast(Ray{Vec3(-20.0f, 0.4f, 5.0f), Vec3(0.0f, 0.0f, -1.0f)}, 4.0f);
+        CHECK_FALSE(hit.has_value());
+    }
+
+    TEST_CASE("a body of no shapes, of too many, or of shapes that cannot be placed is refused") {
+        const std::unique_ptr<PhysicsWorld> physics = unwrap(PhysicsWorld::create());
+        const auto refused = [&](const BodyDesc& desc) {
+            const Result<BodyId> body = physics->createBody(desc);
+            REQUIRE_FALSE(body.has_value());
+            CHECK(body.error().code == ErrorCode::InvalidArgument);
+            return body.error().message;
+        };
+        CHECK(refused({.shapes = {}}) == "a body is put together of 1 to 1024 shapes, not 0");
+        CHECK(refused({.shapes = std::vector<ShapeDesc>(kMaxBodyShapes + 1)}) ==
+              "a body is put together of 1 to 1024 shapes, not 1025");
+        CHECK(refused({.shapes = {{.type = ShapeType::Sphere, .offset = Vec3(kNotANumber, 0.0f, 0.0f)}}}) ==
+              "a sphere cannot be placed in its body: its offset or rotation is not made of numbers");
+        refused({.shapes = {{.rotation = Quat(0.0f, 0.0f, 0.0f, 0.0f)}}});
+        refused({.shapes = {{.rotation = Quat(kNotANumber, 0.0f, 0.0f, 0.0f)}}});
+        // One shape that is none among good ones: the body is not made of the rest.
+        CHECK(refused({.shapes = {{.type = ShapeType::Box},
+                                  {.type = ShapeType::Sphere, .radius = 0.0f, .offset = Vec3(2.0f, 0.0f, 0.0f)},
+                                  {.type = ShapeType::Box, .offset = Vec3(4.0f, 0.0f, 0.0f)}}}) ==
+              "a sphere of radius 0 has no volume to collide with");
+        CHECK(physics->statistics().bodies == 0);
+        // As many as a body may have are no trouble.
+        std::vector<ShapeDesc> many;
+        for (uint32_t index = 0; index < kMaxBodyShapes; ++index) {
+            many.push_back(
+                {.type = ShapeType::Sphere, .radius = 0.1f, .offset = Vec3(static_cast<float>(index), 0.0f, 0.0f)});
+        }
+        CHECK(physics->createBody({.motion = BodyMotion::Static, .shapes = many}).has_value());
     }
 
     TEST_CASE("a simulation is the same every time it is run") {
@@ -521,11 +622,11 @@ TEST_SUITE("PhysicsWorld") {
             std::vector<BodyId> bodies;
             for (int level = 0; level < 6; ++level) {
                 bodies.push_back(
-                    unwrap(physics->createBody({.shape = {.type = ShapeType::Box, .size = Vec3(1.0f, 0.5f, 1.0f)},
+                    unwrap(physics->createBody({.shapes = {{.type = ShapeType::Box, .size = Vec3(1.0f, 0.5f, 1.0f)}},
                                                 .position = Vec3(0.3f * static_cast<float>(level % 2),
                                                                  0.25f + 0.5f * static_cast<float>(level), 0.0f)})));
             }
-            const BodyId ball = unwrap(physics->createBody({.shape = {.type = ShapeType::Sphere, .radius = 0.3f},
+            const BodyId ball = unwrap(physics->createBody({.shapes = {{.type = ShapeType::Sphere, .radius = 0.3f}},
                                                             .position = Vec3(-6.0f, 1.5f, 0.1f),
                                                             .mass = 5.0f}));
             physics->setLinearVelocity(ball, Vec3(12.0f, 1.0f, 0.0f));
@@ -555,7 +656,7 @@ TEST_SUITE("PhysicsWorld") {
 
     TEST_CASE("a step that is no time is no step") {
         const std::unique_ptr<PhysicsWorld> physics = unwrap(PhysicsWorld::create());
-        const BodyId ball = unwrap(physics->createBody({.shape = {.type = ShapeType::Sphere}}));
+        const BodyId ball = unwrap(physics->createBody({.shapes = {{.type = ShapeType::Sphere}}}));
         physics->step(0.0f);
         physics->step(-1.0f);
         physics->step(kNotANumber);
@@ -571,7 +672,7 @@ TEST_SUITE("PhysicsWorld") {
         addFloor(*physics);
         for (int index = 0; index < 8; ++index) {
             REQUIRE(physics
-                        ->createBody({.shape = {.type = ShapeType::Sphere, .radius = 0.5f},
+                        ->createBody({.shapes = {{.type = ShapeType::Sphere, .radius = 0.5f}},
                                       .position = Vec3(static_cast<float>(index) * 2.0f, 0.45f, 0.0f)})
                         .has_value());
         }
@@ -586,7 +687,7 @@ TEST_SUITE("PhysicsWorld") {
 #if defined(CORDITE_ENABLE_ASSERTS)
     TEST_CASE("asking about a body that is none is a mistake of the caller") {
         const std::unique_ptr<PhysicsWorld> physics = unwrap(PhysicsWorld::create());
-        const BodyId gone = unwrap(physics->createBody({.shape = {.type = ShapeType::Sphere}}));
+        const BodyId gone = unwrap(physics->createBody({.shapes = {{.type = ShapeType::Sphere}}}));
         physics->destroyBody(gone);
         for (const BodyId body : {gone, BodyId()}) {
             CHECK_THROWS_AS((void)physics->position(body), test::AssertionFailure);
@@ -606,7 +707,7 @@ TEST_SUITE("PhysicsWorld") {
             CHECK_THROWS_AS(physics->addTorque(body, Vec3(0.0f)), test::AssertionFailure);
         }
         // So are numbers that are none, for a body that is one.
-        const BodyId ball = unwrap(physics->createBody({.shape = {.type = ShapeType::Sphere}}));
+        const BodyId ball = unwrap(physics->createBody({.shapes = {{.type = ShapeType::Sphere}}}));
         CHECK_THROWS_AS(physics->setPlacement(ball, Vec3(kNotANumber), kIdentityQuat), test::AssertionFailure);
         CHECK_THROWS_AS(physics->setPlacement(ball, Vec3(0.0f), Quat(0.0f, 0.0f, 0.0f, 0.0f)), test::AssertionFailure);
         CHECK_THROWS_AS(physics->setLinearVelocity(ball, Vec3(kNotANumber)), test::AssertionFailure);
@@ -618,7 +719,7 @@ TEST_SUITE("PhysicsWorld") {
 #else
     TEST_CASE("without assertions, a body that is none is at the origin and does not move") {
         const std::unique_ptr<PhysicsWorld> physics = unwrap(PhysicsWorld::create());
-        const BodyId gone = unwrap(physics->createBody({.shape = {.type = ShapeType::Sphere}}));
+        const BodyId gone = unwrap(physics->createBody({.shapes = {{.type = ShapeType::Sphere}}}));
         physics->destroyBody(gone);
         for (const BodyId body : {gone, BodyId()}) {
             CHECK(physics->position(body) == Vec3(0.0f));
@@ -638,7 +739,7 @@ TEST_SUITE("PhysicsWorld") {
             physics->addTorque(body, Vec3(1.0f));
         }
         // Numbers that are none are ignored for a body that is one.
-        const BodyId ball = unwrap(physics->createBody({.shape = {.type = ShapeType::Sphere}}));
+        const BodyId ball = unwrap(physics->createBody({.shapes = {{.type = ShapeType::Sphere}}}));
         physics->setPlacement(ball, Vec3(kNotANumber), kIdentityQuat);
         physics->setPlacement(ball, Vec3(0.0f), Quat(0.0f, 0.0f, 0.0f, 0.0f));
         physics->setLinearVelocity(ball, Vec3(kNotANumber));

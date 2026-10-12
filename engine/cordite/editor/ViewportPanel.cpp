@@ -5,6 +5,8 @@
 #include "cordite/editor/EditorFeedback.h"
 #include "cordite/editor/PosedMesh.h"
 #include "cordite/math/Color.h"
+#include "cordite/math/Transform.h"
+#include "cordite/physics/PhysicsComponents.h"
 #include "cordite/renderer/RenderComponents.h"
 #include "cordite/renderer/SceneLights.h"
 #include "cordite/world/Components.h"
@@ -28,6 +30,8 @@ constexpr Vec4 kCameraColor(0.75f, 0.78f, 0.85f, 1.0f);
 constexpr Vec4 kLightColor(1.0f, 0.86f, 0.38f, 1.0f);
 /// The box in which a PostProcess component applies.
 constexpr Vec4 kVolumeColor(0.55f, 0.85f, 0.80f, 1.0f);
+/// The shape something collides with: it is not drawn, and is seen only like this.
+constexpr Vec4 kColliderColor(0.40f, 0.95f, 0.50f, 1.0f);
 /// The bones of a skeleton: joints are not entities, and are seen only like this.
 constexpr Vec4 kSkeletonColor(0.95f, 0.45f, 0.85f, 1.0f);
 
@@ -103,10 +107,46 @@ void drawSkeleton(const SkeletonData& skeleton, const SkeletonPoseComponent& pos
     }
 }
 
-/// What a selected entity shows beside what every entity shows: the skeleton its
-/// animator has posed, and a box - around its mesh, or around where it is.
+/// The collider of an entity as lines, where the entity has it and as large as its
+/// scale makes it for the physics: a box by each axis, a ball by the largest of the
+/// three, a capsule by Y in height and by the larger of X and Z across. Nothing for an
+/// entity without a collider.
+void drawCollider(const World& world, Entity entity, const Mat4& placement, DebugDraw& lines) {
+    const auto* collider = world.tryGet<ColliderComponent>(entity);
+    if (collider == nullptr) {
+        return;
+    }
+    const Transform placed = Transform::fromMatrix(placement);
+    const Vec3 scale = glm::abs(placed.scale);
+    const Vec3 center(placement * Vec4(collider->center, 1.0f));
+    switch (collider->shape) {
+        case ShapeType::Box:
+            lines.box(Aabb::fromCenterExtents(collider->center, 0.5f * collider->size), placement, kColliderColor);
+            break;
+        case ShapeType::Sphere:
+            lines.sphere(center, collider->radius * std::max({scale.x, scale.y, scale.z}), kColliderColor);
+            break;
+        case ShapeType::Capsule: {
+            const float radius = collider->radius * std::max(scale.x, scale.z);
+            const float halfCylinder = std::max(0.5f * collider->height * scale.y - radius, 0.0f);
+            const Vec3 axis = placed.rotation * kWorldUp;
+            lines.capsule(center - axis * halfCylinder, center + axis * halfCylinder, radius, kColliderColor);
+            break;
+        }
+    }
+}
+
+/// What a selected entity shows beside what every entity shows: its collider and those
+/// of what hangs below it, the skeleton its animator has posed, and a box - around its
+/// mesh, or around where it is.
 void drawSelected(EditorContext& context, Entity entity, const Mat4& placement, DebugDraw& lines) {
     const World& world = context.world();
+    // A body is often made of several colliders: its entity's own, and those below it.
+    world.traverseSubtree(entity, [&](Entity part, uint32_t /*depth*/) {
+        if (world.isEnabledInHierarchy(part)) {
+            drawCollider(world, part, world.worldMatrix(part), lines);
+        }
+    });
     // The joints an animator moves are no entities; this is where they are seen.
     const auto* animator = world.tryGet<AnimatorComponent>(entity);
     const auto* pose = world.tryGet<SkeletonPoseComponent>(entity);
@@ -228,6 +268,8 @@ void ViewportPanel::collectLines(EditorContext& context, const CameraView& view)
         }
         if (selected) {
             drawSelected(context, entity, placement, m_selectionLines);
+        } else if (m_showColliders) {
+            drawCollider(world, entity, placement, m_sceneLines);
         }
     });
 }

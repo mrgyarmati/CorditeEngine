@@ -21,6 +21,7 @@
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
+#include <Jolt/Physics/Collision/Shape/StaticCompoundShape.h>
 #include <Jolt/Physics/PhysicsSettings.h>
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/RegisterTypes.h>
@@ -30,6 +31,7 @@
 #include <cstdarg>
 #include <cstdio>
 #include <mutex>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -210,6 +212,37 @@ Result<JPH::ShapeRefC> makeShape(const ShapeDesc& desc) {
     return result.Get();
 }
 
+/// The shape of a whole body: its one shape, or its shapes put together.
+Result<JPH::ShapeRefC> makeBodyShape(std::span<const ShapeDesc> shapes) {
+    if (shapes.empty() || shapes.size() > kMaxBodyShapes) {
+        return makeError(ErrorCode::InvalidArgument, "a body is put together of 1 to {} shapes, not {}", kMaxBodyShapes,
+                         shapes.size());
+    }
+    for (const ShapeDesc& shape : shapes) {
+        if (!isFinite(shape.offset) || !isRotation(shape.rotation)) {
+            return makeError(ErrorCode::InvalidArgument,
+                             "a {} cannot be placed in its body: its offset or rotation is not made of numbers",
+                             nameOf(shape.type));
+        }
+    }
+    const ShapeDesc& first = shapes.front();
+    if (shapes.size() == 1 && first.offset == Vec3(0.0f) && glm::normalize(first.rotation) == kIdentityQuat) {
+        return makeShape(first);
+    }
+    JPH::StaticCompoundShapeSettings compound;
+    for (const ShapeDesc& shape : shapes) {
+        CORDITE_TRY_ASSIGN(const JPH::ShapeRefC part, makeShape(shape));
+        compound.AddShape(toJolt(shape.offset), toJolt(glm::normalize(shape.rotation)), part);
+    }
+    const JPH::ShapeSettings::ShapeResult result = compound.Create();
+    if (!result.IsValid()) {
+        const std::string_view reason = result.HasError() ? std::string_view(result.GetError()) : "no shape";
+        return makeError(ErrorCode::InvalidArgument, "cannot put {} shapes together to collide with: {}", shapes.size(),
+                         reason);
+    }
+    return result.Get();
+}
+
 Status validateBody(const BodyDesc& desc) {
     if (!isFinite(desc.position) || !isRotation(desc.rotation)) {
         return makeError(ErrorCode::InvalidArgument,
@@ -317,7 +350,7 @@ Result<std::unique_ptr<PhysicsWorld>> PhysicsWorld::create(const PhysicsWorldDes
 
 Result<BodyId> PhysicsWorld::createBody(const BodyDesc& desc) {
     CORDITE_TRY(validateBody(desc));
-    CORDITE_TRY_ASSIGN(const JPH::ShapeRefC shape, makeShape(desc.shape));
+    CORDITE_TRY_ASSIGN(const JPH::ShapeRefC shape, makeBodyShape(desc.shapes));
 
     const bool isStatic = desc.motion == BodyMotion::Static;
     JPH::BodyCreationSettings settings(shape, toJolt(desc.position), toJolt(glm::normalize(desc.rotation)),

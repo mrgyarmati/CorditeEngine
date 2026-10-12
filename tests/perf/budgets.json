@@ -41,6 +41,10 @@
         // cube map.
         "environmentBytes": 4193280,
         "meshBytes": 160000,
+        // What is simulated: the bodies of the scene, of which a kinematic one is
+        // awake at most once the rest has settled, and the joints its animators pose.
+        "bodies": 8,
+        "joints": 8,
         // The image of the sky is 1.4 MiB of this.
         "textureBytes": 9437184,
 
