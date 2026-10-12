@@ -126,7 +126,7 @@ by accident.
 | `platform` | `core`, `math` | Windows (GLFW), keyboard / mouse / gamepad input |
 | `assets` | `core`, `math` | Assets as data: images and mipmaps, meshes - rigid and skinned - and what prepares them, skeletons, animation clips, materials, glTF import and export, the asset database (ids, `.meta` files) and the asset manager (loading by id) |
 | `world` | `core`, `math` | Entities, components and their hierarchy (EnTT), the component registry, scene files |
-| `animation` | `core`, `math`, `assets`, `world` | Poses of skeletons and what makes them: sampling clips, blending, the matrices a mesh is skinned with and the bounds of a posed mesh; the `Animator` component; `AnimationSystem`, which plays the animators of a world. Not run by the engine yet |
+| `animation` | `core`, `math`, `assets`, `world` | Poses of skeletons and what makes them: sampling clips, blending, the matrices a mesh is skinned with and the bounds of a posed mesh; the `Animator` component; `AnimationSystem`, which plays the animators of a world |
 | `rhi` | `core`, `math`, `platform` | Vulkan device, swapchain and texture readback over NVRHI |
 | `shaders` | `core` | Shader requests and permutation keys, disk cache, `ShaderLibrary` |
 | `shader_compiler` | `core`, `shaders` | Slang to SPIR-V compiler (not linked into exported games) |
@@ -601,6 +601,9 @@ Step-by-step guide: [work-with-assets](.claude/skills/work-with-assets/SKILL.md)
 - **The showcase's textures and models are generated**, by `tools/sample-assets`.
   Change the generator, run it, look at the result, commit both. Its materials and its
   scene are written by hand, with comments: they are the reference for the file formats.
+  A new model gets its `.meta` file - its id - when the project is next opened in the
+  editor (`cordite-editor --headless --project samples/showcase --frames 1`); the ids
+  of what is inside it are listed by `asset.get`.
 
 ## Animation
 
@@ -629,6 +632,17 @@ Step-by-step guide: [work-with-assets](.claude/skills/work-with-assets/SKILL.md)
 - **What an animator cannot use is reported once** and poses nothing or the rest pose;
   numbers that are none - a speed, a weight, a time - count as nothing. Skeletons and
   clips are held until `AssetDatabase::revision()` changes.
+- **The engine plays, the editor poses.** `Engine::updateWorld(WorldClock)` is the one
+  place the animation of a frame happens, before the world transforms are worked out:
+  with a running clock (`runFrame`, a game) the animators play on by the time of the
+  frame, with a stopped one (`EditorApp`) they are only posed. A program that draws
+  a world itself calls it instead of `World::updateWorldTransforms()`, once a frame.
+- **Placing a model lays it out for animation** (`instantiateModel`): no entities for
+  joints (`ModelNode::joint`), one entity with an `Animator` for each skeleton
+  ("Skeleton"), directly under the instance, and the skinned meshes under it, unmoved
+  - a skinned mesh is placed by its joints, wherever its node is in the file. What
+  hangs on a joint in a file (a sword in a hand) is placed where the joint rests and
+  does not follow a pose yet; the log says so.
 - **Animation is tested with numbers.** `tests/support/SkinnedModelSupport.h` is a bar
   of three joints whose every pose can be worked out by hand: half way through "Bend"
   its middle joint is turned 45 degrees. `tests/render/SkinningTests.cpp` says which

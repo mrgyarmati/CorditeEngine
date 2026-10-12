@@ -423,6 +423,88 @@
             }
         },
         {
+            // A model with a skeleton (models/hoist.gltf), as placing it with
+            // asset.instantiate lays it out. This entity is where the model is; move, turn
+            // or scale it to place the whole hoist. It stands behind the fallen barrel, its
+            // arm reaching out over it.
+            "id": "10000000-0000-4000-8000-000000000029",
+            "name": "Hoist",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-000000000001",
+            "components": {
+                "Transform": { "position": [-2.92, 0.0, 1.47], "rotation": [0.0, 0.300706, 0.0, 0.953717], "scale": [1.0, 1.0, 1.0] }
+            }
+        },
+        {
+            // The part of the model that no joint moves: a mesh like any other.
+            "id": "10000000-0000-4000-8000-00000000002a",
+            "name": "Frame",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-000000000029",
+            "components": {
+                "Transform": { "position": [0.0, 0.0, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [1.0, 1.0, 1.0] },
+                "MeshRenderer": {
+                    "mesh": "fd11c975-2508-883e-9d21-03add2672148",
+                    "materials": ["78bbefbe-4b9a-8beb-af14-1a00d3fcc280"]
+                }
+            }
+        },
+        {
+            // Where the cable hangs from: a node of the model with nothing in it. The joints
+            // below it in the file are no entities - where they are is part of a pose.
+            "id": "10000000-0000-4000-8000-00000000002b",
+            "name": "Cable anchor",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-00000000002a",
+            "components": {
+                "Transform": { "position": [1.0, 2.5, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [1.0, 1.0, 1.0] }
+            }
+        },
+        {
+            // What animates the cable. An animator poses a skeleton: it plays a clip - here
+            // "Sway", which swings the cable in the plane of the arm - and can blend a second
+            // one over it, here a third of "Swing", which swings it across. `time` and
+            // `blendTime` are where in each clip the pose is taken from, in seconds. In a
+            // game they move on while `playing` is set, at `speed`, and start again at the
+            // end of a clip while `loop` is; in the editor they stand still, so that what
+            // is set here is what is seen. A clip moves the joints its tracks name, so any
+            // clip fits any skeleton whose joints are called the same.
+            "id": "10000000-0000-4000-8000-00000000002c",
+            "name": "Skeleton",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-000000000029",
+            "components": {
+                "Transform": { "position": [0.0, 0.0, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [1.0, 1.0, 1.0] },
+                "Animator": {
+                    "skeleton": "90b33595-4c64-8e1a-b4e8-aebbe2f0e623",
+                    "clip": "1d58e9ef-d762-815a-ac62-67492aafb6aa",
+                    "time": 0.75,
+                    "speed": 1.0,
+                    "loop": true,
+                    "playing": true,
+                    "blendClip": "a532acdc-fe8a-8869-ba94-981de14e2cba",
+                    "blendTime": 1.5,
+                    "blendWeight": 0.35
+                }
+            }
+        },
+        {
+            // The skinned mesh: the cable and the weight on it, two submeshes. It is drawn
+            // in the pose of the nearest entity above it that has one - the animator - and
+            // hangs under it unmoved, because its vertices are placed by the joints.
+            "id": "10000000-0000-4000-8000-00000000002d",
+            "name": "Cable",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-00000000002c",
+            "components": {
+                "Transform": { "position": [0.0, 0.0, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [1.0, 1.0, 1.0] },
+                "MeshRenderer": {
+                    "mesh": "525a6e60-8be9-8d59-9480-bb58f4617379",
+                    "materials": ["7066fe93-57a2-8184-a86b-3d2c595faa45", "cba428eb-5d46-8cc3-816e-dc960320e36a"]
+                }
+            }
+        },
+        {
             // Disabled entities stay in the scene but are ignored, with everything below them.
             "id": "10000000-0000-4000-8000-000000000005",
             "name": "Spare parts",

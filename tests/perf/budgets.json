@@ -16,9 +16,11 @@
         // Draw calls and triangles are those of all passes together: a solid surface is
         // drawn by the depth pre-pass and again by the base pass, a translucent one
         // once, and whatever stands in the light of a light that casts shadows once
-        // more for each of its shadow maps. Two thirds of both are the shadow maps.
-        "drawCalls": 130,
-        "triangles": 19500,
+        // more for each of its shadow maps. Two thirds of both are the shadow maps. The
+        // hoist is in them with its frame and with its cable, which is skinned: three
+        // draw calls a pass that sees all of it.
+        "drawCalls": 150,
+        "triangles": 22500,
         // Passes over the whole picture: the two of the ambient occlusion, the lighting,
         // and what finishes the picture as the scene says - five levels of bloom down
         // and up, the automatic exposure, the final pass and the smoothing of its edges.

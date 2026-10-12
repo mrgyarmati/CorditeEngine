@@ -97,6 +97,9 @@ struct Engine::Impl {
 
     ComponentRegistry components;
     World world;
+    AnimationSystem animation;
+    /// What the last updateWorld() since the frame began did.
+    AnimationStatistics animationStatistics;
 
     Stopwatch frameClock;
     /// Runs from beginFrame() to the moment the frame is handed to the GPU.
@@ -244,6 +247,7 @@ Result<bool> Engine::beginFrame() {
     // What was drawn between frames - a picture taken of a viewport, say - is not part
     // of this frame, so its numbers are dropped here.
     (void)impl.sceneRenderer->takeFrameStatistics();
+    impl.animationStatistics = {};
     impl.frameOpen = true;
     return true;
 }
@@ -270,6 +274,7 @@ Status Engine::endFrame() {
     impl.statistics.frameIndex = impl.frameIndex;
     impl.statistics.cpuMilliseconds = impl.workClock.elapsedSeconds() * 1000.0;
     impl.statistics.gpuMilliseconds = impl.gpuTimer->latestMilliseconds();
+    impl.statistics.animation = impl.animationStatistics;
     impl.statistics.scene = impl.sceneRenderer->takeFrameStatistics();
     impl.statistics.resources = impl.sceneRenderer->resources().statistics();
 
@@ -341,12 +346,25 @@ Status Engine::drawWorld(const SceneRenderSettings& settings) {
     return {};
 }
 
+void Engine::updateWorld(WorldClock clock) {
+    Impl& impl = *m_impl;
+    // How much time passes is what a frame says; between frames there is none to pass.
+    CORDITE_ASSERT(clock == WorldClock::Stopped || impl.frameOpen, "the clock of the world runs only during a frame");
+    if (clock == WorldClock::Running && impl.frameOpen) {
+        impl.animationStatistics =
+            impl.animation.update(impl.world, *impl.assets, static_cast<float>(impl.deltaSeconds));
+    } else {
+        impl.animationStatistics = impl.animation.evaluate(impl.world, *impl.assets);
+    }
+    impl.world.updateWorldTransforms();
+}
+
 Result<bool> Engine::runFrame() {
     CORDITE_TRY_ASSIGN(const bool keepRunning, beginFrame());
     if (!keepRunning) {
         return false;
     }
-    m_impl->world.updateWorldTransforms();
+    updateWorld(WorldClock::Running);
     // A frame that was begun is always ended, so that the engine stays usable after
     // a failure in between.
     const Status drawn = drawWorld(m_impl->renderSettings);

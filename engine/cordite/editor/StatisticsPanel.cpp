@@ -79,10 +79,15 @@ Json describeFrameStatistics(const FrameStatistics& statistics) {
     resources["meshBytes"] = statistics.resources.meshBytes;
     resources["textureBytes"] = statistics.resources.textureBytes;
 
+    Json animation = Json::object();
+    animation["animators"] = statistics.animation.animators;
+    animation["joints"] = statistics.animation.joints;
+
     Json description = Json::object();
     description["frame"] = statistics.frameIndex;
     description["cpuMilliseconds"] = statistics.cpuMilliseconds;
     description["gpuMilliseconds"] = statistics.gpuMilliseconds ? Json(*statistics.gpuMilliseconds) : Json(nullptr);
+    description["animation"] = std::move(animation);
     description["scene"] = std::move(scene);
     description["resources"] = std::move(resources);
     return description;
@@ -98,6 +103,8 @@ void StatisticsPanel::draw(const FrameStatistics& statistics, bool& open) {
     if (ImGui::Begin("Statistics", &open) && ImGui::BeginTable("##statistics", 2, ImGuiTableFlags_SizingStretchProp)) {
         row("CPU", fmt::format("{:.2f} ms", m_cpuMilliseconds));
         row("GPU", m_gpuMilliseconds ? fmt::format("{:.2f} ms", *m_gpuMilliseconds) : std::string("not measured"));
+
+        row("Animators", fmt::format("{} ({} joints)", statistics.animation.animators, statistics.animation.joints));
 
         const SceneRenderStatistics& scene = statistics.scene;
         row("Views", fmt::format("{}", scene.views));

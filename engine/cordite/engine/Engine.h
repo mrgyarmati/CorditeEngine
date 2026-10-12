@@ -18,7 +18,7 @@
 ///         break;
 ///     }
 ///     updateGame(engine->world(), engine->deltaSeconds());
-///     engine->world().updateWorldTransforms();
+///     engine->updateWorld();                            // animations play, transforms follow
 ///     CORDITE_TRY(engine->drawWorld());                 // or any passes on engine->commandList()
 ///     ImGui::Text("frame %llu", engine->frameIndex());  // the interface is drawn on top
 ///     CORDITE_TRY(engine->endFrame());
@@ -33,6 +33,7 @@
 /// frame target and takes its input from what is injected into input(), so it behaves
 /// identically otherwise; the rendering tests and the editor's automation mode rely on it.
 
+#include "cordite/animation/AnimationSystem.h"
 #include "cordite/assets/AssetManager.h"
 #include "cordite/assets/Image.h"
 #include "cordite/core/Base.h"
@@ -72,6 +73,9 @@ struct FrameStatistics {
     /// measurement is a few frames old when it arrives; there is none before the first
     /// has arrived, and never one on an adapter that cannot time its work.
     std::optional<double> gpuMilliseconds;
+    /// The animators that were posed in the frame, and their joints: what the last
+    /// updateWorld() of the frame did. All zero for a frame without one.
+    AnimationStatistics animation;
     /// What the scene renderer drew during the frame, all views together.
     SceneRenderStatistics scene;
     /// What the scene renderer holds on the GPU.
@@ -122,6 +126,15 @@ struct EngineDesc {
     double fixedTimeStep = 0.0;
 };
 
+/// Whether time passes for a world. See Engine::updateWorld().
+enum class WorldClock : uint8_t {
+    /// It does: what plays moves on by the time the frame takes. A game.
+    Running,
+    /// It does not: everything is shown as it is at this moment, and nothing in the
+    /// world is changed. An editor, with a scene that is being worked on.
+    Stopped,
+};
+
 class Engine {
 public:
     [[nodiscard]] static Result<std::unique_ptr<Engine>> create(const EngineDesc& desc);
@@ -145,16 +158,28 @@ public:
     /// is what the engine shows while it has nothing else to draw.
     void drawTestPattern();
 
+    /// Brings the world up to date for drawing, after the program has changed what it
+    /// wanted to change: the animators play on by deltaSeconds() and every skeleton is
+    /// posed (AnimationSystem), then the world transforms are worked out. With the clock
+    /// stopped the animators are left as they are, and the poses are those of the times
+    /// they hold.
+    ///
+    /// Call it once per frame with a running clock, between beginFrame() and drawing:
+    /// each call lets the time of a frame pass. A running clock outside a frame is a
+    /// mistake, and is taken as a stopped one.
+    void updateWorld(WorldClock clock = WorldClock::Running);
+
     /// Draws the world into the frame target as its primary camera sees it (the first
     /// enabled camera with `primary` set; see findPrimaryCamera). A world without one
-    /// shows the test pattern. Only during a frame, with the world transforms up to date.
+    /// shows the test pattern. Only during a frame, with the world up to date
+    /// (updateWorld()).
     /// Whose view it is and the time are filled in here, whatever `settings` say for
     /// viewEntity, deltaSeconds and timeSeconds.
     [[nodiscard]] Status drawWorld(const SceneRenderSettings& settings = {});
 
-    /// Runs a whole frame for a program that draws nothing itself: beginFrame(), world
-    /// transform update, drawWorld(renderSettings()), endFrame(). Returns what
-    /// beginFrame() returned.
+    /// Runs a whole frame for a program that draws nothing itself: beginFrame(),
+    /// updateWorld() with a running clock, drawWorld(renderSettings()), endFrame().
+    /// Returns what beginFrame() returned.
     [[nodiscard]] Result<bool> runFrame();
 
     /// What runFrame() draws the world with: the background, the quality of the

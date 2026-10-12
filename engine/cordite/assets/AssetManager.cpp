@@ -1,14 +1,17 @@
 #include "cordite/assets/AssetManager.h"
 
+#include "cordite/assets/GltfDocument.h"
 #include "cordite/assets/GltfImporter.h"
 #include "cordite/assets/Primitives.h"
 #include "cordite/core/FileSystem.h"
 #include "cordite/core/Json.h"
 #include "cordite/core/Log.h"
 
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace cordite {
 namespace {
@@ -35,6 +38,20 @@ MeshData makeBuiltinMesh(BuiltinMesh mesh) {
             return makeTorus();
     }
     return makeBox();
+}
+
+/// Which nodes of a document are joints of its skins. A skin that could not be imported
+/// lists none.
+std::vector<bool> jointNodesOf(const GltfDocument& document) {
+    std::vector<bool> isJoint(document.nodes.size(), false);
+    for (const GltfSkin& skin : document.skins) {
+        for (const uint32_t joint : skin.joints) {
+            if (joint < isJoint.size()) {
+                isJoint[joint] = true;
+            }
+        }
+    }
+    return isJoint;
 }
 
 } // namespace
@@ -166,9 +183,11 @@ Status AssetManager::importModelFile(const AssetInfo& asset) {
         m_animations[model.animations.back()] =
             std::make_shared<const AnimationData>(std::move(document.animations[index].animation));
     }
+    const std::vector<bool> isJoint = jointNodesOf(document);
     model.nodes.reserve(document.nodes.size());
     for (GltfNode& source : document.nodes) {
         ModelNode node;
+        node.joint = isJoint[model.nodes.size()];
         node.name = std::move(source.name);
         node.transform = source.transform;
         node.parent = source.parent;

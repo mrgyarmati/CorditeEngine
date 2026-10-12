@@ -81,6 +81,7 @@ Result<Json> describeContent(AssetManager& assets, const AssetInfo& asset) {
                 entry["parent"] = node.parent ? Json(*node.parent) : Json(nullptr);
                 entry["mesh"] = node.mesh.isNil() ? Json(nullptr) : Json(node.mesh.toString());
                 entry["skeleton"] = node.skeleton.isNil() ? Json(nullptr) : Json(node.skeleton.toString());
+                entry["joint"] = node.joint;
                 entry["camera"] = node.camera.has_value();
                 nodes.push_back(std::move(entry));
             }

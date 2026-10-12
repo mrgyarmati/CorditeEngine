@@ -22,6 +22,8 @@
 ///     "frame": 412,
 ///     "cpuMilliseconds": 0.61,
 ///     "gpuMilliseconds": 0.24,          // null where the GPU cannot time its work
+///     // The animators that were posed, and the joints of their skeletons.
+///     "animation": {"animators": 1, "joints": 6},
 ///     "scene": {"views": 1, "meshRenderers": 21, "culled": 1,
 ///               // The mesh renderers drawn in a pose, and the joint matrices sent to
 ///               // the GPU for them.

@@ -7,6 +7,13 @@
 /// an entity for each node of its scene, with the transforms, mesh renderers and cameras
 /// the nodes describe, under one new root entity.
 ///
+/// A model with skeletons is laid out for animation. Its joints get no entities: where
+/// they are is part of a pose. For each skeleton there is one entity with an Animator
+/// ("Skeleton", "Skeleton 2", ...) directly under the root, and the meshes skinned to
+/// that skeleton hang under it - so a figure of several meshes is animated in one
+/// place. The animator plays nothing until it is given a clip; ModelData::animations
+/// are the clips the file came with.
+///
 /// @code
 /// CORDITE_TRY_ASSIGN(const std::shared_ptr<const ModelData> model, assets.loadModel(crateId));
 /// const Entity crate = instantiateModel(world, *model, {.parent = room});
@@ -37,6 +44,12 @@ struct ModelInstanceOptions {
 ///
 /// Cameras of the model are created with `primary` off, so that placing a model never
 /// changes what the game is seen through.
+///
+/// A skinned mesh is placed by its joints, as glTF has it: the entity of its node hangs
+/// under the animator of its skeleton, unmoved, wherever the node is in the model. A
+/// joint becomes an entity only when it has a mesh or a camera of its own, or a node
+/// below it that is no joint; such an entity stands where the joint rests and does not
+/// follow a pose, which the log then says.
 Entity instantiateModel(World& world, const ModelData& model, const ModelInstanceOptions& options = {});
 
 } // namespace cordite

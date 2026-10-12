@@ -1,12 +1,17 @@
 #include "cordite/engine/ModelInstance.h"
 
+#include "cordite/animation/AnimationComponents.h"
 #include "cordite/core/Assert.h"
+#include "cordite/core/Log.h"
 #include "cordite/renderer/RenderComponents.h"
 #include "cordite/world/Components.h"
+
+#include <fmt/format.h>
 
 #include <algorithm>
 #include <ranges>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace cordite {
@@ -36,6 +41,61 @@ CameraComponent makeCamera(const ModelCamera& source) {
     return camera;
 }
 
+/// A node of a model on its way to becoming an entity: which one, and the node it was
+/// reached from - none for a root.
+struct Visit {
+    uint32_t node = 0;
+    int64_t parent = -1;
+};
+
+/// The nodes of a model in the order their entities are made: depth first from the
+/// roots, every node before its children, siblings in the order the model has them. A
+/// model made by the importer is a forest; one put together by hand may not be, so each
+/// node is taken once, where it is reached first, and what does not exist is left out.
+std::vector<Visit> visitOrder(const ModelData& model) {
+    std::vector<Visit> order;
+    std::vector<Visit> pending;
+    for (const uint32_t root : model.roots | std::views::reverse) {
+        pending.push_back({.node = root});
+    }
+    std::vector<bool> visited(model.nodes.size(), false);
+    while (!pending.empty()) {
+        const Visit current = pending.back();
+        pending.pop_back();
+        if (current.node >= model.nodes.size() || visited[current.node]) {
+            continue;
+        }
+        visited[current.node] = true;
+        order.push_back(current);
+        for (const uint32_t child : model.nodes[current.node].children | std::views::reverse) {
+            pending.push_back({.node = child, .parent = current.node});
+        }
+    }
+    return order;
+}
+
+/// Which nodes become entities: all that are no joints, and the joints that carry
+/// something a pose cannot - a mesh or a camera of their own, or a node below them that
+/// becomes an entity.
+std::vector<bool> nodesWithEntities(const ModelData& model, const std::vector<Visit>& order) {
+    std::vector<bool> kept(model.nodes.size(), false);
+    // Children come after their parents in `order`, so backwards every node is
+    // settled before the node it hangs on.
+    for (const Visit& visit : order | std::views::reverse) {
+        const ModelNode& node = model.nodes[visit.node];
+        if (!node.joint || !node.mesh.isNil() || node.camera) {
+            kept[visit.node] = true;
+        }
+        // A skinned mesh does not stay where its node is, and so keeps nothing above
+        // it (see instantiateModel).
+        const bool staysBelow = node.mesh.isNil() || node.skeleton.isNil();
+        if (kept[visit.node] && staysBelow && visit.parent >= 0) {
+            kept[static_cast<size_t>(visit.parent)] = true;
+        }
+    }
+    return kept;
+}
+
 } // namespace
 
 Entity instantiateModel(World& world, const ModelData& model, const ModelInstanceOptions& options) {
@@ -45,35 +105,47 @@ Entity instantiateModel(World& world, const ModelData& model, const ModelInstanc
         CORDITE_VERIFY(world.setParent(instance, options.parent, false).has_value(),
                        "cannot put the model under its parent");
     }
-
-    // Depth first from the roots, so that every entity exists before its children and
-    // siblings keep the order they have in the model.
-    struct Pending {
-        uint32_t node;
-        Entity parent;
+    const auto putUnder = [&](Entity entity, Entity parent) {
+        CORDITE_VERIFY(world.setParent(entity, parent, false).has_value(), "cannot build the hierarchy of model '{}'",
+                       model.name);
     };
 
-    std::vector<Pending> pending;
-    for (const uint32_t root : model.roots | std::views::reverse) {
-        pending.push_back({root, instance});
-    }
-    // A model made by the importer is a forest; one put together by hand may not be,
-    // and must not send this into an endless loop.
-    std::vector<bool> visited(model.nodes.size(), false);
+    const std::vector<Visit> order = visitOrder(model);
+    const std::vector<bool> kept = nodesWithEntities(model, order);
+    std::vector<Entity> entityOfNode(model.nodes.size());
+    // The entities that pose the skeletons of the model, by skeleton, in the order
+    // they were needed.
+    std::vector<std::pair<Uuid, Entity>> animators;
+    uint32_t jointsWithEntities = 0;
 
-    while (!pending.empty()) {
-        const Pending current = pending.back();
-        pending.pop_back();
-        if (current.node >= model.nodes.size() || visited[current.node]) {
+    for (const Visit& visit : order) {
+        if (!kept[visit.node]) {
             continue;
         }
-        visited[current.node] = true;
-        const ModelNode& node = model.nodes[current.node];
-
+        const ModelNode& node = model.nodes[visit.node];
         const Entity entity = world.createEntity(entityName(node.name, "Node"));
-        world.transform(entity) = node.transform;
-        CORDITE_VERIFY(world.setParent(entity, current.parent, false).has_value(),
-                       "cannot build the hierarchy of model '{}'", model.name);
+        entityOfNode[visit.node] = entity;
+        jointsWithEntities += node.joint ? 1 : 0;
+
+        const bool skinned = !node.mesh.isNil() && !node.skeleton.isNil();
+        if (skinned) {
+            // A skinned mesh is placed by its joints, which are placed in the model:
+            // wherever its node is in the file, its entity hangs, unmoved, under what
+            // poses its skeleton - one entity for every skeleton, directly under the
+            // instance.
+            auto animator = std::ranges::find(animators, node.skeleton, &std::pair<Uuid, Entity>::first);
+            if (animator == animators.end()) {
+                const Entity created = world.createEntity(
+                    animators.empty() ? std::string("Skeleton") : fmt::format("Skeleton {}", animators.size() + 1));
+                putUnder(created, instance);
+                world.add<AnimatorComponent>(created).skeleton = node.skeleton;
+                animator = animators.insert(animators.end(), {node.skeleton, created});
+            }
+            putUnder(entity, animator->second);
+        } else {
+            world.transform(entity) = node.transform;
+            putUnder(entity, visit.parent >= 0 ? entityOfNode[static_cast<size_t>(visit.parent)] : instance);
+        }
 
         if (!node.mesh.isNil()) {
             auto& renderer = world.add<MeshRendererComponent>(entity);
@@ -83,10 +155,13 @@ Entity instantiateModel(World& world, const ModelData& model, const ModelInstanc
         if (node.camera) {
             world.add<CameraComponent>(entity) = makeCamera(*node.camera);
         }
+    }
 
-        for (const uint32_t child : node.children | std::views::reverse) {
-            pending.push_back({child, entity});
-        }
+    if (jointsWithEntities > 0) {
+        CORDITE_LOG_WARN("Engine",
+                         "the model '{}' has something hanging on {} of its joints: it is placed where the joints "
+                         "rest, and does not follow a pose",
+                         model.name, jointsWithEntities);
     }
     return instance;
 }

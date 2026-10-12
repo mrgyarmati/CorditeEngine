@@ -1,5 +1,6 @@
 #include "cordite/editor/EditorApp.h"
 
+#include "cordite/animation/AnimationComponents.h"
 #include "cordite/assets/ImageCompare.h"
 #include "cordite/core/FileSystem.h"
 
@@ -351,7 +352,7 @@ TEST_SUITE("EditorApp") {
         CHECK(editor->project()->settings.name == "Showcase");
         CHECK(editor->context().scenePath() == showcaseProject() / "assets" / "scenes" / "showcase.scene.json");
         CHECK(editor->context().world().sceneName() == "Showcase");
-        CHECK(run(*editor, "asset.list", R"({"type": "model"})")["assets"].size() == 3);
+        CHECK(run(*editor, "asset.list", R"({"type": "model"})")["assets"].size() == 4);
         CHECK(run(*editor, "scene.validate")["valid"] == true);
     }
 
@@ -530,10 +531,12 @@ TEST_SUITE("EditorApp") {
         // The viewport is the one view; it draws the showcase, some of it instanced.
         const Json& scene = statistics["scene"];
         CHECK(scene["views"] == 1);
-        CHECK(scene["meshRenderers"] == 21);
-        // Nothing in the showcase is posed.
-        CHECK(scene["skinned"]["meshes"] == 0);
-        CHECK(scene["skinned"]["jointMatrices"] == 0);
+        CHECK(scene["meshRenderers"] == 23);
+        // The cable of the hoist is posed by its animator: one skeleton of six joints.
+        CHECK(statistics["animation"]["animators"] == 1);
+        CHECK(statistics["animation"]["joints"] == 6);
+        CHECK(scene["skinned"]["meshes"] == 1);
+        CHECK(scene["skinned"]["jointMatrices"] == 6);
         CHECK(scene["drawCalls"].get<uint32_t>() > 0);
         CHECK(scene["drawCalls"].get<uint32_t>() < scene["instances"].get<uint32_t>());
         CHECK(scene["triangles"].get<uint64_t>() > 1000);
@@ -580,6 +583,60 @@ TEST_SUITE("EditorApp") {
             fmt::format(R"({{"path": {}, "viewportOnly": true}})", quoted(directory.path() / "view.png")));
         REQUIRE(editor->runFrames(1).has_value());
         CHECK(run(*editor, "editor.statistics")["scene"]["views"] == 1);
+        checkNoValidationIssues(editor->engine().graphics());
+    }
+
+    TEST_CASE("the editor shows what is animated at the time its animator holds, and plays nothing") {
+        EditorAppDesc desc = headlessDesc(UVec2(640, 360));
+        desc.project = showcaseProject();
+        const std::unique_ptr<EditorApp> editor = createEditor(desc);
+        const std::string animatorOfHoist = R"({"entity": "Stage/Hoist/Skeleton", "component": "Animator"})";
+        // Where the joints of the cable are: what the animator of the hoist has made.
+        World& world = editor->engine().world();
+        const auto jointsOfCable = [&] {
+            const Entity skeleton = world.findByName("Skeleton");
+            const SkeletonPoseComponent* pose = world.tryGet<SkeletonPoseComponent>(skeleton);
+            REQUIRE(pose != nullptr);
+            REQUIRE(pose->joints.size() == 6);
+            return pose->joints;
+        };
+
+        // The scene is posed as soon as it is shown: the cable hangs to one side, as
+        // its clip has it three quarters of a second in.
+        REQUIRE(editor->runFrames(1).has_value());
+        const std::vector<Mat4> atFirst = jointsOfCable();
+        const float anchorX = atFirst[0][3].x;
+        CHECK(atFirst[5][3].x - anchorX > 0.15f);
+
+        // Frames go by, and the animator's clocks stand where the scene has them: the
+        // scene is a document here, and nothing has changed it.
+        REQUIRE(editor->runFrames(20).has_value());
+        const Json animator = run(*editor, "component.get", animatorOfHoist);
+        CHECK(animator["time"] == 0.75);
+        CHECK(animator["blendTime"] == 1.5);
+        CHECK(animator["playing"] == true);
+        CHECK(run(*editor, "editor.state")["scene"]["unsavedChanges"] == false);
+        CHECK(jointsOfCable() == atFirst);
+
+        // Close to the cable, so that where it hangs is most of the picture.
+        run(*editor, "viewport.lookAt", R"({"position": [-1.2, 1.6, 3.4], "target": [-2.1, 1.6, 0.9]})");
+        const ImageCompareOptions exactly{.channelTolerance = 0, .maxDifferingRatio = 0.0};
+        const Image before = unwrap(editor->captureViewport(UVec2(320, 180)));
+
+        // Set to another time, the cable hangs as the clip has it then: half a swing
+        // later, on the other side - in the world, and in the picture.
+        run(*editor, "component.set",
+            R"({"entity": "Stage/Hoist/Skeleton", "component": "Animator", "properties": {"time": 2.75}})");
+        const Image later = unwrap(editor->captureViewport(UVec2(320, 180)));
+        CHECK(run(*editor, "component.get", animatorOfHoist)["time"] == 2.75);
+        CHECK(jointsOfCable()[5][3].x - anchorX < -0.15f);
+        CHECK_FALSE(unwrap(compareImages(before, later, exactly)).matches);
+
+        // It is an edit like any other, and is taken back like one.
+        run(*editor, "editor.undo");
+        const Image undone = unwrap(editor->captureViewport(UVec2(320, 180)));
+        CHECK(jointsOfCable() == atFirst);
+        CHECK(unwrap(compareImages(before, undone, exactly)).matches);
         checkNoValidationIssues(editor->engine().graphics());
     }
 

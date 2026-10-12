@@ -1,5 +1,9 @@
 #include "cordite/engine/Engine.h"
 
+#include "cordite/animation/AnimationComponents.h"
+#include "cordite/animation/AnimationSystem.h"
+#include "cordite/assets/AssetDatabase.h"
+#include "cordite/assets/GltfExporter.h"
 #include "cordite/assets/ImageCompare.h"
 #include "cordite/math/Color.h"
 #include "cordite/math/Transform.h"
@@ -9,6 +13,7 @@
 
 #include "render/RenderTestSupport.h"
 #include "support/MathTestSupport.h"
+#include "support/SkinnedModelSupport.h"
 
 #include <algorithm>
 #include <cmath>
@@ -532,11 +537,80 @@ TEST_SUITE("Engine") {
 
         // Everything in the scene that is enabled was found; none of it failed to load.
         const SceneRenderStatistics& statistics = engine->sceneRenderer().statistics();
-        CHECK(statistics.meshRenderers == 21);
+        CHECK(statistics.meshRenderers == 23);
+        // The cable of the hoist is skinned to six joints, and it swings: a game lets
+        // time pass, and the animator's clock has moved on by the two frames.
+        CHECK(statistics.skinnedMeshes == 1);
+        CHECK(statistics.jointMatrices == 6);
+        CHECK(engine->statistics().animation == AnimationStatistics{.animators = 1, .joints = 6});
+        const Entity skeleton = engine->world().findByName("Skeleton");
+        REQUIRE(engine->world().has<AnimatorComponent>(skeleton));
+        CHECK(engine->world().tryGet<AnimatorComponent>(skeleton)->time == doctest::Approx(0.75 + 2.0 / 60.0));
+        CHECK(engine->world().tryGet<AnimatorComponent>(skeleton)->blendTime == doctest::Approx(1.5 + 2.0 / 60.0));
         // The four wall panels, the two beams and the two barrels are drawn as groups.
         CHECK(statistics.basePass.drawCalls < statistics.basePass.instances);
         // The glass pane is the one surface that is blended over the rest.
         CHECK(statistics.forwardPass.drawCalls == 1);
+        checkNoValidationIssues(engine->graphics());
+    }
+
+    TEST_CASE("the engine plays the animators of its world while its clock runs") {
+        const TempDirectory directory;
+        REQUIRE(exportGltf(test::makeSkinnedBar(), directory.path() / "bar.gltf").has_value());
+        EngineDesc desc = headlessDesc();
+        desc.assetDirectory = directory.path();
+        const std::unique_ptr<Engine> engine = createEngine(desc);
+        // The animator is one of the components a scene can hold.
+        CHECK(engine->components().find("Animator") != nullptr);
+
+        const AssetDatabase& database = engine->assets().database();
+        const AssetInfo* skeleton = database.findByReference("bar.gltf#skeleton/0");
+        const AssetInfo* bend = database.findByReference("bar.gltf#animation/0");
+        REQUIRE(skeleton != nullptr);
+        REQUIRE(bend != nullptr);
+        World& world = engine->world();
+        const Entity figure = world.createEntity("Figure");
+        world.add<AnimatorComponent>(figure) = {.skeleton = skeleton->id, .clip = bend->id, .loop = false};
+        const auto time = [&] { return world.tryGet<AnimatorComponent>(figure)->time; };
+
+        // runFrame() lets the time of a frame pass: a sixtieth of a second each.
+        runFrames(*engine, 30);
+        CHECK(time() == doctest::Approx(0.5));
+        const SkeletonPoseComponent* pose = world.tryGet<SkeletonPoseComponent>(figure);
+        REQUIRE(pose != nullptr);
+        // Half way through "Bend" the tip has gone an eighth of a turn round the middle.
+        const float along = std::sqrt(0.5f);
+        CHECK_NEAR(Vec3(pose->joints[2][3]), Vec3(-along, 1.0f + along, 0.0f), 1.0e-4f);
+        CHECK(engine->statistics().animation == AnimationStatistics{.animators = 1, .joints = 3});
+
+        // A program that drives its frames itself says whether time passes for the world.
+        REQUIRE(test::unwrap(engine->beginFrame()));
+        engine->updateWorld(WorldClock::Stopped);
+        CHECK(time() == doctest::Approx(0.5));
+        engine->updateWorld();
+        CHECK(time() == doctest::Approx(0.5 + 1.0 / 60.0));
+        // It also brings the world transforms up to date, either way.
+        world.transform(figure).position = Vec3(4.0f, 5.0f, 6.0f);
+        engine->updateWorld(WorldClock::Stopped);
+        CHECK(Vec3(world.worldMatrix(figure)[3]) == Vec3(4.0f, 5.0f, 6.0f));
+        REQUIRE(engine->endFrame().has_value());
+        CHECK(engine->statistics().animation == AnimationStatistics{.animators = 1, .joints = 3});
+
+        // Between frames no time passes. Posing is no mistake there; a running clock is.
+        const float before = time();
+        engine->updateWorld(WorldClock::Stopped);
+        CHECK(time() == before);
+#if defined(CORDITE_ENABLE_ASSERTS)
+        CHECK_THROWS_AS(engine->updateWorld(WorldClock::Running), test::AssertionFailure);
+#else
+        engine->updateWorld(WorldClock::Running);
+#endif
+        CHECK(time() == before);
+
+        // A frame in which the world is not brought up to date has posed nothing.
+        REQUIRE(test::unwrap(engine->beginFrame()));
+        REQUIRE(engine->endFrame().has_value());
+        CHECK(engine->statistics().animation == AnimationStatistics());
         checkNoValidationIssues(engine->graphics());
     }
 

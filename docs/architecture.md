@@ -34,7 +34,7 @@ of slowly turning the code base into a ball of mud.
 | `platform` | `core`, `math` | The window system and windows (GLFW), and per-window keyboard, mouse and gamepad state with an injection API for tests and automation. |
 | `assets` | `core`, `math` | Assets as data, and where they come from: images and mipmaps; meshes, primitives and mesh processing; materials; glTF import and export; the asset database, which knows what exists and under which id; the asset manager, which loads by id. Knows nothing of the GPU. |
 | `world` | `core`, `math` | The scene: entities, their components and their parent/child hierarchy, stored with EnTT; the registry of component types known by name; scene files. |
-| `animation` | `core`, `math`, `assets`, `world` | Movement of skeletons: the functions that make a pose (sampling a clip, blending two poses, the matrices a mesh is skinned with, the bounds of a posed mesh), the `Animator` component, and `AnimationSystem`, which plays the animators of a world and gives each the pose it is in. The engine does not run it yet. |
+| `animation` | `core`, `math`, `assets`, `world` | Movement of skeletons: the functions that make a pose (sampling a clip, blending two poses, the matrices a mesh is skinned with, the bounds of a posed mesh), the `Animator` component, and `AnimationSystem`, which plays the animators of a world and gives each the pose it is in. |
 | `rhi` | `core`, `math`, `platform` | The GPU: Vulkan instance and device creation, the NVRHI device the renderer programs against, the swapchain, and texture readback. The only module that calls Vulkan. |
 | `shaders` | `core` | What a shader *is* to the engine: requests and their permutation keys, compiled binaries, the on-disk cache, and the `ShaderLibrary` that resolves a request from memory, disk or a compiler. |
 | `shader_compiler` | `core`, `shaders` | The Slang-based implementation of `IShaderCompiler`. Kept separate so exported games do not link a compiler. |
@@ -57,10 +57,14 @@ with and without a window:
    none; the frame still runs, offscreen, so the program needs no special case.
 3. It opens the frame's command list, clears the engine's offscreen frame target and
    starts the interface frame.
-4. The program does its work: it updates the world, records render passes into the
-   command list, and describes its interface with ImGui calls. A game calls
+4. The program does its work: it changes the world as it sees fit, then calls
+   `Engine::updateWorld()`, which plays the animations on by the time of the frame,
+   poses the skeletons and works out where every entity is; it records render passes
+   into the command list, and describes its interface with ImGui calls. A game calls
    `Engine::drawWorld()`, which renders the world through its primary camera; the
-   editor renders it from the viewport's own camera into the viewport panel instead.
+   editor renders it from the viewport's own camera into the viewport panel instead,
+   and updates the world with its clock stopped: a scene that is being worked on is
+   shown as it is, and does not play.
 5. `endFrame` draws the interface over the frame target, copies the frame target to the
    back buffer and presents (windowed mode only), and releases GPU resources whose last
    use has finished.
@@ -1061,6 +1065,24 @@ would stand. The time of an animator is a property like any other: a person sets
 look through a clip, the edit is in the undo history, and the scene file gets what was
 set. A system that tidied the number up afterwards would change the document behind
 the back of everything that keeps track of it.
+
+The engine has one call for both, `Engine::updateWorld(WorldClock)`: `runFrame()` and
+games call it with a running clock, the editor with a stopped one. When the editor
+learns to play a scene, it will play a copy of it.
+
+### A model with a skeleton is placed with one animator for each skeleton
+
+`instantiateModel` makes an entity for every node of a model, except its joints. For
+each skeleton it makes one entity with an `Animator`, directly under the instance, and
+puts the meshes skinned to that skeleton under it with no transform of their own:
+glTF places a skinned mesh by its joints alone, and its joints in the model, so where
+the node of such a mesh is in the file does not matter. A figure of several meshes is
+then animated in one place, by one clock.
+
+The animator is given the skeleton and no clip. glTF has no notion of the clip a model
+starts with, and the first of a file is as often a walk as an idle; a figure that
+stands as it was modelled until it is told what to do is the one result nobody has to
+undo.
 
 ### Skinning is a version of the one vertex shader
 

@@ -118,9 +118,50 @@ glTF 2.0, `.gltf` or `.glb`. What comes across and what does not is listed at th
 
 `asset.get` says what is in each: for a mesh whether it is `skinned` and how many
 `joints` it needs, for a skeleton its joints and what they hang on, for an animation
-its `duration` and the joints it moves. A skin or a channel that makes no sense - a
-joint listed twice, times that run backwards - is left out and named in the model's
-`warnings`; the rest of the file is imported.
+its `duration` and the joints it moves, for a model which of its nodes are joints. A
+skin or a channel that makes no sense - a joint listed twice, times that run
+backwards - is left out and named in the model's `warnings`; the rest of the file is
+imported.
+
+## Animate a model
+
+Placing a model that has a skeleton (`asset.instantiate`, `instantiateModel`) gives:
+
+```
+Hoist              the instance: move it to move the model
+  Frame            a node with a mesh that no joint moves
+    Cable anchor   a node with nothing in it
+  Skeleton         one for each skeleton of the model: the Animator
+    Cable          the meshes skinned to that skeleton, unmoved
+```
+
+Joints get no entities. The `Animator` names the skeleton and, at first, no clip: the
+figure stands as it was modelled. Give it one of the model's animations - or any
+other whose tracks name joints this skeleton has:
+
+```json
+"Animator": {"skeleton": "90b33595-4c64-8e1a-b4e8-aebbe2f0e623",
+             "clip": "1d58e9ef-d762-815a-ac62-67492aafb6aa",
+             "time": 0.75, "speed": 1.0, "loop": true, "playing": true,
+             "blendClip": null, "blendTime": 0.0, "blendWeight": 0.0}
+```
+
+- In a game (`Engine::runFrame`, or `Engine::updateWorld()` in a loop of one's own)
+  `time` moves on while `playing` is set, by `speed`, and goes round at the end of the
+  clip while `loop` is set. Code changes the clip, the speed or the weight by writing
+  the component: `world.tryGet<AnimatorComponent>(entity)->clip = runId;`.
+- In the editor nothing plays: the pose is that of `time`, so setting `time` looks
+  through a clip, and what is set is what is saved.
+- `blendClip` is a second clip over the first, by `blendWeight` (0 none of it, 1
+  nothing else), at `blendTime`. Fading from one clip to another is moving the weight.
+- A skinned mesh is drawn in the pose of its own entity or of the nearest entity above
+  it that has an `Animator` with a skeleton. Meshes of one figure therefore go under
+  one animator; a mesh that needs another skeleton needs an animator of its own.
+- A mesh that follows more joints than the skeleton has is drawn as it was modelled,
+  and the log names it. `asset.get` on the mesh says how many joints it needs, on the
+  skeleton how many it has.
+- `editor.statistics` counts the animators that were posed (`animation`) and the
+  skinned meshes that were drawn in a pose (`scene.skinned`).
 
 Ids of what is inside a model follow from its position in the file. Re-exporting a model
 keeps them as long as the order of its meshes and materials stays the same.

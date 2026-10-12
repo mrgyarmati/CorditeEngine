@@ -52,6 +52,9 @@ struct ModelNode {
     /// The skeleton that moves `mesh`, for a mesh that is skinned; nil for one that is
     /// rigid. A skinned mesh is placed by its joints: its node is where the model is.
     Uuid skeleton;
+    /// The node is a joint of one of the model's skeletons. Where it is at a moment is
+    /// part of a pose (Skeleton.h); `transform` is where it rests.
+    bool joint = false;
     std::optional<ModelCamera> camera;
 
     bool operator==(const ModelNode&) const = default;

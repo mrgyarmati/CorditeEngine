@@ -160,7 +160,9 @@ Result<bool> EditorApp::runFrame() {
     if (!keepRunning) {
         return false;
     }
-    m_engine->world().updateWorldTransforms();
+    // The scene is a document here, not a game that runs: nothing in it plays on, and
+    // what is animated is shown at the times its animators hold.
+    m_engine->updateWorld(WorldClock::Stopped);
     drawInterface();
     CORDITE_TRY(m_engine->endFrame());
 
@@ -250,7 +252,7 @@ Result<Image> EditorApp::captureViewport(UVec2 size) {
         return makeError(ErrorCode::InvalidState, "the viewport cannot be captured during a frame");
     }
 
-    m_engine->world().updateWorldTransforms();
+    m_engine->updateWorld(WorldClock::Stopped);
 
     // Rendered with a command list of its own, so that capturing neither needs nor
     // disturbs a frame of the editor.

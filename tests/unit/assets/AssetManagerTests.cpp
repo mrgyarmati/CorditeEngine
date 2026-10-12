@@ -273,6 +273,11 @@ TEST_SUITE("AssetManager") {
         REQUIRE(model->nodes.size() == 4);
         CHECK(model->nodes[0].skeleton == skeletonInfo->id);
         CHECK(model->nodes[1].skeleton.isNil());
+        // It also says which of its nodes are the joints.
+        CHECK_FALSE(model->nodes[0].joint);
+        CHECK(model->nodes[1].joint);
+        CHECK(model->nodes[2].joint);
+        CHECK(model->nodes[3].joint);
         CHECK(model->animations == std::vector<Uuid>{bendInfo->id, swayInfo->id});
         const std::shared_ptr<const MeshData> mesh = unwrap(assets->loadMesh(model->nodes[0].mesh));
         CHECK(mesh->isSkinned());

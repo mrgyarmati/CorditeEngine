@@ -24,10 +24,17 @@ number are what its list of milestones leaves out and its requirements ask for:
 | 8 | HDR and post-processing: exposure by hand or automatic, bloom, filmic and ACES tone mapping, color grading with lookup tables, vignette, grain, quality presets | Done |
 | - | Image-based lighting: HDR images of the sky as environments - the sky itself, its light on matte surfaces, its reflection on shiny ones | Done |
 | 9 | Screen-space effects: ambient occlusion from the screen, fog, anti-aliasing (FXAA). Screen-space reflections, which the brief marks optional, are listed below | Done |
-| - | Skeletal meshes and animation: skinned glTF models, skeletons and animation clips are imported, exported and listed as assets; an `Animator` component plays clips and blends two of them into a pose (`animation` module); skinned meshes are drawn in those poses on the GPU, instanced, with shadows and culling that follow the pose. The engine does not run the animation system yet, and the editor and showcase side are to come | In progress |
+| - | Skeletal meshes and animation: skinned glTF models, skeletons and animation clips are imported, exported and listed as assets; an `Animator` component plays clips and blends two of them into a pose (`animation` module); skinned meshes are drawn in those poses on the GPU, instanced, with shadows and culling that follow the pose; the engine plays the animators of a world, placing a model sets its skeletons up, and the showcase has a hoist whose cable swings | Done |
 | 10 | Physics and gameplay | Planned |
 | 11 | Editor maturity | Planned |
 | 12 | Packaging and export | Planned |
+
+What animation does not do yet: more than two clips at once (layers, blend trees, a
+state machine), motion of the figure taken from a clip (root motion), things that hang
+on a joint and follow it, morph targets, inverse kinematics, and events at times of a
+clip. The editor shows an animation at the time its animator holds and does not play
+it; it picks a skinned mesh where it was modelled, not where its pose has it, and does
+not draw skeletons.
 
 What the brief asks of the renderer that no milestone names, and that is not built
 yet: screen-space reflections, decals, depth of field, motion blur (and the motion

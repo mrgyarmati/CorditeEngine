@@ -316,6 +316,10 @@ TEST_SUITE("AssetCommands") {
         const Json model = fixture.run("asset.get", R"({"asset": "models/bar.gltf"})");
         CHECK(model["content"]["nodes"][0]["skeleton"] == fixture.id("models/bar.gltf#skeleton/0"));
         CHECK(model["content"]["nodes"][1]["skeleton"].is_null());
+        // The nodes that are joints say so: placing the model makes no entities of them.
+        CHECK(model["content"]["nodes"][0]["joint"] == false);
+        CHECK(model["content"]["nodes"][1]["joint"] == true);
+        CHECK(model["content"]["nodes"][3]["joint"] == true);
         CHECK(model["content"]["animations"] ==
               Json::array({fixture.id("models/bar.gltf#animation/0"), fixture.id("models/bar.gltf#animation/1")}));
     }

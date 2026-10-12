@@ -110,7 +110,11 @@ set it like any other property:
   path as `asset.list` shows it: `"models/crate.gltf"`, `"models/crate.gltf#mesh/0"`,
   `"builtin#mesh/cube"`. Properties of components take ids only.
 - `asset.instantiate` places a whole model: an entity per part, under one new root that
-  it returns. Move that root to place the model.
+  it returns. Move that root to place the model. A model with a skeleton also gets an
+  entity named `Skeleton` with an `Animator`; to animate it, set the animator's `clip`
+  to one of the model's animations (`asset.list` with `"type": "animation"`), and its
+  `time` to the moment of the clip to look at - the editor shows a pose, it does not
+  play (skill: `work-with-assets`).
 - The built-in meshes (cube, sphere, plane, cylinder, cone, capsule, torus) have the
   same ids in every project. `materials` takes one entry per submesh (`asset.get` tells
   how many a mesh has); a missing or null entry is drawn with the default material.

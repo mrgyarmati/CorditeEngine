@@ -13,18 +13,25 @@
 /// by hand and refer to these files by the ids in their `.meta` files, which the editor
 /// creates and which stay the same when the files are regenerated.
 
+#include "cordite/assets/Animation.h"
+#include "cordite/assets/GltfDocument.h"
 #include "cordite/assets/GltfExporter.h"
 #include "cordite/assets/Image.h"
 #include "cordite/assets/Mesh.h"
 #include "cordite/assets/MeshProcessing.h"
 #include "cordite/assets/Primitives.h"
+#include "cordite/assets/Skeleton.h"
 #include "cordite/core/Assert.h"
 #include "cordite/core/FileSystem.h"
 #include "cordite/core/Log.h"
 #include "cordite/math/Color.h"
+#include "cordite/math/Curve.h"
 #include "cordite/math/Equirectangular.h"
 
+#include <fmt/format.h>
+
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
@@ -505,6 +512,213 @@ Result<GltfDocument> makeBarrel(const TextureSet& textures) {
     return document;
 }
 
+// --- The animated model ------------------------------------------------------------------
+
+/// How far apart the joints of the hoist's cable are, how many of them there are, and
+/// how long the cable is: it ends one joint's length below the last joint.
+constexpr float kCableJointSpacing = 0.25f;
+constexpr uint32_t kCableJoints = 6;
+constexpr float kCableLength = kCableJointSpacing * static_cast<float>(kCableJoints);
+/// Where the cable hangs from: the end of the hoist's arm.
+constexpr Vec3 kCableAnchor(1.0f, 2.5f, 0.0f);
+
+/// How a point of the cable follows its joints, `distance` metres below where the cable
+/// hangs from: between the joint above it and the joint below, by how near each is.
+/// That is what lets a cable of straight pieces hang in a curve.
+MeshSkinVertex cableSkinAt(float distance) {
+    const float along = std::clamp(distance / kCableJointSpacing, 0.0f, static_cast<float>(kCableJoints));
+    const uint32_t above = std::min(static_cast<uint32_t>(along), kCableJoints - 1);
+    const float share = along - static_cast<float>(above);
+    MeshSkinVertex skin;
+    if (share <= 0.0f || above + 1 >= kCableJoints) {
+        // On a joint, or below the last one: that joint alone.
+        skin.joints = {static_cast<uint16_t>(above), 0, 0, 0};
+    } else {
+        skin.joints = {static_cast<uint16_t>(above), static_cast<uint16_t>(above + 1), 0, 0};
+        skin.weights = {1.0f - share, share, 0.0f, 0.0f};
+    }
+    return skin;
+}
+
+/// The cable: a thin tube straight down from the anchor, in rings close enough for it
+/// to bend smoothly, open at both ends - one disappears in the arm, the other in the
+/// weight.
+void appendCable(std::vector<MeshVertex>& vertices, std::vector<MeshSkinVertex>& skin, std::vector<uint32_t>& indices) {
+    constexpr float kRadius = 0.018f;
+    constexpr uint32_t kSides = 8;
+    constexpr uint32_t kRings = 24;
+    const auto first = static_cast<uint32_t>(vertices.size());
+    for (uint32_t ring = 0; ring <= kRings; ++ring) {
+        const float distance = kCableLength * static_cast<float>(ring) / static_cast<float>(kRings);
+        // One more vertex than sides: the first again, with the other end of the texture.
+        for (uint32_t side = 0; side <= kSides; ++side) {
+            // The last column is the first, worked out from the same number: the sine of
+            // a float two pi is not zero, and the seam would be a crack.
+            const float angle = kTwoPi * static_cast<float>(side % kSides) / static_cast<float>(kSides);
+            const Vec3 outward(std::cos(angle), 0.0f, std::sin(angle));
+            MeshVertex vertex;
+            vertex.position = kCableAnchor + outward * kRadius - Vec3(0.0f, distance, 0.0f);
+            vertex.normal = outward;
+            vertex.uv0 = Vec2(static_cast<float>(side) / static_cast<float>(kSides), distance / kCableLength);
+            vertices.push_back(vertex);
+            skin.push_back(cableSkinAt(distance));
+        }
+    }
+    for (uint32_t ring = 0; ring < kRings; ++ring) {
+        for (uint32_t side = 0; side < kSides; ++side) {
+            const uint32_t upper = first + ring * (kSides + 1) + side;
+            const uint32_t lower = upper + kSides + 1;
+            // Counter-clockwise seen from outside.
+            for (const uint32_t index : {upper, upper + 1, lower, upper + 1, lower + 1, lower}) {
+                indices.push_back(index);
+            }
+        }
+    }
+}
+
+/// A rotation as the numbers of a key: x, y, z, w.
+Vec4 rotationKey(const Quat& rotation) {
+    return {rotation.x, rotation.y, rotation.z, rotation.w};
+}
+
+/// A hoist: a post with an arm, and a cable with a weight on it that hangs from the end
+/// of the arm and swings. The frame is a mesh like any other; the cable is skinned to a
+/// chain of joints, and two clips move them.
+Result<GltfDocument> makeHoist() {
+    GltfDocument document;
+    GltfMaterial paint;
+    paint.name = "Hoist paint";
+    paint.material.baseColor = Vec4(0.52f, 0.36f, 0.05f, 1.0f);
+    paint.material.metallic = 0.0f;
+    paint.material.roughness = 0.55f;
+    GltfMaterial steel;
+    steel.name = "Cable steel";
+    steel.material.baseColor = Vec4(0.42f, 0.42f, 0.44f, 1.0f);
+    steel.material.metallic = 1.0f;
+    steel.material.roughness = 0.38f;
+    GltfMaterial weightPaint;
+    weightPaint.name = "Weight paint";
+    weightPaint.material.baseColor = Vec4(0.45f, 0.06f, 0.04f, 1.0f);
+    weightPaint.material.metallic = 0.0f;
+    weightPaint.material.roughness = 0.5f;
+    document.materials = {paint, steel, weightPaint};
+
+    // The frame: a foot, a post, and an arm that reaches out over what is to be lifted.
+    GltfMesh frame;
+    frame.mesh.name = "Frame";
+    std::vector<MeshVertex> frameVertices;
+    std::vector<uint32_t> frameIndices;
+    appendPart(frameVertices, frameIndices, makeBox(Vec3(0.5f, 0.04f, 0.5f)), Vec3(0.0f, 0.02f, 0.0f));
+    appendPart(frameVertices, frameIndices, makeBox(Vec3(0.12f, 2.6f, 0.12f)), Vec3(0.0f, 1.3f, 0.0f));
+    appendPart(frameVertices, frameIndices, makeBox(Vec3(1.16f, 0.1f, 0.1f)), Vec3(0.52f, 2.55f, 0.0f));
+    appendSubmesh(frame.mesh, frameVertices, frameIndices);
+    frame.materials = {0};
+
+    // The cable, and at its end a weight, which follows the last joint alone.
+    GltfMesh cable;
+    cable.mesh.name = "Cable";
+    std::vector<MeshVertex> cableVertices;
+    std::vector<MeshSkinVertex> cableSkin;
+    std::vector<uint32_t> cableIndices;
+    appendCable(cableVertices, cableSkin, cableIndices);
+    appendSubmesh(cable.mesh, cableVertices, cableSkin, cableIndices);
+
+    constexpr float kWeightHeight = 0.2f;
+    const MeshData weight = makeCylinder(0.07f, kWeightHeight, 16);
+    std::vector<MeshVertex> weightVertices;
+    std::vector<uint32_t> weightIndices;
+    appendPart(weightVertices, weightIndices, weight,
+               kCableAnchor - Vec3(0.0f, kCableLength + 0.5f * kWeightHeight, 0.0f));
+    const std::vector<MeshSkinVertex> weightSkin(weightVertices.size(), cableSkinAt(kCableLength));
+    appendSubmesh(cable.mesh, weightVertices, weightSkin, weightIndices);
+    // The tube was given no tangents; the cylinder's go along with being worked out anew.
+    generateTangents(cable.mesh);
+    cable.materials = {1, 2};
+    document.meshes = {frame, cable};
+
+    // The nodes: the frame; the cable, whose mesh is placed by its joints wherever its
+    // node is; and, under the frame, the point the cable hangs from, with the chain of
+    // joints below it. That point is no joint, so where it is becomes part of where the
+    // first joint rests.
+    constexpr uint32_t kFrameNode = 0;
+    constexpr uint32_t kCableNode = 1;
+    constexpr uint32_t kAnchorNode = 2;
+    constexpr uint32_t kFirstJointNode = 3;
+    document.nodes.resize(kFirstJointNode + kCableJoints);
+    document.nodes[kFrameNode] = {.name = "Frame", .children = {kAnchorNode}, .mesh = 0};
+    document.nodes[kCableNode] = {.name = "Cable", .mesh = 1, .skin = 0};
+    document.nodes[kAnchorNode] = {.name = "Cable anchor",
+                                   .transform = {.position = kCableAnchor},
+                                   .parent = kFrameNode,
+                                   .children = {kFirstJointNode}};
+    std::vector<uint32_t> joints;
+    std::vector<Mat4> inverseBind;
+    for (uint32_t joint = 0; joint < kCableJoints; ++joint) {
+        const uint32_t node = kFirstJointNode + joint;
+        GltfNode& jointNode = document.nodes[node];
+        jointNode.name = fmt::format("Cable {}", joint + 1);
+        jointNode.parent = joint == 0 ? kAnchorNode : node - 1;
+        if (joint > 0) {
+            jointNode.transform.position = Vec3(0.0f, -kCableJointSpacing, 0.0f);
+        }
+        if (joint + 1 < kCableJoints) {
+            jointNode.children = {node + 1};
+        }
+        joints.push_back(node);
+        // Bound where it hangs at rest: straight down from the anchor.
+        const Vec3 rest = kCableAnchor - Vec3(0.0f, static_cast<float>(joint) * kCableJointSpacing, 0.0f);
+        inverseBind.push_back(glm::translate(Mat4(1.0f), -rest));
+    }
+    document.roots = {kFrameNode, kCableNode};
+    CORDITE_TRY_ASSIGN(SkeletonData skeleton, skeletonOf(document, joints, inverseBind, "Cable rig"));
+    document.skins.push_back({.skeleton = std::move(skeleton), .joints = joints});
+
+    // "Sway": the cable swings to and fro in the plane of the arm, like a pendulum, and
+    // each joint lags a little behind the one above it, which makes the swing travel
+    // down the cable. Sixteen keys to a swing, joined by arcs.
+    constexpr uint32_t kSwayKeys = 16;
+    GltfAnimation sway;
+    sway.animation.name = "Sway";
+    sway.animation.duration = 4.0f;
+    for (uint32_t joint = 0; joint < kCableJoints; ++joint) {
+        AnimationTrack track;
+        track.joint = document.nodes[kFirstJointNode + joint].name;
+        // The top joint carries the swing; the others add a bend that lags.
+        const float amplitude = toRadians(joint == 0 ? 11.0f : 3.0f);
+        const float lag = 0.45f * static_cast<float>(joint);
+        for (uint32_t key = 0; key <= kSwayKeys; ++key) {
+            // The last key is the first again, worked out from the same number, so that
+            // the swing closes without a jump.
+            const float phase = kTwoPi * static_cast<float>(key % kSwayKeys) / static_cast<float>(kSwayKeys);
+            const float time = sway.animation.duration * static_cast<float>(key) / static_cast<float>(kSwayKeys);
+            const Quat turn = glm::angleAxis(amplitude * std::sin(phase - lag), Vec3(0.0f, 0.0f, 1.0f));
+            track.rotation.addKey(time, rotationKey(turn));
+        }
+        sway.animation.tracks.push_back(std::move(track));
+        sway.nodes.push_back(kFirstJointNode + joint);
+    }
+
+    // "Swing": a slower swing across the arm, of the top of the cable alone, with keys
+    // only where it turns and where it passes the middle, joined by a spline.
+    GltfAnimation swing;
+    swing.animation.name = "Swing";
+    swing.animation.duration = 6.0f;
+    AnimationTrack across;
+    across.joint = document.nodes[kFirstJointNode].name;
+    const std::array<float, 5> degrees = {0.0f, 9.0f, 0.0f, -9.0f, 0.0f};
+    for (size_t key = 0; key < degrees.size(); ++key) {
+        const float time = swing.animation.duration * static_cast<float>(key) / static_cast<float>(degrees.size() - 1);
+        const Quat turn = glm::angleAxis(toRadians(degrees[key]), Vec3(1.0f, 0.0f, 0.0f));
+        across.rotation.addKey(time, rotationKey(turn), Interpolation::Cubic);
+    }
+    across.rotation.computeSmoothTangents();
+    swing.animation.tracks.push_back(std::move(across));
+    swing.nodes.push_back(kFirstJointNode);
+
+    document.animations = {sway, swing};
+    return document;
+}
+
 // --- The color lookup table --------------------------------------------------------------
 
 /// The lookup table has this many slices, each as many pixels wide and high.
@@ -644,6 +858,8 @@ Status generate(const std::filesystem::path& assetDirectory) {
     CORDITE_TRY(exportGltf(makeLampPost(), modelDirectory / "lamp_post.gltf"));
     CORDITE_TRY_ASSIGN(const GltfDocument barrel, makeBarrel(bake(barrelSide)));
     CORDITE_TRY(exportGltf(barrel, modelDirectory / "barrel.glb"));
+    CORDITE_TRY_ASSIGN(const GltfDocument hoist, makeHoist());
+    CORDITE_TRY(exportGltf(hoist, modelDirectory / "hoist.gltf"));
     return {};
 }
 
