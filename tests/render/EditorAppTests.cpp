@@ -532,14 +532,16 @@ TEST_SUITE("EditorApp") {
         // The viewport is the one view; it draws the showcase, some of it instanced.
         const Json& scene = statistics["scene"];
         CHECK(scene["views"] == 1);
-        CHECK(scene["meshRenderers"] == 29);
+        CHECK(scene["meshRenderers"] == 30);
         // The cable of the hoist is posed by its animator: one skeleton of six joints.
         CHECK(statistics["animation"]["animators"] == 1);
         CHECK(statistics["animation"]["joints"] == 6);
-        // The bodies of the scene are there - fifteen of them, two with shapes made of
-        // meshes - and none is simulated: the editor shows a scene, it does not run it.
-        // Its joints hold nothing while no time passes, and are not made.
-        CHECK(statistics["physics"]["bodies"] == 15);
+        // The bodies of the scene are there - sixteen of them, two with shapes made of
+        // meshes and one that stands for the sentry, a character - and none is
+        // simulated: the editor shows a scene, it does not run it. Its joints hold
+        // nothing while no time passes, and are not made.
+        CHECK(statistics["physics"]["bodies"] == 16);
+        CHECK(statistics["physics"]["characters"] == 1);
         CHECK(statistics["physics"]["joints"] == 0);
         CHECK(statistics["physics"]["geometries"] == 2);
         CHECK(statistics["physics"]["steps"] == 0);
@@ -847,6 +849,42 @@ TEST_SUITE("EditorApp") {
         CHECK_FALSE(hasColliderLine(zoned, onZone));
         CHECK(hasLine(zoned, onZone, Vec3(1.00f, 0.55f, 0.20f)));
         run(*editor, "entity.delete", R"({"entities": ["Zone"]})");
+        run(*editor, "selection.set", R"({"entities": ["Crate"]})");
+
+        // A character is drawn as the capsule it is: upright in the world however its
+        // entity is turned, with its soles where the entity is. Here one of three
+        // metres whose entity leans over by an eighth of a turn.
+        const Vec3 characterColor(0.75f, 0.60f, 1.00f);
+        run(*editor, "entity.create",
+            R"({"name": "Guard", "components": {
+                "Transform": {"position": [3, 0.5, 0], "rotation": [0, 0, 0.38268343, 0.92387953]},
+                "CharacterController": {"radius": 0.5, "height": 3}}})");
+        // The point nearest the viewer of the ring around its lower end, and the top of its head.
+        const Vec2 onRing = worldToScreen(view, Vec3(3.0f, 1.0f, 0.5f), size).value();
+        const Vec2 onHead = worldToScreen(view, Vec3(3.0f, 3.5f, 0.0f), size).value();
+        run(*editor, "selection.set", R"({"entities": ["Guard"]})");
+        const Image guarded = unwrap(editor->captureViewport(UVec2(size)));
+        CHECK(hasLine(guarded, onRing, characterColor));
+        CHECK(hasLine(guarded, onHead, characterColor));
+        // Not selected, it is drawn when the colliders of all entities are.
+        run(*editor, "selection.set", R"({"entities": []})");
+        CHECK_FALSE(hasLine(unwrap(editor->captureViewport(UVec2(size))), onRing, characterColor));
+        run(*editor, "viewport.show", R"({"colliders": true})");
+        CHECK(hasLine(unwrap(editor->captureViewport(UVec2(size))), onRing, characterColor));
+        run(*editor, "viewport.show", R"({"colliders": false})");
+        // The editor has it as a character, where its entity is, and does not let it fall.
+        REQUIRE(editor->runFrames(5).has_value());
+        CHECK(run(*editor, "editor.statistics")["physics"]["characters"] == 1);
+        CHECK(run(*editor, "component.get", R"({"entity": "Guard", "component": "Transform"})")["position"] ==
+              json("[3.0, 0.5, 0.0]"));
+        // What is not for a person to say - what the simulation says of a character - an edit does not say.
+        CHECK_FALSE(editor->commands()
+                        .execute("component.set", json(R"({"entity": "Guard", "component": "CharacterController",
+                                                           "properties": {"ground": "onGround"}})"))
+                        .has_value());
+        run(*editor, "component.set",
+            R"({"entity": "Guard", "component": "CharacterController", "properties": {"movement": [1, 0, 0]}})");
+        run(*editor, "entity.delete", R"({"entities": ["Guard"]})");
         run(*editor, "selection.set", R"({"entities": ["Crate"]})");
 
         // Frames go by, and the crate hangs where the scene has it: nothing is simulated,

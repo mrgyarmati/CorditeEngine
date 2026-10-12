@@ -575,9 +575,9 @@ public:
     // of the caller, asserted; without assertions, questions are answered with nothing
     // - a character at the origin, in the air - and requests are ignored.
 
-    /// Where a character is. What it has under its feet is as the last step found it:
-    /// a character that was just made, or put somewhere, is in the air until a step
-    /// has looked.
+    /// Where a character is, how fast it moved in the last step, and what it has under
+    /// its feet: as the last step found it, or as it was found when the character was
+    /// made or put somewhere since.
     [[nodiscard]] CharacterState characterState(CharacterId character) const;
 
     /// The body that stands for a character among the bodies: what rays and overlaps

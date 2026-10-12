@@ -12,6 +12,7 @@
 #include <cmath>
 #include <cstddef>
 #include <functional>
+#include <limits>
 #include <span>
 #include <utility>
 
@@ -88,8 +89,10 @@ Mat4 parentMatrixOf(const World& world, Entity entity) {
     return parent.isNull() ? Mat4(1.0f) : world.computeWorldMatrix(parent);
 }
 
-/// A body carries the handle of its entity, and whether it is the entity's trigger.
+/// A body carries the handle of its entity, and whether it is the entity's trigger -
+/// or the body that stands for the character the entity is.
 constexpr uint64_t kTriggerBit = 1ull << 32u;
+constexpr uint64_t kCharacterBit = 1ull << 33u;
 
 uint64_t userDataOf(Entity entity, bool trigger) {
     return static_cast<uint64_t>(entt::to_integral(entity.handle)) | (trigger ? kTriggerBit : 0ull);
@@ -101,6 +104,20 @@ Entity entityOfUserData(uint64_t userData) {
 
 bool isEnd(CollisionEventType type) {
     return type == CollisionEventType::CollisionEnded || type == CollisionEventType::TriggerLeft;
+}
+
+/// Whether an entity hangs on another: is that one, or is somewhere below it. Of two
+/// that are not both there any more, only whether they are the same can be told.
+bool hangsOn(const World& world, Entity entity, Entity other) {
+    if (!world.isValid(entity) || !world.isValid(other)) {
+        return entity == other;
+    }
+    for (Entity above = entity; !above.isNull(); above = world.parent(above)) {
+        if (above == other) {
+            return true;
+        }
+    }
+    return false;
 }
 
 /// Whether an event says of the same two entities that they have begun what `ended`
@@ -242,12 +259,23 @@ BodyId PhysicsSystem::triggerOf(Entity entity) const {
     return found != m_records.end() ? found->second.body : BodyId();
 }
 
+CharacterId PhysicsSystem::characterOf(Entity entity) const {
+    const auto found = m_characters.find(entity);
+    return found != m_characters.end() ? found->second.character : CharacterId();
+}
+
 Entity PhysicsSystem::entityOf(BodyId body) const {
     if (!m_physics->isValid(body)) {
         return Entity{};
     }
     const uint64_t userData = m_physics->userData(body);
     const Entity entity = entityOfUserData(userData);
+    if ((userData & kCharacterBit) != 0) {
+        const auto character = m_characters.find(entity);
+        const bool isIts =
+            character != m_characters.end() && m_physics->characterBody(character->second.character) == body;
+        return isIts ? entity : Entity{};
+    }
     const auto found = m_records.find(BodyKey{.entity = entity, .trigger = (userData & kTriggerBit) != 0});
     return found != m_records.end() && found->second.body == body ? entity : Entity{};
 }
@@ -291,6 +319,12 @@ void PhysicsSystem::clear() {
     for (const auto& [entity, record] : m_records) {
         m_physics->destroyBody(record.body);
     }
+    for (const auto& [entity, record] : m_characters) {
+        m_physics->destroyCharacter(record.character);
+    }
+    m_characters.clear();
+    m_wantedCharacters.clear();
+    m_characterOrder.clear();
     forgetGeometry();
     // The joints went with the bodies they held.
     m_joints.clear();
@@ -304,20 +338,64 @@ void PhysicsSystem::clear() {
     m_timestep.reset();
 }
 
+void PhysicsSystem::gatherCharacter(const World& world, Entity entity, Level& level, uint32_t place) {
+    const auto* controller = world.tryGet<CharacterControllerComponent>(entity);
+    if (controller == nullptr) {
+        return;
+    }
+    const auto* collider = world.tryGet<ColliderComponent>(entity);
+    if (world.has<RigidBodyComponent>(entity) || (collider != nullptr && !collider->trigger)) {
+        report(world, entity, About::Character,
+               "is no character: it is a body as well - it has a RigidBody, or a Collider that is no trigger - "
+               "and cannot be both");
+        return;
+    }
+    // As large as its entity is scaled, as a capsule is: by Y in height, and by the
+    // larger of X and Z around.
+    const Vec3 scale = glm::abs(level.scale);
+    const float around = std::max(scale.x, scale.z);
+    m_wantedCharacters.push_back({.entity = entity,
+                                  .blueprint = CharacterDesc{.radius = controller->radius * around,
+                                                             .height = controller->height * scale.y,
+                                                             .mass = controller->mass,
+                                                             .maxSlope = toRadians(controller->maxSlope),
+                                                             .stepHeight = controller->stepHeight * scale.y,
+                                                             .pushForce = controller->pushForce,
+                                                             .gravityScale = controller->gravityScale,
+                                                             .airControl = controller->airControl,
+                                                             .userData = userDataOf(entity, false) | kCharacterBit},
+                                  .position = Vec3(world.worldMatrix(entity)[3]),
+                                  .place = place});
+    level.character = entity;
+}
+
+PhysicsSystem::Level& PhysicsSystem::enterLevel(const World& world, Entity entity, uint32_t depth) {
+    if (m_levels.size() <= depth) {
+        m_levels.resize(depth + 1);
+    }
+    Level& level = m_levels[depth];
+    const Level* above = depth > 0 ? &m_levels[depth - 1] : nullptr;
+    level.enabled = (above == nullptr || above->enabled) && world.isEnabled(entity);
+    // What is switched on is, until it says otherwise, part of what the entity above
+    // it is part of.
+    const bool takesOver = level.enabled && above != nullptr;
+    level.body = takesOver ? above->body : kNoBody;
+    level.character = takesOver ? above->character : Entity{};
+    return level;
+}
+
 void PhysicsSystem::gather(const World& world, AssetManager& assets) {
     m_wantedCount = 0;
+    m_wantedCharacters.clear();
     m_jointEntities.clear();
+    uint32_t visited = 0;
     world.traverse([&](Entity entity, uint32_t depth) {
-        if (m_levels.size() <= depth) {
-            m_levels.resize(depth + 1);
-        }
-        Level& level = m_levels[depth];
+        Level& level = enterLevel(world, entity, depth);
         const Level* above = depth > 0 ? &m_levels[depth - 1] : nullptr;
-        level.enabled = (above == nullptr || above->enabled) && world.isEnabled(entity);
-        level.body = level.enabled && above != nullptr ? above->body : kNoBody;
         if (!level.enabled) {
             return;
         }
+        const uint32_t place = visited++;
         if (world.has<JointComponent>(entity)) {
             m_jointEntities.push_back(entity);
         }
@@ -353,7 +431,8 @@ void PhysicsSystem::gather(const World& world, AssetManager& assets) {
                                                   .userData = userDataOf(entity, trigger)},
                             .position = placed.position,
                             .rotation = placed.rotation,
-                            .scale = ownScale};
+                            .scale = ownScale,
+                            .place = place};
             return static_cast<int32_t>(m_wantedCount++);
         };
 
@@ -367,7 +446,11 @@ void PhysicsSystem::gather(const World& world, AssetManager& assets) {
             body.gravityScale = rigidBody->gravityScale;
             body.continuous = rigidBody->continuous;
             body.allowSleep = rigidBody->allowSleep;
+            // What is part of a rigid body is that body's, whatever the body hangs on.
+            level.character = Entity{};
         }
+        const Entity hangsOnCharacter = level.character;
+        gatherCharacter(world, entity, level, place);
         const auto* collider = world.tryGet<ColliderComponent>(entity);
         if (collider == nullptr) {
             return;
@@ -377,6 +460,15 @@ void PhysicsSystem::gather(const World& world, AssetManager& assets) {
         // that one. A trigger is a body of its own wherever it is: one that follows its
         // entity, moved by hand, so that it notices what sleeps in it too.
         const bool alone = collider->trigger || level.body == kNoBody;
+        if (alone && !collider->trigger && !hangsOnCharacter.isNull()) {
+            // It would be a body that stands still, and is carried about by a character
+            // that runs into it wherever it goes.
+            report(world, entity, About::Collider,
+                   fmt::format("has a collider that is left out: it hangs on the character '{}' and is part of "
+                               "no rigid body, and only triggers and rigid bodies hang on a character",
+                               world.name(hangsOnCharacter)));
+            return;
+        }
         const int32_t index =
             !alone ? level.body
                    : startBody(collider->trigger ? BodyMotion::Kinematic : BodyMotion::Static, collider->trigger);
@@ -540,6 +632,7 @@ void PhysicsSystem::reconcile(const World& world, uint32_t steps, Authority auth
         }
         if (record != nullptr) {
             record->seen = true;
+            record->place = wanted.place;
             m_order.push_back(key);
         }
     }
@@ -572,10 +665,19 @@ void PhysicsSystem::forgetWhatNoLongerHolds(About about) {
 
 void PhysicsSystem::writeBack(World& world) {
     // Parents before what is below them: an entity is placed against what it hangs
-    // under, which may itself just have been moved.
+    // under, which may itself just have been moved. The bodies are in that order, and
+    // so are the characters; here the two are taken together.
+    size_t next = 0;
+    const auto followCharactersBefore = [&](uint32_t place) {
+        while (next < m_characterOrder.size() && m_characters.at(m_characterOrder[next]).place < place) {
+            followCharacter(world, m_characterOrder[next]);
+            ++next;
+        }
+    };
     for (const BodyKey& key : m_order) {
         const Entity entity = key.entity;
         Record& record = m_records.at(key);
+        followCharactersBefore(record.place);
         // A trigger follows its entity and has nothing to say to it.
         auto* rigidBody = key.trigger ? nullptr : world.tryGet<RigidBodyComponent>(entity);
         if (rigidBody == nullptr || record.blueprint.motion == BodyMotion::Static) {
@@ -589,6 +691,38 @@ void PhysicsSystem::writeBack(World& world) {
             followBody(world, entity, record);
         }
     }
+    followCharactersBefore(std::numeric_limits<uint32_t>::max());
+}
+
+void PhysicsSystem::followCharacter(World& world, Entity entity) {
+    CharacterRecord& record = m_characters.at(entity);
+    const CharacterState state = m_physics->characterState(record.character);
+    if (auto* controller = world.tryGet<CharacterControllerComponent>(entity)) {
+        controller->velocity = state.velocity;
+        controller->ground = state.ground;
+        controller->groundNormal = state.groundNormal;
+        const Entity ground = state.groundBody.isNull() ? Entity{} : entityOf(state.groundBody);
+        controller->groundEntity = world.isValid(ground) ? world.id(ground) : Uuid();
+    }
+
+    const Mat4 parentToWorld = parentMatrixOf(world, entity);
+    if (state.position == record.position && parentToWorld == record.parentToWorld) {
+        // At rest, under something at rest: the entity is where it was put the last time.
+        return;
+    }
+    record.position = state.position;
+    record.parentToWorld = parentToWorld;
+    // Where the character is, seen from what the entity hangs under. How the entity is
+    // turned and how large it is stay its own.
+    const Vec3 inParent =
+        parentToWorld == Mat4(1.0f) ? state.position : Vec3(glm::inverse(parentToWorld) * Vec4(state.position, 1.0f));
+    if (!isUsable(inParent)) {
+        // Under something scaled to nothing there is no place that is where the
+        // character is: the entity stays as it is.
+        return;
+    }
+    world.transform(entity).position = inParent;
+    record.localPosition = inParent;
 }
 
 void PhysicsSystem::followBody(World& world, Entity entity, Record& record) {
@@ -643,7 +777,113 @@ PhysicsFrameStatistics PhysicsSystem::statistics(uint32_t steps) const {
             .bodies = simulation.bodies,
             .activeBodies = simulation.activeBodies,
             .geometries = simulation.geometries,
-            .joints = simulation.joints};
+            .joints = simulation.joints,
+            .characters = simulation.characters};
+}
+
+void PhysicsSystem::reconcileCharacters(const World& world, Authority authority) {
+    for (auto& [entity, record] : m_characters) {
+        record.seen = false;
+    }
+    m_characterOrder.clear();
+    for (const WantedCharacter& wanted : m_wantedCharacters) {
+        const auto found = m_characters.find(wanted.entity);
+        CharacterRecord* record = found != m_characters.end() ? &found->second : nullptr;
+        if (record == nullptr || !(record->blueprint == wanted.blueprint)) {
+            record = makeCharacter(world, wanted, record);
+        } else {
+            putCharacter(world, wanted, *record, authority);
+        }
+        if (record != nullptr) {
+            record->seen = true;
+            record->place = wanted.place;
+            m_characterOrder.push_back(wanted.entity);
+        }
+    }
+
+    // What the world no longer asks for goes.
+    std::erase_if(m_characters, [&](const auto& entry) {
+        if (!entry.second.seen) {
+            m_physics->destroyCharacter(entry.second.character);
+        }
+        return !entry.second.seen;
+    });
+    forgetWhatNoLongerHolds(About::Character);
+}
+
+PhysicsSystem::CharacterRecord* PhysicsSystem::makeCharacter(const World& world, const WantedCharacter& wanted,
+                                                             const CharacterRecord* previous) {
+    // One that is made anew - to be taller, say - goes on as the one before it did: to
+    // whoever walks it, it is the same character.
+    Vec3 velocity(0.0f);
+    const bool goesOn = previous != nullptr;
+    if (goesOn) {
+        velocity = m_physics->characterState(previous->character).velocity;
+        m_physics->destroyCharacter(previous->character);
+        m_characters.erase(wanted.entity);
+        m_remade.insert(wanted.entity);
+    }
+
+    CharacterDesc desc = wanted.blueprint;
+    desc.position = wanted.position;
+    const Result<CharacterId> character = m_physics->createCharacter(desc);
+    if (!character) {
+        report(world, wanted.entity, About::Character, fmt::format("has no character: {}", character.error().message));
+        return nullptr;
+    }
+    if (goesOn) {
+        m_physics->setCharacterVelocity(*character, velocity);
+    }
+    CharacterRecord record;
+    record.character = *character;
+    record.blueprint = wanted.blueprint;
+    record.position = wanted.position;
+    record.localPosition = world.transform(wanted.entity).position;
+    record.parentToWorld = parentMatrixOf(world, wanted.entity);
+    return &m_characters.insert_or_assign(wanted.entity, record).first->second;
+}
+
+void PhysicsSystem::putCharacter(const World& world, const WantedCharacter& wanted, CharacterRecord& record,
+                                 Authority authority) {
+    if (!isUsable(wanted.position)) {
+        report(world, wanted.entity, About::Character,
+               "is nowhere - its place in the world is not made of numbers - and its character stays where it "
+               "was");
+        return;
+    }
+    // The simulation moves it, and its entity follows - unless the entity was put
+    // somewhere else since, which takes the character along. While no time passes, so
+    // does whatever else has moved the entity: something above it. That the entity
+    // was turned moves nothing.
+    const bool edited = world.transform(wanted.entity).position != record.localPosition;
+    if (!edited && authority == Authority::Simulation) {
+        return;
+    }
+    const Mat4 parentToWorld = parentMatrixOf(world, wanted.entity);
+    if (!edited && parentToWorld == record.parentToWorld) {
+        return;
+    }
+    record.localPosition = world.transform(wanted.entity).position;
+    record.parentToWorld = parentToWorld;
+    record.position = wanted.position;
+    m_physics->placeCharacter(record.character, wanted.position);
+}
+
+void PhysicsSystem::driveCharacters(World& world) {
+    for (const Entity entity : m_characterOrder) {
+        auto* controller = world.tryGet<CharacterControllerComponent>(entity);
+        if (controller == nullptr) {
+            continue;
+        }
+        const CharacterId character = m_characters.at(entity).character;
+        m_physics->walk(character, controller->movement);
+        // A jump is taken from the component as it is passed on: asked for once, it is
+        // tried once - in the next step, whenever that is.
+        if (controller->jump > 0.0f) {
+            m_physics->jump(character, controller->jump);
+        }
+        controller->jump = 0.0f;
+    }
 }
 
 JointDesc PhysicsSystem::makeJointDesc(const World& world, Entity entity, Entity connected,
@@ -768,8 +1008,14 @@ void PhysicsSystem::reconcileJoints(const World& world) {
     forgetWhatNoLongerHolds(About::Joint);
 }
 
-void PhysicsSystem::hearContacts() {
+void PhysicsSystem::hearContacts(const World& world) {
     for (const ContactEvent& contact : m_physics->contactEvents()) {
+        // A trigger is where what it hangs on is, for as long as it hangs there: that
+        // is nothing to say.
+        if (contact.sensor &&
+            hangsOn(world, entityOfUserData(contact.firstUserData), entityOfUserData(contact.secondUserData))) {
+            continue;
+        }
         const bool began = contact.phase == ContactPhase::Began;
         CollisionEvent event;
         if (contact.sensor) {
@@ -822,10 +1068,12 @@ PhysicsFrameStatistics PhysicsSystem::update(World& world, AssetManager& assets,
     gather(world, assets);
     const uint32_t steps = m_timestep.advance(static_cast<double>(deltaSeconds));
     reconcile(world, steps, Authority::Simulation);
+    reconcileCharacters(world, Authority::Simulation);
     reconcileJoints(world);
+    driveCharacters(world);
     for (uint32_t step = 0; step < steps; ++step) {
         m_physics->step(static_cast<float>(m_timestep.stepSeconds()));
-        hearContacts();
+        hearContacts(world);
     }
     if (steps > 0) {
         // What was made anew in a frame without a step is heard of in the next that
@@ -845,6 +1093,7 @@ PhysicsFrameStatistics PhysicsSystem::synchronize(World& world, AssetManager& as
     followAssets(assets);
     gather(world, assets);
     reconcile(world, 0, Authority::World);
+    reconcileCharacters(world, Authority::World);
     // No step follows, here or perhaps ever: an editor only synchronizes. What is
     // remembered for the next step is kept to the entities there still are.
     std::erase_if(m_remade, [&](Entity entity) { return !world.isValid(entity); });

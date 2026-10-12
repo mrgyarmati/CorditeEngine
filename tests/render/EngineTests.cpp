@@ -540,21 +540,22 @@ TEST_SUITE("Engine") {
 
         // Everything in the scene that is enabled was found; none of it failed to load.
         const SceneRenderStatistics& statistics = engine->sceneRenderer().statistics();
-        CHECK(statistics.meshRenderers == 29);
+        CHECK(statistics.meshRenderers == 30);
         // The cable of the hoist is skinned to six joints, and it swings: a game lets
         // time pass, and the animator's clock has moved on by the two frames.
         CHECK(statistics.skinnedMeshes == 1);
         CHECK(statistics.jointMatrices == 6);
         CHECK(engine->statistics().animation == AnimationStatistics{.animators = 1, .joints = 6});
-        // Fifteen bodies: the floor, the pillar, the cone, the grating, the trigger over
-        // the walkway, the beam of the rack, and what the simulation moves - the crate
-        // with its lid, the barrel, the ball, the gas cylinder and the five things that
-        // hang from the rack, each by a joint. Two have shapes made of meshes: the hull
-        // around the barrel, the triangles of the grating. A frame of a sixtieth of a
-        // second is one step.
+        // Sixteen bodies: the floor, the pillar, the cone, the grating, the trigger over
+        // the walkway, the beam of the rack, what the simulation moves - the crate with
+        // its lid, the barrel, the ball, the gas cylinder and the five things that hang
+        // from the rack, each by a joint - and the body that stands for the sentry, which
+        // is a character. Two have shapes made of meshes: the hull around the barrel, the
+        // triangles of the grating. A frame of a sixtieth of a second is one step.
         CHECK(engine->statistics().physics.steps == 1);
-        CHECK(engine->statistics().physics.bodies == 15);
+        CHECK(engine->statistics().physics.bodies == 16);
         CHECK(engine->statistics().physics.joints == 5);
+        CHECK(engine->statistics().physics.characters == 1);
         CHECK(engine->statistics().physics.geometries == 2);
         CHECK(engine->world().transform(engine->world().findByName("Barrel")).position.y ==
               doctest::Approx(0.45f).epsilon(0.01));
@@ -584,6 +585,25 @@ TEST_SUITE("Engine") {
         CHECK(heightOf("Sign") == doctest::Approx(1.95f).epsilon(0.005));
         CHECK(heightOf("Runner") == doctest::Approx(2.1f).epsilon(0.005));
         CHECK(heightOf("Weight") == doctest::Approx(1.5f).epsilon(0.005));
+
+        // The sentry stands by the wall, on the floor - and walks when it is told to: a
+        // metre and a half in a second, turned as it was.
+        World& world = engine->world();
+        const Entity sentry = world.findByName("Sentry");
+        auto* controller = world.tryGet<CharacterControllerComponent>(sentry);
+        REQUIRE(controller != nullptr);
+        CHECK(controller->ground == GroundState::OnGround);
+        CHECK(controller->groundEntity == world.id(world.findByName("Floor")));
+        CHECK_NEAR(world.transform(sentry).position, Vec3(-0.8f, 0.0f, -3.9f), 5.0e-3f);
+        controller->movement = Vec3(-1.5f, 0.0f, 0.0f);
+        runFrames(*engine, 60);
+        controller = world.tryGet<CharacterControllerComponent>(sentry);
+        CHECK_NEAR(world.transform(sentry).position, Vec3(-2.3f, 0.0f, -3.9f), 2.0e-2f);
+        CHECK_NEAR(controller->velocity, Vec3(-1.5f, 0.0f, 0.0f), 1.0e-2f);
+        CHECK(world.transform(sentry).rotation == kIdentityQuat);
+        // What is seen of it has come along.
+        CHECK_NEAR(Vec3(world.computeWorldMatrix(world.findByName("Sentry body"))[3]), Vec3(-2.3f, 0.9f, -3.9f),
+                   2.0e-2f);
         checkNoValidationIssues(engine->graphics());
     }
 

@@ -749,6 +749,44 @@
             }
         },
         {
+            // A character: a capsule that stands upright with its soles where the entity is,
+            // and walks where it is told - by a script, or by whoever sets `movement` and
+            // `jump`, which are not part of a scene. It is no body: it has no collider and
+            // no rigid body, and does not fall over.
+            "id": "10000000-0000-4000-8000-000000000036",
+            "name": "Sentry",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-000000000001",
+            "components": {
+                "Transform": { "position": [-0.8, 0.0, -3.9], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [1.0, 1.0, 1.0] },
+                "CharacterController": {
+                    "radius": 0.3,
+                    "height": 1.8,
+                    "mass": 70.0,
+                    "maxSlope": 50.0,
+                    "stepHeight": 0.35,
+                    "pushForce": 100.0,
+                    "gravityScale": 1.0,
+                    "airControl": 1.0
+                }
+            }
+        },
+        {
+            // What is seen of it hangs below it: the capsule mesh has its middle where it
+            // is placed, and the character its soles.
+            "id": "10000000-0000-4000-8000-000000000037",
+            "name": "Sentry body",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-000000000036",
+            "components": {
+                "Transform": { "position": [0.0, 0.9, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [0.6, 0.9, 0.6] },
+                "MeshRenderer": {
+                    "mesh": "6bb53bca-6ca5-84c3-8341-8ac61212f240",
+                    "materials": ["8733a23e-9efb-81d0-8529-eb712ff4332a"]
+                }
+            }
+        },
+        {
             // Glass: what is behind it shows through. Blended surfaces are drawn last,
             // the farthest first.
             "id": "10000000-0000-4000-8000-00000000001a",

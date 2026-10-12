@@ -20,9 +20,10 @@
         // hoist is in them with its frame and with its cable, which is skinned: three
         // draw calls a pass that sees all of it. The rack by the wall is two balls and
         // four boxes more - the balls of 960 triangles each, in every pass and every
-        // shadow map that sees them.
+        // shadow map that sees them - and the sentry a capsule of 1024, which six of
+        // them see.
         "drawCalls": 150,
-        "triangles": 31500,
+        "triangles": 37500,
         // Passes over the whole picture: the two of the ambient occlusion, the lighting,
         // and what finishes the picture as the scene says - five levels of bloom down
         // and up, the automatic exposure, the final pass and the smoothing of its edges.
@@ -43,12 +44,15 @@
         // cube map.
         "environmentBytes": 4193280,
         "meshBytes": 160000,
-        // What is simulated: the bodies of the scene, of which a kinematic one is
-        // awake at most once the rest has settled, the shapes that were made of meshes
-        // for their colliders, and the joints its animators pose.
-        "bodies": 15,
+        // What is simulated: the bodies of the scene - of which two are awake at most
+        // once the rest has settled, the trigger and the body that stands for the
+        // character - the shapes that were made of meshes for their colliders, the
+        // joints that hold bodies together, the characters, and the joints its animators
+        // pose.
+        "bodies": 16,
         "geometries": 2,
-        "joints": 5,
+        "physicsJoints": 5,
+        "characters": 1,
         "joints": 8,
         // The image of the sky is 1.4 MiB of this.
         "textureBytes": 9437184,

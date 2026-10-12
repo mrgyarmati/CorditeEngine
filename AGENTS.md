@@ -127,7 +127,7 @@ by accident.
 | `assets` | `core`, `math` | Assets as data: images and mipmaps, meshes - rigid and skinned - and what prepares them, skeletons, animation clips, materials, glTF import and export, the asset database (ids, `.meta` files) and the asset manager (loading by id) |
 | `world` | `core`, `math` | Entities, components and their hierarchy (EnTT), the component registry, scene files |
 | `animation` | `core`, `math`, `assets`, `world` | Poses of skeletons and what makes them: sampling clips, blending, the matrices a mesh is skinned with and the bounds of a posed mesh; the `Animator` component; `AnimationSystem`, which plays the animators of a world |
-| `physics` | `core`, `math`, `assets`, `world` | `PhysicsWorld`: rigid bodies, their shapes - boxes, balls, capsules, the hulls around sets of points and surfaces of triangles - joints between them, the characters that walk among them, stepping, contact events and queries, over Jolt Physics; the `Collider`, `RigidBody` and `Joint` components; `PhysicsSystem`, which keeps the entities of a world and the bodies of a simulation in step and makes shapes of mesh assets |
+| `physics` | `core`, `math`, `assets`, `world` | `PhysicsWorld`: rigid bodies, their shapes - boxes, balls, capsules, the hulls around sets of points and surfaces of triangles - joints between them, the characters that walk among them, stepping, contact events and queries, over Jolt Physics; the `Collider`, `RigidBody`, `Joint` and `CharacterController` components; `PhysicsSystem`, which keeps the entities of a world and the bodies, joints and characters of a simulation in step and makes shapes of mesh assets |
 | `rhi` | `core`, `math`, `platform` | Vulkan device, swapchain and texture readback over NVRHI |
 | `shaders` | `core` | Shader requests and permutation keys, disk cache, `ShaderLibrary` |
 | `shader_compiler` | `core`, `shaders` | Slang to SPIR-V compiler (not linked into exported games) |
@@ -542,9 +542,10 @@ Step-by-step guide for adding a component: [add-component](.claude/skills/add-co
 - **Scene loading is strict.** An unknown component, property or member is an error
   that names the entity, not something to skip.
 - **The showcase uses everything.** The scene of `samples/showcase` must contain every
-  component type and every named option, and use every asset and every material option
-  of the project; the `samples` test fails otherwise. Adding a feature includes showing
-  it there.
+  component type and every named option that a scene can hold - not those of
+  `transient` properties, which only a running game has - and use every asset and
+  every material option of the project; the `samples` test fails otherwise. Adding a
+  feature includes showing it there.
 
 ## Assets
 
@@ -848,6 +849,27 @@ Step-by-step guide: [work-with-assets](.claude/skills/work-with-assets/SKILL.md)
   triggers notice and what contact events name - a character itself is in no broad
   phase. It is the character's: `destroyBody` refuses it, and placing it or giving
   it a speed is ignored.
+- **A `CharacterController` makes its entity a character, and nothing else.** The
+  entity is where the character's soles are - the simulation writes its position,
+  and leaves how it is turned and how large it is to whoever walks it; putting the
+  entity somewhere else puts the character there, and turning it does nothing. What
+  the component is told (`movement`, `jump`) and what the simulation says of it
+  (`velocity`, `ground`, ...) are `transient`: no scene holds them. `jump` is taken
+  from the component by the update that passes it on, so that a jump asked for once
+  is tried once, also in a frame without a step.
+- **A character is no body, and has none of its own.** An entity with a `RigidBody`,
+  or a `Collider` that is no trigger, is that body and no character; and a collider
+  that hangs on a character without being part of a rigid body is left out - it
+  would stand still, be carried about, and be in the character's way wherever that
+  goes. Both are reported once by the system, and found by `findPhysicsProblems`
+  without running anything. Triggers and rigid bodies may hang on a character.
+- **Bodies and characters are written back in one walk**, each after what it hangs
+  under (`PhysicsSystem::writeBack`, by the `place` each had in the hierarchy): an
+  entity is placed against its parent, which may be of either kind and may itself
+  just have been moved.
+- **A trigger says nothing of what it hangs on**: the body or the character of its
+  own entity, or of an entity above it, is in it for as long as it is there, and
+  `PhysicsSystem::events` leaves that out.
 - **What lies on a character rests on its body, and is nothing to the character**
   (`CarriedBodyFilter`). Between a contact that presses down and ground that
   presses up Jolt lets a character go nowhere: a crate on its head would pin it to

@@ -1297,6 +1297,31 @@ simulation (`CharacterSet::step`), and not by every game: it needs what the last
 step found under the character's feet, in every step, and a frame may be two steps
 or none. A game says where a character is to walk and when it is to jump.
 
+### A character controller is told what to do, and says what happened
+
+A `CharacterController` is data like every component: how large the character is and
+what it can climb, which a scene holds; what it is told - where to walk, to jump -
+which a game writes every frame; and what the simulation says of it - how fast it
+moved, what it stands on - which a game reads. There is no function to call on a
+character: a script, an editor command and a test all set the same properties, and
+what the reflection knows of them - their ranges, that the last group is read-only -
+holds for all three.
+
+A jump is a request, not a state, and a frame is not a step: the update that passes
+a jump on takes it from the component, and the simulation makes it in the step
+that follows, whenever that is. Asked for once it is tried once.
+
+The simulation says where a character is, and nothing about which way it faces: a
+capsule that stands upright has no front. So the entity keeps its rotation, and a
+game turns it as it likes - towards where it walks, or towards what it aims at -
+without the simulation taking that for the entity having been put somewhere.
+
+An entity is a character or a body, not both: the capsule of a character is its
+own, and a collider on the same entity would be a second thing in the same place.
+The same goes for a collider hanging on it that no rigid body claims. Neither is
+silently dropped: the system says so once, and `scene.validate` finds it before
+anything runs.
+
 ### A body of several shapes is an entity with colliders below it
 
 A rigid body takes its own collider and those of the entities below it, down to the

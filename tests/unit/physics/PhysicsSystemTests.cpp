@@ -11,6 +11,7 @@
 
 #include "support/MathTestSupport.h"
 #include "support/TestSupport.h"
+#include "unit/physics/PhysicsTestSupport.h"
 
 #include <cmath>
 #include <cstddef>
@@ -23,69 +24,14 @@
 #include <vector>
 
 using namespace cordite;
+using cordite::test::kPhysicsStep;
 using cordite::test::LogCapture;
 using cordite::test::unwrap;
+using Stage = cordite::test::PhysicsStage;
 
 namespace {
 
 constexpr float kNotANumber = std::numeric_limits<float>::quiet_NaN();
-constexpr float kStep = 1.0f / 60.0f;
-
-/// A world, and the physics that goes with it.
-struct Stage {
-    Stage() : assets(unwrap(AssetManager::create())), physics(unwrap(PhysicsSystem::create())) {}
-
-    /// A floor whose top is the plane y = 0: a collider alone, which stands still.
-    Entity addFloor() {
-        const Entity floor = world.createEntity("Floor");
-        world.add<ColliderComponent>(floor) = {.size = Vec3(50.0f, 1.0f, 50.0f), .center = Vec3(0.0f, -0.5f, 0.0f)};
-        return floor;
-    }
-
-    /// A box of one metre that the simulation moves.
-    Entity addCrate(const Vec3& position, const char* name = "Crate") {
-        const Entity crate = world.createEntity(name);
-        world.transform(crate).position = position;
-        world.add<ColliderComponent>(crate);
-        world.add<RigidBodyComponent>(crate);
-        return crate;
-    }
-
-    /// Lets frames of a sixtieth of a second pass.
-    PhysicsFrameStatistics run(int frames) {
-        PhysicsFrameStatistics last;
-        for (int frame = 0; frame < frames; ++frame) {
-            last = physics->update(world, *assets, kStep);
-        }
-        return last;
-    }
-
-    /// Where an entity is in the world, worked out from the transforms as they are now.
-    [[nodiscard]] Vec3 positionOf(Entity entity) const { return Vec3(world.computeWorldMatrix(entity)[3]); }
-
-    /// What a ray straight down from high above (x, z) hits, as the name of its entity.
-    [[nodiscard]] std::string under(float x, float z) const {
-        const std::optional<RayHit> hit =
-            physics->simulation().raycast(Ray{Vec3(x, 100.0f, z), Vec3(0.0f, -1.0f, 0.0f)}, 1000.0f);
-        if (!hit) {
-            return "(nothing)";
-        }
-        const Entity entity = physics->entityOf(hit->body);
-        return entity.isNull() ? "(no entity)" : world.name(entity);
-    }
-
-    /// How high above the ground a ray straight down from high above (x, z) hits.
-    [[nodiscard]] float heightAt(float x, float z) const {
-        const std::optional<RayHit> hit =
-            physics->simulation().raycast(Ray{Vec3(x, 100.0f, z), Vec3(0.0f, -1.0f, 0.0f)}, 1000.0f);
-        return hit ? hit->position.y : -1000.0f;
-    }
-
-    World world;
-    /// The meshes the engine brings along, and no others.
-    std::unique_ptr<AssetManager> assets;
-    std::unique_ptr<PhysicsSystem> physics;
-};
 
 } // namespace
 
@@ -98,7 +44,8 @@ TEST_SUITE("PhysicsSystem") {
         PhysicsFrameStatistics statistics = stage.run(1);
         CHECK(statistics == PhysicsFrameStatistics{.steps = 1, .bodies = 2, .activeBodies = 1});
         // One step: the crate has gained speed, and moved by it. Its entity is where it is.
-        CHECK(stage.world.transform(crate).position.y == doctest::Approx(3.0f - 9.81f * kStep * kStep).epsilon(1.0e-5));
+        CHECK(stage.world.transform(crate).position.y ==
+              doctest::Approx(3.0f - 9.81f * kPhysicsStep * kPhysicsStep).epsilon(1.0e-5));
         CHECK(stage.world.tryGet<RigidBodyComponent>(crate)->linearVelocity.y < -0.16f);
         CHECK(stage.world.transform(floor).position == Vec3(0.0f));
 
@@ -129,13 +76,13 @@ TEST_SUITE("PhysicsSystem") {
         Stage stage;
         stage.addCrate(Vec3(0.0f, 100.0f, 0.0f));
         // Two frames of half a step make one step.
-        CHECK(stage.physics->update(stage.world, *stage.assets, 0.5f * kStep).steps == 0);
-        CHECK(stage.physics->update(stage.world, *stage.assets, 0.5f * kStep).steps == 1);
+        CHECK(stage.physics->update(stage.world, *stage.assets, 0.5f * kPhysicsStep).steps == 0);
+        CHECK(stage.physics->update(stage.world, *stage.assets, 0.5f * kPhysicsStep).steps == 1);
         // A frame of a tenth of a second makes six.
         CHECK(stage.physics->update(stage.world, *stage.assets, 0.1f).steps == 6);
         // A pause is not caught up with: eight steps to an update at the most.
         CHECK(stage.physics->update(stage.world, *stage.assets, 5.0f).steps == 8);
-        CHECK(stage.physics->update(stage.world, *stage.assets, kStep).steps == 1);
+        CHECK(stage.physics->update(stage.world, *stage.assets, kPhysicsStep).steps == 1);
         // Frames that are no time are no steps.
         CHECK(stage.physics->update(stage.world, *stage.assets, 0.0f).steps == 0);
         CHECK(stage.physics->update(stage.world, *stage.assets, -1.0f).steps == 0);
@@ -243,7 +190,7 @@ TEST_SUITE("PhysicsSystem") {
         // In every frame - with a step, and without one - it is where its body is: five
         // metres up, and upright. Not one frame behind what it hangs under, either.
         for (int frame = 0; frame < 90; ++frame) {
-            stage.physics->update(stage.world, *stage.assets, frame % 3 == 2 ? 0.0f : kStep);
+            stage.physics->update(stage.world, *stage.assets, frame % 3 == 2 ? 0.0f : kPhysicsStep);
             REQUIRE(glm::distance(stage.positionOf(loose), Vec3(0.0f, 5.0f, 0.0f)) < 1.0e-3f);
             REQUIRE(glm::distance(Vec3(stage.world.computeWorldMatrix(loose)[1]), Vec3(0.0f, 1.0f, 0.0f)) < 1.0e-3f);
         }
@@ -403,7 +350,7 @@ TEST_SUITE("PhysicsSystem") {
 
         // In a frame of several steps it goes the way in all of them together.
         stage.world.transform(platform).position.x = 4.0f;
-        CHECK(stage.physics->update(stage.world, *stage.assets, 3.0f * kStep).steps == 3);
+        CHECK(stage.physics->update(stage.world, *stage.assets, 3.0f * kPhysicsStep).steps == 3);
         CHECK_NEAR(stage.physics->simulation().position(body), Vec3(4.0f, 0.0f, 0.0f), 1.0e-3f);
 
         // Its speeds follow from how its entity is moved: given others, it does not take them.
@@ -429,7 +376,7 @@ TEST_SUITE("PhysicsSystem") {
         // the entity moved in every one of them: every other frame has a step.
         for (int frame = 1; frame <= 40; ++frame) {
             stage.world.transform(platform).position.x = 0.05f * static_cast<float>(frame);
-            const uint32_t steps = stage.physics->update(stage.world, *stage.assets, 0.5f * kStep).steps;
+            const uint32_t steps = stage.physics->update(stage.world, *stage.assets, 0.5f * kPhysicsStep).steps;
             REQUIRE(steps == (frame % 2 == 0 ? 1U : 0U));
             // Without a step the body is where the last one left it. Put ahead at once,
             // it would be inside what it is to push.
@@ -1087,7 +1034,7 @@ TEST_SUITE("PhysicsSystem") {
         // A frame of several steps says what happened in all of them: lifted off and
         // put down beside the floor, the crate has left it.
         stage.world.transform(crate).position = Vec3(100.0f, 0.5f, 0.0f);
-        CHECK(stage.physics->update(stage.world, *stage.assets, 3.0f * kStep).steps == 3);
+        CHECK(stage.physics->update(stage.world, *stage.assets, 3.0f * kPhysicsStep).steps == 3);
         REQUIRE(stage.physics->events().size() == 1);
         CHECK(stage.physics->events()[0] ==
               CollisionEvent{.type = CollisionEventType::CollisionEnded, .first = floor, .second = crate});
@@ -1799,8 +1746,8 @@ TEST_SUITE("PhysicsComponents") {
     TEST_CASE("the physics components are registered under the names scene files use, and described") {
         ComponentRegistry registry;
         REQUIRE(registerPhysicsComponents(registry).has_value());
-        REQUIRE(registry.components().size() == 3);
-        for (const char* name : {"Collider", "RigidBody", "Joint"}) {
+        REQUIRE(registry.components().size() == 4);
+        for (const char* name : {"Collider", "RigidBody", "Joint", "CharacterController"}) {
             const ComponentDescriptor* descriptor = registry.find(name);
             REQUIRE(descriptor != nullptr);
             CHECK(descriptor->traits.optional);

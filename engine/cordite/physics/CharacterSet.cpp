@@ -247,6 +247,13 @@ void CharacterSet::place(CharacterId character, const Vec3& position) {
     found->jolt->SetPosition(JPH::RVec3(toJolt(position)));
 }
 
+void CharacterSet::look(CharacterId character, const JPH::BroadPhaseLayerFilter& broadPhaseFilter,
+                        const JPH::ObjectLayerFilter& objectFilter, JPH::TempAllocator& memory) {
+    if (Character* found = find(character)) {
+        found->jolt->RefreshContacts(broadPhaseFilter, objectFilter, {}, {}, memory);
+    }
+}
+
 void CharacterSet::setVelocity(CharacterId character, const Vec3& velocity) {
     Character* found = find(character);
     if (found == nullptr || !isFinite(velocity)) {
@@ -297,6 +304,11 @@ void CharacterSet::step(float seconds, const Vec3& gravity, const JPH::BroadPhas
 
         JPH::CharacterVirtual::ExtendedUpdateSettings settings;
         settings.mWalkStairsStepUp = JPH::Vec3(0.0f, character.desc.stepHeight, 0.0f);
+        // Up a step, Jolt looks for ground to stand on this far ahead. With less than its
+        // radius ahead, a character comes down on the edge of the step with the round of
+        // its foot - which, for a large character on a high step, is ground too steep to
+        // stand on, and it does not get up.
+        settings.mWalkStairsStepForwardTest = character.desc.radius;
         settings.mStickToFloorStepDown =
             JPH::Vec3(0.0f, -std::max(character.desc.stepHeight, kFollowGroundDistance), 0.0f);
         const Vec3 from = fromJolt(JPH::Vec3(jolt.GetPosition()));

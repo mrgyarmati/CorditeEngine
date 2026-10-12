@@ -1338,6 +1338,8 @@ Result<CharacterId> PhysicsWorld::createCharacter(const CharacterDesc& desc) {
     CORDITE_TRY_ASSIGN(const CharacterId character,
                        m_impl->characters.create(desc, m_impl->system, kMovingLayer,
                                                  JPH::CollisionGroup(m_impl->joinedPairs, ++m_impl->lastGroup, 0)));
+    // What it stands on is known at once, not only after a step.
+    m_impl->characters.look(character, SolidBroadPhaseFilter(), SolidObjectFilter(), *m_impl->stepMemory);
     return character;
 }
 
@@ -1392,6 +1394,9 @@ void PhysicsWorld::placeCharacter(CharacterId character, const Vec3& position) {
     m_impl->wakeWhatIsIn(m_impl->solidBoundsOf(joltIdOf(body)));
     m_impl->characters.place(character, position);
     m_impl->wakeWhatIsIn(m_impl->solidBoundsOf(joltIdOf(body)));
+    // What it stood on is not what it stands on now: a character that is put in the
+    // air falls with the next step, and does not hang there for one.
+    m_impl->characters.look(character, SolidBroadPhaseFilter(), SolidObjectFilter(), *m_impl->stepMemory);
 }
 
 void PhysicsWorld::setCharacterVelocity(CharacterId character, const Vec3& velocity) {

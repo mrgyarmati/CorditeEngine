@@ -43,6 +43,11 @@
 ///   the steps of the simulation at the speed that takes, and pushes what is in its way.
 ///   A frame without a step leaves it where it is, and the next step takes it all the way.
 /// - A static body is where its entity is.
+/// - A character walks as its CharacterController says, and its entity follows: after
+///   every update the entity is where the character's soles are - turned as it was,
+///   which is not the simulation's to say. Putting the entity somewhere else puts the
+///   character there at once. What the entity hangs under does not carry the character
+///   along; what the character stands on does.
 ///
 /// While no time passes - synchronize() - the world alone has the say: every body is
 /// where its entity is, however the entity came to be there, and nothing is written to
@@ -62,6 +67,12 @@
 /// and never part of another: it follows its entity, stops nothing, and notices the
 /// bodies that move into it and out of it. What bodies begin to touch and stop
 /// touching, and what enters and leaves triggers, is in events() after every update.
+///
+/// A CharacterController makes its entity a character - PhysicsWorld::createCharacter() -
+/// of the size its component and the scale of its entity give it. What the component
+/// is told - `movement`, `jump` - is passed on with every update, and what the
+/// simulation says of the character is written to the component after it. A character
+/// that is to be of another size is made anew where it is, and goes on as it did.
 ///
 /// A Joint holds the body its entity is part of to the body of the entity it names, or
 /// to the world. It is made while time passes - an editor has no use for one - and
@@ -130,6 +141,8 @@ struct PhysicsFrameStatistics {
     uint32_t geometries = 0;
     /// Joints that hold bodies together.
     uint32_t joints = 0;
+    /// Characters. Each has a body among `bodies` that stands for it.
+    uint32_t characters = 0;
 
     bool operator==(const PhysicsFrameStatistics&) const = default;
 };
@@ -150,8 +163,8 @@ enum class CollisionEventType : uint8_t {
 struct CollisionEvent {
     CollisionEventType type = CollisionEventType::CollisionBegan;
     /// The entities that have the bodies. Of a trigger, the first is the entity whose
-    /// collider the trigger is, and the second what entered or left it. An entity may
-    /// be gone by the time this is read: ask World::isValid().
+    /// collider the trigger is, and the second what entered or left it - a body, or a
+    /// character. An entity may be gone by the time this is read: ask World::isValid().
     Entity first;
     Entity second;
     /// Of CollisionBegan and TriggerEntered: where the two touch, the direction from
@@ -199,7 +212,12 @@ public:
     /// The joint that an entity's Joint has become, or the null id: before the first
     /// update that met it, and for one that could not be made.
     [[nodiscard]] JointId jointOf(Entity entity) const;
-    /// The entity a body belongs to, or the null entity.
+    /// The character that an entity's CharacterController has become, or the null id:
+    /// before the first update or synchronize() that met it, and for one that could
+    /// not be made.
+    [[nodiscard]] CharacterId characterOf(Entity entity) const;
+    /// The entity a body belongs to - also the body that stands for a character - or
+    /// the null entity.
     [[nodiscard]] Entity entityOf(BodyId body) const;
 
     /// What happened during the last update(): which bodies began to touch and which
@@ -208,6 +226,11 @@ public:
     /// bodies. Two bodies that fall asleep against each other touch on. A body that
     /// was made anew because what it is made of changed does not stop and begin to
     /// touch what it still touches. None after synchronize(), in which no time passes.
+    ///
+    /// A character is no body, and what it walks into is not said: it enters and leaves
+    /// triggers, and bodies that come to rest on it touch it. A trigger says nothing of
+    /// what it hangs on - the body or the character of its own entity, or of an entity
+    /// above it - which it would otherwise be entered by for as long as it is there.
     [[nodiscard]] std::span<const CollisionEvent> events() const { return m_events; }
 
     /// The geometry that colliders of `shape` - a convex hull, or a mesh - of the mesh
@@ -215,8 +238,9 @@ public:
     /// The null id before that, and for a mesh of which none could be made.
     [[nodiscard]] GeometryId geometryOf(const Uuid& mesh, ShapeType shape) const;
 
-    /// Removes every body and all geometry, and forgets time that has not become a step
-    /// yet. The next update makes them again from the world it is given.
+    /// Removes every body, every character and all geometry, and forgets time that has
+    /// not become a step yet. The next update makes them again from the world it is
+    /// given.
     void clear();
 
 private:
@@ -259,6 +283,9 @@ private:
         /// The speeds last written to the entity's RigidBody, which tell the same of them.
         Vec3 linearVelocity{0.0f};
         Vec3 angularVelocity{0.0f};
+        /// Where its entity came in the last walk through the hierarchy: what an entity
+        /// hangs under comes before it.
+        uint32_t place = 0;
         bool seen = false;
     };
 
@@ -274,6 +301,33 @@ private:
         Quat rotation = kIdentityQuat;
         /// How large its entity is in it.
         Vec3 scale{1.0f};
+        /// Where its entity came in the walk through the hierarchy.
+        uint32_t place = 0;
+    };
+
+    /// A character that the world asks for.
+    struct WantedCharacter {
+        Entity entity;
+        /// What it is to be made of, without where it is.
+        CharacterDesc blueprint;
+        /// Where its soles are to be: where its entity is in the world.
+        Vec3 position{0.0f};
+        uint32_t place = 0;
+    };
+
+    /// What the system knows of a character it has made.
+    struct CharacterRecord {
+        CharacterId character;
+        CharacterDesc blueprint;
+        /// Where the character was when it and its entity were last brought in line,
+        /// and - to tell, exactly, that the entity has been put somewhere else since -
+        /// where the entity then was under what it hangs under, and the matrix of that.
+        /// How the entity is turned and how large it is does not move a character.
+        Vec3 position{0.0f};
+        Vec3 localPosition{0.0f};
+        Mat4 parentToWorld{1.0f};
+        uint32_t place = 0;
+        bool seen = false;
     };
 
     /// What the walk through the hierarchy knows of a depth it is in.
@@ -287,13 +341,18 @@ private:
         Vec3 scale{1.0f};
         /// Takes a point from there to that body.
         Mat4 toBody{1.0f};
+        /// The character that what is there hangs on: the nearest above with no rigid
+        /// body between, or none.
+        Entity character;
     };
 
-    /// What is said of an entity in the log is about its collider, its body or its joint.
+    /// What is said of an entity in the log is about its collider, its body, its joint
+    /// or the character it is.
     enum class About : uint8_t {
         Collider,
         Body,
         Joint,
+        Character,
     };
 
     struct ReportKey {
@@ -353,8 +412,16 @@ private:
 
     PhysicsSystem(std::unique_ptr<PhysicsWorld> physics, const PhysicsSystemDesc& desc);
 
-    /// Fills m_wanted with the bodies `world` asks for, parents before what is below them.
+    /// Fills m_wanted and m_wantedCharacters with the bodies and the characters that
+    /// `world` asks for, parents before what is below them.
     void gather(const World& world, AssetManager& assets);
+    /// The level of an entity that the walk has come to, `depth` below the top: with
+    /// what it takes over from the level above it.
+    [[nodiscard]] Level& enterLevel(const World& world, Entity entity, uint32_t depth);
+    /// Asks for the character of an entity that has a CharacterController, and notes at
+    /// its level that what is below hangs on one. `place` is where the entity came in
+    /// the walk.
+    void gatherCharacter(const World& world, Entity entity, Level& level, uint32_t place);
     /// The geometry for colliders of `shape` of a mesh: prepared the first time it is
     /// asked for, and remembered - also that there is none, and why.
     [[nodiscard]] const MeshGeometry& prepareGeometry(AssetManager& assets, const Uuid& mesh, ShapeType shape);
@@ -374,6 +441,23 @@ private:
     /// Gives a dynamic body the speeds its RigidBody was given since they were last
     /// written.
     void applyVelocities(const World& world, Entity entity, Record& record);
+    /// Makes, remakes, places and removes characters until they are what
+    /// m_wantedCharacters says.
+    void reconcileCharacters(const World& world, Authority authority);
+    /// Makes the character of `wanted`, in place of `previous` where there is one - and
+    /// going on as that one did. Returns its record, or null when it cannot be made.
+    [[nodiscard]] CharacterRecord* makeCharacter(const World& world, const WantedCharacter& wanted,
+                                                 const CharacterRecord* previous);
+    /// Puts a character that is as it was wanted where its entity is, if the entity
+    /// was put somewhere else since the two were last in line - or, while the world
+    /// has the say, was moved by whatever it hangs under.
+    void putCharacter(const World& world, const WantedCharacter& wanted, CharacterRecord& record, Authority authority);
+    /// Passes on what the CharacterControllers were told: how to walk, and to jump -
+    /// which is taken from them.
+    void driveCharacters(World& world);
+    /// Writes what the simulation says of a character to its CharacterController, and
+    /// puts its entity where the character is, unless it is there.
+    void followCharacter(World& world, Entity entity);
     /// Makes, remakes and removes joints until they are what the Joint components of
     /// the entities in m_jointEntities say, between the bodies there are.
     void reconcileJoints(const World& world);
@@ -385,13 +469,15 @@ private:
     /// was last called for it, so that it is said again should it hold again. Whoever
     /// reports about a kind of thing calls this for it, after looking at all of them.
     void forgetWhatNoLongerHolds(About about);
-    /// Adds to m_events what the bodies said of touching in the step that was just taken.
-    void hearContacts();
+    /// Adds to m_events what the bodies said of touching in the step that was just
+    /// taken - but for what a trigger would say of what it hangs on.
+    void hearContacts(const World& world);
     /// Takes out of m_events what only came of a body being made anew: that it stopped
     /// touching something, and began to touch it.
     void dropEchoesOfRemaking();
     /// Writes the speeds of the bodies that move to their RigidBody components, and
-    /// puts the entities of dynamic bodies where the bodies are.
+    /// puts the entities of dynamic bodies and of characters where those are: each
+    /// after what it hangs under.
     void writeBack(World& world);
     /// Puts the entity of a dynamic body where the body is, unless it is there.
     void followBody(World& world, Entity entity, Record& record);
@@ -418,6 +504,11 @@ private:
     /// What has been said of entities whose colliders are no shapes, that have no body
     /// or that cannot be placed, so that each thing is said once.
     std::unordered_map<ReportKey, Report, ReportKeyHash> m_reported;
+    /// The characters there are, by their entities; those the world asked for at the
+    /// last update; and those that were made of them, parents before what is below.
+    std::unordered_map<Entity, CharacterRecord> m_characters;
+    std::vector<WantedCharacter> m_wantedCharacters;
+    std::vector<Entity> m_characterOrder;
     /// The joints there are, by the entity that has the component, and the entities
     /// with a Joint that the last walk through the world met.
     std::unordered_map<Entity, JointRecord> m_joints;

@@ -39,6 +39,8 @@ constexpr Vec4 kTriggerColor(1.00f, 0.55f, 0.20f, 1.0f);
 constexpr Vec4 kPhysicsJointColor(0.45f, 0.75f, 1.00f, 1.0f);
 constexpr float kPhysicsJointMarkerSize = 0.12f;
 constexpr float kPhysicsJointAxisLength = 0.35f;
+/// The capsule that a character is.
+constexpr Vec4 kCharacterColor(0.75f, 0.60f, 1.00f, 1.0f);
 /// The bones of a skeleton: joints are not entities, and are seen only like this.
 constexpr Vec4 kSkeletonColor(0.95f, 0.45f, 0.85f, 1.0f);
 
@@ -209,9 +211,26 @@ void drawJoint(const World& world, Entity entity, const Mat4& placement, DebugDr
     }
 }
 
-/// What a selected entity shows beside what every entity shows: its collider and its
-/// joint, and those of what hangs below it, the skeleton its animator has posed, and a
-/// box - around its mesh, or around where it is.
+/// The character that an entity is, as lines: its capsule - upright in the world
+/// however the entity is turned, with its soles where the entity is, and as large as
+/// the entity's scale makes it for the physics, by Y in height and by the larger of X
+/// and Z around. Nothing for an entity without a character controller.
+void drawCharacter(const World& world, Entity entity, const Mat4& placement, DebugDraw& lines) {
+    const auto* controller = world.tryGet<CharacterControllerComponent>(entity);
+    if (controller == nullptr) {
+        return;
+    }
+    const Vec3 scale = glm::abs(Transform::fromMatrix(placement).scale);
+    const float radius = controller->radius * std::max(scale.x, scale.z);
+    // One that is no taller than it is wide is a ball.
+    const float height = std::max(controller->height * scale.y, 2.0f * radius);
+    const Vec3 soles(placement[3]);
+    lines.capsule(soles + kWorldUp * radius, soles + kWorldUp * (height - radius), radius, kCharacterColor);
+}
+
+/// What a selected entity shows beside what every entity shows: its collider, its
+/// joint and the character it is, and those of what hangs below it, the skeleton its
+/// animator has posed, and a box - around its mesh, or around where it is.
 void drawSelected(EditorContext& context, Entity entity, const Mat4& placement, ColliderShapes& shapes,
                   DebugDraw& lines) {
     const World& world = context.world();
@@ -221,6 +240,7 @@ void drawSelected(EditorContext& context, Entity entity, const Mat4& placement, 
         if (world.isEnabledInHierarchy(part)) {
             drawCollider(world, part, world.worldMatrix(part), shapes, lines);
             drawJoint(world, part, world.worldMatrix(part), lines);
+            drawCharacter(world, part, world.worldMatrix(part), lines);
         }
     });
     // The joints an animator moves are no entities; this is where they are seen.
@@ -349,6 +369,7 @@ void ViewportPanel::collectLines(EditorContext& context, const CameraView& view)
         } else if (m_showColliders) {
             drawCollider(world, entity, placement, shapes, m_sceneLines);
             drawJoint(world, entity, placement, m_sceneLines);
+            drawCharacter(world, entity, placement, m_sceneLines);
         }
     });
 }

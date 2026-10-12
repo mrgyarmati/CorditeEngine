@@ -97,6 +97,12 @@ public:
 
     [[nodiscard]] CharacterState state(CharacterId character) const;
 
+    /// Looks at what a character has under its feet where it is now, as a step does at
+    /// its end: for one that was just made, or put somewhere, and has not been moved by
+    /// a step since.
+    void look(CharacterId character, const JPH::BroadPhaseLayerFilter& broadPhaseFilter,
+              const JPH::ObjectLayerFilter& objectFilter, JPH::TempAllocator& memory);
+
     /// See the functions of PhysicsWorld that are named alike.
     void walk(CharacterId character, const Vec3& velocity);
     void jump(CharacterId character, float speed);

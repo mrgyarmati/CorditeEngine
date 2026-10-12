@@ -84,8 +84,12 @@ TEST_SUITE("PhysicsWorld characters") {
         CHECK_FALSE(guard.isNull());
         CHECK(physics->isValid(guard));
         CHECK(physics->statistics().characters == 1);
-        // Nothing is known of the ground until a step has looked.
-        CHECK(physics->characterState(guard) == CharacterState{.position = Vec3(1.0f, 0.0f, 2.0f)});
+        // What it stands on is known at once.
+        CHECK(physics->characterState(guard) ==
+              CharacterState{.position = Vec3(1.0f, 0.0f, 2.0f), .ground = GroundState::OnGround, .groundBody = floor});
+        const CharacterId flier = unwrap(physics->createCharacter({.position = Vec3(9.0f, 5.0f, 9.0f)}));
+        CHECK(physics->characterState(flier) == CharacterState{.position = Vec3(9.0f, 5.0f, 9.0f)});
+        physics->destroyCharacter(flier);
 
         stepFor(*physics, 30);
         const CharacterState state = physics->characterState(guard);
@@ -264,6 +268,21 @@ TEST_SUITE("PhysicsWorld characters") {
         CHECK(state.position.x == doctest::Approx(1.7f).epsilon(0.01));
         CHECK(state.position.y == doctest::Approx(0.0f).epsilon(0.01));
         CHECK(state.ground == GroundState::OnGround);
+        // A character twice as large climbs twice as high: up a step of sixty centimetres,
+        // on which it does not come down with the round of its foot on the edge and take
+        // that for ground too steep to stand on.
+        const BodyId tall =
+            unwrap(physics->createBody({.motion = BodyMotion::Static,
+                                        .shapes = {{.type = ShapeType::Box, .size = Vec3(2.0f, 0.6f, 4.0f)}},
+                                        .position = Vec3(3.0f, 0.3f, -6.0f)}));
+        const CharacterId giant = unwrap(physics->createCharacter(
+            {.radius = 0.6f, .height = 3.6f, .position = Vec3(0.0f, 0.0f, -6.0f), .stepHeight = 0.7f}));
+        physics->walk(giant, Vec3(2.0f, 0.0f, 0.0f));
+        stepFor(*physics, 100);
+        CHECK(physics->characterState(giant).position.y == doctest::Approx(0.6f).epsilon(0.01));
+        CHECK(physics->characterState(giant).groundBody == tall);
+        physics->destroyCharacter(giant);
+        physics->destroyBody(tall);
         // One that climbs higher gets up it, and one that climbs nothing not even up the low one.
         const CharacterId climber =
             unwrap(physics->createCharacter({.position = Vec3(0.0f, 0.0f, 1.0f), .stepHeight = 0.6f}));
@@ -307,10 +326,14 @@ TEST_SUITE("PhysicsWorld characters") {
         stepFor(*physics, 60);
         CHECK(physics->characterState(jumper).position.y == doctest::Approx(0.0f).epsilon(0.01));
 
-        // A jump that is asked for in the air is forgotten: it does not jump when it lands.
+        // A jump that is asked for in the air is forgotten: it does not jump when it
+        // lands. Put in the air, it is in the air at once, and falls with the next step.
         physics->placeCharacter(jumper, Vec3(0.0f, 1.0f, 0.0f));
+        CHECK(physics->characterState(jumper).ground == GroundState::InAir);
+        CHECK(physics->characterState(jumper).groundBody.isNull());
         physics->step(kStep);
         CHECK(physics->characterState(jumper).ground == GroundState::InAir);
+        CHECK(physics->characterState(jumper).position.y < 1.0f);
         physics->jump(jumper, 4.0f);
         physics->step(kStep);
         CHECK(physics->characterState(jumper).velocity.y < 0.0f);
@@ -423,6 +446,41 @@ TEST_SUITE("PhysicsWorld characters") {
         stepFor(*physics, 120);
         CHECK(physics->position(ball).x > 6.5f);
         CHECK(physics->position(ball).x - physics->characterState(porter).position.x > 0.5f);
+    }
+
+    TEST_CASE("a character that stands on another does not pin it down") {
+        const std::unique_ptr<PhysicsWorld> physics = unwrap(PhysicsWorld::create());
+        addFloor(*physics);
+        const CharacterId lower = unwrap(physics->createCharacter({}));
+        const CharacterId upper = unwrap(physics->createCharacter({.position = Vec3(0.0f, 2.5f, 0.0f)}));
+        stepFor(*physics, 90);
+        // It stands on the body of the one below, which is a tenth smaller than that one.
+        CharacterState state = physics->characterState(upper);
+        CHECK(state.ground == GroundState::OnGround);
+        CHECK(state.groundBody == physics->characterBody(lower));
+        CHECK(state.position.y == doctest::Approx(0.9f + 0.9f * 0.9f).epsilon(0.01));
+        CHECK_NEAR(physics->characterState(lower).position, Vec3(0.0f), 5.0e-3f);
+
+        // The one below walks off as if nothing stood on it, and the one above comes down.
+        physics->walk(lower, Vec3(2.0f, 0.0f, 0.0f));
+        stepFor(*physics, 90);
+        CHECK(physics->characterState(lower).position.x == doctest::Approx(3.0f).epsilon(0.01));
+        state = physics->characterState(upper);
+        CHECK(state.ground == GroundState::OnGround);
+        CHECK(state.position.y == doctest::Approx(0.0f).epsilon(0.01));
+        CHECK(state.groundBody != physics->characterBody(lower));
+
+        // What is moved by hand and comes down on a character is another matter: that
+        // stops it, as it stops everything.
+        const CharacterState under = physics->characterState(lower);
+        const BodyId press =
+            unwrap(physics->createBody({.motion = BodyMotion::Kinematic,
+                                        .shapes = {{.type = ShapeType::Box, .size = Vec3(4.0f, 0.5f, 4.0f)}},
+                                        .position = under.position + Vec3(2.0f, 2.0f, 0.0f)}));
+        stepFor(*physics, 60);
+        // Under a ceiling that leaves it less room than it is tall, it gets no further.
+        CHECK(physics->characterState(lower).position.x < under.position.x + 0.5f);
+        physics->destroyBody(press);
     }
 
     TEST_CASE("a character falls when what it stood on is gone") {

@@ -114,7 +114,8 @@ TEST_SUITE("Performance") {
         simulation["bodies"] = statistics.physics.bodies;
         simulation["activeBodies"] = statistics.physics.activeBodies;
         simulation["geometries"] = statistics.physics.geometries;
-        simulation["joints"] = statistics.physics.joints;
+        simulation["physicsJoints"] = statistics.physics.joints;
+        simulation["characters"] = statistics.physics.characters;
         simulation["animators"] = statistics.animation.animators;
         simulation["joints"] = statistics.animation.joints;
         report["simulation"] = std::move(simulation);
@@ -147,10 +148,13 @@ TEST_SUITE("Performance") {
 
         // What stands and lies in the showcase has come to rest by now, and sleeps.
         CHECK(statistics.physics.steps == 1);
-        CHECK(statistics.physics.activeBodies <= 1);
+        // But for the two that never do: the trigger over the walkway, and the body that
+        // stands for the sentry.
+        CHECK(statistics.physics.activeBodies <= 2);
         checkBudget(budgets, "bodies", statistics.physics.bodies);
         checkBudget(budgets, "geometries", statistics.physics.geometries);
-        checkBudget(budgets, "joints", statistics.physics.joints);
+        checkBudget(budgets, "physicsJoints", statistics.physics.joints);
+        checkBudget(budgets, "characters", statistics.physics.characters);
         checkBudget(budgets, "joints", statistics.animation.joints);
         checkBudget(budgets, "drawCalls", statistics.scene.meshes.drawCalls);
         checkBudget(budgets, "screenPasses", statistics.scene.screenPasses);

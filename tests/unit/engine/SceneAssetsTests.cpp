@@ -234,6 +234,24 @@ TEST_SUITE("SceneAssets") {
               "Collider.mesh names no mesh, and a collider of the shape convexHull is made of one");
     }
 
+    TEST_CASE("a character that is a body as well, and what hangs on one in its way, are problems of a scene") {
+        Fixture fixture;
+        const Entity guard = fixture.world.createEntity("Guard");
+        fixture.world.add<CharacterControllerComponent>(guard);
+        const Entity reach = fixture.world.createEntity("Reach");
+        REQUIRE(fixture.world.setParent(reach, guard, false).has_value());
+        fixture.world.add<ColliderComponent>(reach).trigger = true;
+        CHECK(findSceneProblems(fixture.world, fixture.components, fixture.assets).empty());
+
+        fixture.world.add<RigidBodyComponent>(guard);
+        fixture.world.tryGet<ColliderComponent>(reach)->trigger = false;
+        const std::vector<SceneProblem> problems = findSceneProblems(fixture.world, fixture.components, fixture.assets);
+        REQUIRE(problems.size() == 1);
+        CHECK(problems[0].entity == guard);
+        CHECK(problems[0].message == "CharacterController: the entity is a body as well - it has a RigidBody - and "
+                                     "cannot be both. A character has a capsule of its own");
+    }
+
     TEST_CASE("joints that will hold nothing are problems of a scene") {
         Fixture fixture;
         const Entity frame = fixture.world.createEntity("Frame");

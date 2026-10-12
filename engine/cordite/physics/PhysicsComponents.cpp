@@ -197,6 +197,99 @@ TypeInfo describeJoint() {
         .build();
 }
 
+TypeInfo describeCharacterController() {
+    return TypeBuilder<CharacterControllerComponent>("CharacterController")
+        .property("radius", &CharacterControllerComponent::radius,
+                  {.description = "How far around the capsule is, before the entity's scale",
+                   .minimum = static_cast<double>(kMinCharacterRadius),
+                   .maximum = 100.0,
+                   .step = 0.01,
+                   .unit = "m"})
+        .property("height", &CharacterControllerComponent::height,
+                  {.description = "From its soles, which are where the entity is, to the top of its head, "
+                                  "before the entity's scale",
+                   .minimum = 0.01,
+                   .maximum = 1000.0,
+                   .step = 0.01,
+                   .unit = "m"})
+        .property("mass", &CharacterControllerComponent::mass,
+                  {.description = "How hard it presses on what it stands on",
+                   .minimum = 0.001,
+                   .maximum = 1000000.0,
+                   .step = 0.1,
+                   .unit = "kg"})
+        .property("maxSlope", &CharacterControllerComponent::maxSlope,
+                  {.description = "The steepest ground it walks on, from level; on steeper ground it does not "
+                                  "get up, and slides down",
+                   .minimum = 0.0,
+                   .maximum = 89.0,
+                   .step = 1.0,
+                   .unit = "deg"})
+        .property("stepHeight", &CharacterControllerComponent::stepHeight,
+                  {.description = "The highest step it walks up as if it were a ramp, before the entity's "
+                                  "scale; 0 for none",
+                   .minimum = 0.0,
+                   .maximum = 100.0,
+                   .step = 0.01,
+                   .unit = "m"})
+        .property("pushForce", &CharacterControllerComponent::pushForce,
+                  {.description = "The most force it pushes a dynamic body in its way with",
+                   .minimum = 0.0,
+                   .maximum = 1000000000.0,
+                   .step = 1.0,
+                   .unit = "N"})
+        .property("gravityScale", &CharacterControllerComponent::gravityScale,
+                  {.description = "How much gravity pulls at it: 1 as at everything, 0 not at all",
+                   .minimum = -100.0,
+                   .maximum = 100.0,
+                   .step = 0.01})
+        .property("airControl", &CharacterControllerComponent::airControl,
+                  {.description = "How much say `movement` has while it is in the air: its speed sideways is "
+                                  "that much of `movement`, and the rest of what it left the ground with",
+                   .minimum = 0.0,
+                   .maximum = 1.0,
+                   .step = 0.01})
+        .property("movement", &CharacterControllerComponent::movement,
+                  {.description = "The speed it is to walk with along the ground, in the world, until it is "
+                                  "told otherwise; what of it points up or down is left out",
+                   .minimum = -100000.0,
+                   .maximum = 100000.0,
+                   .step = 0.01,
+                   .unit = "m/s",
+                   .transient = true})
+        .property("jump", &CharacterControllerComponent::jump,
+                  {.description = "The speed it is to leave the ground with. Taken by the next update, which "
+                                  "sets this back to 0; it jumps in the step after if it stands on ground then",
+                   .minimum = 0.0,
+                   .maximum = 100000.0,
+                   .step = 0.01,
+                   .unit = "m/s",
+                   .transient = true})
+        .property("velocity", &CharacterControllerComponent::velocity,
+                  {.description = "How fast it moved in the last step: as fast as it got on, not as fast as it "
+                                  "was told to. Kept up to date while the simulation runs",
+                   .unit = "m/s",
+                   .readOnly = true,
+                   .transient = true})
+        .enumProperty("ground", &CharacterControllerComponent::ground,
+                      {{GroundState::OnGround, std::string(nameOf(GroundState::OnGround))},
+                       {GroundState::OnSteepGround, std::string(nameOf(GroundState::OnSteepGround))},
+                       {GroundState::InAir, std::string(nameOf(GroundState::InAir))}},
+                      {.description = "What it has under its feet: ground it can walk on, ground too steep for "
+                                      "it, or nothing. Kept up to date while the simulation runs",
+                       .readOnly = true,
+                       .transient = true})
+        .property(
+            "groundNormal", &CharacterControllerComponent::groundNormal,
+            {.description = "Which way the ground under it faces; up, in the air", .readOnly = true, .transient = true})
+        .property("groundEntity", &CharacterControllerComponent::groundEntity,
+                  {.description = "The entity it stands on; none in the air",
+                   .semantic = PropertySemantic::EntityReference,
+                   .readOnly = true,
+                   .transient = true})
+        .build();
+}
+
 /// What is wrong with a collider, as far as can be told without making a shape of it.
 void findColliderProblems(const World& world, Entity entity, std::vector<PhysicsProblem>& problems) {
     const auto* collider = world.tryGet<ColliderComponent>(entity);
@@ -318,7 +411,47 @@ void findJointProblems(const World& world, Entity entity, std::vector<PhysicsPro
     }
 }
 
+/// What is wrong with a character, and with a collider that hangs on one.
+void findCharacterProblems(const World& world, Entity entity, std::vector<PhysicsProblem>& problems) {
+    const auto* collider = world.tryGet<ColliderComponent>(entity);
+    const bool hasSolidCollider = collider != nullptr && !collider->trigger;
+    if (world.has<CharacterControllerComponent>(entity)) {
+        if (world.has<RigidBodyComponent>(entity) || hasSolidCollider) {
+            problems.push_back(
+                {entity,
+                 fmt::format("CharacterController: the entity is a body as well - it has a {} - and "
+                             "cannot be both. A character has a capsule of its own",
+                             world.has<RigidBodyComponent>(entity) ? "RigidBody" : "Collider that is no trigger")});
+        }
+        return;
+    }
+    if (!hasSolidCollider) {
+        return;
+    }
+    const Entity character = characterAbove(world, entity);
+    if (!character.isNull()) {
+        problems.push_back(
+            {entity, fmt::format("Collider: it hangs on the character '{}' and is part of no rigid body. It would "
+                                 "stand still, be carried about, and be in the way of the character wherever "
+                                 "that goes: only triggers and rigid bodies hang on a character",
+                                 world.name(character))});
+    }
+}
+
 } // namespace
+
+Entity characterAbove(const World& world, Entity entity) {
+    for (Entity above = entity; !above.isNull(); above = world.parent(above)) {
+        // What is part of a rigid body is that body's, whatever the body hangs on.
+        if (world.has<RigidBodyComponent>(above)) {
+            return Entity{};
+        }
+        if (above != entity && world.has<CharacterControllerComponent>(above)) {
+            return above;
+        }
+    }
+    return Entity{};
+}
 
 Entity bodyEntityOf(const World& world, Entity entity) {
     for (Entity above = entity; !above.isNull(); above = world.parent(above)) {
@@ -336,6 +469,7 @@ std::vector<PhysicsProblem> findPhysicsProblems(const World& world) {
     world.traverse([&](Entity entity, uint32_t /*depth*/) {
         findColliderProblems(world, entity, problems);
         findJointProblems(world, entity, problems);
+        findCharacterProblems(world, entity, problems);
     });
     return problems;
 }
@@ -348,9 +482,14 @@ Status registerPhysicsComponents(ComponentRegistry& registry) {
         describeRigidBody(),
         {.description = "Makes the entity a body of the simulation, shaped by its Collider and by the Colliders "
                         "below it that have no RigidBody of their own."}));
-    return registry.add<JointComponent>(
+    CORDITE_TRY(registry.add<JointComponent>(
         describeJoint(), {.description = "Holds the body the entity is part of to the body of another entity, or to "
-                                         "the world, as the two are when the simulation first meets the joint."});
+                                         "the world, as the two are when the simulation first meets the joint."}));
+    return registry.add<CharacterControllerComponent>(
+        describeCharacterController(),
+        {.description = "Makes the entity a character: an upright capsule with its soles where the entity is, "
+                        "which walks as `movement` says and jumps when `jump` is given a speed. No body: it "
+                        "has no RigidBody and no Collider but a trigger."});
 }
 
 } // namespace cordite

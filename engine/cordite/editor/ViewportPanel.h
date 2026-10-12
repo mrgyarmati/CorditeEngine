@@ -90,7 +90,8 @@ public:
     void setAntiAliasing(AntiAliasing antiAliasing) { m_antiAliasing = antiAliasing; }
 
     /// Whether the collider of every entity that has one is drawn, as lines, and its
-    /// joint. Those of selected entities, and of what hangs below them, always are.
+    /// joint, and the capsule of a character. Those of selected entities, and of what
+    /// hangs below them, always are.
     [[nodiscard]] bool showsColliders() const { return m_showColliders; }
 
     void setShowColliders(bool show) { m_showColliders = show; }

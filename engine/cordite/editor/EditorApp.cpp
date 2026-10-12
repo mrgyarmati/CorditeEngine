@@ -417,10 +417,11 @@ Status EditorApp::registerApplicationCommands() {
     CORDITE_TRY(m_commands.add({
         .name = "viewport.show",
         .description = "Chooses what the viewport draws over the scene that is not part of it: the collider "
-                       "and the joint of every entity that has one, as lines (`colliders`; those of selected "
-                       "entities and of what hangs below them are always drawn). Returns what is shown now; "
-                       "without a parameter it changes nothing.",
-        .parameters = {{"colliders", Type::Boolean, "Draw the colliders and joints of all entities.", false}},
+                       "and the joint of every entity that has one, and the capsule of every character, as "
+                       "lines (`colliders`; those of selected entities and of what hangs below them are "
+                       "always drawn). Returns what is shown now; without a parameter it changes nothing.",
+        .parameters = {{"colliders", Type::Boolean,
+                        "Draw the colliders, the joints and the characters of all entities.", false}},
         .handler = [this](const Json& parameters) -> Result<Json> {
             if (parameters.contains("colliders")) {
                 m_viewport->setShowColliders(jsonGetOr<bool>(parameters, "colliders", false));

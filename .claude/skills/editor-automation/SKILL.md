@@ -137,6 +137,15 @@ set it like any other property:
   as they stand when the game begins, and whatever it is given later is said of
   that moment. The viewport draws it with the colliders, and `scene.validate` says
   where one will hold nothing.
+- A `CharacterController` makes its entity a character: an upright capsule of
+  `radius` and `height` with its soles where the entity is, that walks up ground of
+  up to `maxSlope` degrees and steps of up to `stepHeight`. In a game it is walked
+  by setting `movement` (metres per second, in the world) and `jump` (a speed,
+  taken when it is passed on), and says `velocity`, `ground` (`onGround`,
+  `onSteepGround`, `inAir`), `groundNormal` and `groundEntity` - none of which a
+  scene holds, and the last four of which cannot be set. Its entity has no
+  `RigidBody` and no `Collider` but a trigger. The viewport draws its capsule with
+  the colliders.
   The editor does not simulate: nothing falls, and `editor.statistics` reports the
   bodies there are and no steps.
 - A new material is a `.material.json` file written into the project's `assets`

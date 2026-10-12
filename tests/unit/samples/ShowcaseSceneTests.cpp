@@ -213,7 +213,9 @@ TEST_SUITE("Showcase") {
         const Showcase showcase;
         for (const ComponentDescriptor* descriptor : showcase.components.components()) {
             for (const PropertyInfo& property : descriptor->type.properties()) {
-                if (property.type() != PropertyType::Enum) {
+                // What is not part of a scene - what a running simulation says of a thing - no
+                // scene can use.
+                if (property.type() != PropertyType::Enum || property.attributes().transient) {
                     continue;
                 }
 
