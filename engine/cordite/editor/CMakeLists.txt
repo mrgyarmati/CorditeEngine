@@ -23,6 +23,8 @@ cordite_add_module(editor
         HierarchyPanel.h
         InspectorPanel.cpp
         InspectorPanel.h
+        PosedMesh.cpp
+        PosedMesh.h
         PropertyEditor.cpp
         PropertyEditor.h
         UndoStack.cpp

@@ -498,6 +498,44 @@ TEST_SUITE("AnimationComponents") {
         CHECK(type.findProperty("blendTime")->attributes().unit == "s");
     }
 
+    TEST_CASE("the pose of a mesh is that of its entity, or of the nearest entity above it that has one") {
+        World world;
+        const Entity figure = world.createEntity("Figure");
+        const Entity arm = world.createEntity("Arm");
+        const Entity hand = world.createEntity("Hand");
+        const Entity bystander = world.createEntity("Bystander");
+        REQUIRE(world.setParent(arm, figure).has_value());
+        REQUIRE(world.setParent(hand, arm).has_value());
+
+        // Nobody has one.
+        Entity owner = hand;
+        CHECK(findSkeletonPose(world, hand, &owner) == nullptr);
+        CHECK(owner.isNull());
+        CHECK(findSkeletonPose(world, hand) == nullptr);
+
+        // The figure has one: everything below it is drawn in it, and nothing beside it.
+        const SkeletonPoseComponent* ofFigure = &world.add<SkeletonPoseComponent>(figure);
+        CHECK(findSkeletonPose(world, figure, &owner) == ofFigure);
+        CHECK(owner == figure);
+        CHECK(findSkeletonPose(world, hand, &owner) == ofFigure);
+        CHECK(owner == figure);
+        CHECK(findSkeletonPose(world, bystander) == nullptr);
+
+        // The nearest wins: what hangs under an arm with a pose of its own is drawn in
+        // that one. (Adding a component may move the others: they are asked for again.)
+        world.add<SkeletonPoseComponent>(arm);
+        CHECK(findSkeletonPose(world, hand, &owner) == world.tryGet<SkeletonPoseComponent>(arm));
+        CHECK(owner == arm);
+        CHECK(findSkeletonPose(world, figure, &owner) == world.tryGet<SkeletonPoseComponent>(figure));
+        CHECK(owner == figure);
+
+        // An entity that is no more, and no entity at all, have none.
+        world.destroyEntity(hand);
+        CHECK(findSkeletonPose(world, hand, &owner) == nullptr);
+        CHECK(owner.isNull());
+        CHECK(findSkeletonPose(world, Entity{}) == nullptr);
+    }
+
     TEST_CASE("an animator is saved with every property and read back the same") {
         ComponentRegistry registry;
         REQUIRE(registerAnimationComponents(registry).has_value());

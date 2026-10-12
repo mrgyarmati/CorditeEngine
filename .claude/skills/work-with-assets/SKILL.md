@@ -162,6 +162,9 @@ other whose tracks name joints this skeleton has:
   skeleton how many it has.
 - `editor.statistics` counts the animators that were posed (`animation`) and the
   skinned meshes that were drawn in a pose (`scene.skinned`).
+- In the viewport a skinned mesh is clicked where it is drawn, and selecting the entity
+  with the `Animator` draws its skeleton: a line from every joint to the joint it
+  hangs on.
 
 Ids of what is inside a model follow from its position in the file. Re-exporting a model
 keeps them as long as the order of its meshes and materials stays the same.

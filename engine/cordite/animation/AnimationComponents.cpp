@@ -57,6 +57,22 @@ TypeInfo describeAnimator() {
 
 } // namespace
 
+const SkeletonPoseComponent* findSkeletonPose(const World& world, Entity entity, Entity* owner) {
+    const SkeletonPoseComponent* pose = nullptr;
+    Entity at = entity;
+    while (world.isValid(at)) {
+        pose = world.tryGet<SkeletonPoseComponent>(at);
+        if (pose != nullptr) {
+            break;
+        }
+        at = world.parent(at);
+    }
+    if (owner != nullptr) {
+        *owner = pose != nullptr ? at : Entity{};
+    }
+    return pose;
+}
+
 Status registerAnimationComponents(ComponentRegistry& registry) {
     return registry.add<AnimatorComponent>(
         describeAnimator(), {.description = "Poses a skeleton: which one, the animation that is playing, and where "

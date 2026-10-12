@@ -9,6 +9,7 @@
 ///
 /// animation.update(world, assets, frameSeconds);                      // AnimationSystem
 /// const SkeletonPoseComponent* pose = world.tryGet<SkeletonPoseComponent>(figure);
+/// const SkeletonPoseComponent* sameOne = findSkeletonPose(world, meshBelowFigure);
 /// @endcode
 ///
 /// In a scene file:
@@ -29,6 +30,8 @@
 #include "cordite/core/Uuid.h"
 #include "cordite/math/Math.h"
 #include "cordite/world/ComponentRegistry.h"
+#include "cordite/world/Entity.h"
+#include "cordite/world/World.h"
 
 #include <vector>
 
@@ -71,6 +74,12 @@ struct SkeletonPoseComponent {
     /// Where every joint is, in the space the skeleton was modelled in.
     std::vector<Mat4> joints;
 };
+
+/// The pose a skinned mesh of `entity` is drawn in: that of the entity itself, or of the
+/// nearest entity above it that has one - the meshes of a figure hang under what
+/// animates it. Null when there is none. `owner`, when given, is told whose pose it is;
+/// the null entity for none.
+[[nodiscard]] const SkeletonPoseComponent* findSkeletonPose(const World& world, Entity entity, Entity* owner = nullptr);
 
 /// Registers the components of the animation module that a scene holds: "Animator".
 [[nodiscard]] Status registerAnimationComponents(ComponentRegistry& registry);

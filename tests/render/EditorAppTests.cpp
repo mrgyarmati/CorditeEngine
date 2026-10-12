@@ -640,6 +640,87 @@ TEST_SUITE("EditorApp") {
         checkNoValidationIssues(editor->engine().graphics());
     }
 
+    TEST_CASE("the viewport picks a skinned mesh where its pose has it, and shows the skeleton that is selected") {
+        EditorAppDesc desc = headlessDesc(UVec2(640, 360));
+        desc.project = showcaseProject();
+        const std::unique_ptr<EditorApp> editor = createEditor(desc);
+        // The cable of the hoist, seen at right angles to the plane it swings in.
+        run(*editor, "viewport.lookAt", R"({"position": [-0.38, 1.7, 3.36], "target": [-2.1, 1.7, 0.9]})");
+        const Vec2 size(640.0f, 360.0f);
+        const Image plain = unwrap(editor->captureViewport(UVec2(size)));
+        const World& world = editor->context().world();
+        const ViewportPanel& viewport = editor->viewport();
+        const CameraView view = editor->camera().view(size.x / size.y);
+        const auto pixelOf = [&](const Vec3& point) { return worldToScreen(view, point, size).value(); };
+        const auto picked = [&](const Vec3& point) {
+            const Entity entity = viewport.pick(editor->context(), pixelOf(point));
+            return entity.isNull() ? std::string("(nothing)") : world.name(entity);
+        };
+
+        // Where the joints of the cable are: as the animator has posed them, placed by
+        // its entity. The weight hangs on the last joint, a third of a metre below it.
+        const Entity skeleton = world.findByName("Skeleton");
+        const SkeletonPoseComponent* pose = world.tryGet<SkeletonPoseComponent>(skeleton);
+        REQUIRE(pose != nullptr);
+        REQUIRE(pose->joints.size() == 6);
+        const Mat4 placement = world.worldMatrix(skeleton);
+        const auto jointAt = [&](size_t joint) { return Vec3(placement * pose->joints[joint][3]); };
+        const Vec3 weight(placement * pose->joints[5] * Vec4(0.0f, -0.35f, 0.0f, 1.0f));
+        // Where the weight was modelled: straight below where the cable hangs from.
+        const Vec3 modelled = jointAt(0) - Vec3(0.0f, 1.6f, 0.0f);
+        REQUIRE(glm::distance(weight, modelled) > 0.2f);
+
+        // The pointer is over the cable where the cable is drawn.
+        CHECK(picked(weight) == "Cable");
+        CHECK(picked(modelled) != "Cable");
+        // A joint is on the cable: the middle of the tube.
+        CHECK(picked(jointAt(3)) == "Cable");
+
+        // The pixels that differ from the picture without a selection: the lines the
+        // selection adds.
+        const auto added = [&](const Image& image, uint32_t x, uint32_t y) {
+            return glm::distance(Vec3(image.pixel(x, y)), Vec3(plain.pixel(x, y))) > 0.08f;
+        };
+
+        // Selected, the mesh has a box around it that fits it as it hangs: the weight is
+        // inside, where the box of the mesh as it was modelled would end beside it.
+        run(*editor, "selection.set", R"({"entities": ["Stage/Hoist/Skeleton/Cable"]})");
+        const Image boxed = unwrap(editor->captureViewport(UVec2(size)));
+        Vec2 low(size);
+        Vec2 high(0.0f);
+        for (uint32_t y = 0; y < boxed.height(); ++y) {
+            for (uint32_t x = 0; x < boxed.width(); ++x) {
+                if (added(boxed, x, y)) {
+                    low = glm::min(low, Vec2(x, y));
+                    high = glm::max(high, Vec2(x, y));
+                }
+            }
+        }
+        const Vec2 weightPixel = pixelOf(weight);
+        CHECK(low.x < weightPixel.x - 4.0f);
+        CHECK(high.x > weightPixel.x + 4.0f);
+        CHECK(low.y < weightPixel.y);
+        CHECK(high.y > weightPixel.y);
+
+        // Selected, the animator shows its skeleton: a line through every joint, in a
+        // color of its own, through whatever is in front.
+        run(*editor, "selection.set", R"({"entities": ["Stage/Hoist/Skeleton"]})");
+        const Image bones = unwrap(editor->captureViewport(UVec2(size)));
+        const Vec3 boneColor(0.95f, 0.45f, 0.85f);
+        for (size_t joint = 0; joint < pose->joints.size(); ++joint) {
+            CAPTURE(joint);
+            const Vec2 pixel = pixelOf(jointAt(joint));
+            const auto x = static_cast<uint32_t>(pixel.x);
+            const auto y = static_cast<uint32_t>(pixel.y);
+            CHECK_NEAR(Vec3(bones.pixel(x, y)), boneColor, 0.05f);
+            CHECK(added(bones, x, y));
+        }
+        // Half way between two joints there is the bone.
+        const Vec2 between = pixelOf(0.5f * (jointAt(2) + jointAt(3)));
+        CHECK(added(bones, static_cast<uint32_t>(between.x), static_cast<uint32_t>(between.y)));
+        checkNoValidationIssues(editor->engine().graphics());
+    }
+
     TEST_CASE("the viewport shows the debug view it is told to") {
         EditorAppDesc desc = headlessDesc(UVec2(640, 360));
         desc.project = showcaseProject();

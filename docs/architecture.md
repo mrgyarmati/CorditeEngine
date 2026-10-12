@@ -1146,6 +1146,18 @@ each moved by its joint, enclose the mesh (`skinnedBounds`). It costs a box per 
 and a matrix times a box per joint and frame, and it is never too small - only too
 large, where a vertex follows a joint by a little.
 
+### The editor skins on the CPU what it has to find
+
+Telling what the pointer is over means intersecting a ray with triangles, and for a
+skinned mesh the triangles are where the pose has put them - which only the vertex
+shader knows. The editor works that out again (`PosedMesh`): for a click, every vertex
+of every skinned mesh once; for a frame, the vertices of the meshes that are selected,
+to put a box around them. Reading the picked entity back from the GPU would be exact
+for free, but it needs a target of ids, a pass to fill it and a frame's wait for the
+answer; picking is rare, and the CPU's answer is there at once and is the same in a
+test without a device. The rule for which pose a mesh is in is one function,
+`findSkeletonPose`, that the renderer and the editor both call.
+
 ### Enum names use `nameOf`, not `toString`
 
 doctest stringifies values by calling an unqualified `toString`, which finds any

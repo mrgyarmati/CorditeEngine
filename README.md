@@ -33,8 +33,7 @@ What animation does not do yet: more than two clips at once (layers, blend trees
 state machine), motion of the figure taken from a clip (root motion), things that hang
 on a joint and follow it, morph targets, inverse kinematics, and events at times of a
 clip. The editor shows an animation at the time its animator holds and does not play
-it; it picks a skinned mesh where it was modelled, not where its pose has it, and does
-not draw skeletons.
+it.
 
 What the brief asks of the renderer that no milestone names, and that is not built
 yet: screen-space reflections, decals, depth of field, motion blur (and the motion

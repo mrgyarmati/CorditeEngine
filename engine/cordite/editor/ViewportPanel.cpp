@@ -1,6 +1,9 @@
 #include "cordite/editor/ViewportPanel.h"
 
+#include "cordite/animation/AnimationComponents.h"
+#include "cordite/assets/Skeleton.h"
 #include "cordite/editor/EditorFeedback.h"
+#include "cordite/editor/PosedMesh.h"
 #include "cordite/math/Color.h"
 #include "cordite/renderer/RenderComponents.h"
 #include "cordite/renderer/SceneLights.h"
@@ -25,6 +28,8 @@ constexpr Vec4 kCameraColor(0.75f, 0.78f, 0.85f, 1.0f);
 constexpr Vec4 kLightColor(1.0f, 0.86f, 0.38f, 1.0f);
 /// The box in which a PostProcess component applies.
 constexpr Vec4 kVolumeColor(0.55f, 0.85f, 0.80f, 1.0f);
+/// The bones of a skeleton: joints are not entities, and are seen only like this.
+constexpr Vec4 kSkeletonColor(0.95f, 0.45f, 0.85f, 1.0f);
 
 /// The ground grid follows the camera and fades out before its edge comes into view.
 /// Its lines are faint: far away they crowd together, and at full strength they would
@@ -55,6 +60,8 @@ constexpr float kCameraFrustumDepth = 2.0f;
 constexpr float kLightMarkerRadius = 0.15f;
 constexpr float kLightMarkerLength = 0.75f;
 constexpr uint32_t kLightMarkerSegments = 16;
+/// The cross that marks a joint of a selected skeleton.
+constexpr float kJointMarkerSize = 0.03f;
 
 /// How close, in pixels, a click has to be to a marker to select its entity, and how
 /// close two markers have to be on screen to count as being in the same spot.
@@ -63,49 +70,60 @@ constexpr float kSameSpotTolerance = 1.0f;
 /// A press and release further apart than this many pixels is a drag, not a click.
 constexpr float kClickTolerance = 4.0f;
 
-/// The mesh an entity draws, if it draws one that can be loaded.
-std::shared_ptr<const MeshData> meshOf(EditorContext& context, Entity entity) {
+/// Whether an entity draws a mesh that can be loaded. A mesh that cannot was reported
+/// by the renderer, and is simply not there for the editor either.
+bool drawsMesh(EditorContext& context, Entity entity) {
     const auto* renderer = context.world().tryGet<MeshRendererComponent>(entity);
-    if (renderer == nullptr || renderer->mesh.isNil()) {
-        return nullptr;
-    }
-    // Loaded already if it is on screen; a mesh that cannot be loaded was reported by
-    // the renderer and is simply not there for the editor either.
-    Result<std::shared_ptr<const MeshData>> mesh = context.assets().loadMesh(renderer->mesh);
-    return mesh ? std::move(*mesh) : nullptr;
+    return renderer != nullptr && !renderer->mesh.isNil() && context.assets().loadMesh(renderer->mesh).has_value();
 }
 
-/// Where a ray first hits a mesh placed in the world, as a distance along the ray.
-std::optional<float> intersectMesh(const Ray& ray, const MeshData& mesh, const Mat4& localToWorld) {
-    if (std::abs(glm::determinant(localToWorld)) < std::numeric_limits<float>::min()) {
-        // Flattened to nothing: there is no surface to hit, and no inverse to hit it with.
-        return std::nullopt;
-    }
-    // Tested in the mesh's own space, where the ray's direction has another length:
-    // `scale` local units for every metre along the world ray.
-    const Mat4 worldToLocal = glm::inverse(localToWorld);
-    const Ray local{Vec3(worldToLocal * Vec4(ray.origin, 1.0f)), Vec3(worldToLocal * Vec4(ray.direction, 0.0f))};
-
-    const float scale = glm::length(local.direction);
-    if (scale <= 0.0f) {
-        return std::nullopt;
-    }
-    const Ray unit{local.origin, local.direction / scale};
-    if (!intersect(unit, mesh.bounds)) {
-        return std::nullopt;
-    }
-
-    std::optional<float> nearest;
-    for (size_t first = 0; first + 2 < mesh.indices.size(); first += 3) {
-        const std::optional<float> hit = intersectTriangle(unit, mesh.vertices[mesh.indices[first]].position,
-                                                           mesh.vertices[mesh.indices[first + 1]].position,
-                                                           mesh.vertices[mesh.indices[first + 2]].position);
-        if (hit && (!nearest || *hit < *nearest)) {
-            nearest = hit;
+/// The skeleton an animator has posed, as lines: from every joint to the joint it hangs
+/// on, and a cross at each. `placement` is where the entity of the animator is, which
+/// is where the meshes that hang under it unmoved are drawn in the pose.
+void drawSkeleton(const SkeletonData& skeleton, const SkeletonPoseComponent& pose, const Mat4& placement,
+                  DebugDraw& lines) {
+    const size_t count = std::min(skeleton.joints.size(), pose.joints.size());
+    const auto positionOf = [&](size_t joint) { return Vec3(placement * pose.joints[joint][3]); };
+    const auto isFinite = [](const Vec3& point) {
+        return std::isfinite(point.x) && std::isfinite(point.y) && std::isfinite(point.z);
+    };
+    for (size_t joint = 0; joint < count; ++joint) {
+        const Vec3 position = positionOf(joint);
+        if (!isFinite(position)) {
+            continue;
+        }
+        lines.cross(position, kJointMarkerSize, kSkeletonColor);
+        const int32_t parent = skeleton.joints[joint].parent;
+        if (parent < 0 || static_cast<size_t>(parent) >= count) {
+            continue;
+        }
+        if (const Vec3 above = positionOf(static_cast<size_t>(parent)); isFinite(above)) {
+            lines.line(above, position, kSkeletonColor);
         }
     }
-    // Back from a distance along the local ray to one along the world ray.
-    return nearest ? std::optional<float>(*nearest / scale) : std::nullopt;
+}
+
+/// What a selected entity shows beside what every entity shows: the skeleton its
+/// animator has posed, and a box - around its mesh, or around where it is.
+void drawSelected(EditorContext& context, Entity entity, const Mat4& placement, DebugDraw& lines) {
+    const World& world = context.world();
+    // The joints an animator moves are no entities; this is where they are seen.
+    const auto* animator = world.tryGet<AnimatorComponent>(entity);
+    const auto* pose = world.tryGet<SkeletonPoseComponent>(entity);
+    if (animator != nullptr && pose != nullptr) {
+        // Loaded already: the pose was made of it.
+        if (const auto skeleton = context.assets().loadSkeleton(animator->skeleton)) {
+            drawSkeleton(**skeleton, *pose, placement, lines);
+        }
+    }
+    if (const std::optional<PosedMesh> mesh = posedMeshOf(world, context.assets(), entity)) {
+        // The box the mesh fills - in the pose it is drawn in, for one that joints
+        // move - turned and scaled with the entity.
+        lines.box(mesh->bounds, placement, kSelectionColor);
+    } else {
+        const Mat4 atEntity = glm::translate(Mat4(1.0f), Vec3(placement[3]));
+        lines.box(Aabb::fromCenterExtents(Vec3(0.0f), Vec3(kSelectionBoxHalfSize)), atEntity, kSelectionColor);
+    }
 }
 
 /// A light as lines: what kind it is and where it shines into `marker`, and how far
@@ -175,10 +193,10 @@ void ViewportPanel::collectLines(EditorContext& context, const CameraView& view)
         }
         const bool selected = context.isSelected(entity);
         const Mat4& placement = world.worldMatrix(entity);
-        const std::shared_ptr<const MeshData> mesh = meshOf(context, entity);
+        const bool hasMesh = drawsMesh(context, entity);
 
         // An entity that draws a mesh is seen by its mesh; anything else gets a marker.
-        if (mesh == nullptr) {
+        if (!hasMesh) {
             m_sceneLines.axes(placement, selected ? kSelectedMarkerSize : kMarkerSize);
         }
         if (const auto* camera = world.tryGet<CameraComponent>(entity)) {
@@ -209,14 +227,7 @@ void ViewportPanel::collectLines(EditorContext& context, const CameraView& view)
             }
         }
         if (selected) {
-            if (mesh != nullptr) {
-                // The box the mesh fills, turned and scaled with the entity.
-                m_selectionLines.box(mesh->bounds, placement, kSelectionColor);
-            } else {
-                const Mat4 atEntity = glm::translate(Mat4(1.0f), Vec3(placement[3]));
-                m_selectionLines.box(Aabb::fromCenterExtents(Vec3(0.0f), Vec3(kSelectionBoxHalfSize)), atEntity,
-                                     kSelectionColor);
-            }
+            drawSelected(context, entity, placement, m_selectionLines);
         }
     });
 }
@@ -281,8 +292,9 @@ Entity ViewportPanel::pick(EditorContext& context, Vec2 pixel) const {
             return;
         }
         const Mat4& placement = world.worldMatrix(entity);
-        if (const std::shared_ptr<const MeshData> mesh = meshOf(context, entity)) {
-            const std::optional<float> distance = intersectMesh(ray, *mesh, placement);
+        // A mesh is hit where it is drawn: one that joints move, in its pose.
+        if (const std::optional<PosedMesh> mesh = posedMeshOf(world, context.assets(), entity)) {
+            const std::optional<float> distance = intersect(ray, *mesh, placement);
             if (distance && *distance < hitDistance) {
                 hitEntity = entity;
                 hitDistance = *distance;

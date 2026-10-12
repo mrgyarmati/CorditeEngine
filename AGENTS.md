@@ -643,6 +643,12 @@ Step-by-step guide: [work-with-assets](.claude/skills/work-with-assets/SKILL.md)
   - a skinned mesh is placed by its joints, wherever its node is in the file. What
   hangs on a joint in a file (a sword in a hand) is placed where the joint rests and
   does not follow a pose yet; the log says so.
+- **One rule says which pose a mesh is drawn in**, `findSkeletonPose`: the renderer
+  draws by it and the editor picks by it. The editor works the pose out a second
+  time, on the CPU (`editor/PosedMesh.h`), under the renderer's conditions - a mesh
+  that is not skinned, has no pose, or follows more joints than its pose has is where
+  it was modelled - so that what is clicked is what is seen. A selected animator shows
+  its skeleton: joints are no entities, and that is the one place they are seen.
 - **Animation is tested with numbers.** `tests/support/SkinnedModelSupport.h` is a bar
   of three joints whose every pose can be worked out by hand: half way through "Bend"
   its middle joint is turned 45 degrees. `tests/render/SkinningTests.cpp` says which

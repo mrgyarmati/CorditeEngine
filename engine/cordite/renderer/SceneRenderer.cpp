@@ -231,17 +231,8 @@ Result<std::unique_ptr<SceneRenderer>> SceneRenderer::create(nvrhi::IDevice* dev
 
 SceneRenderer::MeshPose SceneRenderer::poseFor(const World& world, Entity entity, const GpuMesh& mesh,
                                                const Uuid& meshId) {
-    // The pose of the entity itself, or of the nearest above it that has one: the
-    // meshes of a figure hang under what animates it.
-    const SkeletonPoseComponent* pose = nullptr;
-    Entity owner = entity;
-    while (!owner.isNull()) {
-        pose = world.tryGet<SkeletonPoseComponent>(owner);
-        if (pose != nullptr) {
-            break;
-        }
-        owner = world.parent(owner);
-    }
+    Entity owner;
+    const SkeletonPoseComponent* pose = findSkeletonPose(world, entity, &owner);
     if (pose == nullptr) {
         return {};
     }

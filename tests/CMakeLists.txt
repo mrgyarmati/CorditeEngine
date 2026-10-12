@@ -137,6 +137,7 @@ cordite_add_test_suite(editor
         unit/editor/EditorCameraTests.cpp
         unit/editor/EditorCommandsTests.cpp
         unit/editor/EditorContextTests.cpp
+        unit/editor/PosedMeshTests.cpp
         unit/editor/EditorTestSupport.h
         unit/editor/UndoStackTests.cpp
     LIBRARIES
