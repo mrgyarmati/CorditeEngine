@@ -13,6 +13,13 @@ namespace {
 struct TimerFixture {
     TimerFixture() : target(test::createColorTarget(context.device(), 256, 256)) {}
 
+    // A command list does not keep alive what it only clears: the GPU is to be done
+    // with the texture before the texture goes.
+    ~TimerFixture() { context.graphics->waitIdle(); }
+
+    TimerFixture(const TimerFixture&) = delete;
+    TimerFixture& operator=(const TimerFixture&) = delete;
+
     /// Records and executes one frame: a clear of the texture, timed by `timer`.
     void frame(GpuTimer& timer) {
         recordAndExecute(context, [&](nvrhi::ICommandList* commandList) {

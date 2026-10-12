@@ -743,3 +743,9 @@ body explaining what changed and why. One logical change per commit.
   can afford 1024 reads, and take them (`sampleCountOf`).
 - stb_image_write compiles its `.hdr` writer only with stdio enabled:
   `STBI_WRITE_NO_STDIO` removes it, callbacks and all.
+- An NVRHI command list keeps alive what it writes to, copies from or draws with - but
+  not a texture it only clears. One that is cleared in a command list of its own and
+  released before the GPU has run that list is destroyed in use, which validation
+  reports and a test that draws a few frames first never sees. Fill such a texture
+  with `writeTexture`. The test fixtures take their GPU objects down without waiting
+  and check validation after, to catch the next one.

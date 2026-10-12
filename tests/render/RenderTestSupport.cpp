@@ -59,6 +59,13 @@ RenderContext::RenderContext() : graphics(createTestDevice()) {
 }
 
 RenderContext::~RenderContext() {
+    // What was made with the device is gone by now, the fixtures of the test with it;
+    // whatever the validation layers said while it went - and since the test last
+    // asked - fails the test like anything they said before.
+    if (graphics) {
+        graphics->waitIdle();
+        checkNoValidationIssues(*graphics);
+    }
     // GPU shaders must be released before the device that created them.
     shaders.reset();
     library.reset();

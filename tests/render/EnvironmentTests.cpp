@@ -885,6 +885,17 @@ TEST_SUITE("Environment") {
         checkNoValidationIssues(*scene.context.graphics);
     }
 
+    TEST_CASE("a renderer that is taken down before the GPU has done anything for it leaves nothing in use") {
+        // What is made together with a renderer - the stand-ins for "no environment",
+        // filled with black - goes with it, at once: no frame was drawn, nothing waited.
+        for (int round = 0; round < 3; ++round) {
+            SceneFixture scene;
+            scene.open();
+            scene.renderer.reset();
+            checkNoValidationIssues(*scene.context.graphics);
+        }
+    }
+
     TEST_CASE("the debug views of the G-buffer show no sky, and the views of the light do") {
         SceneFixture scene;
         scene.writeMatteMaterial("matte");

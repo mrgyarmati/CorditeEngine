@@ -36,7 +36,9 @@ std::unique_ptr<GraphicsDevice> createTestDevice();
 /// Fails the test if the validation layers reported anything, listing what they said.
 void checkNoValidationIssues(const GraphicsDevice& device);
 
-/// A device plus everything needed to load shaders on it.
+/// A device plus everything needed to load shaders on it. When it goes, it fails the
+/// test for any validation issue there is: what happens while the things a test made
+/// are taken down - a texture destroyed while the GPU still uses it - counts.
 struct RenderContext {
     RenderContext();
     ~RenderContext();

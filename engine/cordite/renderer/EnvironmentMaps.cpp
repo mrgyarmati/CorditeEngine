@@ -104,7 +104,6 @@ Result<EnvironmentMaps> EnvironmentMaps::create(nvrhi::IDevice* device, ShaderMa
     skyDesc.height = 1;
     skyDesc.format = nvrhi::Format::RGBA16_FLOAT;
     skyDesc.debugName = "No sky";
-    skyDesc.isRenderTarget = true;
     skyDesc.initialState = nvrhi::ResourceStates::ShaderResource;
     skyDesc.keepInitialState = true;
     none.sky = device->createTexture(skyDesc);
@@ -113,14 +112,21 @@ Result<EnvironmentMaps> EnvironmentMaps::create(nvrhi::IDevice* device, ShaderMa
     }
     // Black, by a command list of its own: this may be called while a frame is being
     // recorded, and only one command list that executes at once can be open at a time.
+    // Written, not cleared: a command list keeps alive what it writes to, but not what
+    // it only clears - and these may go with a renderer that is taken down again
+    // before the GPU has got round to the list.
     const nvrhi::CommandListHandle commandList =
         device->createCommandList(nvrhi::CommandListParameters().setEnableImmediateExecution(false));
     if (!commandList) {
         return makeError(ErrorCode::DeviceError, "cannot create a command list for the environment maps");
     }
+    // One texel of four half floats: no light.
+    constexpr std::array<uint16_t, 4> kBlack = {0, 0, 0, 0};
     commandList->open();
-    commandList->clearTextureFloat(none.radiance, nvrhi::AllSubresources, nvrhi::Color(0.0f));
-    commandList->clearTextureFloat(none.sky, nvrhi::AllSubresources, nvrhi::Color(0.0f));
+    for (uint32_t face = 0; face < kFaceCount; ++face) {
+        commandList->writeTexture(none.radiance, face, 0, kBlack.data(), sizeof(kBlack));
+    }
+    commandList->writeTexture(none.sky, 0, 0, kBlack.data(), sizeof(kBlack));
     commandList->close();
     device->executeCommandList(commandList);
 

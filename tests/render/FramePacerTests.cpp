@@ -14,6 +14,13 @@ namespace {
 struct PacerFixture {
     PacerFixture() : target(test::createColorTarget(context.device(), 2048, 2048)) {}
 
+    // A command list does not keep alive what it only clears: the GPU is to be done
+    // with the texture before the texture goes.
+    ~PacerFixture() { context.graphics->waitIdle(); }
+
+    PacerFixture(const PacerFixture&) = delete;
+    PacerFixture& operator=(const PacerFixture&) = delete;
+
     void submitFrame() {
         recordAndExecute(context, [&](nvrhi::ICommandList* commandList) {
             for (int clear = 0; clear < 16; ++clear) {
