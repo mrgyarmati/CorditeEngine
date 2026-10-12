@@ -69,6 +69,12 @@ cordite_add_test_suite(animation
     LIBRARIES
         cordite::animation)
 
+cordite_add_test_suite(physics
+    SOURCES
+        unit/physics/PhysicsWorldTests.cpp
+    LIBRARIES
+        cordite::physics)
+
 cordite_add_test_suite(platform
     SOURCES
         unit/platform/InputTests.cpp

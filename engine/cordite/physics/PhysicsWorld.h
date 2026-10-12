@@ -1,0 +1,265 @@
+#pragma once
+
+/// @file
+/// The simulation of rigid bodies: what falls, collides, slides and comes to rest.
+///
+/// A PhysicsWorld holds bodies - a shape, a mass, where it is and how it moves - and
+/// moves them on by a step of time. It knows nothing of entities or components; the
+/// physics system (PhysicsSystem.h) is what keeps a World and a PhysicsWorld in step.
+///
+/// @code
+/// CORDITE_TRY_ASSIGN(const std::unique_ptr<PhysicsWorld> physics, PhysicsWorld::create());
+/// CORDITE_TRY_ASSIGN(const BodyId floor,
+///                    physics->createBody({.motion = BodyMotion::Static,
+///                                         .shape = {.type = ShapeType::Box, .size = Vec3(20.0f, 1.0f, 20.0f)},
+///                                         .position = Vec3(0.0f, -0.5f, 0.0f)}));
+/// CORDITE_TRY_ASSIGN(const BodyId ball, physics->createBody({.shape = {.type = ShapeType::Sphere, .radius = 0.5f},
+///                                                            .position = Vec3(0.0f, 4.0f, 0.0f)}));
+///
+/// for (int step = 0; step < 120; ++step) {
+///     physics->step(1.0f / 60.0f);
+/// }
+/// const Vec3 restsAt = physics->position(ball);       // on the floor: (0, 0.5, 0)
+///
+/// if (const std::optional<RayHit> hit = physics->raycast(Ray{Vec3(0.0f, 10.0f, 0.0f), -kWorldUp}, 100.0f)) {
+///     // hit->body == ball, hit->distance == 9, hit->normal == (0, 1, 0)
+/// }
+/// @endcode
+///
+/// Units and conventions are the engine's: metres, kilograms, seconds; right-handed with
+/// +Y up; rotations as unit quaternions. A simulation is repeatable: the same bodies,
+/// created in the same order and stepped by the same times, end up in the same places,
+/// to the bit, on every machine.
+///
+/// The library behind it is Jolt Physics, which no header of the engine shows.
+///
+/// Not thread-safe: use a PhysicsWorld from one thread at a time.
+
+#include "cordite/core/Base.h"
+#include "cordite/core/Result.h"
+#include "cordite/math/Geometry.h"
+#include "cordite/math/Math.h"
+
+#include <array>
+#include <cstdint>
+#include <functional>
+#include <memory>
+#include <optional>
+#include <string_view>
+
+namespace cordite {
+
+/// Refers to a body of one PhysicsWorld. A plain value; it stops being valid when its
+/// body is destroyed, and is then never mistaken for a body made later.
+struct BodyId {
+    /// What a default-constructed BodyId holds: no body.
+    static constexpr uint32_t kNone = 0xFFFFFFFFu;
+
+    uint32_t value = kNone;
+
+    [[nodiscard]] constexpr bool isNull() const noexcept { return value == kNone; }
+
+    constexpr bool operator==(const BodyId&) const noexcept = default;
+};
+
+/// How a body moves.
+enum class BodyMotion : uint8_t {
+    /// It does not: the ground, a wall. Costs next to nothing.
+    Static,
+    /// It goes where it is told and is not moved by anything: a platform, a door. What
+    /// is in its way is pushed.
+    Kinematic,
+    /// It is moved by gravity, by what it collides with and by the forces on it.
+    Dynamic,
+};
+
+inline constexpr std::array<BodyMotion, 3> kBodyMotions = {BodyMotion::Static, BodyMotion::Kinematic,
+                                                           BodyMotion::Dynamic};
+
+/// The name used in files and by tools: "static", "kinematic", "dynamic".
+std::string_view nameOf(BodyMotion motion);
+
+/// The form of a body, for collisions.
+enum class ShapeType : uint8_t {
+    /// A box of ShapeDesc::size.
+    Box,
+    /// A ball of ShapeDesc::radius.
+    Sphere,
+    /// A cylinder along Y with a half ball at either end: ShapeDesc::radius thick and
+    /// ShapeDesc::height from end to end.
+    Capsule,
+};
+
+inline constexpr std::array<ShapeType, 3> kShapeTypes = {ShapeType::Box, ShapeType::Sphere, ShapeType::Capsule};
+
+/// The name used in files and by tools: "box", "sphere", "capsule".
+std::string_view nameOf(ShapeType type);
+
+/// A shape, centred on the body it belongs to.
+struct ShapeDesc {
+    ShapeType type = ShapeType::Box;
+    /// Of a box: its edge lengths, in metres.
+    Vec3 size{1.0f};
+    /// Of a sphere and of a capsule, in metres.
+    float radius = 0.5f;
+    /// Of a capsule: from end to end, in metres. One that is no taller than it is wide
+    /// is a sphere.
+    float height = 2.0f;
+};
+
+/// What a body is made with.
+struct BodyDesc {
+    BodyMotion motion = BodyMotion::Dynamic;
+    ShapeDesc shape;
+    /// Where its centre is, in metres.
+    Vec3 position{0.0f};
+    /// Of any length but none; brought to unit length.
+    Quat rotation = kIdentityQuat;
+    /// In kilograms; of a dynamic body, more than nothing. How its mass is spread is
+    /// worked out from its shape.
+    float mass = 1.0f;
+    /// How much it resists sliding: 0 ice, 1 rubber. Of two bodies that touch, the
+    /// geometric mean counts.
+    float friction = 0.5f;
+    /// How much of its speed it keeps when it bounces: 0 none, 1 all of it. Of two
+    /// bodies that touch, the larger counts.
+    float restitution = 0.0f;
+    /// How fast it loses speed, and spin, by itself: the share lost in a second.
+    float linearDamping = 0.05f;
+    float angularDamping = 0.05f;
+    /// How much gravity pulls at it: 1 as at everything, 0 not at all.
+    float gravityScale = 1.0f;
+    /// Checked against what it might pass through between two steps, at some cost: for
+    /// what is small and fast, like a bullet.
+    bool continuous = false;
+    /// It may fall asleep when it has come to rest, and then costs nothing until
+    /// something touches it.
+    bool allowSleep = true;
+    /// Whatever the owner of the body wants to find again from a BodyId or a RayHit.
+    uint64_t userData = 0;
+};
+
+/// How large a simulation may become. The memory for all of it is taken when the world
+/// is made.
+struct PhysicsWorldDesc {
+    /// The pull on every dynamic body, in metres per second squared.
+    Vec3 gravity{0.0f, -9.81f, 0.0f};
+    /// Bodies of all kinds together.
+    uint32_t maxBodies = 16384;
+    /// Pairs of bodies that are near each other in one step, and points at which bodies
+    /// touch. A step that needs more leaves some contacts out, which is reported.
+    uint32_t maxBodyPairs = 65536;
+    uint32_t maxContactConstraints = 16384;
+};
+
+/// Where a ray hits a body.
+struct RayHit {
+    BodyId body;
+    /// BodyDesc::userData of the body.
+    uint64_t userData = 0;
+    /// Along the ray, in metres.
+    float distance = 0.0f;
+    Vec3 position{0.0f};
+    /// Of the surface that was hit, pointing out of the body; unit length.
+    Vec3 normal{0.0f, 1.0f, 0.0f};
+};
+
+/// What a PhysicsWorld holds, and has done.
+struct PhysicsStatistics {
+    uint32_t bodies = 0;
+    /// Bodies that are being simulated: dynamic and kinematic ones that are not asleep.
+    uint32_t activeBodies = 0;
+    /// Steps taken since the world was made.
+    uint64_t steps = 0;
+    /// Steps that needed more room than PhysicsWorldDesc gives, and left contacts out.
+    uint64_t overflowedSteps = 0;
+
+    bool operator==(const PhysicsStatistics&) const = default;
+};
+
+class PhysicsWorld {
+public:
+    /// Fails when a limit of `desc` is zero or its gravity is not made of numbers.
+    [[nodiscard]] static Result<std::unique_ptr<PhysicsWorld>> create(const PhysicsWorldDesc& desc = {});
+    ~PhysicsWorld();
+    CORDITE_NON_MOVABLE(PhysicsWorld);
+
+    /// Adds a body. Fails - and adds nothing - for a shape without volume, a dynamic
+    /// body without mass, numbers that are none, and when the world is full.
+    [[nodiscard]] Result<BodyId> createBody(const BodyDesc& desc);
+
+    /// Removes a body. An id that is not a body's (any more) is ignored.
+    void destroyBody(BodyId body);
+
+    [[nodiscard]] bool isValid(BodyId body) const;
+
+    // What follows takes the id of a body that exists. Any other id is a mistake of the
+    // caller, asserted; without assertions, questions are answered with nothing - a
+    // body at the origin that does not move - and requests are ignored.
+
+    [[nodiscard]] BodyMotion motion(BodyId body) const;
+    [[nodiscard]] uint64_t userData(BodyId body) const;
+
+    /// Where the centre of the body is, and how it is turned.
+    [[nodiscard]] Vec3 position(BodyId body) const;
+    [[nodiscard]] Quat rotation(BodyId body) const;
+
+    /// Puts a body somewhere else at once, whatever is there: it does not move through
+    /// what lies between, and keeps its speed. Wakes it.
+    void setPlacement(BodyId body, const Vec3& position, const Quat& rotation);
+
+    /// Has a kinematic body be at a place after the next step of `seconds`, moving
+    /// there at the speed that takes - so that what it meets on the way is pushed, and
+    /// what stands on it is carried. Ignored for bodies of another kind.
+    void moveKinematic(BodyId body, const Vec3& position, const Quat& rotation, float seconds);
+
+    /// In metres per second, and in radians per second about each axis.
+    [[nodiscard]] Vec3 linearVelocity(BodyId body) const;
+    [[nodiscard]] Vec3 angularVelocity(BodyId body) const;
+    /// Ignored for a static body. Wakes the body.
+    void setLinearVelocity(BodyId body, const Vec3& velocity);
+    void setAngularVelocity(BodyId body, const Vec3& velocity);
+
+    /// A push at the centre of a dynamic body: a force, in newtons, acts during the
+    /// next step and is then forgotten; an impulse, in newton seconds, changes its speed
+    /// at once. Ignored for bodies of another kind. Wakes the body.
+    void addForce(BodyId body, const Vec3& force);
+    void addImpulse(BodyId body, const Vec3& impulse);
+    /// A twist about its centre, in newton metres, during the next step.
+    void addTorque(BodyId body, const Vec3& torque);
+
+    /// Whether the body is being simulated: false for one that is static or asleep.
+    [[nodiscard]] bool isActive(BodyId body) const;
+    /// Wakes a body that is asleep.
+    void activate(BodyId body);
+
+    /// Lets `seconds` pass in one step. Steps of the same length every time - a sixtieth
+    /// of a second is usual - keep a simulation stable and repeatable; no time, less
+    /// than none and a time that is no number are no step.
+    void step(float seconds);
+
+    /// The first thing a ray hits within `maxDistance` metres, or nothing. A ray that
+    /// starts inside a body hits it at once, at distance zero. A direction of no length
+    /// hits nothing.
+    [[nodiscard]] std::optional<RayHit> raycast(const Ray& ray, float maxDistance) const;
+
+    [[nodiscard]] Vec3 gravity() const;
+    /// Takes effect with the next step. A gravity that is not made of numbers is ignored.
+    void setGravity(const Vec3& gravity);
+
+    [[nodiscard]] PhysicsStatistics statistics() const;
+
+private:
+    struct Impl;
+
+    explicit PhysicsWorld(std::unique_ptr<Impl> impl);
+
+    std::unique_ptr<Impl> m_impl;
+};
+
+} // namespace cordite
+
+template <>
+struct std::hash<cordite::BodyId> {
+    size_t operator()(const cordite::BodyId& body) const noexcept { return std::hash<uint32_t>{}(body.value); }
+};

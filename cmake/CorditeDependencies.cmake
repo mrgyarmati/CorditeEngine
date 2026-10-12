@@ -181,10 +181,53 @@ cordite_declare_dependency(mikktspace
     SHA256 aeba65ddee85a679133d510d71d00b108f603752f90b15b9ecf7777033f6e351
     SOURCES_ONLY)
 
+# --- Jolt Physics: rigid bodies, collision queries, character movement -------------------
+# Its CMake project is in Build/. It is built like the engine around it: with exceptions
+# and run-time type information - the engine derives from its interfaces - and for the
+# instruction set every x86-64 processor has, not the newer ones Jolt would choose, so
+# that a game does not stop on an older machine where its physics begins. It keeps to
+# arithmetic that gives the same results on every compiler and platform, which is what
+# lets a simulation be repeated. Its simulations on the GPU are left out: they need a
+# shader compiler the build would have to find on the machine.
+cordite_declare_dependency(joltphysics
+    URL https://github.com/jrouwe/JoltPhysics/archive/refs/tags/v5.6.0.tar.gz
+    SHA256 6e069ee0172478cc78182047aac87e5310ba14a67a53348ae14cc37801fd3f8e
+    SOURCE_SUBDIR Build)
+cordite_dependency_option(USE_STATIC_MSVC_RUNTIME_LIBRARY ON)
+cordite_dependency_option(OVERRIDE_CXX_FLAGS OFF)
+cordite_dependency_option(ENABLE_ALL_WARNINGS OFF)
+cordite_dependency_option(INTERPROCEDURAL_OPTIMIZATION OFF)
+cordite_dependency_option(CPP_EXCEPTIONS_ENABLED ON)
+cordite_dependency_option(CPP_RTTI_ENABLED ON)
+cordite_dependency_option(CROSS_PLATFORM_DETERMINISTIC ON)
+cordite_dependency_option(USE_SSE4_1 OFF)
+cordite_dependency_option(USE_SSE4_2 OFF)
+cordite_dependency_option(USE_AVX OFF)
+cordite_dependency_option(USE_AVX2 OFF)
+cordite_dependency_option(USE_AVX512 OFF)
+cordite_dependency_option(USE_LZCNT OFF)
+cordite_dependency_option(USE_TZCNT OFF)
+cordite_dependency_option(USE_F16C OFF)
+cordite_dependency_option(USE_FMADD OFF)
+cordite_dependency_option(DEBUG_RENDERER_IN_DEBUG_AND_RELEASE OFF)
+cordite_dependency_option(PROFILER_IN_DEBUG_AND_RELEASE OFF)
+cordite_dependency_option(ENABLE_OBJECT_STREAM OFF)
+cordite_dependency_option(ENABLE_INSTALL OFF)
+cordite_dependency_option(FLOATING_POINT_EXCEPTIONS_ENABLED OFF)
+cordite_dependency_option(JPH_USE_DX12 OFF)
+cordite_dependency_option(JPH_USE_VK OFF)
+cordite_dependency_option(JPH_USE_MTL OFF)
+cordite_dependency_option(JPH_USE_CPU_COMPUTE OFF)
+
 FetchContent_MakeAvailable(
     fmt spdlog nlohmann_json tl_expected enkits xxhash glm
     glfw vulkan_headers nvrhi stb cli11 entt imgui
-    cgltf meshoptimizer mikktspace)
+    cgltf meshoptimizer mikktspace joltphysics)
+
+# Jolt checks itself where the engine does: in the configurations with assertions. They
+# are reported through the engine's (see cordite/physics/PhysicsWorld.cpp).
+target_compile_definitions(Jolt PUBLIC $<$<NOT:$<CONFIG:Release>>:JPH_ENABLE_ASSERTS>)
+set_target_properties(Jolt PROPERTIES FOLDER "ThirdParty")
 
 add_library(cordite_xxhash INTERFACE)
 add_library(cordite::xxhash ALIAS cordite_xxhash)

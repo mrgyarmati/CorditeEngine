@@ -25,7 +25,8 @@ number are what its list of milestones leaves out and its requirements ask for:
 | - | Image-based lighting: HDR images of the sky as environments - the sky itself, its light on matte surfaces, its reflection on shiny ones | Done |
 | 9 | Screen-space effects: ambient occlusion from the screen, fog, anti-aliasing (FXAA). Screen-space reflections, which the brief marks optional, are listed below | Done |
 | - | Skeletal meshes and animation: skinned glTF models, skeletons and animation clips are imported, exported and listed as assets; an `Animator` component plays clips and blends two of them into a pose (`animation` module); skinned meshes are drawn in those poses on the GPU, instanced, with shadows and culling that follow the pose; the engine plays the animators of a world, placing a model sets its skeletons up, and the showcase has a hoist whose cable swings | Done |
-| 10 | Physics and gameplay | Planned |
+| 10 | Physics and gameplay: rigid bodies, colliders, a character controller, input and scripting. So far: a physics world of rigid bodies over Jolt Physics - boxes, spheres and capsules that fall, collide and rest, and raycasts - as a module of its own (`physics`), not yet used by the engine | In progress |
+| - | Audio: playback in 2D and 3D, listeners, buses, attenuation, with miniaudio | Planned |
 | 11 | Editor maturity | Planned |
 | 12 | Packaging and export | Planned |
 

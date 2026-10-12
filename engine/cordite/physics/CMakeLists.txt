@@ -1,0 +1,10 @@
+cordite_add_module(physics
+    SOURCES
+        JoltSupport.h
+        PhysicsWorld.cpp
+        PhysicsWorld.h
+    DEPENDS
+        core
+        math
+    PRIVATE_LIBRARIES
+        Jolt::Jolt)

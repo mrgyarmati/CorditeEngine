@@ -35,6 +35,7 @@ of slowly turning the code base into a ball of mud.
 | `assets` | `core`, `math` | Assets as data, and where they come from: images and mipmaps; meshes, primitives and mesh processing; materials; glTF import and export; the asset database, which knows what exists and under which id; the asset manager, which loads by id. Knows nothing of the GPU. |
 | `world` | `core`, `math` | The scene: entities, their components and their parent/child hierarchy, stored with EnTT; the registry of component types known by name; scene files. |
 | `animation` | `core`, `math`, `assets`, `world` | Movement of skeletons: the functions that make a pose (sampling a clip, blending two poses, the matrices a mesh is skinned with, the bounds of a posed mesh), the `Animator` component, and `AnimationSystem`, which plays the animators of a world and gives each the pose it is in. |
+| `physics` | `core`, `math` | The simulation of rigid bodies: `PhysicsWorld` holds bodies - a shape, a mass, where each is and how it moves - steps them on in time and answers what a ray hits. Jolt Physics is behind it and shows in none of its headers. The engine does not use it yet. |
 | `rhi` | `core`, `math`, `platform` | The GPU: Vulkan instance and device creation, the NVRHI device the renderer programs against, the swapchain, and texture readback. The only module that calls Vulkan. |
 | `shaders` | `core` | What a shader *is* to the engine: requests and their permutation keys, compiled binaries, the on-disk cache, and the `ShaderLibrary` that resolves a request from memory, disk or a compiler. |
 | `shader_compiler` | `core`, `shaders` | The Slang-based implementation of `IShaderCompiler`. Kept separate so exported games do not link a compiler. |
@@ -43,7 +44,7 @@ of slowly turning the code base into a ball of mud.
 | `engine` | all of the above | `Engine`: creates and owns the subsystems, the assets, the world and the interface, and runs the frame loop. Also what needs several of the modules below at once: projects, placing a model in a world, checking the assets a scene refers to. |
 | `editor` | `engine` and below | The editor: the scene document, undoable actions, the command registry, the panels, and `EditorApp`. Not part of exported games. |
 
-Further modules (physics, audio, scripting) are added by the later milestones and will be
+Further modules (audio, scripting) are added by the later milestones and will be
 listed here as they land.
 
 ### A frame
@@ -1157,6 +1158,36 @@ for free, but it needs a target of ids, a pass to fill it and a frame's wait for
 answer; picking is rare, and the CPU's answer is there at once and is the same in a
 test without a device. The rule for which pose a mesh is in is one function,
 `findSkeletonPose`, that the renderer and the editor both call.
+
+### Physics is Jolt, behind a world of the engine's own types
+
+Rigid bodies, collision detection and a character that walks on slopes and steps are
+years of work and are not written here. Jolt Physics does them: it is under the MIT
+license, is maintained and released regularly, builds from source with CMake alone on
+all three platforms, has a character controller of its own, and is deterministic by
+design. Bullet has not kept pace, and PhysX is a far larger build for a feature set a
+game of this kind does not need.
+
+`PhysicsWorld` is all of it the engine sees: ids, descriptions made of the engine's
+vectors, and functions. The cost is a layer of forwarding; what it buys is that
+nothing outside one module is compiled against Jolt - which makes builds faster,
+keeps Jolt's macros and conventions in one place, and would let the library be
+replaced.
+
+### Physics is built for the processor every machine has, and gives the same results on all of them
+
+Jolt would build itself for AVX2 and fused multiply-add. The rest of the engine is
+built for the baseline of x86-64, and a game must not start on an older machine only
+to stop where its physics begins - so Jolt is built for the baseline too. It is also
+built in the mode that gives the same results with every compiler and on every
+platform: a simulation can then be repeated, which tests rely on, replays and
+networked games will, and bug reports do. Both cost some speed. A test holds the build
+to it with the fingerprint of a small simulation, which MSVC and clang-cl agree on in
+all configurations.
+
+Jolt's jobs are run on the calling thread for now. Simulations on several threads
+are deterministic in Jolt as well, and running its jobs on the engine's job system is
+the next step when scenes need it.
 
 ### Enum names use `nameOf`, not `toString`
 

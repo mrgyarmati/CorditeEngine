@@ -127,6 +127,7 @@ by accident.
 | `assets` | `core`, `math` | Assets as data: images and mipmaps, meshes - rigid and skinned - and what prepares them, skeletons, animation clips, materials, glTF import and export, the asset database (ids, `.meta` files) and the asset manager (loading by id) |
 | `world` | `core`, `math` | Entities, components and their hierarchy (EnTT), the component registry, scene files |
 | `animation` | `core`, `math`, `assets`, `world` | Poses of skeletons and what makes them: sampling clips, blending, the matrices a mesh is skinned with and the bounds of a posed mesh; the `Animator` component; `AnimationSystem`, which plays the animators of a world |
+| `physics` | `core`, `math` | `PhysicsWorld`: rigid bodies, their shapes, stepping and raycasts, over Jolt Physics. Not used by the engine yet |
 | `rhi` | `core`, `math`, `platform` | Vulkan device, swapchain and texture readback over NVRHI |
 | `shaders` | `core` | Shader requests and permutation keys, disk cache, `ShaderLibrary` |
 | `shader_compiler` | `core`, `shaders` | Slang to SPIR-V compiler (not linked into exported games) |
@@ -655,6 +656,29 @@ Step-by-step guide: [work-with-assets](.claude/skills/work-with-assets/SKILL.md)
   pixels the bent bar covers, and that a bar at rest is drawn bit for bit like the
   mesh without a pose.
 
+## Physics
+
+- **Jolt stays behind `PhysicsWorld`.** No header of the engine shows a type of it, and
+  only sources of the `physics` module include `<Jolt/...>` - after
+  `cordite/physics/JoltSupport.h`, which brings in the `Jolt/Jolt.h` that every header
+  of Jolt needs before it and that clang-format would otherwise sort behind them.
+- **Jolt takes numbers for granted.** Everything that reaches it is checked first:
+  sizes with volume, masses of more than nothing, positions and rotations made of
+  numbers. What can come from a file or a script is refused with an error
+  (`createBody`); what only code can get wrong is asserted and then ignored.
+- **A simulation is repeatable.** The same bodies, made in the same order and stepped
+  by the same times, end up in the same places to the bit - with every compiler, in
+  every configuration. `PhysicsWorldTests` pins a fingerprint of a toppling pile;
+  when it changes, Jolt or how it is built has changed (`CorditeDependencies.cmake`:
+  no instruction sets beyond the baseline, no fused multiply-add), and that is a
+  decision to make knowingly. Steps are of one fixed length.
+- **A step that runs out of room is reported, not asserted** (`PhysicsStatistics::
+  overflowedSteps`, one warning): how many bodies touch depends on the scene, not on
+  the code. It is the one assertion of Jolt that is let pass; all others are reported
+  as the engine's own.
+- **Jolt is built without what it would look for on the machine**: its simulations on
+  the GPU want a shader compiler, and are switched off.
+
 ## Editor and automation
 
 Step-by-step guide for scripting the editor and adding commands:
@@ -803,6 +827,11 @@ body explaining what changed and why. One logical change per commit.
   two values is not obvious at the call site.
 - Shell working directories persist between commands in agent sessions. Use absolute
   paths, or `cd` to the repository root at the start of every command.
+- `CORDITE_NON_MOVABLE` deletes copying as well; with `CORDITE_NON_COPYABLE` beside it
+  the copy operations are declared twice, which MSVC refuses.
+- A function in an unnamed namespace hides every function of the same name in the
+  namespace around it, whatever its parameters: a local `toJolt(BodyId)` makes the
+  `toJolt(Vec3)` of a header unreachable. Give local helpers names of their own.
 - EnTT is pinned to the 3.x line on purpose: 4.0 relies on C++20 syntax that MSVC 19.38
   rejects. Check every supported compiler before moving to a new major version of a
   header-only library.
