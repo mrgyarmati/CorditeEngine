@@ -23,11 +23,18 @@ number are what its list of milestones leaves out and its requirements ask for:
 | 7 | Shadows: shadow maps in an atlas for directional, point and spot lights, cascades for the sun, soft filtered edges | Done |
 | 8 | HDR and post-processing: exposure by hand or automatic, bloom, filmic and ACES tone mapping, color grading with lookup tables, vignette, grain, quality presets | Done |
 | - | Image-based lighting: HDR images of the sky as environments - the sky itself, its light on matte surfaces, its reflection on shiny ones | Done |
-| 9 | Screen-space effects: ambient occlusion, fog and anti-aliasing done; reflections to come | In progress |
+| 9 | Screen-space effects: ambient occlusion from the screen, fog, anti-aliasing (FXAA). Screen-space reflections, which the brief marks optional, are listed below | Done |
 | - | Skeletal meshes and animation: skinned glTF models, skeletons, animation clips, playback and blending, an animated mesh in the showcase | Planned |
 | 10 | Physics and gameplay | Planned |
 | 11 | Editor maturity | Planned |
 | 12 | Packaging and export | Planned |
+
+What the brief asks of the renderer that no milestone names, and that is not built
+yet: screen-space reflections, decals, depth of field, motion blur (and the motion
+vectors it and a temporal anti-aliasing need), light shafts and lens flares, rect
+lights, light cookies, lights that light the fog, local reflection and ambient probes,
+baked lighting, levels of detail, texture streaming, render-to-texture and more than
+one viewport in the editor. They follow once the milestones above stand.
 
 ## Building
 
