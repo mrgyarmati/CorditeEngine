@@ -9,7 +9,8 @@ The full product brief is [AIGameEngine.md](AIGameEngine.md).
 
 ## Status
 
-Cordite is under active development. Milestones follow the brief:
+Cordite is under active development. Milestones follow the brief; the ones without a
+number are what its list of milestones leaves out and its requirements ask for:
 
 | # | Milestone | State |
 |---|-----------|-------|
@@ -23,6 +24,7 @@ Cordite is under active development. Milestones follow the brief:
 | 8 | HDR and post-processing: exposure by hand or automatic, bloom, filmic and ACES tone mapping, color grading with lookup tables, vignette, grain, quality presets | Done |
 | - | Image-based lighting: HDR images of the sky as environments - the sky itself, its light on matte surfaces, its reflection on shiny ones | Done |
 | 9 | Screen-space effects: ambient occlusion and fog done; reflections and anti-aliasing to come | In progress |
+| - | Skeletal meshes and animation: skinned glTF models, skeletons, animation clips, playback and blending, an animated mesh in the showcase | Planned |
 | 10 | Physics and gameplay | Planned |
 | 11 | Editor maturity | Planned |
 | 12 | Packaging and export | Planned |
