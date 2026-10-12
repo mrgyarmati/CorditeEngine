@@ -24,7 +24,7 @@ number are what its list of milestones leaves out and its requirements ask for:
 | 8 | HDR and post-processing: exposure by hand or automatic, bloom, filmic and ACES tone mapping, color grading with lookup tables, vignette, grain, quality presets | Done |
 | - | Image-based lighting: HDR images of the sky as environments - the sky itself, its light on matte surfaces, its reflection on shiny ones | Done |
 | 9 | Screen-space effects: ambient occlusion from the screen, fog, anti-aliasing (FXAA). Screen-space reflections, which the brief marks optional, are listed below | Done |
-| - | Skeletal meshes and animation: skinned glTF models, skeletons and animation clips are imported, exported and listed as assets; an `Animator` component plays clips and blends two of them into a pose (`animation` module). Drawing skinned meshes with those poses, and the editor and showcase side, are to come | In progress |
+| - | Skeletal meshes and animation: skinned glTF models, skeletons and animation clips are imported, exported and listed as assets; an `Animator` component plays clips and blends two of them into a pose (`animation` module); skinned meshes are drawn in those poses on the GPU, instanced, with shadows and culling that follow the pose. The engine does not run the animation system yet, and the editor and showcase side are to come | In progress |
 | 10 | Physics and gameplay | Planned |
 | 11 | Editor maturity | Planned |
 | 12 | Packaging and export | Planned |

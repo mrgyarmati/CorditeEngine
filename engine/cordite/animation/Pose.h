@@ -31,6 +31,7 @@
 #include "cordite/assets/Mesh.h"
 #include "cordite/assets/Skeleton.h"
 #include "cordite/math/Curve.h"
+#include "cordite/math/Geometry.h"
 #include "cordite/math/Math.h"
 #include "cordite/math/Transform.h"
 
@@ -86,5 +87,13 @@ void skinningMatrices(const SkeletonData& skeleton, std::span<const Mat4> inMode
 /// to know without drawing - bounds, picking, tests. A joint the matrices do not have
 /// leaves the point where it was.
 [[nodiscard]] Vec3 skinPosition(const Vec3& position, const MeshSkinVertex& skin, std::span<const Mat4> skinning);
+
+/// A box around a skinned mesh in a pose, in the space of the mesh. `jointBounds` is
+/// jointBounds() of the mesh (assets/Mesh.h) and `skinning` the matrices of the pose.
+/// The box encloses every vertex, with room to spare: each joint moves the box of all
+/// that follows it, however little. A joint the pose has no matrix for, or a matrix
+/// that is not made of numbers, leaves its box where it was. Empty when no joint has a
+/// box.
+[[nodiscard]] Aabb skinnedBounds(std::span<const Aabb> jointBounds, std::span<const Mat4> skinning);
 
 } // namespace cordite

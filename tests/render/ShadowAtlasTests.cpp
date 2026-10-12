@@ -7,11 +7,13 @@
 #include "cordite/renderer/MeshDrawList.h"
 #include "cordite/renderer/RenderResources.h"
 #include "cordite/renderer/ShadowPlan.h"
+#include "cordite/renderer/SkinPalettes.h"
 
 #include "render/RenderTestSupport.h"
 
 #include <initializer_list>
 #include <memory>
+#include <optional>
 #include <vector>
 
 using namespace cordite;
@@ -21,15 +23,18 @@ using cordite::test::unwrap;
 
 namespace {
 
-/// A device, and what an atlas needs to be made: the layout of a material's bindings.
+/// A device, and what an atlas needs to be made: the layouts of a material's bindings
+/// and of the joint matrices.
 struct AtlasFixture {
     AtlasFixture() {
         assets = unwrap(AssetManager::create());
         resources = unwrap(RenderResources::create(context.device(), *assets));
+        palettes = unwrap(SkinPalettes::create(context.device()));
     }
 
     ~AtlasFixture() {
         // GPU objects go before the device that made them.
+        palettes.reset();
         resources.reset();
         context.graphics->waitIdle();
     }
@@ -38,12 +43,14 @@ struct AtlasFixture {
     AtlasFixture& operator=(const AtlasFixture&) = delete;
 
     [[nodiscard]] ShadowAtlas createAtlas() {
-        return unwrap(ShadowAtlas::create(context.device(), *context.shaders, resources->materialLayout()));
+        return unwrap(
+            ShadowAtlas::create(context.device(), *context.shaders, resources->materialLayout(), palettes->layout()));
     }
 
     RenderContext context;
     std::unique_ptr<AssetManager> assets;
     std::unique_ptr<RenderResources> resources;
+    std::optional<SkinPalettes> palettes;
 };
 
 } // namespace
@@ -131,9 +138,10 @@ TEST_SUITE("ShadowAtlas") {
                 fixture.resources->flushUploads();
                 atlas.clear(commandList);
                 list.build(commandList, draws, Vec3(0.0f), kWorldForward);
-                drawn = atlas.draw(commandList, shadow, list.solidBatches(), list.instanceBuffer());
+                drawn = atlas.draw(commandList, shadow, list.solidBatches(), list.instanceBuffer(),
+                                   fixture.palettes->bindings());
                 // Nothing to draw is not an error, whatever the tile.
-                nothing = atlas.draw(commandList, ShadowView(), {}, nullptr);
+                nothing = atlas.draw(commandList, ShadowView(), {}, nullptr, nullptr);
             });
             CHECK(drawn == MeshPassStatistics{.drawCalls = 1, .instances = 1, .triangles = 12});
             CHECK(nothing == MeshPassStatistics{});
@@ -143,7 +151,8 @@ TEST_SUITE("ShadowAtlas") {
             ShadowView outside = shadow;
             outside.tileOrigin = UVec2(192, 192);
             test::recordAndExecute(fixture.context, [&](nvrhi::ICommandList* commandList) {
-                CHECK_THROWS_AS(atlas.draw(commandList, outside, list.solidBatches(), list.instanceBuffer()),
+                CHECK_THROWS_AS(atlas.draw(commandList, outside, list.solidBatches(), list.instanceBuffer(),
+                                           fixture.palettes->bindings()),
                                 test::AssertionFailure);
             });
 #endif

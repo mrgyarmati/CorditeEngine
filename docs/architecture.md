@@ -34,11 +34,11 @@ of slowly turning the code base into a ball of mud.
 | `platform` | `core`, `math` | The window system and windows (GLFW), and per-window keyboard, mouse and gamepad state with an injection API for tests and automation. |
 | `assets` | `core`, `math` | Assets as data, and where they come from: images and mipmaps; meshes, primitives and mesh processing; materials; glTF import and export; the asset database, which knows what exists and under which id; the asset manager, which loads by id. Knows nothing of the GPU. |
 | `world` | `core`, `math` | The scene: entities, their components and their parent/child hierarchy, stored with EnTT; the registry of component types known by name; scene files. |
-| `animation` | `core`, `math`, `assets`, `world` | Movement of skeletons: the functions that make a pose (sampling a clip, blending two poses, the matrices a mesh is skinned with), the `Animator` component, and `AnimationSystem`, which plays the animators of a world and gives each the pose it is in. The renderer and the engine do not use it yet. |
+| `animation` | `core`, `math`, `assets`, `world` | Movement of skeletons: the functions that make a pose (sampling a clip, blending two poses, the matrices a mesh is skinned with, the bounds of a posed mesh), the `Animator` component, and `AnimationSystem`, which plays the animators of a world and gives each the pose it is in. The engine does not run it yet. |
 | `rhi` | `core`, `math`, `platform` | The GPU: Vulkan instance and device creation, the NVRHI device the renderer programs against, the swapchain, and texture readback. The only module that calls Vulkan. |
 | `shaders` | `core` | What a shader *is* to the engine: requests and their permutation keys, compiled binaries, the on-disk cache, and the `ShaderLibrary` that resolves a request from memory, disk or a compiler. |
 | `shader_compiler` | `core`, `shaders` | The Slang-based implementation of `IShaderCompiler`. Kept separate so exported games do not link a compiler. |
-| `renderer` | `core`, `math`, `assets`, `world`, `rhi`, `shaders` | Drawing: the scene renderer and its passes (depth, G-buffer, deferred lighting, forward, debug views), the GPU copies of assets it draws with, the targets of a view, the components that make an entity visible or make it a light, the lights of a world sorted into the clusters of a view, the environment that surrounds a world made ready to light it, ambient occlusion worked out from the screen; the view a camera gives, debug line drawing, and the `ShaderManager` that turns shader binaries into GPU shader objects. |
+| `renderer` | `core`, `math`, `assets`, `world`, `animation`, `rhi`, `shaders` | Drawing: the scene renderer and its passes (depth, G-buffer, deferred lighting, forward, debug views), the GPU copies of assets it draws with, the targets of a view, the components that make an entity visible or make it a light, the lights of a world sorted into the clusters of a view, the environment that surrounds a world made ready to light it, ambient occlusion worked out from the screen; the view a camera gives, debug line drawing, and the `ShaderManager` that turns shader binaries into GPU shader objects. |
 | `ui` | `core`, `math`, `platform`, `rhi`, `shaders`, `renderer` | The immediate-mode user interface: the Dear ImGui context, its input, and the renderer that draws it with NVRHI. |
 | `engine` | all of the above | `Engine`: creates and owns the subsystems, the assets, the world and the interface, and runs the frame loop. Also what needs several of the modules below at once: projects, placing a model in a world, checking the assets a scene refers to. |
 | `editor` | `engine` and below | The editor: the scene document, undoable actions, the command registry, the panels, and `EditorApp`. Not part of exported games. |
@@ -1061,6 +1061,68 @@ would stand. The time of an animator is a property like any other: a person sets
 look through a clip, the edit is in the undo history, and the scene file gets what was
 set. A system that tidied the number up afterwards would change the document behind
 the back of everything that keeps track of it.
+
+### Skinning is a version of the one vertex shader
+
+A skinned mesh is drawn by `passes/MeshVertex.slang` compiled with `SKINNED`: the
+matrices of the up to four joints a vertex follows are blended by their weights into
+one, the matrix of the instance is multiplied with it, and from there on the shader
+does what it does for every mesh. Normals need nothing of their own: they are
+transformed by the cofactors of whatever matrix places the vertex, which is right for
+a joint that stretches what follows it as for one that only turns it.
+
+It is a version of the same file because the base pass keeps the pixels whose depth
+equals what the depth pre-pass wrote, and that holds only while both passes work
+positions out with the same code; a pass draws a skinned mesh with the skinned version
+in all its steps. That a skeleton at rest changes nothing is tested to the bit: its
+matrices are the identity, and multiplying by one and adding nothing leave a float as
+it is.
+
+How a vertex follows its joints is a vertex buffer of its own, beside the vertices, so
+that a mesh without a skin pays nothing and every pass reads the same vertices.
+Skinning on the CPU was not considered for long: it would send every vertex of every
+figure to the GPU every frame.
+
+One thing is not handled: a joint that mirrors what follows it turns its triangles the
+other way round, and the pipeline goes by the instance alone. An instance that is
+mirrored as a whole is drawn correctly.
+
+### The joint matrices of a view are one buffer, and an instance says where its own begin
+
+`SkinPalettes` holds the matrices of every pose a view is drawn in, one pose after
+another, in a structured buffer that is a binding set of its own. An instance carries
+the index of its first matrix, as it carries its lighting channels. The alternative -
+a buffer or a binding set for each figure - would make every figure a draw call of its
+own; this way a crowd of one mesh is one draw call in every pass, each figure in its
+own pose, and a pose that several meshes share is sent once.
+
+The matrices are in the space the mesh was modelled in, so the buffer is the same for
+the camera's view and for every shadow map of it, and is filled once for all of them.
+
+### A skinned mesh is drawn in the pose of what it hangs under
+
+The renderer takes the pose from the entity of the mesh, or from the nearest entity
+above it that has one. A figure is then one entity with an `Animator`, and its meshes -
+body, armour, hair, each a mesh of its own skinned to the same skeleton, as modelling
+programs export them - are entities below it that need nothing but a `MeshRenderer`.
+The other ways were an animator on every mesh, which game code would have to keep in
+step, or a reference from the mesh to the entity that poses it, which is one more thing
+to set and to get wrong.
+
+The pose moves the vertices where the mesh was modelled; after that the entity of the
+mesh places the result, like any mesh. A skinned mesh below a figure with another
+skeleton needs an animator of its own; one whose pose has fewer joints than its
+vertices follow is drawn as it was modelled, and the log says so once.
+
+### A posed mesh is bounded by the boxes of its joints
+
+What is in view, and what a light sees, is decided by boxes. The box of a mesh as it
+was modelled says nothing about a raised arm, so a skinned mesh keeps a box for every
+joint, around the vertices that follow it (`jointBounds`, worked out once). A vertex in
+a pose is somewhere between the places its joints would each take it to, so the boxes,
+each moved by its joint, enclose the mesh (`skinnedBounds`). It costs a box per joint
+and a matrix times a box per joint and frame, and it is never too small - only too
+large, where a vertex follows a joint by a little.
 
 ### Enum names use `nameOf`, not `toString`
 

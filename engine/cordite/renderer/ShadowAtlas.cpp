@@ -28,8 +28,9 @@ ShadowAtlas::ShadowAtlas(nvrhi::IDevice* device, nvrhi::BufferHandle constants, 
     : m_device(device), m_constants(std::move(constants)), m_bindings(std::move(bindings)), m_pass(std::move(pass)) {}
 
 Result<ShadowAtlas> ShadowAtlas::create(nvrhi::IDevice* device, ShaderManager& shaders,
-                                        nvrhi::IBindingLayout* materialLayout) {
-    CORDITE_ASSERT(device != nullptr && materialLayout != nullptr, "a shadow atlas needs a device and a layout");
+                                        nvrhi::IBindingLayout* materialLayout, nvrhi::IBindingLayout* jointLayout) {
+    CORDITE_ASSERT(device != nullptr && materialLayout != nullptr && jointLayout != nullptr,
+                   "a shadow atlas needs a device and the layouts of materials and joints");
 
     // A view of its own for the pass: the constants alone. The binding set the passes
     // of a camera's view use holds the atlas as something to read, which it cannot be
@@ -59,7 +60,10 @@ Result<ShadowAtlas> ShadowAtlas::create(nvrhi::IDevice* device, ShaderManager& s
         .path = "passes/MeshDepth.slang", .entryPoint = "meshDepthMaskedPixel", .stage = ShaderStage::Pixel};
     passDesc.depth = MeshPassDepth::TestAndWrite;
     passDesc.conventionalDepth = true;
-    CORDITE_TRY_ASSIGN(MeshPass pass, MeshPass::create(device, shaders, layout, materialLayout, std::move(passDesc)));
+    CORDITE_TRY_ASSIGN(MeshPass pass,
+                       MeshPass::create(device, shaders,
+                                        {.view = layout, .material = materialLayout, .joints = jointLayout},
+                                        std::move(passDesc)));
 
     ShadowAtlas atlas(device, std::move(constants), std::move(bindings), std::move(pass));
     CORDITE_TRY(atlas.resize(kMinShadowTileSize));
@@ -110,7 +114,8 @@ void ShadowAtlas::clear(nvrhi::ICommandList* commandList) {
 }
 
 MeshPassStatistics ShadowAtlas::draw(nvrhi::ICommandList* commandList, const ShadowView& view,
-                                     std::span<const MeshBatch> batches, nvrhi::IBuffer* instanceBuffer) {
+                                     std::span<const MeshBatch> batches, nvrhi::IBuffer* instanceBuffer,
+                                     nvrhi::IBindingSet* jointBindings) {
     if (batches.empty()) {
         return {};
     }
@@ -131,7 +136,8 @@ MeshPassStatistics ShadowAtlas::draw(nvrhi::ICommandList* commandList, const Sha
     const auto left = static_cast<float>(view.tileOrigin.x);
     const auto top = static_cast<float>(view.tileOrigin.y);
     const auto side = static_cast<float>(view.tileSize);
-    return m_pass.draw(commandList, m_framebuffer, batches, m_bindings, instanceBuffer,
+    return m_pass.draw(commandList, m_framebuffer, batches,
+                       {.view = m_bindings, .instances = instanceBuffer, .joints = jointBindings},
                        nvrhi::Viewport(left, left + side, top, top + side, 0.0f, 1.0f));
 }
 

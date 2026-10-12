@@ -43,6 +43,10 @@ Json describeFrameStatistics(const FrameStatistics& statistics) {
     scene["views"] = statistics.scene.views;
     scene["meshRenderers"] = statistics.scene.meshRenderers;
     scene["culled"] = statistics.scene.culled;
+    Json skinned = Json::object();
+    skinned["meshes"] = statistics.scene.skinnedMeshes;
+    skinned["jointMatrices"] = statistics.scene.jointMatrices;
+    scene["skinned"] = std::move(skinned);
     scene["screenPasses"] = statistics.scene.screenPasses;
     Json lights = Json::object();
     lights["count"] = statistics.scene.lights;
@@ -104,6 +108,7 @@ void StatisticsPanel::draw(const FrameStatistics& statistics, bool& open) {
         row("Instances", fmt::format("{}", scene.meshes.instances));
         row("Triangles", fmt::format("{}", scene.meshes.triangles));
         row("Mesh renderers", fmt::format("{} ({} out of view)", scene.meshRenderers, scene.culled));
+        row("Skinned meshes", fmt::format("{} ({} joint matrices)", scene.skinnedMeshes, scene.jointMatrices));
         row("Lights", scene.droppedLights == 0
                           ? fmt::format("{} ({} in cluster lists)", scene.lights, scene.lightListEntries)
                           : fmt::format("{} ({} in cluster lists, {} left out)", scene.lights, scene.lightListEntries,

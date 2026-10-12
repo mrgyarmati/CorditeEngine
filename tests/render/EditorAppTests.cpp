@@ -531,6 +531,9 @@ TEST_SUITE("EditorApp") {
         const Json& scene = statistics["scene"];
         CHECK(scene["views"] == 1);
         CHECK(scene["meshRenderers"] == 21);
+        // Nothing in the showcase is posed.
+        CHECK(scene["skinned"]["meshes"] == 0);
+        CHECK(scene["skinned"]["jointMatrices"] == 0);
         CHECK(scene["drawCalls"].get<uint32_t>() > 0);
         CHECK(scene["drawCalls"].get<uint32_t>() < scene["instances"].get<uint32_t>());
         CHECK(scene["triangles"].get<uint64_t>() > 1000);

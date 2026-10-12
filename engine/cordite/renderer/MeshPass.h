@@ -14,14 +14,23 @@
 ///                     .stage = ShaderStage::Pixel};
 /// desc.depth = MeshPassDepth::Equal;
 /// CORDITE_TRY_ASSIGN(MeshPass basePass,
-///                    MeshPass::create(device, shaders, view.layout(), resources.materialLayout(), desc));
+///                    MeshPass::create(device, shaders,
+///                                     {.view = view.layout(),
+///                                      .material = resources.materialLayout(),
+///                                      .joints = palettes.layout()},
+///                                     desc));
 ///
-/// basePass.draw(commandList, targets.gbufferFramebuffer(), drawList.solidBatches(), view.bindings(),
-///               drawList.instanceBuffer());
+/// basePass.draw(commandList, targets.gbufferFramebuffer(), drawList.solidBatches(),
+///               {.view = view.bindings(), .instances = drawList.instanceBuffer(), .joints = palettes.bindings()});
 /// @endcode
 ///
 /// Conventions: front faces wind counter-clockwise, depth is reversed (nearer is
 /// greater), binding set 0 is the view's and set 1 the material's.
+///
+/// A batch of skinned meshes (kMeshVariantSkinned) is drawn by pipelines of its own: the
+/// one vertex shader compiled with SKINNED, which reads how each vertex follows its
+/// joints from a third vertex buffer (GpuMesh::skinBuffer) and the joint matrices from a
+/// third binding set (SkinPalettes). Everything else about the pass is the same.
 
 #include "cordite/core/Result.h"
 #include "cordite/renderer/MeshDrawList.h"
@@ -95,27 +104,44 @@ struct MeshPassStatistics {
     bool operator==(const MeshPassStatistics&) const = default;
 };
 
+/// The layouts of the binding sets a mesh pass draws with.
+struct MeshPassLayouts {
+    /// Set 0: ViewBindings::layout(), or the layout of a view the pass has of its own.
+    nvrhi::IBindingLayout* view = nullptr;
+    /// Set 1: RenderResources::materialLayout().
+    nvrhi::IBindingLayout* material = nullptr;
+    /// Set 2, of the pipelines that skin: SkinPalettes::layout().
+    nvrhi::IBindingLayout* joints = nullptr;
+};
+
+/// What the batches of one draw are drawn with.
+struct MeshPassBindings {
+    /// Set 0: the view.
+    nvrhi::IBindingSet* view = nullptr;
+    /// MeshDrawList::instanceBuffer() of the list the batches come from.
+    nvrhi::IBuffer* instances = nullptr;
+    /// Set 2: SkinPalettes::bindings(), the joint matrices the palettes of the
+    /// instances count into. May be null where no batch is skinned.
+    nvrhi::IBindingSet* joints = nullptr;
+};
+
 class MeshPass {
 public:
-    /// Loads the shaders. `viewLayout` is ViewBindings::layout() and `materialLayout`
-    /// RenderResources::materialLayout(); the device and both layouts must outlive the
-    /// pass.
+    /// Loads the shaders. The device and the three layouts must outlive the pass.
     [[nodiscard]] static Result<MeshPass> create(nvrhi::IDevice* device, ShaderManager& shaders,
-                                                 nvrhi::IBindingLayout* viewLayout,
-                                                 nvrhi::IBindingLayout* materialLayout, MeshPassDesc desc);
+                                                 const MeshPassLayouts& layouts, MeshPassDesc desc);
 
     /// Draws `batches` into the framebuffer, in the order given. The command list must
-    /// be open; `instanceBuffer` is the one of the MeshDrawList the batches come from.
-    /// The framebuffer must have a depth buffer unless the pass ignores depth.
+    /// be open. The framebuffer must have a depth buffer unless the pass ignores depth.
+    /// A skinned batch for which there are no joint matrices is left out.
     MeshPassStatistics draw(nvrhi::ICommandList* commandList, nvrhi::IFramebuffer* framebuffer,
-                            std::span<const MeshBatch> batches, nvrhi::IBindingSet* viewBindings,
-                            nvrhi::IBuffer* instanceBuffer);
+                            std::span<const MeshBatch> batches, const MeshPassBindings& bindings);
 
     /// The same, into the part of the framebuffer that `viewport` names, in pixels;
     /// nothing is drawn outside it.
     MeshPassStatistics draw(nvrhi::ICommandList* commandList, nvrhi::IFramebuffer* framebuffer,
-                            std::span<const MeshBatch> batches, nvrhi::IBindingSet* viewBindings,
-                            nvrhi::IBuffer* instanceBuffer, const nvrhi::Viewport& viewport);
+                            std::span<const MeshBatch> batches, const MeshPassBindings& bindings,
+                            const nvrhi::Viewport& viewport);
 
 private:
     MeshPass() = default;
@@ -132,13 +158,17 @@ private:
     nvrhi::IDevice* m_device = nullptr;
     MeshPassDesc m_desc;
     nvrhi::ShaderHandle m_vertexShader;
+    /// The same shader, compiled for meshes that joints move.
+    nvrhi::ShaderHandle m_skinnedVertexShader;
     /// Null for a pass that writes depth only.
     nvrhi::ShaderHandle m_pixelShader;
     /// Null when masked materials use `m_pixelShader`.
     nvrhi::ShaderHandle m_maskedPixelShader;
     nvrhi::InputLayoutHandle m_inputLayout;
+    nvrhi::InputLayoutHandle m_skinnedInputLayout;
     nvrhi::BindingLayoutHandle m_viewLayout;
     nvrhi::BindingLayoutHandle m_materialLayout;
+    nvrhi::BindingLayoutHandle m_jointLayout;
     std::vector<Pipeline> m_pipelines;
 };
 

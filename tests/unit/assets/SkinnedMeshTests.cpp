@@ -79,6 +79,45 @@ TEST_SUITE("SkinnedMesh") {
         CHECK(jointsUsed(mesh) == 901);
     }
 
+    TEST_CASE("every joint has a box around what follows it") {
+        // The bar: its lowest rings follow the root, the middle ones the middle joint,
+        // the top ones the tip - and a ring between two joints follows both.
+        const std::vector<Aabb> bounds = jointBounds(makeBarMesh());
+        REQUIRE(bounds.size() == 3);
+        CHECK(bounds[0].min == Vec3(-0.1f, 0.0f, -0.1f));
+        CHECK(bounds[0].max == Vec3(0.1f, 0.5f, 0.1f));
+        CHECK(bounds[1].min == Vec3(-0.1f, 0.5f, -0.1f));
+        CHECK(bounds[1].max == Vec3(0.1f, 1.5f, 0.1f));
+        CHECK(bounds[2].min == Vec3(-0.1f, 1.5f, -0.1f));
+        CHECK(bounds[2].max == Vec3(0.1f, 2.0f, 0.1f));
+
+        // A joint nothing follows has an empty box; one that is named without a weight
+        // is not followed.
+        MeshData mesh = skinnedTriangle();
+        mesh.skin[1] = {.joints = {4, 1, 0, 0}, .weights = {1.0f, 0.0f, 0.0f, 0.0f}};
+        const std::vector<Aabb> sparse = jointBounds(mesh);
+        REQUIRE(sparse.size() == 5);
+        CHECK(sparse[0].min == Vec3(0.0f));
+        CHECK(sparse[0].max == Vec3(0.0f));
+        CHECK(sparse[1].isEmpty());
+        CHECK(sparse[2].min == Vec3(0.0f, 1.0f, 0.0f));
+        CHECK(sparse[3].isEmpty());
+        CHECK(sparse[4].max == Vec3(1.0f, 0.0f, 0.0f));
+
+        // A vertex that follows several joints is in the box of each.
+        mesh.skin[2] = {.joints = {0, 4, 2, 0}, .weights = {0.5f, 0.25f, 0.25f, 0.0f}};
+        const std::vector<Aabb> shared = jointBounds(mesh);
+        REQUIRE(shared.size() == 5);
+        CHECK(shared[0].max == Vec3(0.0f, 1.0f, 0.0f));
+        CHECK(shared[4].min == Vec3(0.0f));
+        CHECK(shared[4].max == Vec3(1.0f, 1.0f, 0.0f));
+
+        // A mesh that is not skinned has no joints, and no boxes.
+        mesh.skin.clear();
+        CHECK(jointBounds(mesh).empty());
+        CHECK(jointBounds(MeshData()).empty());
+    }
+
     TEST_CASE("a skinned mesh whose vertices do not follow joints as they must is refused") {
         const auto refused = [](const MeshData& mesh, std::string_view because) {
             const Status status = validateMesh(mesh);

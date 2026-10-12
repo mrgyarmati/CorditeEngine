@@ -134,19 +134,20 @@ TEST_SUITE("Engine") {
             const std::unique_ptr<Engine> engine = createEngine(desc);
             runFrames(*engine, 1);
             // The fullscreen triangle, the test pattern, the blit and the two interface
-            // shaders; of the scene renderer the mesh vertex shader, the pixel shaders of
-            // its five mesh passes, the lighting in its three forms, the debug view, the
-            // display encoding, what makes the cube map of an environment, the two of
-            // the ambient occlusion, and the five that finish the picture: three for the
-            // bloom, one for the exposure and the last pass.
-            CHECK(engine->shaders().stats().compilations == 25);
+            // shaders; of the scene renderer the mesh vertex shader in its two forms - for
+            // meshes as they are and for skinned ones - the pixel shaders of its five mesh
+            // passes, the lighting in its three forms, the debug view, the display
+            // encoding, what makes the cube map of an environment, the two of the ambient
+            // occlusion, and the six that finish the picture: three for the bloom, one
+            // for the exposure, the last pass and the anti-aliasing.
+            CHECK(engine->shaders().stats().compilations == 26);
             CHECK(engine->shaders().stats().diskHits == 0);
         }
 
         const std::unique_ptr<Engine> engine = createEngine(desc);
         runFrames(*engine, 1);
         CHECK(engine->shaders().stats().compilations == 0);
-        CHECK(engine->shaders().stats().diskHits == 25);
+        CHECK(engine->shaders().stats().diskHits == 26);
         checkNoValidationIssues(engine->graphics());
     }
 

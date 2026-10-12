@@ -15,19 +15,29 @@ constexpr const char* kVertexShaderEntryPoint = "meshVertex";
 
 } // namespace
 
-Result<MeshPass> MeshPass::create(nvrhi::IDevice* device, ShaderManager& shaders, nvrhi::IBindingLayout* viewLayout,
-                                  nvrhi::IBindingLayout* materialLayout, MeshPassDesc desc) {
-    CORDITE_ASSERT(device != nullptr && viewLayout != nullptr && materialLayout != nullptr,
-                   "a mesh pass needs a device and the layouts of both binding sets");
+Result<MeshPass> MeshPass::create(nvrhi::IDevice* device, ShaderManager& shaders, const MeshPassLayouts& layouts,
+                                  MeshPassDesc desc) {
+    CORDITE_ASSERT(device != nullptr && layouts.view != nullptr && layouts.material != nullptr &&
+                       layouts.joints != nullptr,
+                   "a mesh pass needs a device and the layouts of its three binding sets");
+    if (device == nullptr || layouts.view == nullptr || layouts.material == nullptr || layouts.joints == nullptr) {
+        return makeError(ErrorCode::InvalidArgument, "the pass '{}' was given no device or not all of its layouts",
+                         desc.debugName);
+    }
 
     MeshPass pass;
     pass.m_device = device;
-    pass.m_viewLayout = viewLayout;
-    pass.m_materialLayout = materialLayout;
+    pass.m_viewLayout = layouts.view;
+    pass.m_materialLayout = layouts.material;
+    pass.m_jointLayout = layouts.joints;
 
     CORDITE_TRY_ASSIGN(
         pass.m_vertexShader,
         shaders.get({.path = kVertexShaderPath, .entryPoint = kVertexShaderEntryPoint, .stage = ShaderStage::Vertex}));
+    CORDITE_TRY_ASSIGN(pass.m_skinnedVertexShader, shaders.get({.path = kVertexShaderPath,
+                                                                .entryPoint = kVertexShaderEntryPoint,
+                                                                .stage = ShaderStage::Vertex,
+                                                                .defines = {{"SKINNED", "1"}}}));
     if (!desc.pixelShader.path.empty()) {
         CORDITE_TRY_ASSIGN(pass.m_pixelShader, shaders.get(desc.pixelShader));
     }
@@ -36,7 +46,8 @@ Result<MeshPass> MeshPass::create(nvrhi::IDevice* device, ShaderManager& shaders
     }
 
     // The order matches the members of MeshVertexInput in the shader: the vertex first,
-    // from buffer 0, then the instance, from buffer 1.
+    // from buffer 0, then the instance, from buffer 1, then - for a skinned mesh - how
+    // the vertex follows its joints, from buffer 2.
     const auto vertexAttribute = [](const char* name, nvrhi::Format format, size_t offset) {
         return nvrhi::VertexAttributeDesc()
             .setName(name)
@@ -54,7 +65,15 @@ Result<MeshPass> MeshPass::create(nvrhi::IDevice* device, ShaderManager& shaders
             .setElementStride(kMeshInstanceStride)
             .setIsInstanced(true);
     };
-    const std::array<nvrhi::VertexAttributeDesc, 9> attributes = {
+    const auto skinAttribute = [](const char* name, nvrhi::Format format, size_t offset) {
+        return nvrhi::VertexAttributeDesc()
+            .setName(name)
+            .setFormat(format)
+            .setBufferIndex(2)
+            .setOffset(static_cast<uint32_t>(offset))
+            .setElementStride(sizeof(MeshSkinVertex));
+    };
+    const std::array<nvrhi::VertexAttributeDesc, 11> attributes = {
         vertexAttribute("POSITION", nvrhi::Format::RGB32_FLOAT, offsetof(MeshVertex, position)),
         vertexAttribute("NORMAL", nvrhi::Format::RGB32_FLOAT, offsetof(MeshVertex, normal)),
         vertexAttribute("TANGENT", nvrhi::Format::RGBA32_FLOAT, offsetof(MeshVertex, tangent)),
@@ -64,10 +83,15 @@ Result<MeshPass> MeshPass::create(nvrhi::IDevice* device, ShaderManager& shaders
         instanceAttribute("WORLD1", 1),
         instanceAttribute("WORLD2", 2),
         instanceAttribute("PARAMETERS", 3),
+        skinAttribute("JOINTS", nvrhi::Format::RGBA16_UINT, offsetof(MeshSkinVertex, joints)),
+        skinAttribute("WEIGHTS", nvrhi::Format::RGBA32_FLOAT, offsetof(MeshSkinVertex, weights)),
     };
-    pass.m_inputLayout =
-        device->createInputLayout(attributes.data(), static_cast<uint32_t>(attributes.size()), pass.m_vertexShader);
-    if (!pass.m_inputLayout) {
+    // A mesh that is not skinned has all but the last two.
+    const auto rigidCount = static_cast<uint32_t>(attributes.size() - 2);
+    pass.m_inputLayout = device->createInputLayout(attributes.data(), rigidCount, pass.m_vertexShader);
+    pass.m_skinnedInputLayout = device->createInputLayout(attributes.data(), static_cast<uint32_t>(attributes.size()),
+                                                          pass.m_skinnedVertexShader);
+    if (!pass.m_inputLayout || !pass.m_skinnedInputLayout) {
         return makeError(ErrorCode::DeviceError, "cannot create the vertex layout of the pass '{}'", desc.debugName);
     }
 
@@ -78,7 +102,7 @@ Result<MeshPass> MeshPass::create(nvrhi::IDevice* device, ShaderManager& shaders
 nvrhi::IGraphicsPipeline* MeshPass::pipelineFor(const nvrhi::FramebufferInfo& framebufferInfo, uint32_t variant) {
     // Whether a batch is blended is the pass's business, not the pipeline's, and so is
     // "masked" where masked materials get no shader of their own.
-    uint32_t relevant = kMeshVariantDoubleSided | kMeshVariantMirrored;
+    uint32_t relevant = kMeshVariantDoubleSided | kMeshVariantMirrored | kMeshVariantSkinned;
     if (m_maskedPixelShader) {
         relevant |= kMeshVariantMasked;
     }
@@ -92,10 +116,14 @@ nvrhi::IGraphicsPipeline* MeshPass::pipelineFor(const nvrhi::FramebufferInfo& fr
 
     nvrhi::GraphicsPipelineDesc desc;
     desc.primType = nvrhi::PrimitiveType::TriangleList;
-    desc.inputLayout = m_inputLayout;
-    desc.VS = m_vertexShader;
+    const bool skinned = (key & kMeshVariantSkinned) != 0;
+    desc.inputLayout = skinned ? m_skinnedInputLayout : m_inputLayout;
+    desc.VS = skinned ? m_skinnedVertexShader : m_vertexShader;
     desc.PS = (key & kMeshVariantMasked) != 0 ? m_maskedPixelShader : m_pixelShader;
     desc.bindingLayouts = {m_viewLayout, m_materialLayout};
+    if (skinned) {
+        desc.bindingLayouts.push_back(m_jointLayout);
+    }
 
     // Front faces wind counter-clockwise; mirroring an instance reverses its triangles.
     nvrhi::RasterState& raster = desc.renderState.rasterState;
@@ -133,27 +161,25 @@ nvrhi::IGraphicsPipeline* MeshPass::pipelineFor(const nvrhi::FramebufferInfo& fr
 }
 
 MeshPassStatistics MeshPass::draw(nvrhi::ICommandList* commandList, nvrhi::IFramebuffer* framebuffer,
-                                  std::span<const MeshBatch> batches, nvrhi::IBindingSet* viewBindings,
-                                  nvrhi::IBuffer* instanceBuffer) {
+                                  std::span<const MeshBatch> batches, const MeshPassBindings& bindings) {
     CORDITE_ASSERT(framebuffer != nullptr || batches.empty(), "the pass '{}' needs a framebuffer", m_desc.debugName);
     if (framebuffer == nullptr) {
         return {};
     }
-    return draw(commandList, framebuffer, batches, viewBindings, instanceBuffer,
-                framebuffer->getFramebufferInfo().getViewport());
+    return draw(commandList, framebuffer, batches, bindings, framebuffer->getFramebufferInfo().getViewport());
 }
 
 MeshPassStatistics MeshPass::draw(nvrhi::ICommandList* commandList, nvrhi::IFramebuffer* framebuffer,
-                                  std::span<const MeshBatch> batches, nvrhi::IBindingSet* viewBindings,
-                                  nvrhi::IBuffer* instanceBuffer, const nvrhi::Viewport& viewport) {
+                                  std::span<const MeshBatch> batches, const MeshPassBindings& bindings,
+                                  const nvrhi::Viewport& viewport) {
     MeshPassStatistics statistics;
     if (batches.empty()) {
         return statistics;
     }
-    CORDITE_ASSERT(commandList != nullptr && framebuffer != nullptr && viewBindings != nullptr &&
-                       instanceBuffer != nullptr,
+    CORDITE_ASSERT(commandList != nullptr && framebuffer != nullptr && bindings.view != nullptr &&
+                       bindings.instances != nullptr,
                    "the pass '{}' needs a command list, a framebuffer, the view and the instances", m_desc.debugName);
-    if (commandList == nullptr || framebuffer == nullptr || viewBindings == nullptr || instanceBuffer == nullptr) {
+    if (commandList == nullptr || framebuffer == nullptr || bindings.view == nullptr || bindings.instances == nullptr) {
         return statistics;
     }
     const nvrhi::FramebufferInfoEx& framebufferInfo = framebuffer->getFramebufferInfo();
@@ -165,22 +191,36 @@ MeshPassStatistics MeshPass::draw(nvrhi::ICommandList* commandList, nvrhi::IFram
     }
 
     for (const MeshBatch& batch : batches) {
+        const GpuMesh& mesh = *batch.mesh;
+        const bool skinned = (batch.variant & kMeshVariantSkinned) != 0;
+        // What a skinned batch cannot be drawn without. A list marks a batch skinned
+        // only for a mesh that is; the joint matrices are the caller's to give.
+        const bool canSkin = mesh.skinBuffer != nullptr && bindings.joints != nullptr;
+        CORDITE_ASSERT(!skinned || canSkin, "the pass '{}' was given a skinned batch without its joints",
+                       m_desc.debugName);
+        if (skinned && !canSkin) {
+            continue;
+        }
         nvrhi::IGraphicsPipeline* pipeline = pipelineFor(framebufferInfo, batch.variant);
         if (pipeline == nullptr) {
             continue;
         }
-        const GpuMesh& mesh = *batch.mesh;
         const Submesh& submesh = mesh.submeshes[batch.submesh];
 
         nvrhi::GraphicsState state;
         state.pipeline = pipeline;
         state.framebuffer = framebuffer;
         state.viewport.addViewportAndScissorRect(viewport);
-        state.bindings = {viewBindings, batch.material->bindings.Get()};
+        state.bindings = {bindings.view, batch.material->bindings.Get()};
         state.vertexBuffers = {
             nvrhi::VertexBufferBinding().setBuffer(mesh.vertexBuffer).setSlot(0).setOffset(0),
-            nvrhi::VertexBufferBinding().setBuffer(instanceBuffer).setSlot(1).setOffset(0),
+            nvrhi::VertexBufferBinding().setBuffer(bindings.instances).setSlot(1).setOffset(0),
         };
+        if (skinned) {
+            state.bindings.push_back(bindings.joints);
+            state.vertexBuffers.push_back(
+                nvrhi::VertexBufferBinding().setBuffer(mesh.skinBuffer).setSlot(2).setOffset(0));
+        }
         state.indexBuffer = nvrhi::IndexBufferBinding().setBuffer(mesh.indexBuffer).setFormat(mesh.indexFormat);
         commandList->setGraphicsState(state);
 

@@ -175,6 +175,23 @@ uint32_t jointsUsed(const MeshData& mesh) {
     return count;
 }
 
+std::vector<Aabb> jointBounds(const MeshData& mesh) {
+    if (!mesh.isSkinned()) {
+        return {};
+    }
+    std::vector<Aabb> bounds(jointsUsed(mesh));
+    for (size_t index = 0; index < mesh.skin.size(); ++index) {
+        const MeshSkinVertex& skin = mesh.skin[index];
+        for (size_t slot = 0; slot < skin.weights.size(); ++slot) {
+            // jointsUsed() counted every joint with a weight, so the index is inside.
+            if (skin.weights[slot] > 0.0f) {
+                bounds[skin.joints[slot]].expand(mesh.vertices[index].position);
+            }
+        }
+    }
+    return bounds;
+}
+
 uint32_t normalizeSkinWeights(MeshData& mesh) {
     uint32_t withoutWeights = 0;
     for (MeshSkinVertex& vertex : mesh.skin) {

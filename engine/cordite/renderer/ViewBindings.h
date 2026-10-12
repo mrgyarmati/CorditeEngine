@@ -28,7 +28,8 @@
 /// view.update(commandList, {.camera = cameraView, .targetSize = targets.size()}, lightClusters,
 ///             {.plan = &shadowPlan, .atlas = shadowAtlas.texture(), .filterRadius = 1},
 ///             {.environment = &environments.none()});
-/// depthPass.draw(commandList, targets.depthFramebuffer(), batches, view.bindings(), instances);
+/// depthPass.draw(commandList, targets.depthFramebuffer(), batches,
+///                {.view = view.bindings(), .instances = instances, .joints = palettes.bindings()});
 /// lightingPass.draw(commandList, targets, view.bindings());
 /// @endcode
 ///

@@ -1,5 +1,7 @@
 #include "cordite/renderer/SceneRenderer.h"
 
+#include "cordite/animation/AnimationComponents.h"
+#include "cordite/animation/Pose.h"
 #include "cordite/core/Assert.h"
 #include "cordite/core/Log.h"
 #include "cordite/core/StringUtils.h"
@@ -150,6 +152,8 @@ SceneRenderStatistics& SceneRenderStatistics::operator+=(const SceneRenderStatis
     views += other.views;
     meshRenderers += other.meshRenderers;
     culled += other.culled;
+    skinnedMeshes += other.skinnedMeshes;
+    jointMatrices += other.jointMatrices;
     screenPasses += other.screenPasses;
     lights += other.lights;
     lightListEntries += other.lightListEntries;
@@ -169,10 +173,11 @@ SceneRenderStatistics& SceneRenderStatistics::operator+=(const SceneRenderStatis
 }
 
 SceneRenderer::SceneRenderer(nvrhi::IDevice* device, std::unique_ptr<RenderResources> resources,
-                             ViewBindings viewBindings, Passes passes, bool supportsWireframe)
+                             ViewBindings viewBindings, SkinPalettes palettes, Passes passes, bool supportsWireframe)
     : m_device(device),
       m_resources(std::move(resources)),
       m_viewBindings(std::move(viewBindings)),
+      m_palettes(std::move(palettes)),
       m_drawList(device),
       m_passes(std::move(passes)),
       m_supportsWireframe(supportsWireframe) {}
@@ -184,11 +189,15 @@ Result<std::unique_ptr<SceneRenderer>> SceneRenderer::create(nvrhi::IDevice* dev
     CORDITE_TRY_ASSIGN(std::unique_ptr<RenderResources> resources,
                        RenderResources::create(device, assets, desc.resources));
     CORDITE_TRY_ASSIGN(ViewBindings viewBindings, ViewBindings::create(device));
+    CORDITE_TRY_ASSIGN(SkinPalettes palettes, SkinPalettes::create(device));
 
     nvrhi::IBindingLayout* viewLayout = viewBindings.layout();
     nvrhi::IBindingLayout* materialLayout = resources->materialLayout();
+    nvrhi::IBindingLayout* jointLayout = palettes.layout();
     const auto meshPass = [&](MeshPassDesc passDesc) {
-        return MeshPass::create(device, shaders, viewLayout, materialLayout, std::move(passDesc));
+        return MeshPass::create(device, shaders,
+                                {.view = viewLayout, .material = materialLayout, .joints = jointLayout},
+                                std::move(passDesc));
     };
     CORDITE_TRY_ASSIGN(MeshPass depth, meshPass(depthPassDesc()));
     CORDITE_TRY_ASSIGN(MeshPass base, meshPass(basePassDesc()));
@@ -198,7 +207,7 @@ Result<std::unique_ptr<SceneRenderer>> SceneRenderer::create(nvrhi::IDevice* dev
     CORDITE_TRY_ASSIGN(DeferredLightingPass lighting, DeferredLightingPass::create(device, shaders, viewLayout));
     CORDITE_TRY_ASSIGN(DebugViewPass debugView, DebugViewPass::create(device, shaders, viewLayout));
     CORDITE_TRY_ASSIGN(DisplayEncodePass encode, DisplayEncodePass::create(device, shaders));
-    CORDITE_TRY_ASSIGN(ShadowAtlas shadows, ShadowAtlas::create(device, shaders, materialLayout));
+    CORDITE_TRY_ASSIGN(ShadowAtlas shadows, ShadowAtlas::create(device, shaders, materialLayout, jointLayout));
     CORDITE_TRY_ASSIGN(EnvironmentMaps environments, EnvironmentMaps::create(device, shaders, assets));
     CORDITE_TRY_ASSIGN(AmbientOcclusionPass occlusion, AmbientOcclusionPass::create(device, shaders, viewLayout));
     CORDITE_TRY_ASSIGN(PostProcessPass postProcess, PostProcessPass::create(device, shaders));
@@ -216,13 +225,56 @@ Result<std::unique_ptr<SceneRenderer>> SceneRenderer::create(nvrhi::IDevice* dev
                   .occlusion = std::move(occlusion),
                   .postProcess = std::move(postProcess)};
     return std::unique_ptr<SceneRenderer>(new SceneRenderer(device, std::move(resources), std::move(viewBindings),
-                                                            std::move(passes), desc.supportsWireframe));
+                                                            std::move(palettes), std::move(passes),
+                                                            desc.supportsWireframe));
+}
+
+SceneRenderer::MeshPose SceneRenderer::poseFor(const World& world, Entity entity, const GpuMesh& mesh,
+                                               const Uuid& meshId) {
+    // The pose of the entity itself, or of the nearest above it that has one: the
+    // meshes of a figure hang under what animates it.
+    const SkeletonPoseComponent* pose = nullptr;
+    Entity owner = entity;
+    while (!owner.isNull()) {
+        pose = world.tryGet<SkeletonPoseComponent>(owner);
+        if (pose != nullptr) {
+            break;
+        }
+        owner = world.parent(owner);
+    }
+    if (pose == nullptr) {
+        return {};
+    }
+    // A vertex must never name a joint the pose has no matrix for: the shader would
+    // read past the end of the pose, into the next one or into nothing.
+    if (pose->skinning.size() < mesh.jointBounds.size()) {
+        if (m_reportedPoses.insert(meshId).second) {
+            CORDITE_LOG_WARN("Renderer",
+                             "the mesh {} is drawn as it was modelled: its vertices follow {} joints, and the "
+                             "skeleton that '{}' is posed with has {}",
+                             meshId.toString(), mesh.jointBounds.size(), world.name(owner), pose->skinning.size());
+        }
+        return {};
+    }
+    const auto [found, isNew] = m_paletteOfPose.try_emplace(owner, kNoPalette);
+    if (isNew) {
+        found->second = m_palettes.add(pose->skinning);
+        if (found->second != kNoPalette) {
+            m_statistics.jointMatrices += static_cast<uint32_t>(pose->skinning.size());
+        }
+    }
+    if (found->second == kNoPalette) {
+        return {};
+    }
+    return {.palette = found->second, .skinning = pose->skinning};
 }
 
 void SceneRenderer::collectDraws(const World& world, const CameraView& view) {
     m_sceneMeshes.clear();
     m_sceneDraws.clear();
     m_draws.clear();
+    m_palettes.clear();
+    m_paletteOfPose.clear();
     const Frustum frustum = Frustum::fromViewProjection(view.viewProjection);
     const auto renderers = world.registry().view<const MeshRendererComponent, const WorldTransform>();
     for (const auto [handle, renderer, placement] : renderers.each()) {
@@ -234,6 +286,10 @@ void SceneRenderer::collectDraws(const World& world, const CameraView& view) {
             continue;
         }
         ++m_statistics.meshRenderers;
+        const MeshPose pose = mesh->isSkinned() ? poseFor(world, Entity{handle}, *mesh, renderer.mesh) : MeshPose();
+        if (pose.palette != kNoPalette) {
+            ++m_statistics.skinnedMeshes;
+        }
 
         // Materials are resolved for everything in the scene, in view or not, so that
         // turning the camera does not stall on loading what comes into sight. What the
@@ -245,9 +301,13 @@ void SceneRenderer::collectDraws(const World& world, const CameraView& view) {
                                     .submesh = submesh,
                                     .material = &m_resources->material(material),
                                     .localToWorld = placement.matrix,
-                                    .lightChannels = renderer.lightChannels});
+                                    .lightChannels = renderer.lightChannels,
+                                    .palette = pose.palette});
         }
-        const Aabb bounds = mesh->bounds.transformed(placement.matrix);
+        // Where a pose puts a mesh is not where it was modelled: an arm that is raised
+        // is seen, and casts its shadow, where it is now.
+        const Aabb inMesh = pose.palette != kNoPalette ? skinnedBounds(mesh->jointBounds, pose.skinning) : mesh->bounds;
+        const Aabb bounds = inMesh.transformed(placement.matrix);
         m_sceneMeshes.push_back({.bounds = bounds,
                                  .firstDraw = static_cast<uint32_t>(firstDraw),
                                  .drawCount = static_cast<uint32_t>(m_sceneDraws.size() - firstDraw),
@@ -260,6 +320,21 @@ void SceneRenderer::collectDraws(const World& world, const CameraView& view) {
             ++m_statistics.culled;
         }
     }
+}
+
+void SceneRenderer::uploadPoses(nvrhi::ICommandList* commandList) {
+    if (m_palettes.upload(commandList)) {
+        return;
+    }
+    // Without the poses on the GPU everything is drawn as it was modelled, which is
+    // wrong but shows the scene; the failure has been reported.
+    for (std::vector<MeshDraw>* draws : {&m_sceneDraws, &m_draws}) {
+        for (MeshDraw& draw : *draws) {
+            draw.palette = kNoPalette;
+        }
+    }
+    m_statistics.skinnedMeshes = 0;
+    m_statistics.jointMatrices = 0;
 }
 
 void SceneRenderer::drawShadows(nvrhi::ICommandList* commandList, const ShadowSettings& settings) {
@@ -320,8 +395,8 @@ void SceneRenderer::drawShadows(nvrhi::ICommandList* commandList, const ShadowSe
         // the list is seen from matters for blended surfaces alone.
         MeshDrawList& list = m_shadowDrawLists[index];
         list.build(commandList, m_shadowDraws, Vec3(0.0f), kWorldForward);
-        m_statistics.shadowPass +=
-            m_passes.shadows.draw(commandList, shadow, list.solidBatches(), list.instanceBuffer());
+        m_statistics.shadowPass += m_passes.shadows.draw(commandList, shadow, list.solidBatches(),
+                                                         list.instanceBuffer(), m_palettes.bindings());
     }
     m_statistics.shadowMaps = static_cast<uint32_t>(m_shadowPlan.views.size());
 }
@@ -338,6 +413,8 @@ void SceneRenderer::render(nvrhi::ICommandList* commandList, const World& world,
     collectDraws(world, view);
     // Before anything that uses the new resources is recorded behind them.
     m_resources->flushUploads();
+    // The poses, before anything is drawn in them.
+    uploadPoses(commandList);
 
     // The lights: gathered from the world, sorted into the clusters of this view.
     m_lights.collect(world, {.defaultLighting = settings.defaultLighting});
@@ -419,23 +496,24 @@ void SceneRenderer::render(nvrhi::ICommandList* commandList, const World& world,
          .visible = surroundings.visible});
     m_drawList.build(commandList, m_draws, view.position, view.forward);
     nvrhi::IBindingSet* viewBindings = m_viewBindings.bindings();
-    nvrhi::IBuffer* instances = m_drawList.instanceBuffer();
+    const MeshPassBindings meshBindings{
+        .view = viewBindings, .instances = m_drawList.instanceBuffer(), .joints = m_palettes.bindings()};
 
     targets.clear(commandList, settings.backgroundColor);
     if (debugView == RenderDebugView::Wireframe) {
-        m_statistics.forwardPass = m_passes.wireframe.draw(commandList, targets.sceneFramebuffer(),
-                                                           m_drawList.batches(), viewBindings, instances);
+        m_statistics.forwardPass =
+            m_passes.wireframe.draw(commandList, targets.sceneFramebuffer(), m_drawList.batches(), meshBindings);
     } else if (debugView == RenderDebugView::Overdraw) {
         // Counted from black, whatever the background is.
         commandList->clearTextureFloat(targets.sceneColor(), nvrhi::AllSubresources,
                                        nvrhi::Color(0.0f, 0.0f, 0.0f, 1.0f));
-        m_statistics.forwardPass = m_passes.overdraw.draw(commandList, targets.lightingFramebuffer(),
-                                                          m_drawList.batches(), viewBindings, instances);
+        m_statistics.forwardPass =
+            m_passes.overdraw.draw(commandList, targets.lightingFramebuffer(), m_drawList.batches(), meshBindings);
     } else {
-        m_statistics.depthPass = m_passes.depth.draw(commandList, targets.depthFramebuffer(), m_drawList.solidBatches(),
-                                                     viewBindings, instances);
-        m_statistics.basePass = m_passes.base.draw(commandList, targets.gbufferFramebuffer(), m_drawList.solidBatches(),
-                                                   viewBindings, instances);
+        m_statistics.depthPass =
+            m_passes.depth.draw(commandList, targets.depthFramebuffer(), m_drawList.solidBatches(), meshBindings);
+        m_statistics.basePass =
+            m_passes.base.draw(commandList, targets.gbufferFramebuffer(), m_drawList.solidBatches(), meshBindings);
         if (!occlusion.isEnabled()) {
             // A view that is to have none gives back what it was worked out in.
             targets.releaseTracedOcclusion();
@@ -457,7 +535,7 @@ void SceneRenderer::render(nvrhi::ICommandList* commandList, const World& world,
         ++m_statistics.screenPasses;
         if (debugView == RenderDebugView::None) {
             m_statistics.forwardPass = m_passes.forward.draw(commandList, targets.sceneFramebuffer(),
-                                                             m_drawList.blendedBatches(), viewBindings, instances);
+                                                             m_drawList.blendedBatches(), meshBindings);
         }
     }
     if (isFinished) {

@@ -53,12 +53,21 @@ struct GpuMesh {
     nvrhi::BufferHandle indexBuffer;
     /// R16_UINT for a mesh of up to 65535 vertices, otherwise R32_UINT.
     nvrhi::Format indexFormat = nvrhi::Format::R32_UINT;
+    /// For a skinned mesh, how each vertex follows its joints: MeshSkinVertex after
+    /// MeshSkinVertex, one for every vertex. Null for a mesh that is not skinned.
+    nvrhi::BufferHandle skinBuffer;
     std::vector<Submesh> submeshes;
-    /// Encloses the mesh, in its own space.
+    /// Encloses the mesh as it was modelled, in its own space.
     Aabb bounds;
+    /// For a skinned mesh, jointBounds() of it: for every joint it uses, a box around
+    /// what follows that joint. Its size is the number of joints a pose must have for
+    /// the mesh to be drawn with it.
+    std::vector<Aabb> jointBounds;
     /// Counts up with every mesh created. Passes sort by it rather than by address, so
     /// that two runs of a program issue their draw calls in the same order.
     uint32_t serial = 0;
+
+    [[nodiscard]] bool isSkinned() const { return skinBuffer != nullptr; }
 };
 
 struct GpuMaterial {
@@ -85,7 +94,7 @@ struct RenderResourceStatistics {
     uint32_t meshCount = 0;
     uint32_t textureCount = 0;
     uint32_t materialCount = 0;
-    /// Bytes of vertex and index buffers.
+    /// Bytes of vertex and index buffers, and of what skinned meshes have beside them.
     uint64_t meshBytes = 0;
     /// Bytes of texture data, all mip levels included.
     uint64_t textureBytes = 0;

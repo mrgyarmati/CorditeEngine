@@ -191,6 +191,7 @@ cordite_add_test_suite(render
         render/SceneShadowTests.cpp
         render/SceneTestSupport.h
         render/ShadowAtlasTests.cpp
+        render/SkinningTests.cpp
         render/SwapchainTests.cpp
         render/UiTests.cpp
         render/ViewBindingsTests.cpp

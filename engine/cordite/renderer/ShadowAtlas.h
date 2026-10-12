@@ -4,13 +4,14 @@
 /// The texture all shadow maps of a view are drawn into, and the pass that draws them.
 ///
 /// @code
-/// CORDITE_TRY_ASSIGN(ShadowAtlas atlas, ShadowAtlas::create(device, shaders, resources.materialLayout()));
+/// CORDITE_TRY_ASSIGN(ShadowAtlas atlas,
+///                    ShadowAtlas::create(device, shaders, resources.materialLayout(), palettes.layout()));
 ///
 /// CORDITE_TRY(atlas.resize(settings.atlasSize));
 /// atlas.clear(commandList);
 /// for (const ShadowView& shadow : plan.views) {
 ///     drawList.build(commandList, castersSeenBy(shadow), Vec3(0.0f), kWorldForward);
-///     atlas.draw(commandList, shadow, drawList.solidBatches(), drawList.instanceBuffer());
+///     atlas.draw(commandList, shadow, drawList.solidBatches(), drawList.instanceBuffer(), palettes.bindings());
 /// }
 /// // Afterwards the passes of the view read atlas.texture() through ViewBindings.
 /// @endcode
@@ -39,7 +40,8 @@ public:
     /// always a texture to bind. `materialLayout` is RenderResources::materialLayout();
     /// the device and the layout must outlive the atlas.
     [[nodiscard]] static Result<ShadowAtlas> create(nvrhi::IDevice* device, ShaderManager& shaders,
-                                                    nvrhi::IBindingLayout* materialLayout);
+                                                    nvrhi::IBindingLayout* materialLayout,
+                                                    nvrhi::IBindingLayout* jointLayout);
 
     /// The atlas: a depth texture, size() texels a side. Replaced by resize().
     [[nodiscard]] nvrhi::ITexture* texture() const { return m_texture; }
@@ -63,7 +65,8 @@ public:
     /// open; `instanceBuffer` is the one of the MeshDrawList the batches come from. The
     /// tile must lie inside the atlas.
     MeshPassStatistics draw(nvrhi::ICommandList* commandList, const ShadowView& view,
-                            std::span<const MeshBatch> batches, nvrhi::IBuffer* instanceBuffer);
+                            std::span<const MeshBatch> batches, nvrhi::IBuffer* instanceBuffer,
+                            nvrhi::IBindingSet* jointBindings);
 
 private:
     ShadowAtlas(nvrhi::IDevice* device, nvrhi::BufferHandle constants, nvrhi::BindingSetHandle bindings, MeshPass pass);

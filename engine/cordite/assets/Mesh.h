@@ -129,6 +129,14 @@ uint32_t appendSubmesh(MeshData& mesh, std::span<const MeshVertex> vertices, std
 /// vertex follows with a weight. Zero for a mesh that is not skinned.
 [[nodiscard]] uint32_t jointsUsed(const MeshData& mesh);
 
+/// For every joint the mesh uses - jointsUsed() of them - a box around the vertices that
+/// follow it with a weight, in the space of the mesh; an empty box for a joint that
+/// nothing follows. A pose moves a vertex to somewhere between the places its joints
+/// would each take it to, so the boxes, each moved by its joint, enclose the mesh in
+/// every pose (skinnedBounds() in animation/Pose.h). No boxes for a mesh that is not
+/// skinned.
+[[nodiscard]] std::vector<Aabb> jointBounds(const MeshData& mesh);
+
 /// Makes the weights of every vertex what validateMesh() asks for: what is negative or
 /// no number becomes nothing, the rest is scaled to one in all, and a joint without
 /// weight becomes joint zero. A vertex that is left with no weight at all follows its

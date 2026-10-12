@@ -126,11 +126,11 @@ by accident.
 | `platform` | `core`, `math` | Windows (GLFW), keyboard / mouse / gamepad input |
 | `assets` | `core`, `math` | Assets as data: images and mipmaps, meshes - rigid and skinned - and what prepares them, skeletons, animation clips, materials, glTF import and export, the asset database (ids, `.meta` files) and the asset manager (loading by id) |
 | `world` | `core`, `math` | Entities, components and their hierarchy (EnTT), the component registry, scene files |
-| `animation` | `core`, `math`, `assets`, `world` | Poses of skeletons and what makes them: sampling clips, blending, the matrices a mesh is skinned with; the `Animator` component; `AnimationSystem`, which plays the animators of a world. Not used by the renderer and the engine yet |
+| `animation` | `core`, `math`, `assets`, `world` | Poses of skeletons and what makes them: sampling clips, blending, the matrices a mesh is skinned with and the bounds of a posed mesh; the `Animator` component; `AnimationSystem`, which plays the animators of a world. Not run by the engine yet |
 | `rhi` | `core`, `math`, `platform` | Vulkan device, swapchain and texture readback over NVRHI |
 | `shaders` | `core` | Shader requests and permutation keys, disk cache, `ShaderLibrary` |
 | `shader_compiler` | `core`, `shaders` | Slang to SPIR-V compiler (not linked into exported games) |
-| `renderer` | `core`, `math`, `assets`, `world`, `rhi`, `shaders` | The scene renderer and what it is made of: GPU copies of assets, the mesh passes, the G-buffer and its lighting, the lights of a world and the clusters they are sorted into, their shadow maps and the atlas those share, what finishes the picture (exposure, bloom, tone mapping, grading), the environment (the sky and what it lights), ambient occlusion from the screen, fog, the debug views, scene targets, the `MeshRenderer`, `Light`, `AmbientLight`, `Environment`, `Fog` and `PostProcess` components; camera views, debug lines, GPU timing, GPU shader management |
+| `renderer` | `core`, `math`, `assets`, `world`, `animation`, `rhi`, `shaders` | The scene renderer and what it is made of: GPU copies of assets, the mesh passes, the G-buffer and its lighting, the lights of a world and the clusters they are sorted into, their shadow maps and the atlas those share, what finishes the picture (exposure, bloom, tone mapping, grading), the environment (the sky and what it lights), ambient occlusion from the screen, fog, the debug views, scene targets, the `MeshRenderer`, `Light`, `AmbientLight`, `Environment`, `Fog` and `PostProcess` components; camera views, debug lines, GPU timing, GPU shader management |
 | `ui` | `core`, `math`, `platform`, `rhi`, `shaders`, `renderer` | The immediate-mode interface: the Dear ImGui context and its NVRHI renderer |
 | `engine` | all of the above | `Engine`: owns the subsystems, the assets, the world and the interface, and runs the frame loop; projects; placing models; checking the assets a scene uses |
 | `editor` | `engine` and below | The editor: the scene document, undoable actions, scene and asset commands, panels, `EditorApp` (not linked into exported games) |
@@ -279,6 +279,33 @@ Vulkan directly. Step-by-step guide for adding a pass:
   whose depth *equals* what the depth pre-pass wrote, which holds only while both
   compute positions with the same code. Never give a mesh pass a vertex shader of its
   own.
+- **A skinned mesh is drawn by that same shader, compiled with `SKINNED`** - a
+  permutation, not a second shader, for the reason above. How its vertices follow
+  joints is a third vertex buffer (`GpuMesh::skinBuffer`, slot 2), the joint matrices
+  a third binding set (register space 2, `SkinPalettes`), and only the pipelines of
+  skinned batches (`kMeshVariantSkinned`) have either. The matrix of the joints a
+  vertex follows is put before the matrix of its instance, and everything after that
+  - positions, normals, tangents - is the code of every mesh. The attributes of
+  `MeshVertexInput` are listed in the same order in `MeshPass.cpp`; the two of the
+  skin come last, so that the others have the same places in both versions.
+- **The joint matrices of a view are one buffer** (`SkinPalettes`): every pose that
+  something is drawn in adds its matrices once, and an instance carries where they
+  begin (`MeshDraw::palette`, `parameters.y` of the instance). So figures in poses of
+  their own are still instances of one mesh, in one draw call - shadows included.
+  **A palette must never point past its pose:** `SceneRenderer::poseFor` gives a draw
+  one only when the pose has a matrix for every joint the mesh follows
+  (`GpuMesh::jointBounds.size()`); the shader would otherwise read the joints of the
+  next figure.
+- **A skinned mesh is drawn in the pose of its own entity, or of the nearest entity
+  above it that has one** (`SkeletonPoseComponent`): the meshes of a figure hang
+  under what animates it. The pose moves the vertices where the mesh was modelled;
+  the entity of the mesh then places the result like any other mesh. Without a pose
+  it is drawn as it was modelled, as a rigid mesh.
+- **What a pose moves is seen where it is now.** Culling and shadows use
+  `skinnedBounds`: the box of what follows each joint (`jointBounds`, made once when
+  the mesh goes to the GPU), moved by that joint. It has room to spare, never too
+  little. Matrices that are not made of numbers are replaced before they reach the
+  GPU or the bounds.
 - **Binding sets:** register space 0 is the view's (`ViewBindings`: the constants of
   `common/View.slang` at `b0`, the lights of `common/Lights.slang` at `t0` to `t2`,
   the shadow maps of `common/Shadows.slang` at `t3`, `t4` and `s0`, and the
@@ -604,7 +631,9 @@ Step-by-step guide: [work-with-assets](.claude/skills/work-with-assets/SKILL.md)
   clips are held until `AssetDatabase::revision()` changes.
 - **Animation is tested with numbers.** `tests/support/SkinnedModelSupport.h` is a bar
   of three joints whose every pose can be worked out by hand: half way through "Bend"
-  its middle joint is turned 45 degrees.
+  its middle joint is turned 45 degrees. `tests/render/SkinningTests.cpp` says which
+  pixels the bent bar covers, and that a bar at rest is drawn bit for bit like the
+  mesh without a pose.
 
 ## Editor and automation
 

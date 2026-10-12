@@ -213,9 +213,23 @@ Result<GpuMesh> RenderResources::createMesh(const MeshData& mesh) {
     if (indexDesc.byteSize > 0) {
         gpuMesh.indexBuffer = m_device->createBuffer(indexDesc);
     }
-    if (!gpuMesh.vertexBuffer || (indexDesc.byteSize > 0 && !gpuMesh.indexBuffer)) {
+    // How the vertices of a skinned mesh follow their joints is a stream of its own,
+    // beside the vertices: a mesh that is not skinned pays nothing for it, and every
+    // pass reads the same vertices either way.
+    nvrhi::BufferDesc skinDesc;
+    if (mesh.isSkinned()) {
+        skinDesc.byteSize = mesh.skin.size() * sizeof(MeshSkinVertex);
+        skinDesc.debugName = mesh.name + " skin";
+        skinDesc.isVertexBuffer = true;
+        skinDesc.initialState = nvrhi::ResourceStates::VertexBuffer;
+        skinDesc.keepInitialState = true;
+        gpuMesh.skinBuffer = m_device->createBuffer(skinDesc);
+        gpuMesh.jointBounds = jointBounds(mesh);
+    }
+    if (!gpuMesh.vertexBuffer || (indexDesc.byteSize > 0 && !gpuMesh.indexBuffer) ||
+        (mesh.isSkinned() && !gpuMesh.skinBuffer)) {
         return makeError(ErrorCode::DeviceError, "cannot allocate {} bytes of GPU memory for mesh '{}'",
-                         vertexDesc.byteSize + indexDesc.byteSize, mesh.name);
+                         vertexDesc.byteSize + indexDesc.byteSize + skinDesc.byteSize, mesh.name);
     }
 
     nvrhi::ICommandList* commandList = uploadCommandList();
@@ -231,8 +245,12 @@ Result<GpuMesh> RenderResources::createMesh(const MeshData& mesh) {
         }
     }
 
+    if (gpuMesh.skinBuffer) {
+        commandList->writeBuffer(gpuMesh.skinBuffer, mesh.skin.data(), skinDesc.byteSize);
+    }
+
     ++m_statistics.meshCount;
-    m_statistics.meshBytes += vertexDesc.byteSize + indexDesc.byteSize;
+    m_statistics.meshBytes += vertexDesc.byteSize + indexDesc.byteSize + skinDesc.byteSize;
     return gpuMesh;
 }
 

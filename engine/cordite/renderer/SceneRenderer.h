@@ -45,6 +45,14 @@
 /// maps in an atlas (ShadowPlan.h), drawn anew for every view. Its Environment is the
 /// image of everything far away: it lights every surface, and the deferred lighting
 /// draws it as the sky where nothing else was drawn (EnvironmentMaps.h).
+///
+/// A skinned mesh is drawn in a pose: that of its own entity, or of the nearest entity
+/// above it that has one (SkeletonPoseComponent, which AnimationSystem works out from an
+/// Animator) - so the meshes of a figure hang under what animates it and move as one.
+/// The pose moves the vertices where the mesh was modelled; the entity of the mesh then
+/// places the result like any other mesh. Without a pose, and with one that has fewer
+/// joints than the mesh follows, a skinned mesh is drawn as it was modelled. What is in
+/// view and what casts a shadow is decided by where the pose puts the mesh.
 
 #include "cordite/assets/AssetManager.h"
 #include "cordite/core/Base.h"
@@ -70,7 +78,9 @@
 #include "cordite/renderer/ShaderManager.h"
 #include "cordite/renderer/ShadowAtlas.h"
 #include "cordite/renderer/ShadowPlan.h"
+#include "cordite/renderer/SkinPalettes.h"
 #include "cordite/renderer/ViewBindings.h"
+#include "cordite/world/Entity.h"
 #include "cordite/world/World.h"
 
 #include <nvrhi/nvrhi.h>
@@ -79,7 +89,10 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string_view>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace cordite {
@@ -178,6 +191,11 @@ struct SceneRenderStatistics {
     uint32_t meshRenderers = 0;
     /// Of those, the ones outside the view, which were not drawn.
     uint32_t culled = 0;
+    /// Of the mesh renderers, the ones whose mesh is skinned and was given a pose.
+    uint32_t skinnedMeshes = 0;
+    /// The joint matrices sent to the GPU for them. A pose that several meshes are
+    /// drawn in counts once.
+    uint32_t jointMatrices = 0;
     /// Passes that draw over the whole picture, or over a smaller copy of it, rather
     /// than meshes: the two of the ambient occlusion, the lighting or the debug view,
     /// and what finishes the picture - the levels of the bloom down and up, the
@@ -280,6 +298,13 @@ private:
         PostProcessPass postProcess;
     };
 
+    /// The pose a skinned mesh is drawn in: where its joint matrices are among those
+    /// of the view, and the matrices themselves. kNoPalette and none without a pose.
+    struct MeshPose {
+        uint32_t palette = kNoPalette;
+        std::span<const Mat4> skinning;
+    };
+
     /// A mesh renderer of the world: where it is, and which of m_sceneDraws draw it.
     struct SceneMesh {
         Aabb bounds;
@@ -290,11 +315,20 @@ private:
     };
 
     SceneRenderer(nvrhi::IDevice* device, std::unique_ptr<RenderResources> resources, ViewBindings viewBindings,
-                  Passes passes, bool supportsWireframe);
+                  SkinPalettes palettes, Passes passes, bool supportsWireframe);
 
     /// Fills m_sceneMeshes and m_sceneDraws with everything `world` draws, m_draws
     /// with what of it shows through `view`, and counts.
     void collectDraws(const World& world, const CameraView& view);
+
+    /// The pose the skinned mesh `mesh` of `entity` is drawn in, its matrices added to
+    /// m_palettes the first time the pose is asked for. `meshId` names the mesh where
+    /// a pose that does not fit it is reported.
+    [[nodiscard]] MeshPose poseFor(const World& world, Entity entity, const GpuMesh& mesh, const Uuid& meshId);
+
+    /// Sends the poses collectDraws() gathered to the GPU. Where that fails, no draw
+    /// keeps its pose.
+    void uploadPoses(nvrhi::ICommandList* commandList);
 
     /// Draws the shadow maps of m_shadowPlan into the atlas, each with what casts a
     /// shadow in the light it belongs to.
@@ -303,6 +337,13 @@ private:
     nvrhi::IDevice* m_device;
     std::unique_ptr<RenderResources> m_resources;
     ViewBindings m_viewBindings;
+    /// The joint matrices of the view being drawn, and where those of each pose are in
+    /// them, by the entity that has the pose.
+    SkinPalettes m_palettes;
+    std::unordered_map<Entity, uint32_t> m_paletteOfPose;
+    /// The meshes that were given a pose that does not fit them, so that each is
+    /// reported once, not every frame.
+    std::unordered_set<Uuid> m_reportedPoses;
     MeshDrawList m_drawList;
     Passes m_passes;
     bool m_supportsWireframe;

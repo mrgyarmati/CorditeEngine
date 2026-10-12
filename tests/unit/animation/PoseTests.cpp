@@ -373,6 +373,79 @@ TEST_SUITE("Pose") {
         CHECK(skinning[4] == Mat4(7.0f));
     }
 
+    TEST_CASE("the boxes of the joints, each moved by its joint, enclose the mesh in every pose") {
+        Bar bar;
+        const MeshData& mesh = bar.document.meshes[0].mesh;
+        const std::vector<Aabb> boxes = jointBounds(mesh);
+        REQUIRE(boxes.size() == 3);
+
+        // At rest: the bar as it was modelled.
+        Aabb bounds = skinnedBounds(boxes, bar.skinning());
+        CHECK_NEAR(bounds.min, Vec3(-0.1f, 0.0f, -0.1f), 1.0e-6f);
+        CHECK_NEAR(bounds.max, Vec3(0.1f, 2.0f, 0.1f), 1.0e-6f);
+
+        // Bent a quarter turn at the middle joint: the upper half lies along -X at the
+        // height of the joint. The box of the middle joint is turned whole, with the
+        // ring below it that follows it by half - so the bounds reach half a metre to
+        // +X, where no vertex is: room to spare, never too little.
+        bar.pose[1].rotation = aboutZ(90.0f);
+        bounds = skinnedBounds(boxes, bar.skinning());
+        CHECK_NEAR(bounds.min, Vec3(-1.0f, 0.0f, -0.1f), 1.0e-5f);
+        CHECK_NEAR(bounds.max, Vec3(0.5f, 1.1f, 0.1f), 1.0e-5f);
+
+        // Whatever the pose, every vertex is inside.
+        const AnimationData& bend = bar.document.animations[0].animation;
+        const AnimationData& sway = bar.document.animations[1].animation;
+        for (const float time : {0.0f, 0.3f, 0.5f, 0.8f, 1.0f, 1.7f}) {
+            CAPTURE(time);
+            restPose(bar.skeleton, bar.pose);
+            sampleClip(bend, bindTracks(bend, bar.skeleton), time, bar.pose);
+            sampleClip(sway, bindTracks(sway, bar.skeleton), time, bar.pose);
+            const std::vector<Mat4> skinning = bar.skinning();
+            const Aabb posed = skinnedBounds(boxes, skinning);
+            Aabb roomy = posed;
+            roomy.min -= Vec3(1.0e-4f);
+            roomy.max += Vec3(1.0e-4f);
+            for (size_t index = 0; index < mesh.vertices.size(); ++index) {
+                CAPTURE(index);
+                CHECK(roomy.contains(skinPosition(mesh.vertices[index].position, mesh.skin[index], skinning)));
+            }
+        }
+    }
+
+    TEST_CASE("a box whose joint has no matrix, or one that is no matrix, stays where it is") {
+        const Aabb low = Aabb::fromCenterExtents(Vec3(0.0f), Vec3(1.0f));
+        const Aabb high = Aabb::fromCenterExtents(Vec3(0.0f, 10.0f, 0.0f), Vec3(1.0f));
+        const std::vector<Aabb> boxes = {low, Aabb(), high};
+        const Mat4 aside = glm::translate(Mat4(1.0f), Vec3(5.0f, 0.0f, 0.0f));
+
+        // Both moved; the empty box of the joint between them counts for nothing.
+        Aabb bounds = skinnedBounds(boxes, std::vector<Mat4>{aside, aside, aside});
+        CHECK(bounds.min == Vec3(4.0f, -1.0f, -1.0f));
+        CHECK(bounds.max == Vec3(6.0f, 11.0f, 1.0f));
+
+        // A pose of one joint moves the first box alone.
+        bounds = skinnedBounds(boxes, std::vector<Mat4>{aside});
+        CHECK(bounds.min == Vec3(-1.0f, -1.0f, -1.0f));
+        CHECK(bounds.max == Vec3(6.0f, 11.0f, 1.0f));
+        // No pose at all moves none.
+        bounds = skinnedBounds(boxes, {});
+        CHECK(bounds.min == Vec3(-1.0f));
+        CHECK(bounds.max == Vec3(1.0f, 11.0f, 1.0f));
+
+        // Matrices that are not made of numbers leave their boxes where they were:
+        // bounds that are no numbers would be in no view, or in every one.
+        Mat4 endless = aside;
+        endless[3][1] = std::numeric_limits<float>::infinity();
+        bounds = skinnedBounds(boxes, std::vector<Mat4>{Mat4(kNotANumber), aside, endless});
+        CHECK(bounds.min == Vec3(-1.0f));
+        CHECK(bounds.max == Vec3(1.0f, 11.0f, 1.0f));
+
+        // Nothing to enclose is an empty box.
+        CHECK(skinnedBounds({}, std::vector<Mat4>{aside}).isEmpty());
+        CHECK(skinnedBounds(std::vector<Aabb>(4), std::vector<Mat4>(4, aside)).isEmpty());
+    }
+
     TEST_CASE("a vertex that follows a joint there is no matrix for stays where it is") {
         const std::vector<Mat4> skinning = {glm::translate(Mat4(1.0f), Vec3(1.0f, 0.0f, 0.0f))};
         const Vec3 point(2.0f, 3.0f, 4.0f);

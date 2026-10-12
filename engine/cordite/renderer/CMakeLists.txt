@@ -60,6 +60,8 @@ cordite_add_module(renderer
         ShadowAtlas.h
         ShadowPlan.cpp
         ShadowPlan.h
+        SkinPalettes.cpp
+        SkinPalettes.h
         SceneRenderer.cpp
         SceneRenderer.h
         SceneTargets.cpp
@@ -76,5 +78,6 @@ cordite_add_module(renderer
         math
         assets
         world
+        animation
         rhi
         shaders)

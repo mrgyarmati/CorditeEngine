@@ -13,6 +13,11 @@ Quat quatOf(const Vec4& value) {
     return {value.w, value.x, value.y, value.z};
 }
 
+bool isFinite(const Aabb& box) {
+    return std::isfinite(box.min.x) && std::isfinite(box.min.y) && std::isfinite(box.min.z) &&
+           std::isfinite(box.max.x) && std::isfinite(box.max.y) && std::isfinite(box.max.z);
+}
+
 /// `rotation` at unit length, or no rotation when it has no length to speak of.
 Quat unitOr(const Quat& rotation) {
     const float length = glm::length(rotation);
@@ -163,6 +168,19 @@ Vec3 skinPosition(const Vec3& position, const MeshSkinVertex& skin, std::span<co
         moved += byJoint * weight;
     }
     return moved;
+}
+
+Aabb skinnedBounds(std::span<const Aabb> jointBounds, std::span<const Mat4> skinning) {
+    Aabb bounds;
+    for (size_t joint = 0; joint < jointBounds.size(); ++joint) {
+        const Aabb& box = jointBounds[joint];
+        if (box.isEmpty()) {
+            continue;
+        }
+        const Aabb moved = joint < skinning.size() ? box.transformed(skinning[joint]) : box;
+        bounds.expand(isFinite(moved) ? moved : box);
+    }
+    return bounds;
 }
 
 } // namespace cordite

@@ -23,6 +23,9 @@
 ///     "cpuMilliseconds": 0.61,
 ///     "gpuMilliseconds": 0.24,          // null where the GPU cannot time its work
 ///     "scene": {"views": 1, "meshRenderers": 21, "culled": 1,
+///               // The mesh renderers drawn in a pose, and the joint matrices sent to
+///               // the GPU for them.
+///               "skinned": {"meshes": 2, "jointMatrices": 48},
 ///               "drawCalls": 115, "instances": 137, "triangles": 17470,   // all passes together
 ///               // Passes over the whole picture: the lighting, and what finishes it.
 ///               "screenPasses": 12,

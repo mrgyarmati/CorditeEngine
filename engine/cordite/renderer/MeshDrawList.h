@@ -12,18 +12,23 @@
 /// MeshDrawList drawList(device);
 ///
 /// drawList.build(commandList, draws, view.position, view.forward);
-/// depthPass.draw(commandList, targets.depthFramebuffer(), drawList.solidBatches(), viewBindings,
-///                drawList.instanceBuffer());
-/// forwardPass.draw(commandList, targets.sceneFramebuffer(), drawList.blendedBatches(), viewBindings,
-///                  drawList.instanceBuffer());
+/// const MeshPassBindings bindings{
+///     .view = viewBindings, .instances = drawList.instanceBuffer(), .joints = palettes.bindings()};
+/// depthPass.draw(commandList, targets.depthFramebuffer(), drawList.solidBatches(), bindings);
+/// forwardPass.draw(commandList, targets.sceneFramebuffer(), drawList.blendedBatches(), bindings);
 /// @endcode
 ///
 /// Solid surfaces - opaque and masked - come grouped so that equal draws are neighbours.
 /// Blended ones come from far to near, which is the order they have to be drawn in, and
 /// are only grouped where that order allows it.
+///
+/// Skinned meshes are instanced like any other: the instances of a batch share the mesh
+/// and differ in where their joint matrices are. A skinned mesh without a pose is not
+/// in a batch with ones that have a pose; it is drawn as the rigid mesh it then is.
 
 #include "cordite/math/Math.h"
 #include "cordite/renderer/RenderResources.h"
+#include "cordite/renderer/SkinPalettes.h"
 
 #include <nvrhi/nvrhi.h>
 
@@ -43,6 +48,10 @@ struct MeshDraw {
     Mat4 localToWorld{1.0f};
     /// The lighting channels the surface belongs to, one bit each.
     uint32_t lightChannels = 1;
+    /// For a skinned mesh in a pose: where the joint matrices of the pose begin among
+    /// those of the view, as SkinPalettes::add() said. kNoPalette draws the mesh as it
+    /// was modelled, as does any value for a mesh that is not skinned.
+    uint32_t palette = kNoPalette;
 };
 
 // What a batch needs of the pipeline that draws it: the bits of MeshBatch::variant.
@@ -54,6 +63,9 @@ inline constexpr uint32_t kMeshVariantBlended = 1u << 1;
 inline constexpr uint32_t kMeshVariantDoubleSided = 1u << 2;
 /// The instances are mirrored, which turns their triangles the other way round.
 inline constexpr uint32_t kMeshVariantMirrored = 1u << 3;
+/// The vertices are moved by joints before the instance is placed: the mesh is skinned,
+/// and every instance of the batch has a pose.
+inline constexpr uint32_t kMeshVariantSkinned = 1u << 4;
 
 /// Draws that share a mesh, a submesh, a material and a variant: one instanced draw call.
 struct MeshBatch {
@@ -91,7 +103,8 @@ public:
 
     /// One entry per instance, kMeshInstanceStride bytes each: the three rows of the
     /// 3x4 matrix that places it, as three float4, and a fourth float4 with what else
-    /// differs between instances - its lighting channels in x. Null while the list is
+    /// differs between instances - its lighting channels in x, and in y where its
+    /// joint matrices begin (MeshDraw::palette; zero without). Null while the list is
     /// empty.
     [[nodiscard]] nvrhi::IBuffer* instanceBuffer() const { return m_instanceBuffer; }
 
