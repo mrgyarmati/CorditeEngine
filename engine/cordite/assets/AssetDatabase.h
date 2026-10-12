@@ -20,7 +20,8 @@
 /// @endcode
 ///
 /// File types: `.gltf` and `.glb` are models, which contain meshes and materials (and
-/// textures, when images are embedded); `.png`, `.jpg`, `.jpeg`, `.tga`, `.bmp` and `.hdr`
+/// textures, when images are embedded; skeletons and animations, when they are
+/// skinned); `.png`, `.jpg`, `.jpeg`, `.tga`, `.bmp` and `.hdr`
 /// are textures; `.material.json` is a material; `.scene.json` is a scene. Other files
 /// are ignored, as are directories whose names start with a dot.
 ///
@@ -50,12 +51,24 @@ enum class AssetType : uint8_t {
     /// A hierarchy of meshes that can be placed in a scene as a group of entities.
     Model,
     Scene,
+    /// The joints a skinned mesh hangs on.
+    Skeleton,
+    /// A clip that moves the joints of a skeleton.
+    Animation,
+};
+
+inline constexpr std::array<AssetType, 7> kAssetTypes = {
+    AssetType::Texture, AssetType::Mesh,     AssetType::Material,  AssetType::Model,
+    AssetType::Scene,   AssetType::Skeleton, AssetType::Animation,
 };
 
 /// The lowercase name used in files and by tools: "texture", "mesh", ...
 std::string_view nameOf(AssetType type);
 /// The name with a capital, as PropertyAttributes::referenceType spells it: "Texture".
 std::string_view displayNameOf(AssetType type);
+/// The name as a sentence speaks of one of the kind, for messages: "a mesh", "an
+/// animation".
+std::string_view withArticle(AssetType type);
 std::optional<AssetType> assetTypeFromName(std::string_view name);
 
 /// The meshes every project has without any files.

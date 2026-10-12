@@ -24,7 +24,7 @@ number are what its list of milestones leaves out and its requirements ask for:
 | 8 | HDR and post-processing: exposure by hand or automatic, bloom, filmic and ACES tone mapping, color grading with lookup tables, vignette, grain, quality presets | Done |
 | - | Image-based lighting: HDR images of the sky as environments - the sky itself, its light on matte surfaces, its reflection on shiny ones | Done |
 | 9 | Screen-space effects: ambient occlusion from the screen, fog, anti-aliasing (FXAA). Screen-space reflections, which the brief marks optional, are listed below | Done |
-| - | Skeletal meshes and animation: skinned glTF models, skeletons, animation clips, playback and blending, an animated mesh in the showcase | Planned |
+| - | Skeletal meshes and animation: skinned glTF models, skeletons and animation clips are imported, exported and listed as assets; playing and drawing them is to come | In progress |
 | 10 | Physics and gameplay | Planned |
 | 11 | Editor maturity | Planned |
 | 12 | Packaging and export | Planned |
@@ -83,7 +83,8 @@ E; hold the middle button to slide; turn the wheel to move forwards and backward
 ## Projects and assets
 
 A game is a project: a directory with a `cordite.project.json` and an `assets`
-directory holding models (glTF 2.0: `.gltf`, `.glb`), textures (PNG, JPEG, TGA, BMP,
+directory holding models (glTF 2.0: `.gltf`, `.glb` - with their skeletons and
+animations, when they are skinned), textures (PNG, JPEG, TGA, BMP,
 HDR), materials (`.material.json`) and scenes (`.scene.json`). Every asset has an id
 that survives renaming and moving - it is kept in a `.meta` file next to the asset -
 and scenes refer to assets by id only. Meshes for blocking out a scene (cube, sphere,

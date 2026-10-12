@@ -52,6 +52,8 @@ struct Keyframe {
     T outTangent{};
     /// Interpolation of the segment that starts at this key.
     Interpolation interpolation = Interpolation::Linear;
+
+    bool operator==(const Keyframe&) const = default;
 };
 
 /// A curve through keyframes of type T, where T supports addition and scaling by float
@@ -187,6 +189,10 @@ private:
 
     std::vector<Keyframe<T>> m_keys;
     WrapMode m_wrapMode = WrapMode::Clamp;
+
+public:
+    /// Two curves are equal when they have the same keys and wrap the same way.
+    bool operator==(const Curve&) const = default;
 };
 
 using FloatCurve = Curve<float>;

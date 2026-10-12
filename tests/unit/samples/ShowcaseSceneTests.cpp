@@ -137,6 +137,16 @@ TEST_SUITE("Showcase") {
                     CHECK(asset.warnings.empty());
                     break;
                 }
+                case AssetType::Skeleton: {
+                    const auto skeleton = showcase.assets->loadSkeleton(asset.id);
+                    CHECK_MESSAGE(skeleton.has_value(), test::errorOf(skeleton));
+                    break;
+                }
+                case AssetType::Animation: {
+                    const auto animation = showcase.assets->loadAnimation(asset.id);
+                    CHECK_MESSAGE(animation.has_value(), test::errorOf(animation));
+                    break;
+                }
                 case AssetType::Scene:
                     break;
             }

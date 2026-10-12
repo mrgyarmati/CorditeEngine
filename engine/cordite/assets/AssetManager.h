@@ -22,11 +22,13 @@
 ///
 /// Loading happens on the calling thread and is not thread-safe.
 
+#include "cordite/assets/Animation.h"
 #include "cordite/assets/AssetDatabase.h"
 #include "cordite/assets/Image.h"
 #include "cordite/assets/Material.h"
 #include "cordite/assets/Mesh.h"
 #include "cordite/assets/Model.h"
+#include "cordite/assets/Skeleton.h"
 #include "cordite/core/Base.h"
 #include "cordite/core/Result.h"
 
@@ -62,6 +64,10 @@ public:
     [[nodiscard]] Result<std::shared_ptr<const MaterialData>> loadMaterial(const Uuid& id);
     [[nodiscard]] Result<std::shared_ptr<const Image>> loadTexture(const Uuid& id);
     [[nodiscard]] Result<std::shared_ptr<const ModelData>> loadModel(const Uuid& id);
+    /// A skeleton of a model file, and one of its animations. Both have been through
+    /// validateSkeleton() and validateAnimation().
+    [[nodiscard]] Result<std::shared_ptr<const SkeletonData>> loadSkeleton(const Uuid& id);
+    [[nodiscard]] Result<std::shared_ptr<const AnimationData>> loadAnimation(const Uuid& id);
 
 private:
     explicit AssetManager(AssetDatabaseDesc desc);
@@ -75,6 +81,8 @@ private:
     std::unordered_map<Uuid, std::shared_ptr<const MeshData>> m_meshes;
     std::unordered_map<Uuid, std::shared_ptr<const MaterialData>> m_materials;
     std::unordered_map<Uuid, std::shared_ptr<const ModelData>> m_models;
+    std::unordered_map<Uuid, std::shared_ptr<const SkeletonData>> m_skeletons;
+    std::unordered_map<Uuid, std::shared_ptr<const AnimationData>> m_animations;
     std::unordered_map<Uuid, std::weak_ptr<const Image>> m_textures;
     /// The encoded bytes of images that are stored inside model files.
     std::unordered_map<Uuid, std::shared_ptr<const std::vector<std::byte>>> m_embeddedImages;

@@ -18,9 +18,16 @@
 /// hierarchy of the default scene. Missing normals are replaced by flat ones, as the
 /// specification prescribes, and missing tangents are computed with MikkTSpace.
 ///
-/// What is not: skins, animations, morph targets, lights, vertex colors, and compressed
-/// geometry (Draco, meshopt). A file that merely uses such a feature loads without it
-/// and says so in GltfDocument::warnings; a file that requires one is refused.
+/// Skinned meshes come with the joints and weights of their vertices - the first four
+/// of each, brought to one in all -, skins as skeletons, and animations as clips whose
+/// tracks move nodes by name: translation, rotation and scale, stepped, linear or as
+/// cubic splines. A skin or a track that makes no sense - a joint listed twice, times
+/// that run backwards - is left out and reported; the rest of the file is not refused
+/// for it.
+///
+/// What is not: morph targets, lights, vertex colors, and compressed geometry (Draco,
+/// meshopt). A file that merely uses such a feature loads without it and says so in
+/// GltfDocument::warnings; a file that requires one is refused.
 ///
 /// A glTF file is untrusted input. Its numbers are checked against the data that is
 /// really there; the size of each mesh (kMaxMeshVertices, kMaxMeshIndices) and of the
@@ -58,6 +65,10 @@ struct GltfImportOptions {
     /// How many bytes the images stored inside the file may have in all, encoded as
     /// they are. Textures beyond that belong in files of their own.
     size_t maxEmbeddedImageBytes = size_t{1} << 30;
+
+    /// How many keys the animations of the file may have between them, counted as the
+    /// file states them. The default is what a single animation may hold.
+    uint32_t maxAnimationKeys = kMaxAnimationKeys;
 };
 
 /// Reads a glTF file. The error names the file and what is wrong with it.

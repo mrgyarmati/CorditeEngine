@@ -138,6 +138,68 @@ Status validateContents(const GltfDocument& document) {
     return {};
 }
 
+/// Whether every key of a curve goes on to the next the same way: a glTF file says how
+/// once for a whole curve.
+template <typename Value>
+bool hasOneInterpolation(const Curve<Value>& curve) {
+    const std::span<const Keyframe<Value>> keys = curve.keys();
+    return std::ranges::all_of(
+        keys, [&](const Keyframe<Value>& key) { return key.interpolation == keys.front().interpolation; });
+}
+
+/// Checks that skins and animations can be written, and that the nodes they name exist.
+Status validateMotion(const GltfDocument& document) {
+    const size_t nodeCount = document.nodes.size();
+    for (const GltfSkin& skin : document.skins) {
+        const std::string& name = skin.skeleton.name;
+        if (skin.joints.empty()) {
+            // A glTF skin has at least one joint.
+            return makeError(ErrorCode::InvalidArgument, "skin '{}' has no joints", name);
+        }
+        if (skin.joints.size() != skin.skeleton.joints.size()) {
+            return makeError(ErrorCode::InvalidArgument, "skin '{}' names {} nodes for the {} joints of its skeleton",
+                             name, skin.joints.size(), skin.skeleton.joints.size());
+        }
+        CORDITE_TRY(validateSkeleton(skin.skeleton));
+        std::vector<uint32_t> sorted = skin.joints;
+        std::ranges::sort(sorted);
+        if (sorted.back() >= nodeCount || std::ranges::adjacent_find(sorted) != sorted.end()) {
+            return makeError(ErrorCode::InvalidArgument,
+                             "skin '{}' names a node that is not there, or the same node twice", name);
+        }
+    }
+
+    for (const GltfAnimation& source : document.animations) {
+        const AnimationData& animation = source.animation;
+        CORDITE_TRY(validateAnimation(animation));
+        if (source.nodes.size() != animation.tracks.size()) {
+            return makeError(ErrorCode::InvalidArgument, "animation '{}' names {} nodes for its {} tracks",
+                             animation.name, source.nodes.size(), animation.tracks.size());
+        }
+        size_t keyCount = 0;
+        for (size_t index = 0; index < animation.tracks.size(); ++index) {
+            const AnimationTrack& track = animation.tracks[index];
+            if (source.nodes[index] >= nodeCount) {
+                return makeError(ErrorCode::InvalidArgument, "animation '{}' moves node {}, but there are only {}",
+                                 animation.name, source.nodes[index], nodeCount);
+            }
+            if (!hasOneInterpolation(track.translation) || !hasOneInterpolation(track.rotation) ||
+                !hasOneInterpolation(track.scale)) {
+                return makeError(ErrorCode::InvalidArgument,
+                                 "the track for '{}' of animation '{}' has a curve whose keys do not all go on "
+                                 "to the next the same way, which a glTF file cannot say",
+                                 track.joint, animation.name);
+            }
+            keyCount += track.translation.keys().size() + track.rotation.keys().size() + track.scale.keys().size();
+        }
+        if (keyCount == 0) {
+            // A glTF animation has at least one channel.
+            return makeError(ErrorCode::InvalidArgument, "animation '{}' has no keys", animation.name);
+        }
+    }
+    return {};
+}
+
 /// Checks that the nodes form trees: every node has at most one parent, following
 /// parents always ends, and the roots are nodes without one.
 Status validateHierarchy(const GltfDocument& document) {
@@ -148,6 +210,19 @@ Status validateHierarchy(const GltfDocument& document) {
         if (node.mesh && *node.mesh >= document.meshes.size()) {
             return makeError(ErrorCode::InvalidArgument, "node '{}' refers to mesh {}, but there are only {}",
                              node.name, *node.mesh, document.meshes.size());
+        }
+        if (node.skin) {
+            if (*node.skin >= document.skins.size() || !node.mesh) {
+                return makeError(ErrorCode::InvalidArgument,
+                                 "node '{}' refers to a skin that is not there, or has a skin and no mesh", node.name);
+            }
+            const MeshData& mesh = document.meshes[*node.mesh].mesh;
+            if (!mesh.isSkinned() || jointsUsed(mesh) > document.skins[*node.skin].joints.size()) {
+                return makeError(ErrorCode::InvalidArgument,
+                                 "node '{}' gives the mesh '{}' a skin that does not have the joints its vertices "
+                                 "follow",
+                                 node.name, mesh.name);
+            }
         }
         for (const uint32_t child : node.children) {
             if (child >= nodeCount) {
@@ -181,6 +256,7 @@ Status validateHierarchy(const GltfDocument& document) {
 /// Checks everything that would otherwise produce a file other programs reject.
 Status validateDocument(const GltfDocument& document) {
     CORDITE_TRY(validateContents(document));
+    CORDITE_TRY(validateMotion(document));
     return validateHierarchy(document);
 }
 
@@ -209,6 +285,8 @@ public:
 
         addNodes();
         addMeshes();
+        addSkins();
+        addAnimations();
         addMaterials();
         addImages();
 
@@ -319,6 +397,9 @@ private:
             if (source.mesh) {
                 node["mesh"] = *source.mesh;
             }
+            if (source.skin) {
+                node["skin"] = *source.skin;
+            }
             if (source.camera) {
                 node["camera"] = addCamera(*source.camera, source.name);
             }
@@ -394,6 +475,26 @@ private:
             attributes["TANGENT"] = addAccessor(attribute(offsetof(MeshVertex, tangent), "VEC4"));
             attributes["TEXCOORD_0"] = addAccessor(attribute(offsetof(MeshVertex, uv0), "VEC2"));
             attributes["TEXCOORD_1"] = addAccessor(attribute(offsetof(MeshVertex, uv1), "VEC2"));
+            if (mesh.isSkinned()) {
+                // How the vertices follow their joints, likewise as it is in memory: four
+                // indices of sixteen bits and four weights a vertex.
+                const uint32_t skinView =
+                    addView(std::as_bytes(std::span(mesh.skin)), kArrayBufferTarget, sizeof(MeshSkinVertex));
+                Json joints = Json::object();
+                joints["bufferView"] = skinView;
+                joints["byteOffset"] = offsetof(MeshSkinVertex, joints);
+                joints["componentType"] = kUnsignedShortType;
+                joints["count"] = mesh.skin.size();
+                joints["type"] = "VEC4";
+                Json weights = Json::object();
+                weights["bufferView"] = skinView;
+                weights["byteOffset"] = offsetof(MeshSkinVertex, weights);
+                weights["componentType"] = kFloatType;
+                weights["count"] = mesh.skin.size();
+                weights["type"] = "VEC4";
+                attributes["JOINTS_0"] = addAccessor(std::move(joints));
+                attributes["WEIGHTS_0"] = addAccessor(std::move(weights));
+            }
 
             // Sixteen-bit indices where they reach every vertex: half the size.
             const bool smallIndices = mesh.vertices.size() <= 0xFFFF;
@@ -436,6 +537,115 @@ private:
             meshes.push_back(std::move(entry));
         }
         m_root["meshes"] = std::move(meshes);
+    }
+
+    /// An accessor for numbers that are neither vertices nor indices: `count` values of
+    /// `type`, in floats.
+    uint32_t addFloats(std::span<const float> values, size_t count, std::string_view type) {
+        Json accessor = Json::object();
+        accessor["bufferView"] = addView(std::as_bytes(values));
+        accessor["componentType"] = kFloatType;
+        accessor["count"] = count;
+        accessor["type"] = type;
+        return addAccessor(std::move(accessor));
+    }
+
+    void addSkins() {
+        if (m_document.skins.empty()) {
+            return;
+        }
+        Json skins = Json::array();
+        for (const GltfSkin& source : m_document.skins) {
+            // Column after column, in the file as in memory.
+            std::vector<float> matrices(source.skeleton.joints.size() * 16);
+            for (size_t index = 0; index < source.skeleton.joints.size(); ++index) {
+                std::memcpy(matrices.data() + index * 16, &source.skeleton.joints[index].inverseBind, sizeof(Mat4));
+            }
+            Json skin = Json::object();
+            skin["name"] = source.skeleton.name;
+            skin["joints"] = source.joints;
+            skin["inverseBindMatrices"] = addFloats(matrices, source.skeleton.joints.size(), "MAT4");
+            skins.push_back(std::move(skin));
+        }
+        m_root["skins"] = std::move(skins);
+    }
+
+    /// Writes the keys of one curve as a sampler of `animation` and a channel that
+    /// moves `path` of `node` with it. A curve without keys moves nothing.
+    template <typename Value>
+    void addChannel(Json& animation, const Curve<Value>& curve, uint32_t node, std::string_view path) {
+        const std::span<const Keyframe<Value>> keys = curve.keys();
+        if (keys.empty()) {
+            return;
+        }
+        const Interpolation interpolation = keys.front().interpolation;
+        const auto width = static_cast<size_t>(Value::length());
+        std::vector<float> times;
+        std::vector<float> values;
+        const auto append = [&](const Value& value) {
+            for (glm::length_t component = 0; component < Value::length(); ++component) {
+                values.push_back(value[component]);
+            }
+        };
+        for (const Keyframe<Value>& key : keys) {
+            times.push_back(key.time);
+            // A cubic spline has a slope in, a value and a slope out for every key.
+            if (interpolation == Interpolation::Cubic) {
+                append(key.inTangent);
+                append(key.value);
+                append(key.outTangent);
+            } else {
+                append(key.value);
+            }
+        }
+
+        // The times of a sampler have to say how far they reach.
+        Json input = Json::object();
+        input["bufferView"] = addView(std::as_bytes(std::span(times)));
+        input["componentType"] = kFloatType;
+        input["count"] = times.size();
+        input["type"] = "SCALAR";
+        input["min"] = floats({times.front()});
+        input["max"] = floats({times.back()});
+
+        Json sampler = Json::object();
+        sampler["input"] = addAccessor(std::move(input));
+        sampler["output"] = addFloats(values, values.size() / width, width == 4 ? "VEC4" : "VEC3");
+        if (interpolation == Interpolation::Step) {
+            sampler["interpolation"] = "STEP";
+        } else if (interpolation == Interpolation::Cubic) {
+            sampler["interpolation"] = "CUBICSPLINE";
+        } else {
+            sampler["interpolation"] = "LINEAR";
+        }
+
+        Json channel = Json::object();
+        channel["sampler"] = animation["samplers"].size();
+        channel["target"]["node"] = node;
+        channel["target"]["path"] = path;
+        animation["samplers"].push_back(std::move(sampler));
+        animation["channels"].push_back(std::move(channel));
+    }
+
+    void addAnimations() {
+        if (m_document.animations.empty()) {
+            return;
+        }
+        Json animations = Json::array();
+        for (const GltfAnimation& source : m_document.animations) {
+            Json animation = Json::object();
+            animation["name"] = source.animation.name;
+            animation["samplers"] = Json::array();
+            animation["channels"] = Json::array();
+            for (size_t index = 0; index < source.animation.tracks.size(); ++index) {
+                const AnimationTrack& track = source.animation.tracks[index];
+                addChannel(animation, track.translation, source.nodes[index], "translation");
+                addChannel(animation, track.rotation, source.nodes[index], "rotation");
+                addChannel(animation, track.scale, source.nodes[index], "scale");
+            }
+            animations.push_back(std::move(animation));
+        }
+        m_root["animations"] = std::move(animations);
     }
 
     /// The glTF texture for an image as a material samples it; one per distinct pair.

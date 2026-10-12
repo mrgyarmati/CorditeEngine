@@ -121,8 +121,30 @@ TEST_SUITE("AssetDatabase") {
         CHECK(nameOf(AssetType::Material) == "material");
         CHECK(nameOf(AssetType::Model) == "model");
         CHECK(nameOf(AssetType::Scene) == "scene");
+        CHECK(nameOf(AssetType::Skeleton) == "skeleton");
+        CHECK(nameOf(AssetType::Animation) == "animation");
         CHECK(displayNameOf(AssetType::Texture) == "Texture");
         CHECK(displayNameOf(AssetType::Mesh) == "Mesh");
+        CHECK(displayNameOf(AssetType::Skeleton) == "Skeleton");
+        CHECK(displayNameOf(AssetType::Animation) == "Animation");
+        // In a sentence a type takes the article its name asks for.
+        CHECK(withArticle(AssetType::Texture) == "a texture");
+        CHECK(withArticle(AssetType::Mesh) == "a mesh");
+        CHECK(withArticle(AssetType::Material) == "a material");
+        CHECK(withArticle(AssetType::Model) == "a model");
+        CHECK(withArticle(AssetType::Scene) == "a scene");
+        CHECK(withArticle(AssetType::Skeleton) == "a skeleton");
+        CHECK(withArticle(AssetType::Animation) == "an animation");
+        // Every type is found by its name, and has a name of its own.
+        CHECK(kAssetTypes.size() == 7);
+        for (const AssetType type : kAssetTypes) {
+            CHECK(assetTypeFromName(nameOf(type)) == type);
+            CHECK(nameOf(type) != "unknown");
+            CHECK(displayNameOf(type) != "Unknown");
+            // The name is the last word of the name with its article.
+            CHECK(withArticle(type).ends_with(std::string(" ") + std::string(nameOf(type))));
+        }
+        CHECK(assetTypeFromName("Skeleton") == AssetType::Skeleton);
 
         CHECK(assetTypeFromName("mesh") == AssetType::Mesh);
         CHECK(assetTypeFromName("Material") == AssetType::Material);

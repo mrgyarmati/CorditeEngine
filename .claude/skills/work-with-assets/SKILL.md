@@ -110,7 +110,17 @@ glTF 2.0, `.gltf` or `.glb`. What comes across and what does not is listed at th
 - a **mesh** per glTF mesh (`#mesh/N`), with one submesh per material it uses;
 - a **material** per glTF material (`#material/N`);
 - a **texture** per *embedded* image (`#image/N`). Images in files of their own are the
-  assets of those files, and must lie inside the `assets` directory.
+  assets of those files, and must lie inside the `assets` directory;
+- a **skeleton** per glTF skin (`#skeleton/N`): the joints a skinned mesh hangs on, by
+  name, with what each hangs on and where it rests;
+- an **animation** per glTF animation (`#animation/N`): a clip that moves joints by
+  name - translation, rotation and scale, stepped, linear or as splines.
+
+`asset.get` says what is in each: for a mesh whether it is `skinned` and how many
+`joints` it needs, for a skeleton its joints and what they hang on, for an animation
+its `duration` and the joints it moves. A skin or a channel that makes no sense - a
+joint listed twice, times that run backwards - is left out and named in the model's
+`warnings`; the rest of the file is imported.
 
 Ids of what is inside a model follow from its position in the file. Re-exporting a model
 keeps them as long as the order of its meshes and materials stays the same.
@@ -127,6 +137,9 @@ keeps them as long as the order of its meshes and materials stays the same.
   lies (`GltfImporterTests`, "files whose numbers do not match their data").
 - Build test files in the test with `GltfFile` (`tests/unit/assets/GltfTestSupport.h`)
   or write them with `exportGltf`; do not check in binary test models.
+- A mesh that is skinned has `MeshData::skin` beside its vertices. Anything that
+  changes which vertex is where has to take it along; `SkinnedMeshTests` checks every
+  function of `MeshProcessing.h` for that with `skinnedCorners`.
 - Ids are pinned by tests (`AssetDatabaseTests`). A change that moves one breaks every
   scene that refers to it: do not change `kBuiltinNamespace`, `kPathNamespace`, the
   sub-path scheme or `Uuid::fromName`.

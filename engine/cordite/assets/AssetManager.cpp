@@ -53,6 +53,8 @@ Status AssetManager::refresh() {
     m_meshes.clear();
     m_materials.clear();
     m_models.clear();
+    m_skeletons.clear();
+    m_animations.clear();
     m_textures.clear();
     m_embeddedImages.clear();
     m_importedFiles.clear();
@@ -65,8 +67,8 @@ Result<const AssetInfo*> AssetManager::lookUp(const Uuid& id, AssetType type) co
         return makeError(ErrorCode::NotFound, "there is no asset with the id {}", id.toString());
     }
     if (asset->type != type) {
-        return makeError(ErrorCode::InvalidArgument, "{} is a {}, not a {}", asset->reference(), nameOf(asset->type),
-                         nameOf(type));
+        return makeError(ErrorCode::InvalidArgument, "{} is {}, not {}", asset->reference(), withArticle(asset->type),
+                         withArticle(type));
     }
     return asset;
 }
@@ -147,9 +149,23 @@ Status AssetManager::importModelFile(const AssetInfo& asset) {
         }
     }
 
+    // A skin that could not be imported is no skeleton, and a node that names it draws
+    // its mesh without one - which the importer has seen to already.
+    for (size_t index = 0; index < document.skins.size(); ++index) {
+        if (!document.skins[index].joints.empty()) {
+            m_skeletons[idOf("skeleton", index)] =
+                std::make_shared<const SkeletonData>(std::move(document.skins[index].skeleton));
+        }
+    }
+
     ModelData model;
     model.name = file->name;
     model.roots = document.roots;
+    for (size_t index = 0; index < document.animations.size(); ++index) {
+        model.animations.push_back(idOf("animation", index));
+        m_animations[model.animations.back()] =
+            std::make_shared<const AnimationData>(std::move(document.animations[index].animation));
+    }
     model.nodes.reserve(document.nodes.size());
     for (GltfNode& source : document.nodes) {
         ModelNode node;
@@ -161,6 +177,9 @@ Status AssetManager::importModelFile(const AssetInfo& asset) {
         if (source.mesh && m_meshes.contains(idOf("mesh", *source.mesh))) {
             node.mesh = idOf("mesh", *source.mesh);
             node.materials = meshMaterials[*source.mesh];
+            if (source.skin && m_skeletons.contains(idOf("skeleton", *source.skin))) {
+                node.skeleton = idOf("skeleton", *source.skin);
+            }
         }
         model.nodes.push_back(std::move(node));
     }
@@ -280,6 +299,30 @@ Result<std::shared_ptr<const ModelData>> AssetManager::loadModel(const Uuid& id)
         return imported->second;
     }
     return makeError(ErrorCode::NotFound, "{} cannot be loaded", asset->reference());
+}
+
+Result<std::shared_ptr<const SkeletonData>> AssetManager::loadSkeleton(const Uuid& id) {
+    if (const auto cached = m_skeletons.find(id); cached != m_skeletons.end()) {
+        return cached->second;
+    }
+    CORDITE_TRY_ASSIGN(const AssetInfo* asset, lookUp(id, AssetType::Skeleton));
+    CORDITE_TRY(importModelFile(*asset));
+    if (const auto imported = m_skeletons.find(id); imported != m_skeletons.end()) {
+        return imported->second;
+    }
+    return makeError(ErrorCode::NotFound, "{} is no longer in its file", asset->reference());
+}
+
+Result<std::shared_ptr<const AnimationData>> AssetManager::loadAnimation(const Uuid& id) {
+    if (const auto cached = m_animations.find(id); cached != m_animations.end()) {
+        return cached->second;
+    }
+    CORDITE_TRY_ASSIGN(const AssetInfo* asset, lookUp(id, AssetType::Animation));
+    CORDITE_TRY(importModelFile(*asset));
+    if (const auto imported = m_animations.find(id); imported != m_animations.end()) {
+        return imported->second;
+    }
+    return makeError(ErrorCode::NotFound, "{} is no longer in its file", asset->reference());
 }
 
 } // namespace cordite

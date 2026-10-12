@@ -10,6 +10,7 @@
 #include "cordite/world/SceneSerializer.h"
 
 #include "support/MathTestSupport.h"
+#include "support/SkinnedModelSupport.h"
 #include "support/TestSupport.h"
 
 #include <memory>
@@ -273,6 +274,50 @@ TEST_SUITE("AssetCommands") {
         const Json scene = fixture.run("asset.get", R"({"asset": "scenes/yard.scene.json"})");
         CHECK(scene["type"] == "scene");
         CHECK(scene["content"].empty());
+    }
+
+    TEST_CASE("asset.get describes a skinned mesh, its skeleton and the animations that move it") {
+        AssetFixture fixture;
+        REQUIRE(exportGltf(test::makeSkinnedBar(), fixture.root / "models" / "bar.gltf").has_value());
+        fixture.run("asset.refresh");
+
+        // Listed by their types, like every other asset.
+        const Json skeletons = fixture.run("asset.list", R"({"type": "skeleton"})");
+        REQUIRE(skeletons["assets"].size() == 1);
+        CHECK(skeletons["assets"][0]["path"] == "models/bar.gltf#skeleton/0");
+        CHECK(skeletons["assets"][0]["name"] == "Bar skin");
+        const Json animations = fixture.run("asset.list", R"({"type": "animation"})");
+        REQUIRE(animations["assets"].size() == 2);
+        CHECK(animations["assets"][1]["name"] == "Sway");
+
+        const Json mesh = fixture.run("asset.get", R"({"asset": "models/bar.gltf#mesh/0"})");
+        CHECK(mesh["content"]["skinned"] == true);
+        CHECK(mesh["content"]["joints"] == 3);
+        // A rigid mesh says so, and needs no joints.
+        const Json rigid = fixture.run("asset.get", R"({"asset": "models/cart.gltf#mesh/0"})");
+        CHECK(rigid["content"]["skinned"] == false);
+        CHECK(rigid["content"]["joints"] == 0);
+
+        const Json skeleton = fixture.run("asset.get", R"({"asset": "models/bar.gltf#skeleton/0"})");
+        CHECK(skeleton["type"] == "skeleton");
+        REQUIRE(skeleton["content"]["joints"].size() == 3);
+        CHECK(skeleton["content"]["joints"][0]["name"] == "Root");
+        CHECK(skeleton["content"]["joints"][0]["parent"].is_null());
+        CHECK(skeleton["content"]["joints"][2]["name"] == "Tip");
+        CHECK(skeleton["content"]["joints"][2]["parent"] == 1);
+
+        const Json bend = fixture.run("asset.get", R"({"asset": "models/bar.gltf#animation/0"})");
+        CHECK(bend["type"] == "animation");
+        CHECK(bend["name"] == "Bend");
+        CHECK(bend["content"]["duration"] == 1.0);
+        CHECK(bend["content"]["joints"] == json(R"(["Middle"])"));
+
+        // The model names the skeleton of the node that is drawn with one, and its clips.
+        const Json model = fixture.run("asset.get", R"({"asset": "models/bar.gltf"})");
+        CHECK(model["content"]["nodes"][0]["skeleton"] == fixture.id("models/bar.gltf#skeleton/0"));
+        CHECK(model["content"]["nodes"][1]["skeleton"].is_null());
+        CHECK(model["content"]["animations"] ==
+              Json::array({fixture.id("models/bar.gltf#animation/0"), fixture.id("models/bar.gltf#animation/1")}));
     }
 
     TEST_CASE("asset.get fails with the reason for an asset that is unknown or cannot be loaded") {

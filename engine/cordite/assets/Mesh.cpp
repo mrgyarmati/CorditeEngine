@@ -1,8 +1,12 @@
 #include "cordite/assets/Mesh.h"
 
+#include "cordite/assets/Skeleton.h"
 #include "cordite/core/Assert.h"
 
+#include <algorithm>
 #include <cmath>
+#include <numeric>
+#include <string_view>
 
 namespace cordite {
 namespace {
@@ -11,6 +15,25 @@ bool isFiniteVertex(const MeshVertex& vertex) {
     return isFinite(vertex.position) && isFinite(vertex.normal) && isFinite(Vec3(vertex.tangent)) &&
            std::isfinite(vertex.tangent.w) && std::isfinite(vertex.uv0.x) && std::isfinite(vertex.uv0.y) &&
            std::isfinite(vertex.uv1.x) && std::isfinite(vertex.uv1.y);
+}
+
+/// How far the weights of a vertex may be from one in all.
+constexpr float kWeightTolerance = 1.0e-3f;
+
+/// What is wrong with how a vertex follows its joints, in a few words, or nothing.
+std::string_view problemOf(const MeshSkinVertex& skin) {
+    float sum = 0.0f;
+    for (size_t slot = 0; slot < skin.weights.size(); ++slot) {
+        const float weight = skin.weights[slot];
+        if (!std::isfinite(weight) || weight < 0.0f) {
+            return "has a weight that is negative or no number";
+        }
+        if (skin.joints[slot] >= kMaxSkeletonJoints) {
+            return "follows a joint beyond the most a skeleton can have";
+        }
+        sum += weight;
+    }
+    return std::abs(sum - 1.0f) <= kWeightTolerance ? std::string_view() : "has weights that are not one in all";
 }
 
 } // namespace
@@ -65,6 +88,16 @@ Status validateMesh(const MeshData& mesh) {
             return fail(fmt::format("vertex {} contains a number that is not finite", index));
         }
     }
+
+    if (!mesh.skin.empty() && mesh.skin.size() != mesh.vertices.size()) {
+        return fail(fmt::format("it says how {} vertices follow their joints, but has {}", mesh.skin.size(),
+                                mesh.vertices.size()));
+    }
+    for (size_t index = 0; index < mesh.skin.size(); ++index) {
+        if (const std::string_view problem = problemOf(mesh.skin[index]); !problem.empty()) {
+            return fail(fmt::format("vertex {} {}", index, problem));
+        }
+    }
     return {};
 }
 
@@ -88,7 +121,24 @@ void updateBounds(MeshData& mesh) {
 }
 
 uint32_t appendSubmesh(MeshData& mesh, std::span<const MeshVertex> vertices, std::span<const uint32_t> indices) {
+    return appendSubmesh(mesh, vertices, {}, indices);
+}
+
+uint32_t appendSubmesh(MeshData& mesh, std::span<const MeshVertex> vertices, std::span<const MeshSkinVertex> skin,
+                       std::span<const uint32_t> indices) {
     CORDITE_ASSERT(indices.size() % 3 == 0, "{} indices do not make whole triangles", indices.size());
+    CORDITE_ASSERT(skin.empty() || skin.size() == vertices.size(),
+                   "{} vertices cannot follow their joints as {} entries say", vertices.size(), skin.size());
+    CORDITE_ASSERT(mesh.vertices.empty() || vertices.empty() || mesh.isSkinned() == !skin.empty(),
+                   "mesh '{}' is skinned as a whole or not at all", mesh.name);
+    // Where the assertions are compiled out, a mesh still has an entry for every vertex
+    // or none: what is missing is made up of vertices that follow joint zero.
+    const bool skinned = mesh.vertices.empty() ? !skin.empty() : mesh.isSkinned();
+    if (skinned) {
+        mesh.skin.resize(mesh.vertices.size());
+        mesh.skin.insert(mesh.skin.end(), skin.begin(), skin.begin() + std::min(skin.size(), vertices.size()));
+        mesh.skin.resize(mesh.vertices.size() + vertices.size());
+    }
     const auto firstVertex = static_cast<uint32_t>(mesh.vertices.size());
 
     Submesh submesh;
@@ -111,6 +161,42 @@ uint32_t appendSubmesh(MeshData& mesh, std::span<const MeshVertex> vertices, std
 
     mesh.submeshes.push_back(submesh);
     return static_cast<uint32_t>(mesh.submeshes.size() - 1);
+}
+
+uint32_t jointsUsed(const MeshData& mesh) {
+    uint32_t count = 0;
+    for (const MeshSkinVertex& vertex : mesh.skin) {
+        for (size_t slot = 0; slot < vertex.weights.size(); ++slot) {
+            if (vertex.weights[slot] > 0.0f) {
+                count = std::max(count, uint32_t{vertex.joints[slot]} + 1);
+            }
+        }
+    }
+    return count;
+}
+
+uint32_t normalizeSkinWeights(MeshData& mesh) {
+    uint32_t withoutWeights = 0;
+    for (MeshSkinVertex& vertex : mesh.skin) {
+        for (float& weight : vertex.weights) {
+            weight = std::isfinite(weight) ? std::max(weight, 0.0f) : 0.0f;
+        }
+        const float sum = std::accumulate(vertex.weights.begin(), vertex.weights.end(), 0.0f);
+        if (!std::isfinite(sum) || sum <= 0.0f) {
+            vertex.weights = {1.0f, 0.0f, 0.0f, 0.0f};
+            ++withoutWeights;
+        } else {
+            for (float& weight : vertex.weights) {
+                weight /= sum;
+            }
+        }
+        for (size_t slot = 0; slot < vertex.weights.size(); ++slot) {
+            if (vertex.weights[slot] <= 0.0f) {
+                vertex.joints[slot] = 0;
+            }
+        }
+    }
+    return withoutWeights;
 }
 
 } // namespace cordite

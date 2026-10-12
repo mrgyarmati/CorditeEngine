@@ -119,6 +119,10 @@ std::string_view nameOf(AssetType type) {
             return "model";
         case AssetType::Scene:
             return "scene";
+        case AssetType::Skeleton:
+            return "skeleton";
+        case AssetType::Animation:
+            return "animation";
     }
     return "unknown";
 }
@@ -135,13 +139,36 @@ std::string_view displayNameOf(AssetType type) {
             return "Model";
         case AssetType::Scene:
             return "Scene";
+        case AssetType::Skeleton:
+            return "Skeleton";
+        case AssetType::Animation:
+            return "Animation";
     }
     return "Unknown";
 }
 
+std::string_view withArticle(AssetType type) {
+    switch (type) {
+        case AssetType::Texture:
+            return "a texture";
+        case AssetType::Mesh:
+            return "a mesh";
+        case AssetType::Material:
+            return "a material";
+        case AssetType::Model:
+            return "a model";
+        case AssetType::Scene:
+            return "a scene";
+        case AssetType::Skeleton:
+            return "a skeleton";
+        case AssetType::Animation:
+            return "an animation";
+    }
+    return "an unknown asset";
+}
+
 std::optional<AssetType> assetTypeFromName(std::string_view name) {
-    for (const AssetType type :
-         {AssetType::Texture, AssetType::Mesh, AssetType::Material, AssetType::Model, AssetType::Scene}) {
+    for (const AssetType type : kAssetTypes) {
         if (equalsIgnoreCase(name, nameOf(type))) {
             return type;
         }
@@ -412,6 +439,19 @@ void AssetDatabase::addModelContents(const ScannedFile& file, const Uuid& modelI
         if (document.images[index].isEmbedded()) {
             contents.push_back(subAsset(AssetType::Texture, document.images[index].name, "image", index));
         }
+    }
+    // A skin that could not be imported has no joints, and is no skeleton.
+    for (size_t index = 0; index < document.skins.size(); ++index) {
+        const SkeletonData& skeleton = document.skins[index].skeleton;
+        if (!skeleton.joints.empty()) {
+            contents.push_back(subAsset(AssetType::Skeleton, skeleton.name, "skeleton", index));
+            model.dependencies.push_back(contents.back().id);
+        }
+    }
+    for (size_t index = 0; index < document.animations.size(); ++index) {
+        contents.push_back(
+            subAsset(AssetType::Animation, document.animations[index].animation.name, "animation", index));
+        model.dependencies.push_back(contents.back().id);
     }
 
     add(std::move(model));

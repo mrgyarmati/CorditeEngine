@@ -29,10 +29,18 @@ Vec3 tangentFor(const Vec3& normal, const Vec3& candidate) {
     return projected / length;
 }
 
-/// Merges vertices that are bit-for-bit equal. The order of the indices is kept.
-void weldVertices(std::vector<MeshVertex>& vertices, std::vector<uint32_t>& indices) {
+/// Merges vertices that are bit-for-bit equal - in how they follow their joints, too,
+/// where `skin` says how: it is empty, or has an entry for every vertex. The order of
+/// the indices is kept.
+void weldVertices(std::vector<MeshVertex>& vertices, std::vector<MeshSkinVertex>& skin,
+                  std::vector<uint32_t>& indices) {
     if (vertices.empty() || indices.empty()) {
         return;
+    }
+    CORDITE_ASSERT(skin.empty() || skin.size() == vertices.size(), "{} vertices, but {} entries of skin",
+                   vertices.size(), skin.size());
+    if (!skin.empty() && skin.size() != vertices.size()) {
+        skin.resize(vertices.size());
     }
     // Negative zero compares equal to zero but has different bits. Adding zero turns it
     // into positive zero and changes nothing else.
@@ -46,14 +54,45 @@ void weldVertices(std::vector<MeshVertex>& vertices, std::vector<uint32_t>& indi
         std::memcpy(&vertex, values.data(), sizeof(vertex));
     }
 
+    for (MeshSkinVertex& entry : skin) {
+        for (float& weight : entry.weights) {
+            weight += 0.0f;
+        }
+    }
+
+    // Two vertices are one when both of their halves are equal.
     std::vector<unsigned int> remap(vertices.size());
-    const size_t uniqueCount = meshopt_generateVertexRemap(remap.data(), indices.data(), indices.size(),
-                                                           vertices.data(), vertices.size(), sizeof(MeshVertex));
+    const std::array<meshopt_Stream, 2> streams = {
+        meshopt_Stream{vertices.data(), sizeof(MeshVertex), sizeof(MeshVertex)},
+        meshopt_Stream{skin.data(), sizeof(MeshSkinVertex), sizeof(MeshSkinVertex)},
+    };
+    const size_t uniqueCount = meshopt_generateVertexRemapMulti(remap.data(), indices.data(), indices.size(),
+                                                                vertices.size(), streams.data(), skin.empty() ? 1 : 2);
 
     std::vector<MeshVertex> welded(uniqueCount);
     meshopt_remapVertexBuffer(welded.data(), vertices.data(), vertices.size(), sizeof(MeshVertex), remap.data());
+    if (!skin.empty()) {
+        std::vector<MeshSkinVertex> weldedSkin(uniqueCount);
+        meshopt_remapVertexBuffer(weldedSkin.data(), skin.data(), skin.size(), sizeof(MeshSkinVertex), remap.data());
+        skin = std::move(weldedSkin);
+    }
     meshopt_remapIndexBuffer(indices.data(), indices.data(), indices.size(), remap.data());
     vertices = std::move(welded);
+}
+
+/// How a mesh's vertices follow their joints, with an entry for every corner of every
+/// triangle instead of one for every vertex: what goes with vertices that were given
+/// one to a corner. Empty for a mesh that is not skinned.
+std::vector<MeshSkinVertex> skinByCorner(const MeshData& mesh) {
+    std::vector<MeshSkinVertex> corners;
+    if (mesh.skin.size() != mesh.vertices.size() || mesh.skin.empty()) {
+        return corners;
+    }
+    corners.reserve(mesh.indices.size());
+    for (const uint32_t index : mesh.indices) {
+        corners.push_back(mesh.skin[index]);
+    }
+    return corners;
 }
 
 /// What MikkTSpace reads the mesh through and writes its result to.
@@ -131,6 +170,7 @@ void repairTangentFrames(MeshData& mesh) {
 }
 
 void generateFlatNormals(MeshData& mesh) {
+    std::vector<MeshSkinVertex> skin = skinByCorner(mesh);
     std::vector<MeshVertex> vertices;
     vertices.reserve(mesh.indices.size());
 
@@ -149,7 +189,13 @@ void generateFlatNormals(MeshData& mesh) {
         vertices.push_back(c);
     }
 
+    // A triangle short of a corner at the end of the list got no vertices, and gets
+    // none of the rest either.
+    if (!skin.empty()) {
+        skin.resize(vertices.size());
+    }
     mesh.vertices = std::move(vertices);
+    mesh.skin = std::move(skin);
     for (size_t index = 0; index < mesh.indices.size(); ++index) {
         mesh.indices[index] = static_cast<uint32_t>(index);
     }
@@ -183,6 +229,7 @@ void generateTangents(MeshData& mesh) {
 
     // One vertex per corner now, each with the tangent of its corner; welding below
     // brings back together the ones that agree.
+    std::vector<MeshSkinVertex> skin = skinByCorner(mesh);
     std::vector<MeshVertex> vertices;
     vertices.reserve(mesh.indices.size());
     for (size_t index = 0; index < mesh.indices.size(); ++index) {
@@ -193,14 +240,15 @@ void generateTangents(MeshData& mesh) {
         mesh.indices[index] = static_cast<uint32_t>(index);
     }
     mesh.vertices = std::move(vertices);
-    weldVertices(mesh.vertices, mesh.indices);
+    mesh.skin = std::move(skin);
+    weldVertices(mesh.vertices, mesh.skin, mesh.indices);
 }
 
 void optimizeMesh(MeshData& mesh) {
     if (mesh.vertices.empty() || mesh.indices.empty()) {
         return;
     }
-    weldVertices(mesh.vertices, mesh.indices);
+    weldVertices(mesh.vertices, mesh.skin, mesh.indices);
 
     for (const Submesh& submesh : mesh.submeshes) {
         const size_t end = static_cast<size_t>(submesh.firstIndex) + submesh.indexCount;
@@ -214,12 +262,20 @@ void optimizeMesh(MeshData& mesh) {
     }
 
     // Puts the vertices in the order the triangles use them, which also drops the ones
-    // no triangle uses.
-    std::vector<MeshVertex> ordered(mesh.vertices.size());
+    // no triangle uses - and what says how they follow their joints with them.
+    std::vector<unsigned int> remap(mesh.vertices.size());
     const size_t usedCount =
-        meshopt_optimizeVertexFetch(ordered.data(), mesh.indices.data(), mesh.indices.size(), mesh.vertices.data(),
-                                    mesh.vertices.size(), sizeof(MeshVertex));
-    ordered.resize(usedCount);
+        meshopt_optimizeVertexFetchRemap(remap.data(), mesh.indices.data(), mesh.indices.size(), mesh.vertices.size());
+    std::vector<MeshVertex> ordered(usedCount);
+    meshopt_remapVertexBuffer(ordered.data(), mesh.vertices.data(), mesh.vertices.size(), sizeof(MeshVertex),
+                              remap.data());
+    if (!mesh.skin.empty()) {
+        std::vector<MeshSkinVertex> orderedSkin(usedCount);
+        meshopt_remapVertexBuffer(orderedSkin.data(), mesh.skin.data(), mesh.skin.size(), sizeof(MeshSkinVertex),
+                                  remap.data());
+        mesh.skin = std::move(orderedSkin);
+    }
+    meshopt_remapIndexBuffer(mesh.indices.data(), mesh.indices.data(), mesh.indices.size(), remap.data());
     mesh.vertices = std::move(ordered);
 
     updateBounds(mesh);

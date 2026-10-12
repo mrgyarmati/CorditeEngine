@@ -51,6 +51,12 @@ size_t loadEveryAsset(AssetManager& assets) {
             case AssetType::Model:
                 REQUIRE(assets.loadModel(asset.id).has_value());
                 break;
+            case AssetType::Skeleton:
+                REQUIRE(assets.loadSkeleton(asset.id).has_value());
+                break;
+            case AssetType::Animation:
+                REQUIRE(assets.loadAnimation(asset.id).has_value());
+                break;
             case AssetType::Scene:
                 continue;
         }

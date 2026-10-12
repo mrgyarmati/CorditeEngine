@@ -79,9 +79,14 @@ std::vector<SceneProblem> findSceneProblems(const World& world, const ComponentR
             problems.push_back({use.entity, fmt::format("{}.{} refers to the asset {}, which does not exist",
                                                         use.component, use.property, use.asset.toString())});
         } else if (!use.expectedType.empty() && !equalsIgnoreCase(use.expectedType, nameOf(asset->type))) {
+            // A kind that no asset has - a component that was described wrongly - is named
+            // as the component spells it.
+            const std::optional<AssetType> expected = assetTypeFromName(use.expectedType);
+            const std::string wanted =
+                expected ? std::string(withArticle(*expected)) : fmt::format("a {}", toLowerAscii(use.expectedType));
             problems.push_back(
-                {use.entity, fmt::format("{}.{} refers to {}, which is a {}, not a {}", use.component, use.property,
-                                         asset->reference(), nameOf(asset->type), toLowerAscii(use.expectedType))});
+                {use.entity, fmt::format("{}.{} refers to {}, which is {}, not {}", use.component, use.property,
+                                         asset->reference(), withArticle(asset->type), wanted)});
         }
     }
     return problems;

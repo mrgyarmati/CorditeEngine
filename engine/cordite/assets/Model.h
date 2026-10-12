@@ -5,7 +5,8 @@
 ///
 /// It is what a glTF file's scene becomes once its meshes and materials are assets with
 /// ids of their own. Putting a model into a world creates one entity per node (see
-/// cordite/engine/ModelInstance.h).
+/// cordite/engine/ModelInstance.h). A model whose meshes are skinned also names their
+/// skeletons and the animations that came with them (Skeleton.h, Animation.h).
 ///
 /// @code
 /// CORDITE_TRY_ASSIGN(const std::shared_ptr<const ModelData> model, assets.loadModel(modelId));
@@ -48,6 +49,9 @@ struct ModelNode {
     Uuid mesh;
     /// One per submesh of `mesh`; nil where the file names no material.
     std::vector<Uuid> materials;
+    /// The skeleton that moves `mesh`, for a mesh that is skinned; nil for one that is
+    /// rigid. A skinned mesh is placed by its joints: its node is where the model is.
+    Uuid skeleton;
     std::optional<ModelCamera> camera;
 
     bool operator==(const ModelNode&) const = default;
@@ -60,6 +64,8 @@ struct ModelData {
     std::vector<ModelNode> nodes;
     /// The nodes without a parent that make up the model.
     std::vector<uint32_t> roots;
+    /// The animations of the file, in its order: clips for the skeletons above.
+    std::vector<Uuid> animations;
 
     bool operator==(const ModelData&) const = default;
 };

@@ -881,8 +881,12 @@ TEST_SUITE("GltfImporter") {
         file.json["extensionsUsed"] = parseOrFail(R"(["KHR_lights_punctual"])");
 
         const GltfDocument document = unwrap(importGltf(file.write(directory.path(), "features")));
-        CHECK(hasWarning(document, "it contains skins or animations, which are not imported"));
         CHECK(hasWarning(document, "it contains lights, which are not imported"));
+        // Skins are imported (GltfSkinningTests.cpp): this one is a skeleton of one joint,
+        // and nothing is said about it.
+        REQUIRE(document.skins.size() == 1);
+        CHECK(document.skins[0].joints == std::vector<uint32_t>{0});
+        CHECK(document.warnings.size() == 1);
     }
 
     TEST_CASE("files that cannot be read are refused with a reason") {

@@ -1,9 +1,12 @@
 cordite_add_module(assets
     SOURCES
+        Animation.cpp
+        Animation.h
         AssetDatabase.cpp
         AssetDatabase.h
         AssetManager.cpp
         AssetManager.h
+        GltfDocument.cpp
         GltfDocument.h
         GltfExporter.cpp
         GltfExporter.h
@@ -24,6 +27,8 @@ cordite_add_module(assets
         Model.h
         Primitives.cpp
         Primitives.h
+        Skeleton.cpp
+        Skeleton.h
     DEPENDS
         core
         math

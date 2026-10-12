@@ -5,6 +5,7 @@
 #include "cordite/core/Json.h"
 
 #include "AssetTestSupport.h"
+#include "support/SkinnedModelSupport.h"
 
 #include <memory>
 #include <string>
@@ -215,6 +216,113 @@ TEST_SUITE("AssetManager") {
         CHECK(eye.camera->farPlane == 100.0f);
 
         CHECK(unwrap(assets->loadModel(idOf(*assets, "models/crate.gltf"))) == model);
+    }
+
+    TEST_CASE("a skinned model brings its skeleton and its animations along, as assets of their own") {
+        const Project project;
+        REQUIRE(exportGltf(test::makeSkinnedBar(), project.file("models/bar.gltf")).has_value());
+        const std::unique_ptr<AssetManager> assets = project.open();
+        // Nothing is wrong with it. (The project has a model that is, on purpose.)
+        for (const std::string& problem : assets->database().problems()) {
+            CHECK_MESSAGE(problem.find("bar.gltf") == std::string::npos, problem);
+        }
+
+        // Listed without loading anything: by what they are in the file, and by name.
+        const AssetInfo* skeletonInfo = assets->database().findByReference("models/bar.gltf#skeleton/0");
+        REQUIRE(skeletonInfo != nullptr);
+        CHECK(skeletonInfo->type == AssetType::Skeleton);
+        CHECK(skeletonInfo->name == "Bar skin");
+        const AssetInfo* bendInfo = assets->database().findByReference("models/bar.gltf#animation/0");
+        const AssetInfo* swayInfo = assets->database().findByReference("models/bar.gltf#animation/1");
+        REQUIRE(bendInfo != nullptr);
+        REQUIRE(swayInfo != nullptr);
+        CHECK(bendInfo->type == AssetType::Animation);
+        CHECK(bendInfo->name == "Bend");
+        CHECK(swayInfo->name == "Sway");
+        // Their ids follow from the file's and from where they are in it.
+        const Uuid modelId = idOf(*assets, "models/bar.gltf");
+        CHECK(skeletonInfo->id == subAssetId(modelId, "skeleton/0"));
+        CHECK(swayInfo->id == subAssetId(modelId, "animation/1"));
+        // The model needs them.
+        const AssetInfo* modelInfo = assets->database().find(modelId);
+        REQUIRE(modelInfo != nullptr);
+        for (const Uuid& needed : {skeletonInfo->id, bendInfo->id, swayInfo->id}) {
+            CHECK(std::ranges::find(modelInfo->dependencies, needed) != modelInfo->dependencies.end());
+        }
+
+        const std::shared_ptr<const SkeletonData> skeleton = unwrap(assets->loadSkeleton(skeletonInfo->id));
+        REQUIRE(skeleton->joints.size() == 3);
+        CHECK(skeleton->name == "Bar skin");
+        CHECK(skeleton->joints[2].name == "Tip");
+        CHECK(validateSkeleton(*skeleton).has_value());
+        // Loaded once, shared from then on.
+        CHECK(unwrap(assets->loadSkeleton(skeletonInfo->id)) == skeleton);
+
+        const std::shared_ptr<const AnimationData> sway = unwrap(assets->loadAnimation(swayInfo->id));
+        CHECK(sway->name == "Sway");
+        CHECK(sway->duration == 2.0f);
+        REQUIRE(sway->tracks.size() == 1);
+        CHECK(sway->tracks[0].joint == "Root");
+        CHECK(sway->tracks[0].translation.keys().size() == 3);
+        CHECK(validateAnimation(*sway).has_value());
+        CHECK(unwrap(assets->loadAnimation(swayInfo->id)) == sway);
+
+        // The model says which of its nodes is drawn with the skeleton, and which clips
+        // came with it; its mesh says how its vertices follow the joints.
+        const std::shared_ptr<const ModelData> model = unwrap(assets->loadModel(modelId));
+        REQUIRE(model->nodes.size() == 4);
+        CHECK(model->nodes[0].skeleton == skeletonInfo->id);
+        CHECK(model->nodes[1].skeleton.isNil());
+        CHECK(model->animations == std::vector<Uuid>{bendInfo->id, swayInfo->id});
+        const std::shared_ptr<const MeshData> mesh = unwrap(assets->loadMesh(model->nodes[0].mesh));
+        CHECK(mesh->isSkinned());
+        CHECK(jointsUsed(*mesh) == 3);
+
+        // Asking for the one as the other, or for what is not there, says so.
+        Result<std::shared_ptr<const SkeletonData>> wrong = assets->loadSkeleton(bendInfo->id);
+        REQUIRE_FALSE(wrong.has_value());
+        CHECK(wrong.error().code == ErrorCode::InvalidArgument);
+        CHECK(wrong.error().message == "models/bar.gltf#animation/0 is an animation, not a skeleton");
+        Result<std::shared_ptr<const AnimationData>> noClip = assets->loadAnimation(skeletonInfo->id);
+        REQUIRE_FALSE(noClip.has_value());
+        CHECK(noClip.error().message == "models/bar.gltf#skeleton/0 is a skeleton, not an animation");
+        CHECK_FALSE(assets->loadAnimation(skeletonInfo->id).has_value());
+        CHECK_FALSE(assets->loadAnimation(modelId).has_value());
+        wrong = assets->loadSkeleton(subAssetId(modelId, "skeleton/7"));
+        REQUIRE_FALSE(wrong.has_value());
+        CHECK(wrong.error().code == ErrorCode::NotFound);
+
+        // Refreshing forgets them, and reads them again when they are asked for.
+        REQUIRE(assets->refresh().has_value());
+        const std::shared_ptr<const SkeletonData> again = unwrap(assets->loadSkeleton(skeletonInfo->id));
+        CHECK(again != skeleton);
+        CHECK(*again == *skeleton);
+    }
+
+    TEST_CASE("a skin that could not be imported is no skeleton, and its mesh is drawn without one") {
+        const Project project;
+        GltfDocument document = test::makeSkinnedBar();
+        REQUIRE(exportGltf(document, project.file("models/bar.gltf")).has_value());
+        // The file by hand: the skin lists a joint twice.
+        Json file = unwrap(readJsonFile(project.file("models/bar.gltf")));
+        file["skins"][0]["joints"] = unwrap(parseJson("[1, 2, 2]"));
+        project.writeText("models/bar.gltf", dumpJson(file));
+
+        const LogCapture log;
+        const std::unique_ptr<AssetManager> assets = project.open();
+        CHECK(assets->database().findByReference("models/bar.gltf#skeleton/0") == nullptr);
+        // The animations are still clips; there is nothing here for them to move.
+        CHECK(assets->database().findByReference("models/bar.gltf#animation/0") != nullptr);
+        const AssetInfo* modelInfo = assets->database().findByReference("models/bar.gltf");
+        REQUIRE(modelInfo != nullptr);
+        REQUIRE(modelInfo->warnings.size() == 1);
+        CHECK(modelInfo->warnings[0].find("as a joint twice") != std::string::npos);
+
+        const std::shared_ptr<const ModelData> model = unwrap(assets->loadModel(modelInfo->id));
+        CHECK(model->nodes[0].skeleton.isNil());
+        CHECK_FALSE(model->nodes[0].mesh.isNil());
+        CHECK(model->animations.size() == 2);
+        CHECK_FALSE(assets->loadSkeleton(subAssetId(modelInfo->id, "skeleton/0")).has_value());
     }
 
     TEST_CASE("textures are decoded from files and from inside models") {

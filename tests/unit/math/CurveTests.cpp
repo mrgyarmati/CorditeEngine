@@ -199,4 +199,37 @@ TEST_SUITE("Curve") {
         gradient.addKey(1.0f, Vec4(0.0f, 0.0f, 1.0f, 0.0f));
         CHECK_NEAR(gradient.evaluate(0.25f), Vec4(0.75f, 0.0f, 0.25f, 0.75f), 1e-6f);
     }
+
+    TEST_CASE("curves are equal when their keys are, and they wrap the same way") {
+        Vec3Curve first;
+        first.addKey(0.0f, Vec3(0.0f));
+        first.addKey(2.0f, Vec3(2.0f, 4.0f, -6.0f), Interpolation::Step);
+        Vec3Curve second;
+        // Whatever order the keys were added in.
+        second.addKey(2.0f, Vec3(2.0f, 4.0f, -6.0f), Interpolation::Step);
+        second.addKey(0.0f, Vec3(0.0f));
+        CHECK(first == second);
+        CHECK(Vec3Curve() == Vec3Curve());
+        CHECK_FALSE(first == Vec3Curve());
+
+        // A value, a time, a slope, the way to the next key, the wrapping: each tells
+        // two curves apart.
+        Vec3Curve other = first;
+        other.addKey(2.0f, Vec3(2.0f, 4.0f, -6.5f), Interpolation::Step);
+        CHECK_FALSE(first == other);
+        other = first;
+        other.addKey(1.0f, Vec3(1.0f));
+        CHECK_FALSE(first == other);
+        other = first;
+        other.addKey(2.0f, Vec3(2.0f, 4.0f, -6.0f), Interpolation::Linear);
+        CHECK_FALSE(first == other);
+        other = first;
+        other.computeSmoothTangents();
+        CHECK_FALSE(first == other);
+        other = first;
+        other.setWrapMode(WrapMode::Loop);
+        CHECK_FALSE(first == other);
+        other.setWrapMode(WrapMode::Clamp);
+        CHECK(first == other);
+    }
 }

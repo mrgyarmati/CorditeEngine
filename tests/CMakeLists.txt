@@ -76,6 +76,7 @@ cordite_add_test_suite(assets
         unit/assets/AssetTestSupport.h
         unit/assets/GltfExporterTests.cpp
         unit/assets/GltfImporterTests.cpp
+        unit/assets/GltfSkinningTests.cpp
         unit/assets/GltfTestSupport.h
         unit/assets/ImageCompareTests.cpp
         unit/assets/ImageTests.cpp
@@ -84,6 +85,9 @@ cordite_add_test_suite(assets
         unit/assets/MeshTests.cpp
         unit/assets/MipmapsTests.cpp
         unit/assets/PrimitivesTests.cpp
+        unit/assets/SkeletonTests.cpp
+        unit/assets/SkinnedMeshTests.cpp
+        support/SkinnedModelSupport.h
     LIBRARIES
         cordite::assets)
 
@@ -134,6 +138,7 @@ cordite_add_test_suite(editor
 # placing models, and checking the assets a scene uses.
 cordite_add_test_suite(engine
     SOURCES
+        support/SkinnedModelSupport.h
         unit/engine/ModelInstanceTests.cpp
         unit/engine/ProjectTests.cpp
         unit/engine/SceneAssetsTests.cpp

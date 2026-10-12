@@ -103,7 +103,9 @@ assets/textures/planks_normal.png -> texture e4a3a2af-...   (id from its own .me
 
 A model file is one asset that contains others. Its images are assets inside it when
 they are embedded, and the assets of their own files when they are not, so a texture
-shared by two models exists once.
+shared by two models exists once. A model whose meshes are skinned also contains their
+skeletons (`#skeleton/0`) and its animations (`#animation/0`), each an asset of its
+own: a clip names the joints it moves, and so can move any skeleton that has them.
 
 ### Rendering a scene
 

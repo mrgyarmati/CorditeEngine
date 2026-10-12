@@ -1,7 +1,11 @@
 #include "cordite/editor/AssetCommands.h"
 
+#include "cordite/assets/Animation.h"
 #include "cordite/assets/Material.h"
+#include "cordite/assets/Mesh.h"
+#include "cordite/assets/Skeleton.h"
 #include "cordite/core/FileSystem.h"
+#include "cordite/core/Json.h"
 #include "cordite/editor/EditorActions.h"
 #include "cordite/engine/SceneAssets.h"
 #include "cordite/math/MathJson.h"
@@ -51,6 +55,9 @@ Result<Json> describeContent(AssetManager& assets, const AssetInfo& asset) {
             // A mesh renderer takes one material per submesh.
             content["submeshes"] = mesh->submeshes.size();
             content["bounds"] = toJson(mesh->bounds);
+            // A skinned mesh needs a skeleton of at least this many joints.
+            content["skinned"] = mesh->isSkinned();
+            content["joints"] = jointsUsed(*mesh);
             break;
         }
         case AssetType::Material: {
@@ -73,11 +80,40 @@ Result<Json> describeContent(AssetManager& assets, const AssetInfo& asset) {
                 entry["name"] = node.name;
                 entry["parent"] = node.parent ? Json(*node.parent) : Json(nullptr);
                 entry["mesh"] = node.mesh.isNil() ? Json(nullptr) : Json(node.mesh.toString());
+                entry["skeleton"] = node.skeleton.isNil() ? Json(nullptr) : Json(node.skeleton.toString());
                 entry["camera"] = node.camera.has_value();
                 nodes.push_back(std::move(entry));
             }
             content["nodes"] = std::move(nodes);
             content["roots"] = model->roots;
+            Json animations = Json::array();
+            for (const Uuid& animation : model->animations) {
+                animations.push_back(animation.toString());
+            }
+            content["animations"] = std::move(animations);
+            break;
+        }
+        case AssetType::Skeleton: {
+            CORDITE_TRY_ASSIGN(const std::shared_ptr<const SkeletonData> skeleton, assets.loadSkeleton(asset.id));
+            Json joints = Json::array();
+            for (const SkeletonJoint& joint : skeleton->joints) {
+                Json entry = Json::object();
+                entry["name"] = joint.name;
+                entry["parent"] = joint.parent == kNoJoint ? Json(nullptr) : Json(joint.parent);
+                joints.push_back(std::move(entry));
+            }
+            content["joints"] = std::move(joints);
+            break;
+        }
+        case AssetType::Animation: {
+            CORDITE_TRY_ASSIGN(const std::shared_ptr<const AnimationData> animation, assets.loadAnimation(asset.id));
+            content["duration"] = jsonFromFloat(animation->duration);
+            // The joints the clip moves: it fits a skeleton that has joints of these names.
+            Json joints = Json::array();
+            for (const AnimationTrack& track : animation->tracks) {
+                joints.push_back(track.joint);
+            }
+            content["joints"] = std::move(joints);
             break;
         }
         case AssetType::Scene:
@@ -94,7 +130,8 @@ Status registerAssetCommands(CommandRegistry& commands, EditorContext& context) 
         .name = "asset.list",
         .description = "Lists the assets the scene can use, each with its id, type, name and path, and what is "
                        "wrong with the asset directory, if anything. Built-in assets have the path \"builtin\".",
-        .parameters = {{"type", Type::String, "Only assets of this type: texture, mesh, material, model or scene.",
+        .parameters = {{"type", Type::String,
+                        "Only assets of this type: texture, mesh, material, model, scene, skeleton or animation.",
                         false}},
         .handler = [&context](const Json& parameters) -> Result<Json> {
             std::optional<AssetType> type;

@@ -124,7 +124,7 @@ by accident.
 | `core` | -         | Logging, assertions, `Result`, hashing, UUIDs, JSON, reflection, binary streams, file I/O, config, job system, allocators, timing |
 | `math` | `core`    | glm aliases, `Transform`, bounds, rays, frustum, projections, color, curves, random, spherical harmonics, directions in images of everything around, reflection of math types |
 | `platform` | `core`, `math` | Windows (GLFW), keyboard / mouse / gamepad input |
-| `assets` | `core`, `math` | Assets as data: images and mipmaps, meshes and what prepares them, materials, glTF import and export, the asset database (ids, `.meta` files) and the asset manager (loading by id) |
+| `assets` | `core`, `math` | Assets as data: images and mipmaps, meshes - rigid and skinned - and what prepares them, skeletons, animation clips, materials, glTF import and export, the asset database (ids, `.meta` files) and the asset manager (loading by id) |
 | `world` | `core`, `math` | Entities, components and their hierarchy (EnTT), the component registry, scene files |
 | `rhi` | `core`, `math`, `platform` | Vulkan device, swapchain and texture readback over NVRHI |
 | `shaders` | `core` | Shader requests and permutation keys, disk cache, `ShaderLibrary` |
@@ -532,6 +532,20 @@ Step-by-step guide: [work-with-assets](.claude/skills/work-with-assets/SKILL.md)
 - **Indices are identity.** Entries of a `GltfDocument` are never dropped or reordered,
   because the ids of the assets in a file follow from them. What cannot be imported
   stays in place, empty, and is reported in `warnings`.
+- **A skinned mesh says how its vertices follow joints beside its vertices**
+  (`MeshData::skin`: four joints and four weights a vertex, one entry for every vertex
+  or none at all). Whatever reorders, splits or merges vertices carries it along
+  (`MeshProcessing.cpp`): two vertices are one only when they follow the same joints.
+  Weights are brought to one in all on the way in (`normalizeSkinWeights`), and
+  `validateMesh` holds them to it.
+- **A skeleton keeps its joints in the order of its file** (`SkeletonData`), because
+  that is the order vertices name them in: a joint may come before the one it hangs
+  on, and `jointOrder()` is the order to work a pose out in. What stands between a
+  joint and its parent joint in a file and is no joint - an armature, placed and
+  scaled - is the joint's `parentOffset`, kept as a matrix so that nothing of it is
+  lost. **An animation moves joints by name** (`AnimationData`): a clip fits every
+  skeleton that has joints of those names. Rotations are curves of four numbers, each
+  key the same way round as the one before it.
 - **The slot decides the color space, not the texture.** Base color and emissive are
   sRGB, everything else is data. There is no per-texture setting to get wrong. A
   color lookup table (`PostProcess.colorLut`) is data too: an image of N * N by N
@@ -730,6 +744,15 @@ body explaining what changed and why. One logical change per commit.
   executing: the driver can hand out the new start time together with the end time of
   the measurement before, which gives a duration of seconds for a frame of
   microseconds. `GpuTimer` waits for the command list with an event query first.
+- `cgltf_validate` refuses some lies before the importer's own checks see them - an
+  attribute with another count than the positions, an animation without a value for
+  each key - with one message for all ("it does not follow the glTF 2.0
+  specification"). A test of such a file expects that message; the importer's own
+  check stays, for the day cgltf stops making it.
+- Bringing a rotation of a file to unit length changes its last bit when it was of
+  unit length already, as nearly as a float can say - and then a file that is written
+  and read comes back different. The importer leaves alone what is within a
+  hundred-thousandth of one.
 - cgltf leaves the `scale` of a texture slot at zero when the material has no such
   texture; only its texture-view parser sets the default of one. Read optional glTF
   values only when the thing they belong to is present.

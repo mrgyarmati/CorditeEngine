@@ -1,9 +1,11 @@
 #include "cordite/engine/SceneAssets.h"
 
+#include "cordite/assets/GltfExporter.h"
 #include "cordite/core/Reflection.h"
 #include "cordite/engine/EngineComponents.h"
 #include "cordite/renderer/RenderComponents.h"
 
+#include "support/SkinnedModelSupport.h"
 #include "support/TestSupport.h"
 
 #include <string>
@@ -27,6 +29,11 @@ struct Emitter {
     Uuid sprite;
     Decal decal;
     std::string note;
+};
+
+/// A component that asks for a kind of asset there is none of.
+struct Billboard {
+    Uuid sprite;
 };
 
 TypeInfo describeDecal() {
@@ -153,6 +160,36 @@ TEST_SUITE("SceneAssets") {
               "MeshRenderer.materials[0] refers to builtin#mesh/cube, which is a mesh, not a material");
         CHECK(problems[3].message == "MeshRenderer.materials[1] refers to the asset "
                                      "11111111-1111-4111-8111-111111111111, which does not exist");
+    }
+
+    TEST_CASE("a kind is named with the article it takes") {
+        const test::TempDirectory directory;
+        REQUIRE(exportGltf(test::makeSkinnedBar(), directory.path() / "bar.gltf").has_value());
+        AssetDatabase assets({.rootDirectory = directory.path()});
+        REQUIRE(assets.refresh().has_value());
+        const AssetInfo* clip = assets.findByReference("bar.gltf#animation/0");
+        REQUIRE(clip != nullptr);
+
+        Fixture fixture;
+        const Entity dancer = fixture.addRenderer("Dancer", clip->id);
+        std::vector<SceneProblem> problems = findSceneProblems(fixture.world, fixture.components, assets);
+        REQUIRE(problems.size() == 1);
+        CHECK(problems[0].message ==
+              "MeshRenderer.mesh refers to bar.gltf#animation/0, which is an animation, not a mesh");
+
+        // A kind that no asset has is named as the component spells it.
+        REQUIRE(
+            fixture.components
+                .add<Billboard>(TypeBuilder<Billboard>("Billboard")
+                                    .property("sprite", &Billboard::sprite,
+                                              {.semantic = PropertySemantic::AssetReference, .referenceType = "Sprite"})
+                                    .build())
+                .has_value());
+        fixture.world.add<Billboard>(dancer).sprite = clip->id;
+        problems = findSceneProblems(fixture.world, fixture.components, assets);
+        REQUIRE(problems.size() == 2);
+        CHECK(problems[1].message ==
+              "Billboard.sprite refers to bar.gltf#animation/0, which is an animation, not a sprite");
     }
 
     TEST_CASE("a property that takes any asset is only checked for the asset being there") {

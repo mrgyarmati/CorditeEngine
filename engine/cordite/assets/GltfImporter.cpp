@@ -79,6 +79,18 @@ public:
         return {};
     }
 
+    /// Counts the keys of one curve of an animation in, likewise.
+    [[nodiscard]] Status addKeys(cgltf_size keyCount) {
+        if (keyCount > m_options.maxAnimationKeys - m_keys) {
+            return makeError(ErrorCode::OutOfRange,
+                             "its animations have more keys than can be imported: the limit for a whole file "
+                             "is {}",
+                             m_options.maxAnimationKeys);
+        }
+        m_keys += keyCount;
+        return {};
+    }
+
     /// Counts the bytes of an embedded image in, likewise.
     [[nodiscard]] Status addImage(cgltf_size byteCount) {
         if (byteCount > m_options.maxEmbeddedImageBytes - m_imageBytes) {
@@ -96,6 +108,7 @@ private:
     cgltf_size m_vertices = 0;
     cgltf_size m_indices = 0;
     cgltf_size m_imageBytes = 0;
+    cgltf_size m_keys = 0;
 };
 
 /// cgltf asks for the files a glTF refers to through this. `path` is the URI from the
@@ -333,7 +346,58 @@ bool isImportable(const cgltf_primitive& primitive) {
 }
 
 /// The triangles of one glTF primitive, complete with normals and tangents.
-Result<MeshData> readPrimitive(const cgltf_primitive& primitive, std::string_view what, ImportBudget& budget) {
+/// How the vertices of a part of a mesh follow their joints: JOINTS_0 and WEIGHTS_0.
+/// Empty for a part that has neither, or only one of the two, which says nothing.
+/// The weights are as the file has them; convertMesh() brings them to one in all.
+Result<std::vector<MeshSkinVertex>> readSkin(const cgltf_primitive& primitive, size_t vertexCount,
+                                             std::string_view what, Warnings& warnings) {
+    const cgltf_accessor* joints = cgltf_find_accessor(&primitive, cgltf_attribute_type_joints, 0);
+    const cgltf_accessor* weights = cgltf_find_accessor(&primitive, cgltf_attribute_type_weights, 0);
+    if (joints == nullptr && weights == nullptr) {
+        return std::vector<MeshSkinVertex>();
+    }
+    if (joints == nullptr || weights == nullptr) {
+        warnings.add(fmt::format("{} has joints without weights, or weights without joints; it is not skinned", what));
+        return std::vector<MeshSkinVertex>();
+    }
+    if (cgltf_find_accessor(&primitive, cgltf_attribute_type_joints, 1) != nullptr) {
+        warnings.add(fmt::format("{} has vertices that follow more than four joints; the first four are kept", what));
+    }
+
+    const std::string jointsName = fmt::format("JOINTS_0 of {}", what);
+    const bool isIndexType =
+        joints->component_type == cgltf_component_type_r_8u || joints->component_type == cgltf_component_type_r_16u;
+    if (joints->type != cgltf_type_vec4 || !isIndexType) {
+        return makeError(ErrorCode::ParseError, "{} is not four unsigned bytes or shorts a vertex", jointsName);
+    }
+    CORDITE_TRY(checkAccessor(*joints, kMaxMeshVertices, jointsName));
+    CORDITE_TRY_ASSIGN(const std::vector<float> weightValues,
+                       readAttribute(*weights, cgltf_type_vec4, 4, fmt::format("WEIGHTS_0 of {}", what)));
+    if (joints->count != vertexCount || weightValues.size() != vertexCount * 4) {
+        return makeError(ErrorCode::ParseError, "the joints and weights of {} are not one for each of its {} positions",
+                         what, vertexCount);
+    }
+
+    std::vector<MeshSkinVertex> skin(vertexCount);
+    for (size_t index = 0; index < vertexCount; ++index) {
+        std::array<cgltf_uint, 4> indices{};
+        if (cgltf_accessor_read_uint(joints, index, indices.data(), indices.size()) == 0) {
+            return makeError(ErrorCode::ParseError, "{} cannot be read", jointsName);
+        }
+        for (size_t slot = 0; slot < indices.size(); ++slot) {
+            if (indices[slot] >= kMaxSkeletonJoints) {
+                return makeError(ErrorCode::OutOfRange, "{} names joint {}; a skeleton has {} at the most", jointsName,
+                                 indices[slot], kMaxSkeletonJoints);
+            }
+            skin[index].joints[slot] = static_cast<uint16_t>(indices[slot]);
+            skin[index].weights[slot] = weightValues[index * 4 + slot];
+        }
+    }
+    return skin;
+}
+
+Result<MeshData> readPrimitive(const cgltf_primitive& primitive, std::string_view what, ImportBudget& budget,
+                               Warnings& warnings) {
     const cgltf_accessor* positions = cgltf_find_accessor(&primitive, cgltf_attribute_type_position, 0);
     const cgltf_accessor* normals = cgltf_find_accessor(&primitive, cgltf_attribute_type_normal, 0);
     const cgltf_accessor* tangents = cgltf_find_accessor(&primitive, cgltf_attribute_type_tangent, 0);
@@ -395,9 +459,10 @@ Result<MeshData> readPrimitive(const cgltf_primitive& primitive, std::string_vie
     }
 
     CORDITE_TRY_ASSIGN(const std::vector<uint32_t> triangles, readTriangles(primitive, vertexCount, what));
+    CORDITE_TRY_ASSIGN(const std::vector<MeshSkinVertex> skin, readSkin(primitive, vertexCount, what, warnings));
 
     MeshData mesh;
-    appendSubmesh(mesh, vertices, triangles);
+    appendSubmesh(mesh, vertices, skin, triangles);
     // The specification: without normals the surface is flat-shaded and any tangents
     // in the file are to be ignored; without tangents they are computed with MikkTSpace.
     if (normalValues.empty()) {
@@ -457,17 +522,27 @@ Result<GltfMesh> convertMesh(const cgltf_data& data, const cgltf_mesh& source, s
         return result;
     }
 
+    // A mesh is skinned as a whole or not at all. Where only some of its parts say how
+    // they follow joints, the others follow the first joint.
+    const auto hasSkin = [](const cgltf_primitive& primitive) {
+        return isImportable(primitive) && cgltf_find_accessor(&primitive, cgltf_attribute_type_joints, 0) != nullptr &&
+               cgltf_find_accessor(&primitive, cgltf_attribute_type_weights, 0) != nullptr;
+    };
+    const bool isSkinned = std::any_of(source.primitives, source.primitives + source.primitives_count, hasSkin);
+
     // One submesh per slot, made of every primitive that uses the slot's material.
     for (const cgltf_material* slot : slots) {
         std::vector<MeshVertex> vertices;
+        std::vector<MeshSkinVertex> skin;
         std::vector<uint32_t> indices;
         for (cgltf_size index = 0; index < source.primitives_count; ++index) {
             const cgltf_primitive& primitive = source.primitives[index];
             if (!isImportable(primitive) || primitive.material != slot) {
                 continue;
             }
-            CORDITE_TRY_ASSIGN(const MeshData part,
-                               readPrimitive(primitive, fmt::format("part {} of mesh '{}'", index, name), budget));
+            CORDITE_TRY_ASSIGN(
+                const MeshData part,
+                readPrimitive(primitive, fmt::format("part {} of mesh '{}'", index, name), budget, warnings));
             if (vertices.size() + part.vertices.size() > kMaxMeshVertices ||
                 indices.size() + part.indices.size() > kMaxMeshIndices) {
                 return makeError(ErrorCode::OutOfRange,
@@ -476,11 +551,18 @@ Result<GltfMesh> convertMesh(const cgltf_data& data, const cgltf_mesh& source, s
             }
             const auto firstVertex = static_cast<uint32_t>(vertices.size());
             vertices.insert(vertices.end(), part.vertices.begin(), part.vertices.end());
+            if (isSkinned) {
+                if (!part.isSkinned()) {
+                    warnings.add(fmt::format("mesh '{}' has parts that follow no joints; they follow the first", name));
+                }
+                skin.insert(skin.end(), part.skin.begin(), part.skin.end());
+                skin.resize(vertices.size());
+            }
             for (const uint32_t index32 : part.indices) {
                 indices.push_back(firstVertex + index32);
             }
         }
-        appendSubmesh(result.mesh, vertices, indices);
+        appendSubmesh(result.mesh, vertices, skin, indices);
     }
 
     if (result.mesh.vertices.empty()) {
@@ -496,6 +578,9 @@ Result<GltfMesh> convertMesh(const cgltf_data& data, const cgltf_mesh& source, s
                          name, kMaxMeshVertices, kMaxMeshIndices);
     }
 
+    if (normalizeSkinWeights(result.mesh) > 0) {
+        warnings.add(fmt::format("mesh '{}' has vertices without weights; they follow their first joint", name));
+    }
     optimizeMesh(result.mesh);
     CORDITE_TRY(validateMesh(result.mesh));
     return result;
@@ -888,6 +973,328 @@ void convertNodes(const cgltf_data& data, GltfDocument& document) {
     }
 }
 
+/// A skin of the file as a skeleton. One that makes no sense - too many joints, a joint
+/// listed twice, joints that hang on themselves - stays in its place without joints,
+/// and a warning says why.
+Result<GltfSkin> convertSkin(const cgltf_data& data, const cgltf_skin& source, size_t skinIndex, bool loadData,
+                             const GltfDocument& document, Warnings& warnings) {
+    const std::string name = nameOr(source.name, "Skin", skinIndex);
+    GltfSkin skin;
+    skin.skeleton.name = name;
+    if (source.joints_count == 0 || source.joints_count > kMaxSkeletonJoints) {
+        warnings.add(fmt::format("skin '{}' has {} joints, which is none or more than the {} a skeleton may have; "
+                                 "it is not imported",
+                                 name, source.joints_count, kMaxSkeletonJoints));
+        return skin;
+    }
+
+    std::vector<uint32_t> joints(source.joints_count);
+    for (cgltf_size index = 0; index < source.joints_count; ++index) {
+        joints[index] = static_cast<uint32_t>(cgltf_node_index(&data, source.joints[index]));
+    }
+
+    // Without matrices the joints are bound where they are. With them there is one for
+    // every joint; of more, the first are taken.
+    std::vector<Mat4> inverseBind;
+    if (const cgltf_accessor* matrices = source.inverse_bind_matrices; matrices != nullptr && loadData) {
+        const std::string what = fmt::format("the inverse bind matrices of skin '{}'", name);
+        if (matrices->type != cgltf_type_mat4 || matrices->count < source.joints_count) {
+            return makeError(ErrorCode::ParseError, "{} are not a matrix for each of its {} joints", what,
+                             source.joints_count);
+        }
+        CORDITE_TRY(checkAccessor(*matrices, kMaxMeshIndices, what));
+        inverseBind.resize(source.joints_count, Mat4(1.0f));
+        bool hasNoNumber = false;
+        for (cgltf_size index = 0; index < source.joints_count; ++index) {
+            std::array<cgltf_float, 16> values{};
+            if (cgltf_accessor_read_float(matrices, index, values.data(), values.size()) == 0) {
+                return makeError(ErrorCode::ParseError, "{} cannot be read", what);
+            }
+            if (std::ranges::all_of(values, [](float value) { return std::isfinite(value); })) {
+                // Column after column, in the file as in memory.
+                std::memcpy(&inverseBind[index], values.data(), sizeof(Mat4));
+            } else {
+                hasNoNumber = true;
+            }
+        }
+        if (hasNoNumber) {
+            warnings.add(fmt::format("{} hold numbers that are none; those joints are bound where they are", what));
+        }
+    }
+
+    Result<SkeletonData> skeleton = skeletonOf(document, joints, inverseBind, name);
+    if (!skeleton) {
+        warnings.add(fmt::format("{}; it is not imported", skeleton.error().message));
+        return skin;
+    }
+    skin.skeleton = std::move(*skeleton);
+    skin.joints = std::move(joints);
+    return skin;
+}
+
+/// Says which nodes draw their mesh with which skin, for the pairs that fit: a mesh
+/// whose vertices follow joints, and a skin that has the joints they follow.
+void assignSkins(const cgltf_data& data, bool loadData, GltfDocument& document, Warnings& warnings) {
+    for (cgltf_size index = 0; index < data.nodes_count; ++index) {
+        const cgltf_node& source = data.nodes[index];
+        GltfNode& node = document.nodes[index];
+        if (source.skin == nullptr || !node.mesh) {
+            continue;
+        }
+        const auto skinIndex = static_cast<uint32_t>(cgltf_skin_index(&data, source.skin));
+        const GltfSkin& skin = document.skins[skinIndex];
+        const MeshData& mesh = document.meshes[*node.mesh].mesh;
+        if (skin.joints.empty()) {
+            continue;
+        }
+        // Without the data of the file the vertices are not known; what is listed then
+        // is what the file says there is.
+        if (loadData && !mesh.isSkinned()) {
+            warnings.add(fmt::format("node '{}' gives the mesh '{}' a skin, but its vertices follow no joints",
+                                     node.name, mesh.name));
+            continue;
+        }
+        if (loadData && jointsUsed(mesh) > skin.joints.size()) {
+            warnings.add(fmt::format("the mesh '{}' follows joint {}, but the skin '{}' has only {}; it is drawn "
+                                     "without the skin",
+                                     mesh.name, jointsUsed(mesh) - 1, skin.skeleton.name, skin.joints.size()));
+            continue;
+        }
+        node.skin = skinIndex;
+    }
+}
+
+/// What a channel of an animation moves.
+enum class ChannelPath : uint8_t {
+    Translation,
+    Rotation,
+    Scale
+};
+
+std::string_view nameOf(ChannelPath path) {
+    switch (path) {
+        case ChannelPath::Translation:
+            return "translation";
+        case ChannelPath::Rotation:
+            return "rotation";
+        case ChannelPath::Scale:
+            return "scale";
+    }
+    return "unknown";
+}
+
+/// What a channel moves, or nothing for what is not imported: the weights of morph targets.
+std::optional<ChannelPath> pathOf(cgltf_animation_path_type type) {
+    switch (type) {
+        case cgltf_animation_path_type_translation:
+            return ChannelPath::Translation;
+        case cgltf_animation_path_type_rotation:
+            return ChannelPath::Rotation;
+        case cgltf_animation_path_type_scale:
+            return ChannelPath::Scale;
+        default:
+            return std::nullopt;
+    }
+}
+
+/// Whether a track already says what `path` of its joint does.
+bool hasKeys(const AnimationTrack& track, ChannelPath path) {
+    switch (path) {
+        case ChannelPath::Translation:
+            return !track.translation.empty();
+        case ChannelPath::Rotation:
+            return !track.rotation.empty();
+        case ChannelPath::Scale:
+            return !track.scale.empty();
+    }
+    return false;
+}
+
+Interpolation interpolationOf(cgltf_interpolation_type type) {
+    switch (type) {
+        case cgltf_interpolation_type_step:
+            return Interpolation::Step;
+        case cgltf_interpolation_type_cubic_spline:
+            return Interpolation::Cubic;
+        default:
+            return Interpolation::Linear;
+    }
+}
+
+/// The keys of one channel: its times, and for each of them `width` numbers - or three
+/// times as many for a cubic spline, which has a slope in, a value and a slope out.
+/// Nothing, with a warning, for a channel that makes no sense; an error for one that
+/// cannot be read or is more than the file may hold.
+struct ChannelKeys {
+    std::vector<float> times;
+    std::vector<float> values;
+};
+
+Result<std::optional<ChannelKeys>> readChannel(const cgltf_animation_sampler& sampler, cgltf_size width,
+                                               std::string_view what, Warnings& warnings, ImportBudget& budget) {
+    const cgltf_accessor* input = sampler.input;
+    const cgltf_accessor* output = sampler.output;
+    const cgltf_type valueType = width == 4 ? cgltf_type_vec4 : cgltf_type_vec3;
+    const cgltf_size perKey = sampler.interpolation == cgltf_interpolation_type_cubic_spline ? 3 : 1;
+    if (input == nullptr || output == nullptr || input->type != cgltf_type_scalar || output->type != valueType ||
+        input->count == 0 || output->count != input->count * perKey) {
+        warnings.add(fmt::format("{} has no keys, or not a value for each of them; it is left out", what));
+        return std::optional<ChannelKeys>();
+    }
+    CORDITE_TRY(budget.addKeys(input->count));
+    CORDITE_TRY(checkAccessor(*input, kMaxAnimationKeys, fmt::format("the times of {}", what)));
+    CORDITE_TRY(checkAccessor(*output, kMaxMeshIndices, fmt::format("the values of {}", what)));
+
+    ChannelKeys keys;
+    keys.times.resize(input->count);
+    keys.values.resize(output->count * width);
+    if (cgltf_accessor_unpack_floats(input, keys.times.data(), keys.times.size()) != keys.times.size() ||
+        cgltf_accessor_unpack_floats(output, keys.values.data(), keys.values.size()) != keys.values.size()) {
+        return makeError(ErrorCode::ParseError, "{} cannot be read", what);
+    }
+
+    // Times that are numbers, not before the beginning, each later than the one before;
+    // values that are numbers.
+    float before = -1.0f;
+    for (const float time : keys.times) {
+        if (!std::isfinite(time) || time < 0.0f || time <= before) {
+            warnings.add(fmt::format("{} has times that are none, or do not run forward; it is left out", what));
+            return std::optional<ChannelKeys>();
+        }
+        before = time;
+    }
+    if (!std::ranges::all_of(keys.values, [](float value) { return std::isfinite(value); })) {
+        warnings.add(fmt::format("{} has values that are no numbers; it is left out", what));
+        return std::optional<ChannelKeys>();
+    }
+    return std::optional<ChannelKeys>(std::move(keys));
+}
+
+/// A curve from the keys of a channel of three numbers a value.
+Curve<Vec3> curveOf(const ChannelKeys& keys, Interpolation interpolation) {
+    const size_t perKey = interpolation == Interpolation::Cubic ? 3 : 1;
+    const auto valueAt = [&](size_t index) {
+        return Vec3(keys.values[index * 3], keys.values[index * 3 + 1], keys.values[index * 3 + 2]);
+    };
+    Curve<Vec3> curve;
+    for (size_t index = 0; index < keys.times.size(); ++index) {
+        Keyframe<Vec3> key;
+        key.time = keys.times[index];
+        key.interpolation = interpolation;
+        if (perKey == 3) {
+            key.inTangent = valueAt(index * 3);
+            key.value = valueAt(index * 3 + 1);
+            key.outTangent = valueAt(index * 3 + 2);
+        } else {
+            key.value = valueAt(index);
+        }
+        curve.addKey(key);
+    }
+    return curve;
+}
+
+/// How far from one the length of a rotation in a file may be and still be taken as it is.
+constexpr float kUnitLengthTolerance = 1.0e-5f;
+
+/// A curve of rotations from the keys of a channel of four numbers a value: of unit
+/// length at the keys, and each key the same way round as the one before it, so that
+/// what is between two keys is the short way from the one to the other.
+Curve<Vec4> rotationCurveOf(const ChannelKeys& keys, Interpolation interpolation) {
+    const size_t perKey = interpolation == Interpolation::Cubic ? 3 : 1;
+    const auto valueAt = [&](size_t index) {
+        return Vec4(keys.values[index * 4], keys.values[index * 4 + 1], keys.values[index * 4 + 2],
+                    keys.values[index * 4 + 3]);
+    };
+    Curve<Vec4> curve;
+    Vec4 previous(0.0f, 0.0f, 0.0f, 1.0f);
+    for (size_t index = 0; index < keys.times.size(); ++index) {
+        Keyframe<Vec4> key;
+        key.time = keys.times[index];
+        key.interpolation = interpolation;
+        key.value = valueAt(perKey == 3 ? index * 3 + 1 : index);
+        if (perKey == 3) {
+            key.inTangent = valueAt(index * 3);
+            key.outTangent = valueAt(index * 3 + 2);
+        }
+        // Brought to unit length - unless it is that already, as nearly as a float can
+        // say: a file that is right is not to come back changed in its last bit. A
+        // rotation without length is none: the joint is not turned.
+        const float length = glm::length(key.value);
+        if (std::abs(length - 1.0f) > kUnitLengthTolerance) {
+            const float scale = length > kEpsilon ? 1.0f / length : 0.0f;
+            key.value = scale > 0.0f ? key.value * scale : Vec4(0.0f, 0.0f, 0.0f, 1.0f);
+            key.inTangent *= scale;
+            key.outTangent *= scale;
+        }
+        if (index > 0 && glm::dot(previous, key.value) < 0.0f) {
+            key.value = -key.value;
+            key.inTangent = -key.inTangent;
+            key.outTangent = -key.outTangent;
+        }
+        previous = key.value;
+        curve.addKey(key);
+    }
+    return curve;
+}
+
+/// An animation of the file: a track for every node it moves. Channels that make no
+/// sense are left out, with a warning each.
+Result<GltfAnimation> convertAnimation(const cgltf_data& data, const cgltf_animation& source, size_t animationIndex,
+                                       bool loadData, const GltfDocument& document, Warnings& warnings,
+                                       ImportBudget& budget) {
+    GltfAnimation result;
+    AnimationData& animation = result.animation;
+    animation.name = nameOr(source.name, "Animation", animationIndex);
+
+    for (cgltf_size index = 0; index < source.channels_count; ++index) {
+        const cgltf_animation_channel& channel = source.channels[index];
+        if (channel.target_node == nullptr || channel.sampler == nullptr) {
+            continue;
+        }
+        const std::optional<ChannelPath> path = pathOf(channel.target_path);
+        if (!path) {
+            warnings.add(fmt::format("animation '{}' moves morph targets, which are not imported", animation.name));
+            continue;
+        }
+
+        // The track of the node, made when the first channel for the node comes by.
+        const auto node = static_cast<uint32_t>(cgltf_node_index(&data, channel.target_node));
+        auto found = std::ranges::find(result.nodes, node);
+        if (found == result.nodes.end()) {
+            result.nodes.push_back(node);
+            animation.tracks.push_back({.joint = jointNameOf(document, node)});
+            found = result.nodes.end() - 1;
+        }
+        AnimationTrack& track = animation.tracks[static_cast<size_t>(found - result.nodes.begin())];
+        if (!loadData) {
+            continue;
+        }
+
+        const bool isRotation = *path == ChannelPath::Rotation;
+        const std::string what =
+            fmt::format("the {} of '{}' in animation '{}'", nameOf(*path), track.joint, animation.name);
+        if (hasKeys(track, *path)) {
+            warnings.add(fmt::format("{} is given more than once; the first is kept", what));
+            continue;
+        }
+        CORDITE_TRY_ASSIGN(const std::optional<ChannelKeys> keys,
+                           readChannel(*channel.sampler, isRotation ? 4 : 3, what, warnings, budget));
+        if (!keys) {
+            continue;
+        }
+        const Interpolation interpolation = interpolationOf(channel.sampler->interpolation);
+        if (isRotation) {
+            track.rotation = rotationCurveOf(*keys, interpolation);
+        } else if (*path == ChannelPath::Scale) {
+            track.scale = curveOf(*keys, interpolation);
+        } else {
+            track.translation = curveOf(*keys, interpolation);
+        }
+    }
+    animation.duration = lastKeyTime(animation);
+    return result;
+}
+
 Status checkRequiredExtensions(const cgltf_data& data) {
     for (cgltf_size index = 0; index < data.extensions_required_count; ++index) {
         const std::string_view extension(data.extensions_required[index]);
@@ -905,9 +1312,6 @@ Result<GltfDocument> convertDocument(const cgltf_data& data, const GltfImportOpt
     ImportBudget budget(importOptions);
     const bool loadData = importOptions.loadData;
 
-    if (data.skins_count > 0 || data.animations_count > 0) {
-        warnings.add("it contains skins or animations, which are not imported");
-    }
     if (data.lights_count > 0) {
         warnings.add("it contains lights, which are not imported");
     }
@@ -930,6 +1334,21 @@ Result<GltfDocument> convertDocument(const cgltf_data& data, const GltfImportOpt
     }
 
     convertNodes(data, document);
+
+    // Joints are nodes: the skins, and the animations that move them, come after.
+    document.skins.reserve(data.skins_count);
+    for (cgltf_size index = 0; index < data.skins_count; ++index) {
+        CORDITE_TRY_ASSIGN(GltfSkin skin, convertSkin(data, data.skins[index], index, loadData, document, warnings));
+        document.skins.push_back(std::move(skin));
+    }
+    assignSkins(data, loadData, document, warnings);
+
+    document.animations.reserve(data.animations_count);
+    for (cgltf_size index = 0; index < data.animations_count; ++index) {
+        CORDITE_TRY_ASSIGN(GltfAnimation animation,
+                           convertAnimation(data, data.animations[index], index, loadData, document, warnings, budget));
+        document.animations.push_back(std::move(animation));
+    }
     return document;
 }
 
