@@ -12,13 +12,13 @@ namespace {
 /// CI machines and do not flash windows on a developer's desktop.
 std::unique_ptr<WindowSystem> createHeadlessSystem() {
     Result<std::unique_ptr<WindowSystem>> system = WindowSystem::create({.headless = true});
-    REQUIRE_MESSAGE(system.has_value(), system.error().message);
+    REQUIRE_MESSAGE(system.has_value(), test::errorOf(system));
     return std::move(*system);
 }
 
 std::unique_ptr<Window> createWindow(WindowSystem& system, const WindowDesc& desc = {.visible = false}) {
     Result<std::unique_ptr<Window>> window = system.createWindow(desc);
-    REQUIRE_MESSAGE(window.has_value(), window.error().message);
+    REQUIRE_MESSAGE(window.has_value(), test::errorOf(window));
     return std::move(*window);
 }
 
@@ -43,7 +43,7 @@ TEST_SUITE("Window") {
     TEST_CASE("a window reports the size it was created with") {
         const std::unique_ptr<WindowSystem> system = createHeadlessSystem();
         Result<std::unique_ptr<Window>> window = system->createWindow({.title = "Test", .width = 640, .height = 360});
-        REQUIRE_MESSAGE(window.has_value(), window.error().message);
+        REQUIRE_MESSAGE(window.has_value(), test::errorOf(window));
 
         CHECK((*window)->logicalSize() == UVec2(640, 360));
         CHECK((*window)->framebufferSize() == UVec2(640, 360));

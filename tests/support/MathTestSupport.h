@@ -58,7 +58,16 @@ inline bool nearlyEqual(const Mat4& a, const Mat4& b, float tolerance) {
 } // namespace cordite::test
 
 /// Checks that two vectors are equal within a tolerance, printing both on failure.
+///
+/// Each argument is evaluated once, before the assertion. The message of an assertion is
+/// built later - when it fails, or when doctest is asked to list what passes - and an
+/// argument that asserts something itself, as test::unwrap() does, must not be run again
+/// from in there: doctest cannot make one assertion inside the message of another.
 #define CHECK_NEAR(actual, expected, tolerance)                                                                        \
-    CHECK_MESSAGE(::cordite::test::nearlyEqual((actual), (expected), (tolerance)),                                     \
-                  "actual " << ::cordite::test::describe(actual) << ", expected "                                      \
-                            << ::cordite::test::describe(expected))
+    do {                                                                                                               \
+        const auto corditeActual = (actual);                                                                           \
+        const auto corditeExpected = (expected);                                                                       \
+        CHECK_MESSAGE(::cordite::test::nearlyEqual(corditeActual, corditeExpected, (tolerance)),                       \
+                      #actual " is " << ::cordite::test::describe(corditeActual) << ", expected "                      \
+                                     << ::cordite::test::describe(corditeExpected));                                   \
+    } while (false)

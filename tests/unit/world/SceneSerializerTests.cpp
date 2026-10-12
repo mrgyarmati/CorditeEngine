@@ -203,7 +203,7 @@ TEST_SUITE("SceneSerializer") {
 
         World loaded;
         const Status status = deserializeScene(loaded, document, registry);
-        REQUIRE_MESSAGE(status.has_value(), status.error().describe());
+        REQUIRE_MESSAGE(status.has_value(), test::errorOf(status));
 
         CHECK(serializeScene(loaded, registry) == document);
         CHECK(loaded.sceneName() == "Depot");
@@ -271,7 +271,7 @@ TEST_SUITE("SceneSerializer") {
 
         World loaded;
         const Status status = loadScene(path, loaded, registry);
-        REQUIRE_MESSAGE(status.has_value(), status.error().describe());
+        REQUIRE_MESSAGE(status.has_value(), test::errorOf(status));
         CHECK(serializeScene(loaded, registry) == serializeScene(original, registry));
 
         // Saving what was loaded produces the same bytes, so files do not churn.
@@ -306,7 +306,7 @@ TEST_SUITE("SceneSerializer") {
 
         World world;
         const Status status = loadScene(path, world, registry);
-        REQUIRE_MESSAGE(status.has_value(), status.error().describe());
+        REQUIRE_MESSAGE(status.has_value(), test::errorOf(status));
         CHECK(world.sceneName() == "Untitled");
 
         const Entity first = world.findById(uuid(kIdA));

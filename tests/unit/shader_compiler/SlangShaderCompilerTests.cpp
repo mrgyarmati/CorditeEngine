@@ -65,7 +65,7 @@ struct Fixture {
         write("passes/Main.slang", kMainSource);
 
         Result<std::unique_ptr<SlangShaderCompiler>> created = SlangShaderCompiler::create({.sourceRoots = {root}});
-        REQUIRE_MESSAGE(created.has_value(), created.error().message);
+        REQUIRE_MESSAGE(created.has_value(), test::errorOf(created));
         compiler = std::move(*created);
     }
 
@@ -95,7 +95,7 @@ TEST_SUITE("SlangShaderCompiler") {
         Fixture fixture;
 
         const Result<ShaderBinary> pixel = fixture.compiler->compile(Fixture::request());
-        REQUIRE_MESSAGE(pixel.has_value(), pixel.error().message);
+        REQUIRE_MESSAGE(pixel.has_value(), test::errorOf(pixel));
         CHECK(isSpirv(pixel->code));
         CHECK(pixel->stage == ShaderStage::Pixel);
         CHECK(pixel->entryPoint == "pixelMain");
@@ -103,7 +103,7 @@ TEST_SUITE("SlangShaderCompiler") {
 
         const Result<ShaderBinary> vertex =
             fixture.compiler->compile(Fixture::request("vertexMain", ShaderStage::Vertex));
-        REQUIRE_MESSAGE(vertex.has_value(), vertex.error().message);
+        REQUIRE_MESSAGE(vertex.has_value(), test::errorOf(vertex));
         CHECK(isSpirv(vertex->code));
         CHECK(vertex->code != pixel->code);
     }
@@ -140,7 +140,7 @@ TEST_SUITE("SlangShaderCompiler") {
         const Result<ShaderBinary> plain = fixture.compiler->compile(Fixture::request());
         const Result<ShaderBinary> red = fixture.compiler->compile(tinted);
         REQUIRE(plain.has_value());
-        REQUIRE_MESSAGE(red.has_value(), red.error().message);
+        REQUIRE_MESSAGE(red.has_value(), test::errorOf(red));
         CHECK(plain->code != red->code);
     }
 
@@ -236,7 +236,7 @@ TEST_SUITE("SlangShaderCompiler") {
         ShaderRequest request = Fixture::request();
         request.path = "passes/Custom.slang";
         const Result<ShaderBinary> binary = (*compiler)->compile(request);
-        REQUIRE_MESSAGE(binary.has_value(), binary.error().message);
+        REQUIRE_MESSAGE(binary.has_value(), test::errorOf(binary));
         REQUIRE(binary->dependencies.size() == 2);
         CHECK(binary->dependencies[0].path == "common/Tint.slang");
         CHECK(binary->dependencies[1].path == "passes/Custom.slang");

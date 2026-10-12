@@ -16,12 +16,12 @@ namespace {
 struct WindowedContext {
     WindowedContext() {
         Result<std::unique_ptr<WindowSystem>> system = WindowSystem::create();
-        REQUIRE_MESSAGE(system.has_value(), system.error().message);
+        REQUIRE_MESSAGE(system.has_value(), test::errorOf(system));
         windowSystem = std::move(*system);
 
         Result<std::unique_ptr<Window>> created = windowSystem->createWindow(
             {.title = "Cordite swapchain test", .width = 320, .height = 200, .visible = false});
-        REQUIRE_MESSAGE(created.has_value(), created.error().message);
+        REQUIRE_MESSAGE(created.has_value(), test::errorOf(created));
         window = std::move(*created);
 
         GraphicsDeviceDesc desc;
@@ -29,7 +29,7 @@ struct WindowedContext {
         desc.presentationExtensions = windowSystem->vulkanInstanceExtensions();
         REQUIRE_FALSE(desc.presentationExtensions.empty());
         Result<std::unique_ptr<GraphicsDevice>> device = GraphicsDevice::create(desc);
-        REQUIRE_MESSAGE(device.has_value(), device.error().message);
+        REQUIRE_MESSAGE(device.has_value(), test::errorOf(device));
         graphics = std::move(*device);
         commandList = graphics->device()->createCommandList();
     }
@@ -38,7 +38,7 @@ struct WindowedContext {
     void renderFrame(Swapchain& swapchain, const nvrhi::Color& color) {
         windowSystem->pollEvents();
         const Result<SwapchainFrame> frame = swapchain.beginFrame();
-        REQUIRE_MESSAGE(frame.has_value(), frame.error().message);
+        REQUIRE_MESSAGE(frame.has_value(), test::errorOf(frame));
         REQUIRE(frame->texture != nullptr);
         REQUIRE(frame->framebuffer != nullptr);
 
@@ -48,14 +48,14 @@ struct WindowedContext {
         graphics->device()->executeCommandList(commandList);
 
         const Status presented = swapchain.present();
-        REQUIRE_MESSAGE(presented.has_value(), presented.error().message);
+        REQUIRE_MESSAGE(presented.has_value(), test::errorOf(presented));
         graphics->collectGarbage();
     }
 
     /// Creates a swapchain for the window, failing the test if that is not possible.
     [[nodiscard]] std::unique_ptr<Swapchain> createSwapchain(const SwapchainDesc& desc = {}) const {
         Result<std::unique_ptr<Swapchain>> swapchain = Swapchain::create(*graphics, *window, desc);
-        REQUIRE_MESSAGE(swapchain.has_value(), swapchain.error().message);
+        REQUIRE_MESSAGE(swapchain.has_value(), test::errorOf(swapchain));
         return std::move(*swapchain);
     }
 
@@ -73,7 +73,7 @@ TEST_SUITE("Swapchain") {
         CHECK(context.graphics->canPresent());
 
         Result<std::unique_ptr<Swapchain>> swapchain = Swapchain::create(*context.graphics, *context.window);
-        REQUIRE_MESSAGE(swapchain.has_value(), swapchain.error().message);
+        REQUIRE_MESSAGE(swapchain.has_value(), test::errorOf(swapchain));
 
         CHECK((*swapchain)->size() == context.window->framebufferSize());
         const nvrhi::Format format = (*swapchain)->format();

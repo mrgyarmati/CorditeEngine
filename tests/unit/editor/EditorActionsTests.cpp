@@ -20,11 +20,11 @@ void checkUndoRedo(EditorFixture& fixture, const Json& before) {
     REQUIRE(after != before);
 
     const Status undone = fixture.context.history().undo();
-    REQUIRE_MESSAGE(undone.has_value(), undone.error().message);
+    REQUIRE_MESSAGE(undone.has_value(), test::errorOf(undone));
     CHECK(fixture.scene() == before);
 
     const Status redone = fixture.context.history().redo();
-    REQUIRE_MESSAGE(redone.has_value(), redone.error().message);
+    REQUIRE_MESSAGE(redone.has_value(), test::errorOf(redone));
     CHECK(fixture.scene() == after);
 }
 
@@ -518,7 +518,7 @@ TEST_SUITE("EditorActions") {
         for (size_t step = states.size() - 1; step > 0; --step) {
             CAPTURE(step);
             const Status undone = fixture.context.history().undo();
-            REQUIRE_MESSAGE(undone.has_value(), undone.error().message);
+            REQUIRE_MESSAGE(undone.has_value(), test::errorOf(undone));
             CHECK(fixture.scene() == states[step - 1]);
         }
         CHECK_FALSE(fixture.context.history().canUndo());
@@ -527,7 +527,7 @@ TEST_SUITE("EditorActions") {
         for (size_t step = 1; step < states.size(); ++step) {
             CAPTURE(step);
             const Status redone = fixture.context.history().redo();
-            REQUIRE_MESSAGE(redone.has_value(), redone.error().message);
+            REQUIRE_MESSAGE(redone.has_value(), test::errorOf(redone));
             CHECK(fixture.scene() == states[step]);
         }
         CHECK_FALSE(fixture.context.history().canRedo());

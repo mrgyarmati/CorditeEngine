@@ -24,7 +24,7 @@ struct CommandFixture : EditorFixture {
     /// Runs a command that is expected to succeed.
     Json run(std::string_view name, std::string_view parameters = "{}") {
         const Result<Json> result = commands.execute(name, json(parameters));
-        REQUIRE_MESSAGE(result.has_value(), result.error().describe());
+        REQUIRE_MESSAGE(result.has_value(), test::errorOf(result));
         return *result;
     }
 

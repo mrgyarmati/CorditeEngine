@@ -47,7 +47,7 @@ struct Showcase {
     Showcase() {
         REQUIRE(registerEngineComponents(components).has_value());
         const Status loaded = loadScene(project.startScenePath(), world, components);
-        REQUIRE_MESSAGE(loaded.has_value(), loaded.error().describe());
+        REQUIRE_MESSAGE(loaded.has_value(), test::errorOf(loaded));
     }
 
     /// Every asset the scene needs: what its components name, and what those need in turn.
@@ -116,23 +116,23 @@ TEST_SUITE("Showcase") {
             switch (asset.type) {
                 case AssetType::Mesh: {
                     const auto mesh = showcase.assets->loadMesh(asset.id);
-                    REQUIRE_MESSAGE(mesh.has_value(), mesh.error().describe());
+                    REQUIRE_MESSAGE(mesh.has_value(), test::errorOf(mesh));
                     CHECK(validateMesh(**mesh).has_value());
                     break;
                 }
                 case AssetType::Material: {
                     const auto material = showcase.assets->loadMaterial(asset.id);
-                    CHECK_MESSAGE(material.has_value(), material.error().describe());
+                    CHECK_MESSAGE(material.has_value(), test::errorOf(material));
                     break;
                 }
                 case AssetType::Texture: {
                     const auto texture = showcase.assets->loadTexture(asset.id);
-                    CHECK_MESSAGE(texture.has_value(), texture.error().describe());
+                    CHECK_MESSAGE(texture.has_value(), test::errorOf(texture));
                     break;
                 }
                 case AssetType::Model: {
                     const auto model = showcase.assets->loadModel(asset.id);
-                    CHECK_MESSAGE(model.has_value(), model.error().describe());
+                    CHECK_MESSAGE(model.has_value(), test::errorOf(model));
                     // A model in the showcase is one the importer brings in whole.
                     CHECK(asset.warnings.empty());
                     break;

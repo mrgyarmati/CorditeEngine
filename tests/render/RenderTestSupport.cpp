@@ -35,7 +35,7 @@ std::unique_ptr<GraphicsDevice> createTestDevice() {
     desc.validation = true;
 
     Result<std::unique_ptr<GraphicsDevice>> device = GraphicsDevice::create(desc);
-    REQUIRE_MESSAGE(device.has_value(), device.error().message);
+    REQUIRE_MESSAGE(device.has_value(), test::errorOf(device));
     return std::move(*device);
 }
 
@@ -48,7 +48,7 @@ void checkNoValidationIssues(const GraphicsDevice& device) {
 RenderContext::RenderContext() : graphics(createTestDevice()) {
     Result<std::unique_ptr<SlangShaderCompiler>> created =
         SlangShaderCompiler::create({.sourceRoots = {shaderDirectory()}});
-    REQUIRE_MESSAGE(created.has_value(), created.error().message);
+    REQUIRE_MESSAGE(created.has_value(), test::errorOf(created));
     compiler = std::move(*created);
 
     ShaderLibraryDesc libraryDesc;
@@ -99,7 +99,7 @@ nvrhi::TextureHandle createColorTarget(nvrhi::IDevice* device, uint32_t width, u
 
 Image readToImage(GraphicsDevice& device, nvrhi::ITexture* texture) {
     Result<TexturePixels> pixels = readTexture(device, texture);
-    REQUIRE_MESSAGE(pixels.has_value(), pixels.error().message);
+    REQUIRE_MESSAGE(pixels.has_value(), test::errorOf(pixels));
     REQUIRE(pixels->bytesPerPixel == 4);
 
     if (pixels->format == nvrhi::Format::BGRA8_UNORM || pixels->format == nvrhi::Format::SBGRA8_UNORM) {
@@ -109,7 +109,7 @@ Image readToImage(GraphicsDevice& device, nvrhi::ITexture* texture) {
     }
 
     Result<Image> image = Image::fromPixels(pixels->width, pixels->height, ImageFormat::Rgba8, std::move(pixels->data));
-    REQUIRE_MESSAGE(image.has_value(), image.error().message);
+    REQUIRE_MESSAGE(image.has_value(), test::errorOf(image));
     return std::move(*image);
 }
 
@@ -119,7 +119,7 @@ void checkAgainstReference(const Image& actual, std::string_view name, const Ima
 
     if (shouldUpdateReferences()) {
         const Status saved = actual.savePng(referencePath);
-        REQUIRE_MESSAGE(saved.has_value(), saved.error().message);
+        REQUIRE_MESSAGE(saved.has_value(), test::errorOf(saved));
         MESSAGE("updated reference image " << pathToUtf8(referencePath));
         return;
     }
@@ -136,7 +136,7 @@ void checkAgainstReference(const Image& actual, std::string_view name, const Ima
     }
 
     const Result<ImageComparison> comparison = compareImages(actual, *expected, options);
-    REQUIRE_MESSAGE(comparison.has_value(), comparison.error().message);
+    REQUIRE_MESSAGE(comparison.has_value(), test::errorOf(comparison));
     if (comparison->matches) {
         return;
     }

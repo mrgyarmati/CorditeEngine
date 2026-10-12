@@ -38,7 +38,7 @@ EditorAppDesc headlessDesc(UVec2 size = UVec2(1280, 720)) {
 
 std::unique_ptr<EditorApp> createEditor(const EditorAppDesc& desc) {
     Result<std::unique_ptr<EditorApp>> editor = EditorApp::create(desc);
-    REQUIRE_MESSAGE(editor.has_value(), editor.error().describe());
+    REQUIRE_MESSAGE(editor.has_value(), test::errorOf(editor));
     return std::move(*editor);
 }
 
@@ -49,7 +49,7 @@ Json json(std::string_view text) {
 /// Runs a command that is expected to succeed.
 Json run(EditorApp& editor, std::string_view command, std::string_view parameters = "{}") {
     const Result<Json> result = editor.commands().execute(command, json(parameters));
-    REQUIRE_MESSAGE(result.has_value(), result.error().describe());
+    REQUIRE_MESSAGE(result.has_value(), test::errorOf(result));
     return *result;
 }
 

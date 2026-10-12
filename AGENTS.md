@@ -601,9 +601,10 @@ with CTest under the module name. See the skills
 [render-tests](.claude/skills/render-tests/SKILL.md).
 
 - Test files are named `<Thing>Tests.cpp` and live in `tests/unit/<module>/`.
-- Three suites are not tied to one module: `samples` keeps the showcase project loading
+- Some suites are not tied to one module: `samples` keeps the showcase project loading
   and complete, `editor_smoke` runs the real editor executable with a command script,
-  and `module_layering` checks the include rules.
+  `module_layering` checks the include rules, and `test_sources` and `assets_listed`
+  keep the tests themselves in order (see the next point but one).
 - Rendering is tested with numbers before pictures. A test that can state what a pixel
   must be does so: `SceneRendererTests` with flat emissive materials, an orthographic
   camera and no light; `SceneLightingTests` with a white, matte wall and lights whose
@@ -648,6 +649,13 @@ with CTest under the module name. See the skills
   tests create them one after another, never side by side.
 - Get the value of a `Result` in a test with `test::unwrap(...)`, never with `*result`:
   dereferencing an error is undefined behavior and turns a clean failure into a crash.
+- **The message of an assertion is built when the assertion passes, too**, if doctest
+  is asked to list what passes (`-s`). It must be safe to build then: write
+  `REQUIRE_MESSAGE(result.has_value(), test::errorOf(result))`, never
+  `result.error()`, which is undefined for a value (the `test_sources` test rejects
+  it); and nothing in a message may assert, which is why `CHECK_NEAR` evaluates its
+  arguments once, before the assertion. The `assets_listed` test runs one suite with
+  `-s` to keep that way of running the tests alive.
 
 ## Dependencies
 

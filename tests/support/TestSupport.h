@@ -31,12 +31,22 @@ public:
 /// the test entry point.
 void installTestEnvironment();
 
+/// What went wrong in `result`, for the message of an assertion; nothing when it holds a
+/// value. Use it instead of `result.error()` there: doctest builds the message of an
+/// assertion that passes too, when it is asked to list those (`--success`), and asking
+/// a value for its error is undefined behavior. The `test_sources` test rejects the
+/// other spelling.
+template <typename T>
+std::string errorOf(const Result<T>& result) {
+    return result.has_value() ? std::string() : result.error().describe();
+}
+
 /// Returns the value of a Result, failing the current test with the error when there is
 /// none. Use it instead of `*result`, which is undefined behavior for an error and turns
 /// a clean failure into a crash.
 template <typename T>
 T unwrap(Result<T> result) {
-    REQUIRE_MESSAGE(result.has_value(), result.error().describe());
+    REQUIRE_MESSAGE(result.has_value(), errorOf(result));
     return std::move(*result);
 }
 

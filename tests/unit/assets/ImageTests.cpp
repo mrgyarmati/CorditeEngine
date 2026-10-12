@@ -147,7 +147,7 @@ TEST_SUITE("Image") {
         CHECK((*encoded)[1] == std::byte{'P'});
 
         const Result<Image> decoded = Image::decode(*encoded, "memory.png");
-        REQUIRE_MESSAGE(decoded.has_value(), decoded.error().message);
+        REQUIRE_MESSAGE(decoded.has_value(), test::errorOf(decoded));
         CHECK(decoded->format() == ImageFormat::Rgba8);
         CHECK(decoded->width() == 4);
         CHECK(decoded->height() == 3);
@@ -177,7 +177,7 @@ TEST_SUITE("Image") {
 
         REQUIRE(original.savePng(file).has_value());
         const Result<Image> loaded = Image::load(file);
-        REQUIRE_MESSAGE(loaded.has_value(), loaded.error().message);
+        REQUIRE_MESSAGE(loaded.has_value(), test::errorOf(loaded));
         CHECK(std::equal(loaded->pixels().begin(), loaded->pixels().end(), original.pixels().begin(),
                          original.pixels().end()));
     }
@@ -190,7 +190,7 @@ TEST_SUITE("Image") {
         }
 
         const Result<Image> image = Image::decode(data, "tiny.hdr");
-        REQUIRE_MESSAGE(image.has_value(), image.error().message);
+        REQUIRE_MESSAGE(image.has_value(), test::errorOf(image));
         CHECK(image->format() == ImageFormat::Rgba32F);
         CHECK(image->width() == 2);
         CHECK(image->height() == 1);

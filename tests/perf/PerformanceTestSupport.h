@@ -105,7 +105,7 @@ inline EngineDesc measuredEngineDesc(std::string applicationName, const std::fil
 
 inline std::unique_ptr<Engine> startEngine(const EngineDesc& desc) {
     Result<std::unique_ptr<Engine>> engine = Engine::create(desc);
-    REQUIRE_MESSAGE(engine.has_value(), engine.error().describe());
+    REQUIRE_MESSAGE(engine.has_value(), test::errorOf(engine));
     return std::move(*engine);
 }
 

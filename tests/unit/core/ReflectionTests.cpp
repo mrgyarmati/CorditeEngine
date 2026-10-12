@@ -212,7 +212,7 @@ TEST_SUITE("Reflection") {
             "tags": ["x"],
             "inner": {"count": 4}
         })"));
-        REQUIRE_MESSAGE(status.has_value(), status.error().message);
+        REQUIRE_MESSAGE(status.has_value(), test::errorOf(status));
 
         CHECK_FALSE(sample.enabled);
         CHECK(sample.lives == 5);

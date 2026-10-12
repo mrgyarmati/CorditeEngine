@@ -222,3 +222,21 @@ set_tests_properties(editor_smoke PROPERTIES LABELS "gpu" TIMEOUT 120)
 cordite_configure_gpu_test(editor_smoke "gpu")
 
 cordite_add_layering_test()
+
+# Rejects tests that are written in a way that crashes as soon as doctest is asked to
+# list the assertions that pass; see the script.
+add_test(NAME test_sources
+    COMMAND ${CMAKE_COMMAND}
+        "-DREPOSITORY_DIR=${PROJECT_SOURCE_DIR}"
+        -P "${PROJECT_SOURCE_DIR}/cmake/CheckTestSources.cmake")
+set_tests_properties(test_sources PROPERTIES LABELS "lint")
+
+# doctest builds the message of an assertion when the assertion passes, too, if it is
+# asked to list those (--success). Tests written so that this crashes pass for everyone
+# until someone wants to look closer: one suite is run that way, to keep it possible -
+# the one that found both ways there were of getting it wrong (CheckTestSources.cmake,
+# and CHECK_NEAR in support/MathTestSupport.h). What it lists goes to a file.
+add_test(NAME assets_listed
+    COMMAND cordite_assets_tests --success "--out=${PROJECT_BINARY_DIR}/assets-listed.txt"
+    WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}")
+set_tests_properties(assets_listed PROPERTIES LABELS "lint" TIMEOUT 300)

@@ -56,7 +56,7 @@ TEST_SUITE("ShaderLibrary") {
         ShaderLibrary library(fixture.desc());
 
         const auto first = library.load(Fixture::request());
-        REQUIRE_MESSAGE(first.has_value(), first.error().message);
+        REQUIRE_MESSAGE(first.has_value(), test::errorOf(first));
         CHECK(isSpirv((*first)->code));
         CHECK((*first)->entryPoint == "blitPixel");
         CHECK(fixture.compiler.compileCount == 1);
@@ -175,7 +175,7 @@ TEST_SUITE("ShaderLibrary") {
         ShaderLibrary library(shipped);
 
         const auto cached = library.load(Fixture::request());
-        REQUIRE_MESSAGE(cached.has_value(), cached.error().message);
+        REQUIRE_MESSAGE(cached.has_value(), test::errorOf(cached));
         CHECK(library.stats().diskHits == 1);
 
         ShaderRequest missing = Fixture::request();

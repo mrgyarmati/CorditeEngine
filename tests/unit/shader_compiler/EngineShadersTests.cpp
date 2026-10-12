@@ -60,7 +60,7 @@ std::vector<ShaderRequest> engineShaders() {
 TEST_SUITE("EngineShaders") {
     TEST_CASE("every engine shader compiles without warnings") {
         const auto compiler = SlangShaderCompiler::create({.sourceRoots = {test::sourceDirectory() / "shaders"}});
-        REQUIRE_MESSAGE(compiler.has_value(), compiler.error().message);
+        REQUIRE_MESSAGE(compiler.has_value(), test::errorOf(compiler));
 
         test::LogCapture capture(LogLevel::Warn);
         for (ShaderRequest request : engineShaders()) {
@@ -68,7 +68,7 @@ TEST_SUITE("EngineShaders") {
             REQUIRE(request.normalize().has_value());
 
             const Result<ShaderBinary> binary = (*compiler)->compile(request);
-            REQUIRE_MESSAGE(binary.has_value(), binary.error().message);
+            REQUIRE_MESSAGE(binary.has_value(), test::errorOf(binary));
             CHECK(isSpirv(binary->code));
             CHECK_FALSE(binary->dependencies.empty());
         }

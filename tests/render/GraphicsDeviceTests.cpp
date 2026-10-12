@@ -49,7 +49,7 @@ TEST_SUITE("GraphicsDevice") {
         GraphicsDeviceDesc desc;
         desc.preferredAdapter = "no adapter has this name";
         const Result<std::unique_ptr<GraphicsDevice>> graphics = GraphicsDevice::create(desc);
-        REQUIRE_MESSAGE(graphics.has_value(), graphics.error().message);
+        REQUIRE_MESSAGE(graphics.has_value(), test::errorOf(graphics));
         CHECK_FALSE((*graphics)->adapter().name.empty());
     }
 
@@ -92,7 +92,7 @@ TEST_SUITE("GraphicsDevice") {
             GraphicsDeviceDesc desc;
             desc.validation = validation;
             const Result<std::unique_ptr<GraphicsDevice>> graphics = GraphicsDevice::create(desc);
-            REQUIRE_MESSAGE(graphics.has_value(), graphics.error().message);
+            REQUIRE_MESSAGE(graphics.has_value(), test::errorOf(graphics));
 
             const nvrhi::TextureHandle texture = test::createColorTarget((*graphics)->device(), 8, 8);
             clearTexture(**graphics, texture, nvrhi::Color(0.0f, 1.0f, 0.0f, 1.0f));
@@ -175,7 +175,7 @@ TEST_SUITE("TextureReadback") {
         clearTexture(*graphics, texture, nvrhi::Color(0.2f, 0.4f, 0.6f, 1.0f));
 
         const Result<TexturePixels> pixels = readTexture(*graphics, texture);
-        REQUIRE_MESSAGE(pixels.has_value(), pixels.error().message);
+        REQUIRE_MESSAGE(pixels.has_value(), test::errorOf(pixels));
         CHECK(pixels->width == 37);
         CHECK(pixels->height == 19);
         CHECK(pixels->bytesPerPixel == 4);
@@ -199,7 +199,7 @@ TEST_SUITE("TextureReadback") {
         clearTexture(*graphics, texture, nvrhi::Color(12.5f, -3.0f, 0.001f, 2.0f));
 
         const Result<TexturePixels> pixels = readTexture(*graphics, texture);
-        REQUIRE_MESSAGE(pixels.has_value(), pixels.error().message);
+        REQUIRE_MESSAGE(pixels.has_value(), test::errorOf(pixels));
         REQUIRE(pixels->bytesPerPixel == 16);
 
         float values[4] = {};
@@ -228,7 +228,7 @@ TEST_SUITE("TextureReadback") {
         clearTexture(*graphics, texture, nvrhi::Color(1.0f, 1.0f, 1.0f, 1.0f));
 
         const Result<TexturePixels> mip2 = readTexture(*graphics, texture, 2);
-        REQUIRE_MESSAGE(mip2.has_value(), mip2.error().message);
+        REQUIRE_MESSAGE(mip2.has_value(), test::errorOf(mip2));
         CHECK(mip2->width == 4);
         CHECK(mip2->height == 2);
         CHECK(mip2->data.size() == 4u * 2u * 4u);

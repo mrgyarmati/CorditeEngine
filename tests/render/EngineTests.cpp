@@ -35,14 +35,14 @@ EngineDesc headlessDesc(UVec2 size = UVec2(320, 180)) {
 
 std::unique_ptr<Engine> createEngine(const EngineDesc& desc) {
     Result<std::unique_ptr<Engine>> engine = Engine::create(desc);
-    REQUIRE_MESSAGE(engine.has_value(), engine.error().message);
+    REQUIRE_MESSAGE(engine.has_value(), test::errorOf(engine));
     return std::move(*engine);
 }
 
 void runFrames(Engine& engine, int count) {
     for (int frame = 0; frame < count; ++frame) {
         const Result<bool> keepRunning = engine.runFrame();
-        REQUIRE_MESSAGE(keepRunning.has_value(), keepRunning.error().message);
+        REQUIRE_MESSAGE(keepRunning.has_value(), test::errorOf(keepRunning));
         REQUIRE(*keepRunning);
     }
 }
@@ -72,7 +72,7 @@ TEST_SUITE("Engine") {
 
         runFrames(*engine, 1);
         const Result<Image> frame = engine->captureFrame();
-        REQUIRE_MESSAGE(frame.has_value(), frame.error().message);
+        REQUIRE_MESSAGE(frame.has_value(), test::errorOf(frame));
         CHECK(frame->width() == 200);
         CHECK(frame->height() == 100);
         CHECK(frame->format() == ImageFormat::Rgba8);
@@ -90,7 +90,7 @@ TEST_SUITE("Engine") {
             const std::unique_ptr<Engine> engine = createEngine(headlessDesc());
             runFrames(*engine, 12);
             Result<Image> frame = engine->captureFrame();
-            REQUIRE_MESSAGE(frame.has_value(), frame.error().message);
+            REQUIRE_MESSAGE(frame.has_value(), test::errorOf(frame));
             return std::move(*frame);
         };
         const Image firstFrame = renderTwelveFrames();

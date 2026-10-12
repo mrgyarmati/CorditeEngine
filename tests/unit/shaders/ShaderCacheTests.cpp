@@ -48,7 +48,7 @@ TEST_SUITE("ShaderCache") {
     TEST_CASE("the file format round-trips every field") {
         const ShaderBinary original = makeBinary();
         const Result<ShaderBinary> decoded = decodeShaderBinary(encodeShaderBinary(original));
-        REQUIRE_MESSAGE(decoded.has_value(), decoded.error().message);
+        REQUIRE_MESSAGE(decoded.has_value(), test::errorOf(decoded));
         CHECK(*decoded == original);
     }
 

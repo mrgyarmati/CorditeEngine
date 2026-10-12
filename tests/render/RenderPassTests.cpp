@@ -53,7 +53,7 @@ TEST_SUITE("ShaderManager") {
 
         const Result<nvrhi::ShaderHandle> first = context.shaders->get(blitRequest());
         const Result<nvrhi::ShaderHandle> second = context.shaders->get(blitRequest());
-        REQUIRE_MESSAGE(first.has_value(), first.error().message);
+        REQUIRE_MESSAGE(first.has_value(), test::errorOf(first));
         REQUIRE(second.has_value());
         CHECK(first->Get() == second->Get());
         CHECK(context.library->stats().compilations == 1);
@@ -95,7 +95,7 @@ TEST_SUITE("TestPatternPass") {
     TEST_CASE("the pattern matches its reference image") {
         RenderContext context;
         Result<TestPatternPass> pattern = TestPatternPass::create(context.device(), *context.shaders);
-        REQUIRE_MESSAGE(pattern.has_value(), pattern.error().message);
+        REQUIRE_MESSAGE(pattern.has_value(), test::errorOf(pattern));
 
         const nvrhi::TextureHandle target = renderPattern(context, *pattern, 320, 180);
         checkAgainstReference(readToImage(*context.graphics, target), "test-pattern-320x180");
@@ -176,7 +176,7 @@ TEST_SUITE("BlitPass") {
         RenderContext context;
         TestPatternPass pattern = test::unwrap(TestPatternPass::create(context.device(), *context.shaders));
         Result<BlitPass> blit = BlitPass::create(context.device(), *context.shaders);
-        REQUIRE_MESSAGE(blit.has_value(), blit.error().message);
+        REQUIRE_MESSAGE(blit.has_value(), test::errorOf(blit));
 
         const nvrhi::TextureHandle source = renderPattern(context, pattern, 96, 64);
         const nvrhi::TextureHandle destination = createColorTarget(context.device(), 96, 64);

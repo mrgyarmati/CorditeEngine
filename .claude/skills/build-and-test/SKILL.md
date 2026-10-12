@@ -52,6 +52,7 @@ executable directly (from the repository root, as CTest does):
 ```powershell
 build/windows/bin/RelWithDebInfo/cordite_core_tests.exe -tc="*FixedTimestep*"   # test cases by name
 build/windows/bin/RelWithDebInfo/cordite_core_tests.exe -ts="Config"            # a whole TEST_SUITE
+build/windows/bin/RelWithDebInfo/cordite_core_tests.exe -ts="Config" -s         # and list what passes, with its values
 build/windows/bin/RelWithDebInfo/cordite_core_tests.exe -ltc                    # list test cases
 build/windows/bin/RelWithDebInfo/cordite_core_tests.exe -s                      # also print passing checks
 ```
