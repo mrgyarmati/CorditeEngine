@@ -25,8 +25,10 @@
 
 namespace cordite {
 
-/// Parses JSON text. `//` and `/* */` comments are accepted. `sourceName` is used in
-/// error messages only.
+/// Parses JSON text. `//` and `/* */` comments are accepted. Fails with ParseError for
+/// text that is not JSON, and for an object that has a key twice - a mistake that would
+/// otherwise go unnoticed, with one of the two values silently lost. `sourceName` is
+/// used in error messages only.
 Result<Json> parseJson(std::string_view text, std::string_view sourceName = "<memory>");
 
 /// Serializes with the given indentation. The output is deterministic.

@@ -45,6 +45,35 @@ TEST_SUITE("Json") {
         CHECK_FALSE(parseJson("[1, 2,]").has_value());
     }
 
+    TEST_CASE("parseJson refuses an object that has a key twice") {
+        // The library behind it would keep one of the two and say nothing: whoever wrote
+        // the file would never learn that half of what they wrote counts for nothing.
+        const Result<Json> twice = parseJson(R"({"bodies": 15, "joints": 5, "joints": 8})", "budgets.json");
+        REQUIRE_FALSE(twice.has_value());
+        CHECK(twice.error().code == ErrorCode::ParseError);
+        CHECK(twice.error().message == "budgets.json: an object has the key \"joints\" twice");
+
+        // However deep the object is, and whatever the two values are.
+        CHECK_FALSE(parseJson(R"({"a": [1, {"b": {"c": 1, "d": 2, "c": 1}}]})").has_value());
+        CHECK_FALSE(parseJson(R"({"a": {"x": 1}, "a": {"y": 2}})").has_value());
+        CHECK_FALSE(parseJson(R"({"": 1, "": 2})").has_value());
+        // The first of several is the one that is named.
+        CHECK(parseJson(R"({"p": 1, "q": 1, "q": 2, "p": 2})", "file").error().message ==
+              "file: an object has the key \"q\" twice");
+
+        // The same key in two objects is twice in neither: beside each other, in each
+        // other, or one after the other in an array.
+        const Result<Json> apart =
+            parseJson(R"({"a": {"name": 1, "a": {"name": 2}}, "b": {"name": 3}, "list": [{"name": 4}, {"name": 5}],
+                          "name": 6})");
+        REQUIRE(apart.has_value());
+        CHECK((*apart)["a"]["a"]["name"] == 2);
+        CHECK((*apart)["list"][1]["name"] == 5);
+        CHECK((*apart)["name"] == 6);
+        // Keys differ by case, and a value may be what a key is elsewhere.
+        CHECK(parseJson(R"({"Name": "name", "name": "Name"})").has_value());
+    }
+
     TEST_CASE("object keys keep their insertion order") {
         Json json = Json::object();
         json["zebra"] = 1;

@@ -24,6 +24,7 @@
 #include "cordite/assets/AssetManager.h"
 #include "cordite/assets/Image.h"
 #include "cordite/core/FileSystem.h"
+#include "cordite/core/Json.h"
 #include "cordite/math/Color.h"
 #include "cordite/math/Geometry.h"
 #include "cordite/math/Projection.h"
@@ -95,19 +96,36 @@ public:
         REQUIRE(writeTextFile(file(fmt::format("{}.material.json", name)), text).has_value());
     }
 
+    /// Writes `<name>.material.json` with the members of `members`, and those of `more`
+    /// in their place where both name one, or beside them.
+    void writeMaterial(std::string_view name, std::string_view members, std::string_view more) const {
+        Json material =
+            unwrap(parseJson(fmt::format(R"({{"format": "cordite.material", "version": 1, {}}})", members)));
+        const Json replacing = unwrap(parseJson(fmt::format("{{{}}}", more)));
+        for (const auto& [key, value] : replacing.items()) {
+            material[key] = value;
+        }
+        REQUIRE(writeTextFile(file(fmt::format("{}.material.json", name)), dumpJson(material)).has_value());
+    }
+
     /// Writes a material that is perfectly matte and reflects `color` of the light that
-    /// reaches it: lit head-on by a light of intensity 1, it shows exactly `color`.
+    /// reaches it: lit head-on by a light of intensity 1, it shows exactly `color`. The
+    /// members of `more` are written as well, in the place of those named here.
     void writeMatteMaterial(std::string_view name, const Vec3& color = Vec3(1.0f), std::string_view more = "") const {
-        writeMaterial(name, fmt::format(R"("baseColor": [{}, {}, {}, 1], "specular": 0, "roughness": 1{}{})", color.r,
-                                        color.g, color.b, more.empty() ? "" : ", ", more));
+        writeMaterial(
+            name,
+            fmt::format(R"("baseColor": [{}, {}, {}, 1], "specular": 0, "roughness": 1)", color.r, color.g, color.b),
+            more);
     }
 
     /// Writes a material that shows `color` exactly, whatever the light: it reflects
-    /// nothing and emits the color.
+    /// nothing and emits the color. The members of `more` are written as well, in the
+    /// place of those named here.
     void writeFlatMaterial(std::string_view name, const Vec3& color, std::string_view more = "") const {
         writeMaterial(name,
-                      fmt::format(R"("baseColor": [0, 0, 0, 1], "specular": 0, "emissiveColor": [{}, {}, {}]{}{})",
-                                  color.r, color.g, color.b, more.empty() ? "" : ", ", more));
+                      fmt::format(R"("baseColor": [0, 0, 0, 1], "specular": 0, "emissiveColor": [{}, {}, {}])", color.r,
+                                  color.g, color.b),
+                      more);
     }
 
     void writeImage(std::string_view name, const Image& image) const {

@@ -1169,3 +1169,8 @@ body explaining what changed and why. One logical change per commit.
   fog stops getting denser below the height it is given (`Fog.h`), so every exponent
   is at most zero. The usual closed form also divides by the change of height along
   the way, which is nothing for a level one: `fogMeanDecayOver` takes the series there.
+- A JSON object that has a key twice is refused by `parseJson`. The library behind it
+  keeps one of the two values and says nothing, which is how a budget for the joints
+  of the physics went unchecked: it had the name of another. Text that is put
+  together of pieces - a material of a test with one member replaced - has to
+  replace the member, not write it a second time.
