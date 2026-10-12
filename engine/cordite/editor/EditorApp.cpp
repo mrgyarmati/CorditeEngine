@@ -6,6 +6,7 @@
 #include "cordite/editor/EditorActions.h"
 #include "cordite/editor/EditorCommands.h"
 #include "cordite/editor/EditorFeedback.h"
+#include "cordite/editor/PhysicsCommands.h"
 #include "cordite/math/MathJson.h"
 #include "cordite/rhi/TextureReadback.h"
 
@@ -137,6 +138,7 @@ Result<std::unique_ptr<EditorApp>> EditorApp::create(const EditorAppDesc& desc) 
     app->m_context =
         std::make_unique<EditorContext>(app->m_engine->world(), app->m_engine->components(), app->m_engine->assets());
     CORDITE_TRY(registerEditorCommands(app->m_commands, *app->m_context));
+    CORDITE_TRY(registerPhysicsCommands(app->m_commands, *app->m_context, app->m_engine->physics()));
     CORDITE_TRY(app->registerApplicationCommands());
     CORDITE_TRY_ASSIGN(app->m_viewport, ViewportPanel::create(*app->m_engine));
 

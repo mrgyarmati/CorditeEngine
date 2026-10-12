@@ -740,11 +740,19 @@ Step-by-step guide: [work-with-assets](.claude/skills/work-with-assets/SKILL.md)
   when `AssetDatabase::revision()` changes. A collider of which no shape can be made
   is left out of its body and named once; `findColliderProblems`, which
   `scene.validate` reports, finds what can be told without making anything.
+- **What is where is asked of `PhysicsWorld`**: `raycast`, `sphereCast` - a ball
+  moved along a ray - and `overlapSphere`/`overlapBox`. Rays are exact; what is done
+  with a shape meets a box whose edges are five hundredths of a metre round
+  (`kBoxEdgeRadius`), so tests of casts at edges need that much tolerance. Overlaps
+  are sorted by the place of the body in the world, never by address or by what
+  Jolt happens to find first. In the editor the commands `physics.raycast` and
+  `physics.overlap` synchronize first, so the answer is about the scene as it is.
 - **The triangles of a mesh have no inside**, and so no mass: a body of them is
   static or kinematic, never dynamic (`createBody` refuses; a kinematic one is given
   any mass, which Jolt asks for and never uses). They stop what comes from the side
-  they face - counter-clockwise, like everything the engine draws - and a ray finds
-  them from either side. What is to be moved by the simulation is a convex hull.
+  they face - counter-clockwise, like everything the engine draws - and a ray, a
+  ball moved along one and an overlap find them from either side. What is to be
+  moved by the simulation is a convex hull.
 - **A mesh made for drawing has two vertices wherever a seam or a sharp edge runs.**
   A surface made of it is welded first (`createTriangleMesh` does, with Jolt's own
   `Indexify`): triangles that are not known to share an edge are taken for the end

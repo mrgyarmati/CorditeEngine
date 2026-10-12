@@ -26,6 +26,9 @@
 /// if (const std::optional<RayHit> hit = physics->raycast(Ray{Vec3(0.0f, 10.0f, 0.0f), -kWorldUp}, 100.0f)) {
 ///     // hit->body == ball, hit->distance == 9, hit->normal == (0, 1, 0)
 /// }
+/// // What a ball of 20 centimetres runs into on the same way, and what is within a metre of a point.
+/// const std::optional<RayHit> touched = physics->sphereCast(Ray{Vec3(0.0f, 10.0f, 0.0f), -kWorldUp}, 0.2f, 100.0f);
+/// const std::vector<BodyId> near = physics->overlapSphere(Vec3(0.0f, 0.5f, 0.0f), 1.0f);
 /// @endcode
 ///
 /// Shapes that are not a box, a ball or a capsule are made of geometry, which is
@@ -220,7 +223,7 @@ struct PhysicsWorldDesc {
     uint32_t maxGeometryTriangles = 1u << 24;
 };
 
-/// Where a ray hits a body.
+/// Where a ray - or a ball that is moved along one - hits a body.
 struct RayHit {
     BodyId body;
     /// BodyDesc::userData of the body.
@@ -352,6 +355,25 @@ public:
     /// starts inside a body hits it at once, at distance zero. A direction of no length
     /// hits nothing.
     [[nodiscard]] std::optional<RayHit> raycast(const Ray& ray, float maxDistance) const;
+
+    /// The first thing a ball of `radius` touches when its middle is moved along a ray,
+    /// within `maxDistance` metres, or nothing. Of what is returned, `distance` is how
+    /// far the middle of the ball got, `position` the point at which ball and body
+    /// touch, and `normal` the direction from the body to the ball there. A ball that
+    /// starts in something touches it at once, at distance zero. A direction of no
+    /// length, and a ball of no size, touch nothing; a ball of less than a millimetre
+    /// across is taken for one of a millimetre.
+    [[nodiscard]] std::optional<RayHit> sphereCast(const Ray& ray, float radius, float maxDistance) const;
+
+    /// The bodies that reach into a ball, or into a box of `size` turned by `rotation`
+    /// about its middle: each once, in an order that is the same every time. Of a
+    /// surface of triangles, it is the triangles that count: a ball inside a closed
+    /// one that touches none of them is not in it. None for a ball or a box without
+    /// volume, and for numbers that are none; what is thinner than a millimetre is
+    /// taken for a millimetre thick.
+    [[nodiscard]] std::vector<BodyId> overlapSphere(const Vec3& center, float radius) const;
+    [[nodiscard]] std::vector<BodyId> overlapBox(const Vec3& center, const Vec3& size,
+                                                 const Quat& rotation = kIdentityQuat) const;
 
     [[nodiscard]] Vec3 gravity() const;
     /// Takes effect with the next step. A gravity that is not made of numbers is ignored.

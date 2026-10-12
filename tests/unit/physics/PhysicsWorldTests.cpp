@@ -452,6 +452,171 @@ TEST_SUITE("PhysicsWorld") {
         CHECK(hit->distance == doctest::Approx(10.0f).epsilon(1.0e-4));
     }
 
+    TEST_CASE("a ball that is moved along a ray touches the first thing in its way") {
+        const std::unique_ptr<PhysicsWorld> physics = unwrap(PhysicsWorld::create());
+        addFloor(*physics);
+        BodyDesc crateDesc{.motion = BodyMotion::Static,
+                           .shapes = {{.type = ShapeType::Box, .size = Vec3(2.0f, 2.0f, 2.0f)}},
+                           .position = Vec3(0.0f, 1.0f, 0.0f)};
+        crateDesc.userData = 77;
+        const BodyId crate = unwrap(physics->createBody(crateDesc));
+        const BodyId ball = unwrap(physics->createBody({.motion = BodyMotion::Static,
+                                                        .shapes = {{.type = ShapeType::Sphere, .radius = 1.0f}},
+                                                        .position = Vec3(10.0f, 1.0f, 0.0f)}));
+        const Vec3 down(0.0f, -1.0f, 0.0f);
+
+        // Straight down on the crate, whose top is two metres up: a ball of half a metre
+        // touches it when its middle is half a metre above that.
+        std::optional<RayHit> hit = physics->sphereCast(Ray{Vec3(0.2f, 10.0f, -0.3f), down}, 0.5f, 100.0f);
+        REQUIRE(hit.has_value());
+        CHECK(hit->body == crate);
+        CHECK(hit->userData == 77);
+        CHECK(hit->distance == doctest::Approx(7.5f).epsilon(1.0e-3));
+        CHECK_NEAR(hit->position, Vec3(0.2f, 2.0f, -0.3f), 1.0e-2f);
+        CHECK_NEAR(hit->normal, Vec3(0.0f, 1.0f, 0.0f), 1.0e-3f);
+
+        // Beside the crate a ray goes past it to the floor. The ball is wider: it
+        // touches the edge of the crate, and is pushed off it sideways as much as up.
+        const Ray beside{Vec3(1.3f, 10.0f, -0.3f), down};
+        hit = physics->raycast(beside, 100.0f);
+        REQUIRE(hit.has_value());
+        CHECK(hit->distance == doctest::Approx(10.0f).epsilon(1.0e-4));
+        hit = physics->sphereCast(beside, 0.5f, 100.0f);
+        REQUIRE(hit.has_value());
+        CHECK(hit->body == crate);
+        // Three, four, five: three tenths beside the edge, the middle is four above it.
+        // (The edges of a box are a little round, which is what the tolerance is for.)
+        CHECK(hit->distance == doctest::Approx(7.6f).epsilon(5.0e-3));
+        CHECK_NEAR(hit->position, Vec3(1.0f, 2.0f, -0.3f), 0.05f);
+        CHECK_NEAR(hit->normal, Vec3(0.6f, 0.8f, 0.0f), 0.05f);
+        // A thinner one goes past as the ray does.
+        hit = physics->sphereCast(beside, 0.2f, 100.0f);
+        REQUIRE(hit.has_value());
+        CHECK(hit->distance == doctest::Approx(9.8f).epsilon(1.0e-3));
+
+        // From the side at the ball: two balls touch when their middles are as far
+        // apart as their radii together.
+        hit = physics->sphereCast(Ray{Vec3(4.0f, 1.0f, 0.0f), Vec3(1.0f, 0.0f, 0.0f)}, 0.5f, 100.0f);
+        REQUIRE(hit.has_value());
+        CHECK(hit->body == ball);
+        CHECK(hit->distance == doctest::Approx(4.5f).epsilon(1.0e-3));
+        CHECK_NEAR(hit->position, Vec3(9.0f, 1.0f, 0.0f), 1.0e-2f);
+        CHECK_NEAR(hit->normal, Vec3(-1.0f, 0.0f, 0.0f), 1.0e-3f);
+        // The direction need not be of unit length, and what is too far is not reached.
+        hit = physics->sphereCast(Ray{Vec3(4.0f, 1.0f, 0.0f), Vec3(25.0f, 0.0f, 0.0f)}, 0.5f, 100.0f);
+        REQUIRE(hit.has_value());
+        CHECK(hit->distance == doctest::Approx(4.5f).epsilon(1.0e-3));
+        CHECK_FALSE(physics->sphereCast(Ray{Vec3(4.0f, 1.0f, 0.0f), Vec3(1.0f, 0.0f, 0.0f)}, 0.5f, 4.4f).has_value());
+        CHECK_FALSE(
+            physics->sphereCast(Ray{Vec3(4.0f, 5.0f, 0.0f), Vec3(0.0f, 1.0f, 0.0f)}, 0.5f, 1000.0f).has_value());
+
+        // A ball that starts in something touches it at once.
+        hit = physics->sphereCast(Ray{Vec3(0.0f, 1.0f, 0.0f), Vec3(1.0f, 0.0f, 0.0f)}, 0.25f, 100.0f);
+        REQUIRE(hit.has_value());
+        CHECK(hit->body == crate);
+        CHECK(hit->distance == 0.0f);
+
+        // The triangles of a surface are touched from behind too, as a ray finds them.
+        const GeometryId square = unwrap(physics->createTriangleMesh(kSquarePositions, kSquareIndices));
+        const BodyId ceiling = unwrap(physics->createBody({.motion = BodyMotion::Static,
+                                                           .shapes = {{.type = ShapeType::Mesh, .geometry = square}},
+                                                           .position = Vec3(40.0f, 5.0f, 0.0f)}));
+        hit = physics->sphereCast(Ray{Vec3(40.0f, 1.0f, 0.0f), Vec3(0.0f, 1.0f, 0.0f)}, 0.5f, 100.0f);
+        REQUIRE(hit.has_value());
+        CHECK(hit->body == ceiling);
+        CHECK(hit->distance == doctest::Approx(4.5f).epsilon(1.0e-3));
+        CHECK_NEAR(hit->normal, Vec3(0.0f, -1.0f, 0.0f), 1.0e-3f);
+
+        // A ball too small to be one is the smallest there is: next to a ray.
+        const Vec3 above(0.2f, 10.0f, -0.3f);
+        hit = physics->sphereCast(Ray{above, down}, 1.0e-7f, 100.0f);
+        REQUIRE(hit.has_value());
+        CHECK(hit->distance == doctest::Approx(8.0f).epsilon(1.0e-3));
+
+        // Balls and ways that are none touch nothing.
+        CHECK_FALSE(physics->sphereCast(Ray{above, Vec3(0.0f)}, 0.5f, 100.0f).has_value());
+        CHECK_FALSE(physics->sphereCast(Ray{above, down}, 0.0f, 100.0f).has_value());
+        CHECK_FALSE(physics->sphereCast(Ray{above, down}, -0.5f, 100.0f).has_value());
+        CHECK_FALSE(physics->sphereCast(Ray{above, down}, kNotANumber, 100.0f).has_value());
+        CHECK_FALSE(physics->sphereCast(Ray{above, down}, 0.5f, 0.0f).has_value());
+        CHECK_FALSE(physics->sphereCast(Ray{above, down}, 0.5f, kNotANumber).has_value());
+        CHECK_FALSE(physics->sphereCast(Ray{Vec3(kNotANumber), down}, 0.5f, 100.0f).has_value());
+        CHECK_FALSE(physics->sphereCast(Ray{above, Vec3(kNotANumber)}, 0.5f, 100.0f).has_value());
+    }
+
+    TEST_CASE("the bodies that reach into a ball or a box are found, each once") {
+        const std::unique_ptr<PhysicsWorld> physics = unwrap(PhysicsWorld::create());
+        const BodyId floor = addFloor(*physics);
+        const BodyId crate = unwrap(physics->createBody({.motion = BodyMotion::Static,
+                                                         .shapes = {{.type = ShapeType::Box, .size = Vec3(2.0f)}},
+                                                         .position = Vec3(0.0f, 1.0f, 0.0f)}));
+        const BodyId ball = unwrap(physics->createBody({.motion = BodyMotion::Static,
+                                                        .shapes = {{.type = ShapeType::Sphere, .radius = 1.0f}},
+                                                        .position = Vec3(10.0f, 1.0f, 0.0f)}));
+        // One body of two boxes, three metres apart.
+        const BodyId pair =
+            unwrap(physics->createBody({.motion = BodyMotion::Static,
+                                        .shapes = {{.type = ShapeType::Box, .offset = Vec3(-1.5f, 0.0f, 0.0f)},
+                                                   {.type = ShapeType::Box, .offset = Vec3(1.5f, 0.0f, 0.0f)}},
+                                        .position = Vec3(20.0f, 5.0f, 0.0f)}));
+        using Bodies = std::vector<BodyId>;
+
+        // A small ball in the middle of the crate: the crate alone. A larger one reaches
+        // the floor as well - in the order in which the bodies were made.
+        CHECK(physics->overlapSphere(Vec3(0.0f, 1.0f, 0.0f), 0.5f) == Bodies{crate});
+        CHECK(physics->overlapSphere(Vec3(0.0f, 1.0f, 0.0f), 2.0f) == Bodies{floor, crate});
+        // Between everything, nothing; large enough, everything near.
+        CHECK(physics->overlapSphere(Vec3(5.0f, 3.0f, 0.0f), 1.0f).empty());
+        CHECK(physics->overlapSphere(Vec3(5.0f, 1.0f, 0.0f), 4.5f) == Bodies{floor, crate, ball});
+        // Only just not, and only just: a ball beside the crate, whose face is at one.
+        CHECK(physics->overlapSphere(Vec3(1.6f, 1.0f, 0.0f), 0.55f).empty());
+        CHECK(physics->overlapSphere(Vec3(1.6f, 1.0f, 0.0f), 0.65f) == Bodies{crate});
+        // A body of two shapes that are both reached is one body.
+        CHECK(physics->overlapSphere(Vec3(20.0f, 5.0f, 0.0f), 2.5f) == Bodies{pair});
+        CHECK(physics->overlapSphere(Vec3(20.0f, 5.0f, 0.0f), 0.9f).empty());
+
+        // A box beside the crate that does not reach it - until it is turned an eighth
+        // about Y, and its corner does.
+        const Vec3 beside(2.4f, 1.0f, 0.0f);
+        const Vec3 size(2.0f, 1.0f, 2.0f);
+        CHECK(physics->overlapBox(beside, size).empty());
+        CHECK(physics->overlapBox(beside, size, glm::angleAxis(0.25f * kPi, Vec3(0.0f, 1.0f, 0.0f))) == Bodies{crate});
+        // A rotation of any length is one.
+        CHECK(physics->overlapBox(beside, size, 3.0f * glm::angleAxis(0.25f * kPi, Vec3(0.0f, 1.0f, 0.0f))) ==
+              Bodies{crate});
+        // A slab that lies on everything.
+        CHECK(physics->overlapBox(Vec3(10.0f, 0.0f, 0.0f), Vec3(30.0f, 0.5f, 1.0f)) == Bodies{floor, crate, ball});
+
+        // Of a surface it is the triangles that count, from either side.
+        const GeometryId square = unwrap(physics->createTriangleMesh(kSquarePositions, kSquareIndices));
+        const BodyId sheet = unwrap(physics->createBody({.motion = BodyMotion::Static,
+                                                         .shapes = {{.type = ShapeType::Mesh, .geometry = square}},
+                                                         .position = Vec3(40.0f, 4.0f, 0.0f)}));
+        CHECK(physics->overlapSphere(Vec3(40.0f, 4.8f, 0.0f), 0.3f) == Bodies{sheet});
+        CHECK(physics->overlapSphere(Vec3(40.0f, 5.2f, 0.0f), 0.3f) == Bodies{sheet});
+        CHECK(physics->overlapSphere(Vec3(40.0f, 4.5f, 0.0f), 0.3f).empty());
+
+        // Balls and boxes that are none have nothing in them.
+        const Vec3 middle(0.0f, 1.0f, 0.0f);
+        CHECK(physics->overlapSphere(middle, 0.0f).empty());
+        CHECK(physics->overlapSphere(middle, -1.0f).empty());
+        CHECK(physics->overlapSphere(middle, kNotANumber).empty());
+        CHECK(physics->overlapSphere(Vec3(kNotANumber), 1.0f).empty());
+        CHECK(physics->overlapBox(middle, Vec3(1.0f, 0.0f, 1.0f)).empty());
+        CHECK(physics->overlapBox(middle, Vec3(1.0f, kNotANumber, 1.0f)).empty());
+        CHECK(physics->overlapBox(Vec3(kNotANumber), Vec3(1.0f)).empty());
+        CHECK(physics->overlapBox(middle, Vec3(1.0f), Quat(0.0f, 0.0f, 0.0f, 0.0f)).empty());
+        CHECK(physics->overlapBox(middle, Vec3(1.0f)) == Bodies{crate});
+        // What is too small to be a shape is the smallest there is.
+        CHECK(physics->overlapSphere(middle, 1.0e-7f) == Bodies{crate});
+        CHECK(physics->overlapBox(middle, Vec3(1.0f, 1.0e-7f, 1.0f)) == Bodies{crate});
+        CHECK(physics->overlapBox(Vec3(0.0f, 5.0f, 0.0f), Vec3(1.0e-7f)).empty());
+
+        // A body that is gone is not found any more.
+        physics->destroyBody(crate);
+        CHECK(physics->overlapSphere(middle, 2.0f) == Bodies{floor});
+    }
+
     TEST_CASE("a body that is destroyed is gone, and its id is no body's again") {
         const std::unique_ptr<PhysicsWorld> physics = unwrap(PhysicsWorld::create({.maxBodies = 4}));
         const BodyId first = unwrap(physics->createBody({.shapes = {{.type = ShapeType::Sphere}}}));

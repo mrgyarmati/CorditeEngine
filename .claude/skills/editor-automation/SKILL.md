@@ -78,6 +78,8 @@ Do not guess command or property names; ask the editor.
 | `asset.get` | One asset: dependencies, import warnings, and its content (size, properties, nodes) |
 | `scene.validate` | References to assets that are missing or of the wrong kind, and colliders that no shape or body can be made of |
 | `editor.statistics` | What the last frame cost: CPU and GPU time, draw calls, triangles, lights, shadow maps, memory on the GPU |
+| `physics.raycast` | What a ray hits first - or, with a `radius`, a ball moved along it: the entity, the distance, the point and the normal |
+| `physics.overlap` | The entities whose bodies reach into a ball (`radius`) or a box (`size`, `rotation`) |
 
 ## Refer to entities
 
@@ -124,6 +126,8 @@ set it like any other property:
   `dynamic`). The triangles of a mesh (`mesh`) are only for bodies that are not
   dynamic; `scene.validate` says where that, or a missing mesh, is in the way.
   `viewport.show` with `{"colliders": true}` draws every collider in the viewport.
+  `physics.raycast` and `physics.overlap` ask what is where - in the scene as it is,
+  without a frame having to go by first; they name the entity that has the body.
   The editor does not simulate: nothing falls, and `editor.statistics` reports the
   bodies there are and no steps.
 - A new material is a `.material.json` file written into the project's `assets`

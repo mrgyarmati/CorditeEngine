@@ -18,6 +18,8 @@
 #include <Jolt/Physics/Collision/BroadPhase/BroadPhaseLayerInterfaceTable.h>
 #include <Jolt/Physics/Collision/BroadPhase/ObjectVsBroadPhaseLayerFilterTable.h>
 #include <Jolt/Physics/Collision/CastResult.h>
+#include <Jolt/Physics/Collision/CollideShape.h>
+#include <Jolt/Physics/Collision/CollisionCollectorImpl.h>
 #include <Jolt/Physics/Collision/NarrowPhaseQuery.h>
 #include <Jolt/Physics/Collision/ObjectLayerPairFilterTable.h>
 #include <Jolt/Physics/Collision/RayCast.h>
@@ -28,6 +30,7 @@
 #include <Jolt/Physics/Collision/Shape/ScaledShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Collision/Shape/StaticCompoundShape.h>
+#include <Jolt/Physics/Collision/ShapeCast.h>
 #include <Jolt/Physics/PhysicsSettings.h>
 #include <Jolt/Physics/PhysicsSystem.h>
 #include <Jolt/RegisterTypes.h>
@@ -466,6 +469,34 @@ struct PhysicsWorld::Impl {
 
     [[nodiscard]] JPH::BodyInterface& bodies() { return system.GetBodyInterface(); }
 
+    /// The bodies that reach into a shape that is put somewhere: each once, by the
+    /// place it has among the bodies of the world.
+    [[nodiscard]] std::vector<BodyId> bodiesIn(const JPH::Shape& shape, const Vec3& center,
+                                               const Quat& rotation) const {
+        JPH::CollideShapeSettings settings;
+        // A surface of triangles is found from behind as well, as a ray finds it.
+        settings.mBackFaceMode = JPH::EBackFaceMode::CollideWithBackFaces;
+        JPH::AllHitCollisionCollector<JPH::CollideShapeCollector> collector;
+        system.GetNarrowPhaseQuery().CollideShape(&shape, JPH::Vec3::sOne(),
+                                                  JPH::RMat44::sRotationTranslation(toJolt(rotation), toJolt(center)),
+                                                  settings, toJolt(center), collector);
+        // A body of several shapes is met once for each of them that is reached.
+        std::vector<JPH::BodyID> met;
+        met.reserve(collector.mHits.size());
+        for (const JPH::CollideShapeResult& hit : collector.mHits) {
+            met.push_back(hit.mBodyID2);
+        }
+        std::ranges::sort(met, {}, [](const JPH::BodyID& body) { return body.GetIndex(); });
+        const auto repeated = std::ranges::unique(met);
+        met.erase(repeated.begin(), repeated.end());
+        std::vector<BodyId> found;
+        found.reserve(met.size());
+        for (const JPH::BodyID& body : met) {
+            found.push_back(BodyId{body.GetIndexAndSequenceNumber()});
+        }
+        return found;
+    }
+
     /// Keeps a shape as geometry, under an id that no geometry of this world has had.
     [[nodiscard]] GeometryId addGeometry(JPH::ShapeRefC shape, ShapeType type) {
         // Counted up, and so used once each - until the count comes round after four
@@ -854,6 +885,62 @@ std::optional<RayHit> PhysicsWorld::raycast(const Ray& ray, float maxDistance) c
         hit.normal = fromJolt(body.GetWorldSpaceSurfaceNormal(result.mSubShapeID2, toJolt(hit.position)));
     }
     return hit;
+}
+
+std::optional<RayHit> PhysicsWorld::sphereCast(const Ray& ray, float radius, float maxDistance) const {
+    const float length = glm::length(ray.direction);
+    if (!isFinite(ray.origin) || !isFinite(length) || length <= kEpsilon || !isFinite(maxDistance) ||
+        maxDistance <= 0.0f || !isFinite(radius) || radius <= 0.0f) {
+        return std::nullopt;
+    }
+    const Vec3 direction = ray.direction / length;
+    // A shape that is not shared, and lives no longer than this call.
+    const JPH::SphereShape ball(std::max(radius, 0.5f * kMinShapeExtent));
+    ball.SetEmbedded();
+    const JPH::RShapeCast sweep = JPH::RShapeCast::sFromWorldTransform(
+        &ball, JPH::Vec3::sOne(), JPH::RMat44::sTranslation(toJolt(ray.origin)), toJolt(direction * maxDistance));
+    JPH::ShapeCastSettings settings;
+    // A surface of triangles is found from behind as well, as a ray finds it.
+    settings.mBackFaceModeTriangles = JPH::EBackFaceMode::CollideWithBackFaces;
+    JPH::ClosestHitCollisionCollector<JPH::CastShapeCollector> collector;
+    m_impl->system.GetNarrowPhaseQuery().CastShape(sweep, settings, toJolt(ray.origin), collector);
+    if (!collector.HadHit()) {
+        return std::nullopt;
+    }
+
+    const JPH::ShapeCastResult& result = collector.mHit;
+    RayHit hit;
+    hit.body = BodyId{result.mBodyID2.GetIndexAndSequenceNumber()};
+    hit.distance = result.mFraction * maxDistance;
+    // Points are given against where the ball started.
+    hit.position = ray.origin + fromJolt(result.mContactPointOn2);
+    // The axis points from the ball into the body; where they only just touch it has
+    // no length, and the ball came the way it was going.
+    hit.normal = normalizeOr(-fromJolt(result.mPenetrationAxis), -direction);
+    const JPH::BodyLockRead lock(m_impl->system.GetBodyLockInterface(), result.mBodyID2);
+    if (lock.Succeeded()) {
+        hit.userData = lock.GetBody().GetUserData();
+    }
+    return hit;
+}
+
+std::vector<BodyId> PhysicsWorld::overlapSphere(const Vec3& center, float radius) const {
+    if (!isFinite(center) || !isFinite(radius) || radius <= 0.0f) {
+        return {};
+    }
+    const JPH::SphereShape ball(std::max(radius, 0.5f * kMinShapeExtent));
+    ball.SetEmbedded();
+    return m_impl->bodiesIn(ball, center, kIdentityQuat);
+}
+
+std::vector<BodyId> PhysicsWorld::overlapBox(const Vec3& center, const Vec3& size, const Quat& rotation) const {
+    if (!isFinite(center) || !isFinite(size) || std::min({size.x, size.y, size.z}) <= 0.0f || !isRotation(rotation)) {
+        return {};
+    }
+    // With sharp edges: what is asked about is the box, to its corners.
+    const JPH::BoxShape box(toJolt(0.5f * glm::max(size, Vec3(kMinShapeExtent))), 0.0f);
+    box.SetEmbedded();
+    return m_impl->bodiesIn(box, center, glm::normalize(rotation));
 }
 
 Vec3 PhysicsWorld::gravity() const {

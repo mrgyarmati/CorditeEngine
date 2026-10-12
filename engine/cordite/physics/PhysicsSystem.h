@@ -20,6 +20,9 @@
 /// if (const std::optional<RayHit> hit = physics->simulation().raycast(ray, 100.0f)) {
 ///     const Entity what = physics->entityOf(hit->body);
 /// }
+/// for (const BodyId body : physics->simulation().overlapSphere(blast, 5.0f)) {
+///     const Entity caught = physics->entityOf(body);
+/// }
 /// @endcode
 ///
 /// Who moves whom while time passes - update():
