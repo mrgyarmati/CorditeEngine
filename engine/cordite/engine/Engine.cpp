@@ -94,6 +94,8 @@ struct Engine::Impl {
 
     /// Stands in for the window's input when there is no window.
     Input headlessInput;
+    /// What the controls of the game are doing, worked out of the input every frame.
+    InputActions actions;
 
     ComponentRegistry components;
     World world;
@@ -219,6 +221,9 @@ Result<bool> Engine::beginFrame() {
     if (impl.exitRequested || (impl.window && impl.window->shouldClose())) {
         return false;
     }
+    // The events of the frame are in: what they make of the controls of the game is
+    // the same for everything that asks during the frame.
+    impl.actions.update(input());
 
     impl.deltaSeconds = impl.desc.fixedTimeStep > 0.0 ? impl.desc.fixedTimeStep
                                                       : std::min(impl.frameClock.elapsedSeconds(), kMaxFrameSeconds);
@@ -437,6 +442,10 @@ Window* Engine::window() {
 
 Input& Engine::input() {
     return m_impl->window ? m_impl->window->input() : m_impl->headlessInput;
+}
+
+InputActions& Engine::actions() {
+    return m_impl->actions;
 }
 
 World& Engine::world() {

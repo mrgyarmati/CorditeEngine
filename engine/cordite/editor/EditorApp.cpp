@@ -6,6 +6,7 @@
 #include "cordite/editor/EditorActions.h"
 #include "cordite/editor/EditorCommands.h"
 #include "cordite/editor/EditorFeedback.h"
+#include "cordite/editor/InputCommands.h"
 #include "cordite/editor/PhysicsCommands.h"
 #include "cordite/math/MathJson.h"
 #include "cordite/rhi/TextureReadback.h"
@@ -110,6 +111,8 @@ Result<std::unique_ptr<EditorApp>> EditorApp::create(const EditorAppDesc& desc) 
 
     EngineDesc engineDesc = desc.engine;
     std::filesystem::path scene = desc.scene;
+    // The controls of the project, if it names any.
+    std::filesystem::path inputMap;
     // What a person leaves behind lives in the .cordite directory of the project, or of
     // the working directory when there is no project.
     std::filesystem::path stateDirectory = ".cordite";
@@ -120,6 +123,7 @@ Result<std::unique_ptr<EditorApp>> EditorApp::create(const EditorAppDesc& desc) 
         if (scene.empty()) {
             scene = project.startScenePath();
         }
+        inputMap = project.inputMapPath();
         app->m_project = std::move(project);
     }
     if (desc.rememberLayout && engineDesc.uiSettingsFile.empty()) {
@@ -139,6 +143,12 @@ Result<std::unique_ptr<EditorApp>> EditorApp::create(const EditorAppDesc& desc) 
         std::make_unique<EditorContext>(app->m_engine->world(), app->m_engine->components(), app->m_engine->assets());
     CORDITE_TRY(registerEditorCommands(app->m_commands, *app->m_context));
     CORDITE_TRY(registerPhysicsCommands(app->m_commands, *app->m_context, app->m_engine->physics()));
+    // Read as strictly as the scene is: a project whose controls cannot be read does not open.
+    if (!inputMap.empty()) {
+        CORDITE_TRY_ASSIGN(InputMap map, loadInputMap(inputMap));
+        app->m_engine->actions().setMap(std::move(map));
+    }
+    CORDITE_TRY(registerInputCommands(app->m_commands, app->m_engine->input(), app->m_engine->actions(), inputMap));
     CORDITE_TRY(app->registerApplicationCommands());
     CORDITE_TRY_ASSIGN(app->m_viewport, ViewportPanel::create(*app->m_engine));
 

@@ -25,6 +25,8 @@ cordite_add_module(editor
         HierarchyPanel.h
         InspectorPanel.cpp
         InspectorPanel.h
+        InputCommands.cpp
+        InputCommands.h
         PhysicsCommands.cpp
         PhysicsCommands.h
         PosedMesh.cpp

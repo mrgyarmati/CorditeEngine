@@ -1,0 +1,66 @@
+{
+    // The controls of the showcase: what a game asks about by name - whether "jump" was
+    // pressed, how far "moveX" is pushed - and the keys, buttons and sticks that move it.
+    // Which key that is, and that a gamepad does the same, is written down here and
+    // nowhere else.
+    "format": "cordite.input",
+    "version": 1,
+    "actions": [
+        {
+            // An action is down while any of its bindings is: a key, a button of the
+            // pointer, a button of a gamepad.
+            "name": "jump",
+            "bindings": [
+                { "key": "Space" },
+                { "gamepadButton": "A" }
+            ]
+        },
+        {
+            // A trigger or a stick is down when it is pushed as far as its threshold - past
+            // 0.5 where none is given, and the other way for a threshold below zero.
+            "name": "fire",
+            "bindings": [
+                { "mouseButton": "Left" },
+                { "gamepadAxis": "RightTrigger", "threshold": 0.3 }
+            ]
+        }
+    ],
+    "axes": [
+        {
+            // An axis has the value of whichever of its bindings is moved furthest. Two
+            // keys, or two buttons, give -1, 0 or 1. A stick gives nothing within its dead
+            // zone, and from the edge of that up to 1 at the end of its way.
+            "name": "moveX",
+            "bindings": [
+                { "positiveKey": "D", "negativeKey": "A", "scale": 1.0 },
+                { "positiveButton": "DpadRight", "negativeButton": "DpadLeft", "scale": 1.0 },
+                { "gamepadAxis": "LeftX", "deadZone": 0.2, "scale": 1.0 }
+            ]
+        },
+        {
+            // A scale turns a binding round: the Y of a stick points down, and forward is up.
+            "name": "moveY",
+            "bindings": [
+                { "positiveKey": "W", "negativeKey": "S", "scale": 1.0 },
+                { "positiveButton": "DpadUp", "negativeButton": "DpadDown", "scale": 1.0 },
+                { "gamepadAxis": "LeftY", "deadZone": 0.2, "scale": -1.0 }
+            ]
+        },
+        {
+            // The pointer gives how far it went in the frame, in pixels, which a scale makes
+            // a speed of.
+            "name": "lookX",
+            "bindings": [
+                { "mouse": "x", "scale": 0.1 },
+                { "gamepadAxis": "RightX", "deadZone": 0.15, "scale": 2.5 }
+            ]
+        },
+        {
+            // The wheel gives how far it was turned, in notches.
+            "name": "zoom",
+            "bindings": [
+                { "scroll": "y", "scale": 1.0 }
+            ]
+        }
+    ]
+}

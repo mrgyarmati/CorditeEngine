@@ -80,6 +80,7 @@ cordite_add_test_suite(physics
 
 cordite_add_test_suite(platform
     SOURCES
+        unit/platform/InputMapTests.cpp
         unit/platform/InputTests.cpp
         unit/platform/KeyCodesTests.cpp
         unit/platform/WindowTests.cpp
@@ -147,6 +148,7 @@ cordite_add_test_suite(editor
         unit/editor/EditorCameraTests.cpp
         unit/editor/EditorCommandsTests.cpp
         unit/editor/EditorContextTests.cpp
+        unit/editor/InputCommandsTests.cpp
         unit/editor/PhysicsCommandsTests.cpp
         unit/editor/PosedMeshTests.cpp
         unit/editor/EditorTestSupport.h

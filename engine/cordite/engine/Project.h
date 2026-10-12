@@ -27,7 +27,8 @@
 ///     "format": "cordite.project",
 ///     "version": 1,
 ///     "name": "Showcase",
-///     "startScene": "scenes/showcase.scene.json"
+///     "startScene": "scenes/showcase.scene.json",
+///     "inputMap": "input/controls.input.json"
 /// }
 /// @endcode
 
@@ -50,6 +51,10 @@ struct ProjectSettings {
     /// The scene the game starts with and the editor opens: a file inside the asset
     /// directory, relative to it, with forward slashes. Empty for none.
     std::string startScene;
+    /// The controls of the game - its actions and axes, and what moves them
+    /// (InputMap.h): a file inside the asset directory, named as the start scene is.
+    /// Empty for none.
+    std::string inputMap;
 
     bool operator==(const ProjectSettings&) const = default;
 };
@@ -67,11 +72,14 @@ struct Project {
     [[nodiscard]] std::filesystem::path cacheDirectory() const;
     /// The file of the start scene; empty when the project names none.
     [[nodiscard]] std::filesystem::path startScenePath() const;
+    /// The file of the input map; empty when the project names none.
+    [[nodiscard]] std::filesystem::path inputMapPath() const;
 };
 
 /// Reads a project. `path` is the project directory or its cordite.project.json. Fails
 /// with NotFound when there is no project file, and with ParseError when the file is
-/// not a valid one - including a start scene that would lie outside the asset directory.
+/// not a valid one - including a start scene or an input map that would lie outside
+/// the asset directory. The files that a project names are not read here.
 [[nodiscard]] Result<Project> loadProject(const std::filesystem::path& path);
 
 /// Writes cordite.project.json, creating the project and asset directories if needed.

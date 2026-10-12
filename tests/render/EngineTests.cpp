@@ -8,6 +8,8 @@
 #include "cordite/math/Color.h"
 #include "cordite/math/Transform.h"
 #include "cordite/physics/PhysicsComponents.h"
+#include "cordite/platform/InputMap.h"
+#include "cordite/platform/KeyCodes.h"
 #include "cordite/renderer/RenderComponents.h"
 #include "cordite/world/Components.h"
 #include "cordite/world/SceneSerializer.h"
@@ -22,6 +24,7 @@
 #include <memory>
 #include <optional>
 #include <string_view>
+#include <utility>
 
 using namespace cordite;
 using cordite::test::checkNoValidationIssues;
@@ -604,6 +607,51 @@ TEST_SUITE("Engine") {
         // What is seen of it has come along.
         CHECK_NEAR(Vec3(world.computeWorldMatrix(world.findByName("Sentry body"))[3]), Vec3(-2.3f, 0.9f, -3.9f),
                    2.0e-2f);
+        checkNoValidationIssues(engine->graphics());
+    }
+
+    TEST_CASE("the engine works out the controls of the game from its input, once a frame") {
+        const std::unique_ptr<Engine> engine = createEngine(headlessDesc());
+        // Without a map there are no controls.
+        CHECK(engine->actions().map() == InputMap{});
+        InputMap map;
+        map.actions.push_back({.name = "jump", .bindings = {ActionBinding(Key::Space)}});
+        map.axes.push_back(
+            {.name = "moveX", .bindings = {AxisBinding{.source = KeyPair{.positive = Key::D, .negative = Key::A}}}});
+        engine->actions().setMap(std::move(map));
+        runFrames(*engine, 1);
+        CHECK_FALSE(engine->actions().isDown("jump"));
+
+        // What is injected between two frames is what the next one sees: from its
+        // beginning, and the same all through it.
+        engine->input().injectKey(Key::Space, true);
+        engine->input().injectKey(Key::D, true);
+        CHECK_FALSE(engine->actions().isDown("jump"));
+        REQUIRE(test::unwrap(engine->beginFrame()));
+        CHECK(engine->actions().isDown("jump"));
+        CHECK(engine->actions().wasPressed("jump"));
+        CHECK(engine->actions().axis("moveX") == 1.0f);
+        REQUIRE(engine->endFrame().has_value());
+        CHECK(engine->actions().wasPressed("jump"));
+
+        // Held, it is down and no longer pressed; let go of, it is released for a frame.
+        runFrames(*engine, 1);
+        CHECK(engine->actions().isDown("jump"));
+        CHECK_FALSE(engine->actions().wasPressed("jump"));
+        engine->input().injectKey(Key::Space, false);
+        engine->input().injectKey(Key::A, true);
+        runFrames(*engine, 1);
+        CHECK(engine->actions().wasReleased("jump"));
+        CHECK(engine->actions().axis("moveX") == 0.0f);
+        runFrames(*engine, 1);
+        CHECK_FALSE(engine->actions().wasReleased("jump"));
+        // A key that is tapped between two frames was pressed, and released.
+        engine->input().injectKey(Key::Space, true);
+        engine->input().injectKey(Key::Space, false);
+        runFrames(*engine, 1);
+        CHECK(engine->actions().wasPressed("jump"));
+        CHECK(engine->actions().wasReleased("jump"));
+        CHECK_FALSE(engine->actions().isDown("jump"));
         checkNoValidationIssues(engine->graphics());
     }
 

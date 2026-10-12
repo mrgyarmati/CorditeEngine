@@ -32,6 +32,8 @@ TEST_SUITE("Project") {
         CHECK(project.directory == root);
         CHECK(project.settings.name == "My Game");
         CHECK(project.settings.startScene.empty());
+        CHECK(project.settings.inputMap.empty());
+        CHECK(project.inputMapPath().empty());
         CHECK(project.file() == root / "cordite.project.json");
         CHECK(project.assetDirectory() == root / "assets");
         CHECK(project.cacheDirectory() == root / ".cordite");
@@ -40,13 +42,14 @@ TEST_SUITE("Project") {
         CHECK(directoryExists(root / "assets"));
         CHECK(unwrap(readTextFile(project.file())) ==
               "{\n    \"format\": \"cordite.project\",\n    \"version\": 1,\n    \"name\": \"My Game\",\n"
-              "    \"startScene\": \"\"\n}\n");
+              "    \"startScene\": \"\",\n    \"inputMap\": \"\"\n}\n");
     }
 
     TEST_CASE("a project is loaded from its directory or from its file") {
         const TempDirectory directory;
         Project created = unwrap(createProject(directory.path(), "Depot"));
         created.settings.startScene = "scenes/depot.scene.json";
+        created.settings.inputMap = "input/controls.input.json";
         REQUIRE(saveProject(created).has_value());
 
         for (const std::filesystem::path& path : {directory.path(), directory.path() / "cordite.project.json"}) {
@@ -54,6 +57,7 @@ TEST_SUITE("Project") {
             CHECK(project.directory == directory.path());
             CHECK(project.settings == created.settings);
             CHECK(project.startScenePath() == directory.path() / "assets" / "scenes" / "depot.scene.json");
+            CHECK(project.inputMapPath() == directory.path() / "assets" / "input" / "controls.input.json");
         }
     }
 
@@ -140,6 +144,28 @@ TEST_SUITE("Project") {
         CHECK_FALSE(saveProject(project).has_value());
     }
 
+    TEST_CASE("an input map must be a plain path inside the asset directory as well") {
+        const TempDirectory directory;
+        for (const char* inputMap : {"../controls.input.json", "/abs/controls.input.json", "C:/controls.input.json",
+                                     "./input/controls.input.json"}) {
+            CAPTURE(inputMap);
+            const Error error = loadFailure(
+                directory, fmt::format(R"({{"format": "cordite.project", "version": 1, "inputMap": "{}"}})", inputMap));
+            CHECK(error.code == ErrorCode::ParseError);
+            CHECK(error.message.find("'inputMap' must be a path inside the asset directory, such as "
+                                     "\"input/controls.input.json\"") != std::string::npos);
+        }
+        Project project;
+        project.directory = directory.path();
+        project.settings.inputMap = "../controls.input.json";
+        CHECK_FALSE(saveProject(project).has_value());
+        // A project that names one says where it is; whether it is there is for whoever reads it.
+        project.settings.inputMap = "input/controls.input.json";
+        REQUIRE(saveProject(project).has_value());
+        CHECK(unwrap(loadProject(directory.path())).inputMapPath() ==
+              directory.path() / "assets" / "input" / "controls.input.json");
+    }
+
     TEST_CASE("a project without a directory cannot be saved") {
         const Status saved = saveProject(Project());
         REQUIRE_FALSE(saved.has_value());
@@ -148,7 +174,7 @@ TEST_SUITE("Project") {
 
     TEST_CASE("the settings are described for tools") {
         const TypeInfo& type = projectSettingsTypeInfo();
-        CHECK(type.properties().size() == 2);
+        CHECK(type.properties().size() == 3);
         for (const PropertyInfo& property : type.properties()) {
             CHECK_FALSE(property.attributes().description.empty());
         }

@@ -123,7 +123,7 @@ by accident.
 |--------|-----------|----------|
 | `core` | -         | Logging, assertions, `Result`, hashing, UUIDs, JSON, reflection, binary streams, file I/O, config, job system, allocators, timing |
 | `math` | `core`    | glm aliases, `Transform`, bounds, rays, frustum, projections, color, curves, random, spherical harmonics, directions in images of everything around, reflection of math types |
-| `platform` | `core`, `math` | Windows (GLFW), keyboard / mouse / gamepad input |
+| `platform` | `core`, `math` | Windows (GLFW), keyboard / mouse / gamepad input, and the controls a game has by name: `InputMap`, `InputActions` |
 | `assets` | `core`, `math` | Assets as data: images and mipmaps, meshes - rigid and skinned - and what prepares them, skeletons, animation clips, materials, glTF import and export, the asset database (ids, `.meta` files) and the asset manager (loading by id) |
 | `world` | `core`, `math` | Entities, components and their hierarchy (EnTT), the component registry, scene files |
 | `animation` | `core`, `math`, `assets`, `world` | Poses of skeletons and what makes them: sampling clips, blending, the matrices a mesh is skinned with and the bounds of a posed mesh; the `Animator` component; `AnimationSystem`, which plays the animators of a world |
@@ -882,6 +882,34 @@ Step-by-step guide: [work-with-assets](.claude/skills/work-with-assets/SKILL.md)
   for it. And around points that lie in one plane Jolt makes a hull without
   complaint that has no volume - `createConvexHull` refuses it, or a body of it
   would have a mass of nothing spread over nothing.
+
+## Input
+
+- **A game asks about its controls by name.** `InputMap` (`platform/InputMap.h`) says
+  which keys, buttons and sticks press an *action* ("jump") and move an *axis*
+  ("moveX"); `InputActions` works both out of the `Input` of the frame. Game code,
+  and scripts when they come, ask `Engine::actions()` - never `Input` for a key.
+  `Input` is for what has no name in a game: the editor's own interface.
+- **The controls of a project are one file**, named by `inputMap` in
+  `cordite.project.json` and read as strictly as a scene: a member that is not
+  known, a key that has no such name or a binding that names two controls is an
+  error that says which action, and which binding. A file is written with
+  everything in it, so that reading and writing it changes nothing.
+- **Controls are worked out once a frame**, in `Engine::beginFrame`, after the events
+  of the frame are in: everything that asks during a frame gets the same answer.
+- **A tap counts.** A key that goes down and comes up between two frames was
+  pressed and released - `Input` remembers both, and so does an action. A gamepad
+  only says what it is like now.
+- **A map that was just taken does not know how things were**: what is held then was
+  not pressed for it. Only a key or a mouse button that goes down in its first frame
+  was, because those say so themselves.
+- **An axis has the value of the binding that is moved furthest**, not the sum: a
+  stick and the keys beside it do not add up to twice the speed.
+- **Whatever a hand can do, `input.inject` can**, between frames - which is how tests
+  and agents press keys. It reaches `Engine::input()`, so the editor's interface
+  sees it as well.
+- **The showcase binds every kind of control**: the `samples` test fails for a kind
+  of binding that its input map does not use.
 
 ## Editor and automation
 

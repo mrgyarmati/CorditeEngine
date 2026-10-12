@@ -128,6 +128,12 @@ set it like any other property:
   collider with `"trigger": true` stops nothing and notices what moves into it; the
   viewport draws it in orange, and rays and overlaps do not find it.
   `viewport.show` with `{"colliders": true}` draws every collider in the viewport.
+  `input.map` returns the controls of the project - its actions and axes, and what
+  moves them; `input.state` what each was doing in the last frame; `input.inject`
+  does what a hand does: `{"key": "Space", "down": true}`, `{"mouseButton": "Left",
+  "down": false}`, `{"mouseMove": [x, y]}`, `{"scroll": [x, y]}`, `{"gamepad": 0,
+  "buttons": ["A"], "axes": {"LeftX": 0.5}}`. What is injected is seen by the next
+  frame (`editor.runFrames`), and a key stays down until it is let go of.
   `physics.raycast` and `physics.overlap` ask what is where - in the scene as it is,
   without a frame having to go by first; they name the entity that has the body.
 - A `Joint` holds the body its entity is part of to that of the entity `connectedTo`

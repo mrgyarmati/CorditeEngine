@@ -4,6 +4,8 @@
 #include "cordite/assets/AssetDatabase.h"
 #include "cordite/assets/ImageCompare.h"
 #include "cordite/core/FileSystem.h"
+#include "cordite/engine/Project.h"
+#include "cordite/platform/InputMap.h"
 
 #include "render/RenderTestSupport.h"
 #include "support/MathTestSupport.h"
@@ -12,6 +14,7 @@
 #include <filesystem>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <system_error>
 #include <vector>
 
@@ -902,6 +905,83 @@ TEST_SUITE("EditorApp") {
         const Json rigidBody = run(*editor, "component.get", R"({"entity": "Crate", "component": "RigidBody"})");
         CHECK(rigidBody["mass"] == 10.0);
         checkNoValidationIssues(editor->engine().graphics());
+    }
+
+    TEST_CASE("the editor has the controls of its project, and commands press them") {
+        EditorAppDesc desc = headlessDesc(UVec2(640, 360));
+        desc.project = showcaseProject();
+        const std::unique_ptr<EditorApp> editor = createEditor(desc);
+        const Json map = run(*editor, "input.map");
+        CHECK(map["file"] == pathToUtf8(showcaseProject() / "assets" / "input" / "controls.input.json"));
+        CHECK(map["map"]["actions"][0]["name"] == "jump");
+        CHECK(editor->engine().actions().hasAxis("moveX"));
+
+        // What every control is doing, by its name.
+        const auto stateOf = [&](std::string_view kind, std::string_view name) {
+            const Json state = run(*editor, "input.state");
+            for (const Json& entry : state[std::string(kind)]) {
+                if (entry["name"].get<std::string>() == name) {
+                    return entry;
+                }
+            }
+            return Json();
+        };
+        // A frame goes by, as frames do before anybody touches anything: from then on the
+        // controls know how things were, and what goes down has been pressed.
+        run(*editor, "editor.runFrames");
+        CHECK(stateOf("actions", "jump")["down"] == false);
+        // A key and a gamepad, as a person would use them: seen by the frame that follows.
+        run(*editor, "input.inject", R"({"key": "D", "down": true})");
+        run(*editor, "input.inject", R"({"gamepad": 0, "buttons": ["A"], "axes": {"RightTrigger": 0.9}})");
+        run(*editor, "editor.runFrames");
+        CHECK(stateOf("actions", "jump") ==
+              json(R"({"name": "jump", "down": true, "pressed": true, "released": false})"));
+        CHECK(stateOf("actions", "fire")["down"] == true);
+        CHECK(stateOf("axes", "moveX")["value"] == 1.0);
+        run(*editor, "input.inject", R"({"key": "D", "down": false})");
+        run(*editor, "input.inject", R"({"gamepad": 0, "connected": false})");
+        run(*editor, "editor.runFrames");
+        CHECK(stateOf("actions", "jump")["released"] == true);
+        CHECK(stateOf("axes", "moveX")["value"] == 0.0);
+        checkNoValidationIssues(editor->engine().graphics());
+    }
+
+    TEST_CASE("a project that names controls that cannot be read does not open") {
+        const TempDirectory directory;
+        Project project = unwrap(createProject(directory.path(), "Broken"));
+        project.settings.inputMap = "input/controls.input.json";
+        REQUIRE(saveProject(project).has_value());
+        EditorAppDesc desc = headlessDesc(UVec2(320, 180));
+        desc.project = directory.path();
+
+        // The file is not there.
+        Result<std::unique_ptr<EditorApp>> editor = EditorApp::create(desc);
+        REQUIRE_FALSE(editor.has_value());
+        CHECK(editor.error().code == ErrorCode::NotFound);
+        CHECK(editor.error().message.find("controls.input.json") != std::string::npos);
+
+        // The file is there, and is no input map: what is wrong with it is said, and where.
+        REQUIRE(ensureDirectory(project.assetDirectory() / "input").has_value());
+        REQUIRE(writeTextFile(project.inputMapPath(),
+                              R"({"format": "cordite.input", "version": 1,
+                                  "actions": [{"name": "jump", "bindings": [{"key": "Spacebar"}]}]})")
+                    .has_value());
+        editor = EditorApp::create(desc);
+        REQUIRE_FALSE(editor.has_value());
+        CHECK(editor.error().code == ErrorCode::ParseError);
+        CHECK(editor.error().message ==
+              pathToUtf8(project.inputMapPath()) + ": action 'jump', binding 1: \"Spacebar\" is not the name of a key");
+
+        // Put right, the project opens with its controls.
+        REQUIRE(writeTextFile(project.inputMapPath(),
+                              R"({"format": "cordite.input", "version": 1,
+                                  "actions": [{"name": "jump", "bindings": [{"key": "Space"}]}]})")
+                    .has_value());
+        const std::unique_ptr<EditorApp> opened = createEditor(desc);
+        CHECK(opened->engine().actions().hasAction("jump"));
+        // And a project that names none has none.
+        project.settings.inputMap.clear();
+        REQUIRE(saveProject(project).has_value());
     }
 
     TEST_CASE("the viewport shows the debug view it is told to") {

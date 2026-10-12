@@ -2,5 +2,6 @@
     "format": "cordite.project",
     "version": 1,
     "name": "Showcase",
-    "startScene": "scenes/showcase.scene.json"
+    "startScene": "scenes/showcase.scene.json",
+    "inputMap": "input/controls.input.json"
 }

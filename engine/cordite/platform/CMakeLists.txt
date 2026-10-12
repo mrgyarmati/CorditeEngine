@@ -2,6 +2,8 @@ cordite_add_module(platform
     SOURCES
         Input.cpp
         Input.h
+        InputMap.cpp
+        InputMap.h
         KeyCodes.cpp
         KeyCodes.h
         Window.cpp

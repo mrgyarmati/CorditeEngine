@@ -12,6 +12,7 @@
 #include "cordite/engine/SceneAssets.h"
 #include "cordite/math/Color.h"
 #include "cordite/math/Equirectangular.h"
+#include "cordite/platform/InputMap.h"
 #include "cordite/renderer/CameraView.h"
 #include "cordite/renderer/RenderComponents.h"
 #include "cordite/world/SceneSerializer.h"
@@ -24,6 +25,7 @@
 #include <memory>
 #include <set>
 #include <string>
+#include <variant>
 #include <vector>
 
 using namespace cordite;
@@ -207,6 +209,36 @@ TEST_SUITE("Showcase") {
             CHECK_MESSAGE(used,
                           "add an entity with a " << descriptor->type.name() << " component to the showcase scene");
         }
+    }
+
+    TEST_CASE("the controls of the showcase are read, written as they are, and use every kind of binding") {
+        const Project project = test::unwrap(loadProject(showcaseDirectory()));
+        REQUIRE_FALSE(project.inputMapPath().empty());
+        const InputMap map = test::unwrap(loadInputMap(project.inputMapPath()));
+        CHECK_FALSE(map.actions.empty());
+        CHECK_FALSE(map.axes.empty());
+        // Everything is written out in the file: reading it and writing it again changes
+        // nothing but its comments.
+        CHECK(serializeInputMap(map) == test::unwrap(readJsonFile(project.inputMapPath())));
+
+        std::set<size_t> pressedBy;
+        for (const InputAction& action : map.actions) {
+            for (const ActionBinding& binding : action.bindings) {
+                pressedBy.insert(binding.index());
+            }
+        }
+        std::set<size_t> movedBy;
+        for (const InputAxis& axis : map.axes) {
+            for (const AxisBinding& binding : axis.bindings) {
+                movedBy.insert(binding.source.index());
+            }
+        }
+        CHECK_MESSAGE(pressedBy.size() == std::variant_size_v<ActionBinding>,
+                      "bind an action of the showcase to every kind of control: a key, a mouse button, a "
+                      "gamepad button and a gamepad axis");
+        CHECK_MESSAGE(movedBy.size() == std::variant_size_v<decltype(AxisBinding::source)>,
+                      "bind an axis of the showcase to every kind of control: keys, gamepad buttons, a stick, "
+                      "the pointer and the wheel");
     }
 
     TEST_CASE("every named option of every component is used in the showcase") {

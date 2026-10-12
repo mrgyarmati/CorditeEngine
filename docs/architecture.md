@@ -1322,6 +1322,27 @@ The same goes for a collider hanging on it that no rigid body claims. Neither is
 silently dropped: the system says so once, and `scene.validate` finds it before
 anything runs.
 
+### Controls have names, and a file says what moves them
+
+Code that asks whether the space bar is down has decided three things at once: that
+the game has a jump, that a key makes it, and which key. The first is the game's;
+the other two are the player's, and the machine's - a gamepad has no space bar. So
+a game asks for *actions* and *axes* by name, and a file of the project - the input
+map - says which keys, buttons and sticks those are. Rebinding is editing that
+file; a second device is another line in it.
+
+The map is data and the state is worked out from it and from the raw input once a
+frame, in one place (`InputActions`): nothing subscribes, nothing is called back.
+What was pressed in a frame is a list that anything may read during that frame -
+which is what a script wants as events, and what a test can compare.
+
+An axis takes the binding that is moved furthest rather than the sum of all. Sums
+are what make a character run twice as fast with a stick and a key together, and
+they turn a pointer and a stick on the same axis into a fight between two units.
+
+The map is no asset with an id: nothing in a scene refers to it. The project names
+it by path, as it names its start scene.
+
 ### A body of several shapes is an entity with colliders below it
 
 A rigid body takes its own collider and those of the entities below it, down to the

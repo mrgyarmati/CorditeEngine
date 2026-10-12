@@ -20,23 +20,32 @@ TypeInfo describeProjectSettings() {
         .property("name", &ProjectSettings::name, {.description = "What the project is called"})
         .property("startScene", &ProjectSettings::startScene,
                   {.description = "The scene the game starts with, as a path inside the asset directory"})
+        .property("inputMap", &ProjectSettings::inputMap,
+                  {.description = "The controls of the game - its actions and axes - as a path inside the "
+                                  "asset directory"})
         .build();
 }
 
-/// Checks that a start scene names a file inside the asset directory.
-Status validateStartScene(std::string_view startScene) {
-    if (startScene.empty()) {
+/// Checks that a setting which names a file names one inside the asset directory, or
+/// none. `example` is what such a name looks like, for whoever got it wrong.
+Status validateAssetPath(std::string_view setting, std::string_view path, std::string_view example) {
+    if (path.empty()) {
         return {};
     }
     // Resolved as a path next to a file at the top of the asset directory; whatever
     // leaves the directory, or is not a plain relative path, comes back empty.
-    if (resolveAssetReference("project", startScene) != startScene) {
+    if (resolveAssetReference("project", path) != path) {
         return makeError(ErrorCode::ParseError,
-                         "'startScene' must be a path inside the asset directory, such as \"scenes/main.scene.json\"; "
-                         "got '{}'",
-                         startScene);
+                         "'{}' must be a path inside the asset directory, such as \"{}\"; got '{}'", setting, example,
+                         path);
     }
     return {};
+}
+
+/// Checks the files that the settings of a project name.
+Status validateSettings(const ProjectSettings& settings) {
+    CORDITE_TRY(validateAssetPath("startScene", settings.startScene, "scenes/main.scene.json"));
+    return validateAssetPath("inputMap", settings.inputMap, "input/controls.input.json");
 }
 
 Json serializeProject(const ProjectSettings& settings) {
@@ -68,6 +77,10 @@ std::filesystem::path Project::startScenePath() const {
     return settings.startScene.empty() ? std::filesystem::path() : assetDirectory() / pathFromUtf8(settings.startScene);
 }
 
+std::filesystem::path Project::inputMapPath() const {
+    return settings.inputMap.empty() ? std::filesystem::path() : assetDirectory() / pathFromUtf8(settings.inputMap);
+}
+
 Result<Project> loadProject(const std::filesystem::path& path) {
     Project project;
     // Either the directory or the file in it.
@@ -97,7 +110,7 @@ Result<Project> loadProject(const std::filesystem::path& path) {
     if (const Status parsed = projectSettingsTypeInfo().fromJson(&project.settings, settings); !parsed) {
         return fail(parsed.error());
     }
-    if (const Status valid = validateStartScene(project.settings.startScene); !valid) {
+    if (const Status valid = validateSettings(project.settings); !valid) {
         return fail(valid.error());
     }
     return project;
@@ -107,7 +120,7 @@ Status saveProject(const Project& project) {
     if (project.directory.empty()) {
         return makeError(ErrorCode::InvalidArgument, "the project has no directory to be saved in");
     }
-    CORDITE_TRY(validateStartScene(project.settings.startScene));
+    CORDITE_TRY(validateSettings(project.settings));
     CORDITE_TRY(ensureDirectory(project.assetDirectory()));
     return writeJsonFile(project.file(), serializeProject(project.settings));
 }

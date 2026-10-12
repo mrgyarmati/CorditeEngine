@@ -41,6 +41,7 @@
 #include "cordite/math/Math.h"
 #include "cordite/physics/PhysicsSystem.h"
 #include "cordite/platform/Input.h"
+#include "cordite/platform/InputMap.h"
 #include "cordite/platform/Window.h"
 #include "cordite/renderer/RenderResources.h"
 #include "cordite/renderer/RenderTarget.h"
@@ -235,6 +236,11 @@ public:
     /// that only ever reports what is injected into it. Inject between frames; the next
     /// frame sees it.
     [[nodiscard]] Input& input();
+
+    /// What a game calls its controls - "jump", "moveX" - and what they are doing in
+    /// this frame: worked out from input() by every beginFrame(). Empty until it is
+    /// given a map (InputActions::setMap()), such as the one a project names.
+    [[nodiscard]] InputActions& actions();
 
     /// The scene, and the component types that scene files and tools know by name.
     [[nodiscard]] World& world();
