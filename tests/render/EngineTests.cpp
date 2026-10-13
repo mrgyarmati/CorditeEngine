@@ -623,14 +623,22 @@ TEST_SUITE("Engine") {
         CHECK(world.transform(sentry).position.x > -1.5f);
         CHECK(world.transform(sentry).position.x < -0.9f);
 
-        // Both scripts of the showcase run, and neither has a problem; the clock, which
-        // ticks twice a second, has counted the five seconds.
+        // The three scripts of the showcase run, and none has a problem: the self-test,
+        // which compares what every function of the script API gives with what it should
+        // and would have stopped at the first that differs, here with the simulation
+        // running beside it; the patrol; and the clock, which ticks twice a second and
+        // has counted the five seconds. What the self-test made for a few frames - an
+        // entity with a clock of its own - is gone again.
         for (const ScriptProblem& problem : engine->scripts().problems()) {
             FAIL_CHECK(problem.message);
         }
-        CHECK(engine->statistics().scripts.scripts == 2);
-        CHECK(engine->statistics().scripts.instances == 2);
-        CHECK(engine->statistics().scripts.calls == 2);
+        CHECK(engine->statistics().scripts.scripts == 3);
+        CHECK(engine->statistics().scripts.instances == 3);
+        CHECK(engine->statistics().scripts.calls == 3);
+        CHECK(world.findByName("Scratch pad").isNull());
+        const Entity selfTest = world.findByName("Self-test");
+        REQUIRE_FALSE(selfTest.isNull());
+        CHECK(world.children(selfTest).empty());
         // Three hundred sixtieths do not add up to five seconds exactly: the tenth tick
         // is this frame's or the next.
         const Entity clock = world.findById(Uuid::parse("10000000-0000-4000-8000-000000000038").value_or(Uuid()));

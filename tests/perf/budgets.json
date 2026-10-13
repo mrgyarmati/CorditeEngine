@@ -54,16 +54,17 @@
         "physicsJoints": 5,
         "characters": 1,
         "joints": 8,
-        // What is scripted: the scripts that are loaded - the clock and the patrol of
-        // the sentry - the entities that run one, the functions of scripts a frame
-        // calls - an update for each - and the memory all of Lua holds. What stays is
-        // 29 kB, most of it the runtime itself and the functions it gives scripts; the
-        // patrol makes a handful of vectors a frame, and Lua lets what it holds double
-        // before it collects.
-        "scripts": 2,
-        "scriptInstances": 2,
-        "scriptCalls": 2,
-        "scriptBytes": 70000,
+        // What is scripted: the scripts that are loaded - the clock, the patrol of the
+        // sentry and the self-test of the script API - the entities that run one, the
+        // functions of scripts a frame calls - an update for each - and the memory all of
+        // Lua holds. What stays is 59 kB: the runtime with the functions it gives
+        // scripts, and the three scripts, of which the self-test is half. The patrol
+        // makes a handful of vectors a frame, and Lua lets what it holds double before
+        // it collects.
+        "scripts": 3,
+        "scriptInstances": 3,
+        "scriptCalls": 3,
+        "scriptBytes": 130000,
         // The image of the sky is 1.4 MiB of this.
         "textureBytes": 9437184,
 

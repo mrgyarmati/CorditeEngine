@@ -1514,6 +1514,24 @@ value it gives. So `set` first leaves out what has the value it had, and only wh
 is left is an edit. That makes writing back what was read a change of nothing, which
 is what it looks like, and keeps the refusal for the script that really tries.
 
+### The showcase tests the script API from inside the game
+
+Every function scripts are given has unit tests, which run it in a small world
+built for the purpose. They cannot show that it works where a game uses it: with
+the components the engine really has, in a scene of some size, in a frame in which
+the simulation runs as well. So the showcase carries a script, `selftest.lua`, that
+calls every function in the first frames of the game and compares what comes back
+with what should - and hands every component of every entity to Lua and takes it
+back. A script that stops is a problem of the scene, which the tests of the
+showcase and of the engine fail for; the `samples` test also fails for a function
+that no script of the showcase has called, by its name, and for a component that
+is not what it was once the scripts have run.
+
+It found its first defect on the day it was written: handing back the properties
+of a script reordered them, because the engine's JSON keeps the order of the file
+and compared two objects in order, and a Lua table has none. No unit test had
+data whose names were not in alphabetical order.
+
 ### Vectors are tables, and scripts compute in doubles
 
 A vector is a Lua table with `x`, `y` and `z`, and the ones the engine makes have a

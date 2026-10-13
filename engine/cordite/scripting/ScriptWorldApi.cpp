@@ -96,6 +96,18 @@ int worldWithComponent(lua_State* state) {
     return 1;
 }
 
+int worldComponentTypes(lua_State* state) {
+    const auto components = checkContext(state).components.components();
+    lua_createtable(state, static_cast<int>(components.size()), 0);
+    lua_Integer position = 1;
+    for (const ComponentDescriptor* descriptor : components) {
+        const std::string& name = descriptor->type.name();
+        lua_pushlstring(state, name.data(), name.size());
+        lua_rawseti(state, -2, position++);
+    }
+    return 1;
+}
+
 constexpr std::array kWorldFunctions = {
     ScriptFunction{"find", "cordite.world.find(name) -> Entity or nil",
                    "The first entity of that name, in the order of the hierarchy; nil when there is none.", worldFind},
@@ -111,6 +123,10 @@ constexpr std::array kWorldFunctions = {
                    "Every entity that has a component of that name - \"Light\", \"Script\" - in the order of the "
                    "hierarchy.",
                    worldWithComponent},
+    ScriptFunction{"componentTypes", "cordite.world.componentTypes() -> {string}",
+                   "The name of every kind of component there is, in the order the engine knows them: what has(), "
+                   "get() and withComponent() are asked with.",
+                   worldComponentTypes},
 };
 
 // --- cordite.Entity: the hierarchy ---------------------------------------------------------

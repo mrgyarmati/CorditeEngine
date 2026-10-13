@@ -554,8 +554,9 @@ Step-by-step guide for adding a component: [add-component](.claude/skills/add-co
 - **The showcase uses everything.** The scene of `samples/showcase` must contain every
   component type and every named option that a scene can hold - not those of
   `transient` properties, which only a running game has - and use every asset and
-  every material option of the project; the `samples` test fails otherwise. Adding a
-  feature includes showing it there.
+  every material option of the project, and its scripts must call every function
+  that scripts are given; the `samples` test fails otherwise. Adding a feature
+  includes showing it there.
 
 ## Assets
 
@@ -927,10 +928,11 @@ Gameplay scripts are Lua 5.4: `.lua` assets that a `Script` component puts on an
 entity, run by `ScriptSystem` (`scripting/ScriptSystem.h`) in a `ScriptRuntime`
 (`scripting/ScriptRuntime.h`). The scripts under `samples/showcase/assets/scripts/`
 are the reference for how one is written: `clock.lua` for what a script is made of,
-`patrol.lua` for one that moves something. Scripts reach entities and their
-hierarchy, transforms, every component through its properties, vectors and
-rotations, the time and the ids of assets; input, physics queries, timers and the
-loading of scenes are to come. Step-by-step guide for giving scripts a function:
+`patrol.lua` for one that moves something, `selftest.lua` for every function there
+is, called once and checked. Scripts reach entities and their hierarchy, transforms,
+every component through its properties, vectors and rotations, the time and the ids
+of assets; input, physics queries, timers and the loading of scenes are to come.
+Step-by-step guide for giving scripts a function:
 [add-script-function](.claude/skills/add-script-function/SKILL.md).
 
 - **A script returns a table**: the functions the engine calls - `start`,
@@ -977,9 +979,11 @@ loading of scenes are to come. Step-by-step guide for giving scripts a function:
 - **Writing back what was read changes nothing.** `set` leaves out what has the value
   it had before it asks `parseEdit`, so a script can read a component, change one
   thing in the table and hand all of it back - whatever else is in there: a read-only
-  property, which is only an attempt with another value, or free-form data with a
-  member that holds nothing, which no Lua table can hold and which would otherwise
-  be lost by a script that never touched it.
+  property, which is only an attempt with another value, or free-form data, of which
+  no Lua table can hold a member that holds nothing or the order of the members:
+  both would otherwise be lost to a script that never touched them. "The value it
+  had" is therefore judged as a script sees values (`asScriptsHandBack`), not as
+  JSON compares them.
 - **A function is written for what is no property**: a question to a system, an
   action, a computation. `entity:position()` and its like exist because a script
   moves things in every other line, not because `get("Transform")` could not.
@@ -1002,6 +1006,16 @@ loading of scenes are to come. Step-by-step guide for giving scripts a function:
   a description (the catalogue, `ScriptRuntime::functions()`), and what each library
   holds is listed, or counted, in the tests of that library. A function that is
   added or taken away changes a test.
+- **The showcase tests the script API from inside the game.** Its
+  `scripts/selftest.lua` calls every function scripts are given and compares what
+  comes back with what should, in the first frames of the running scene, with real
+  components and the simulation beside it; an answer that is not as expected stops
+  it, which is a problem of the scene and fails the `samples` and engine tests. The
+  `samples` test also names every function no script of the showcase has called -
+  `cordite.log.warn` and `error` excepted, which a scene where nothing is wrong
+  must not call - and checks that the scripts left every component of the scene as
+  it was, to the digit: the self-test hands each of them to Lua and takes it back.
+  A new function is called and checked there in the commit that adds it.
 
 - **A script that is wrong is an error with a message, never the end of the
   program.** That is what the runtime is for, and each of the rules below has a test

@@ -348,7 +348,10 @@ TEST_SUITE("ScriptComponentApi") {
         shop.gadget().target = stage.world.id(shop.anvil);
         shop.gadget().friends = {stage.world.id(shop.vise), Uuid(), stage.world.id(shop.anvil)};
         shop.gadget().mesh = Uuid::fromName(Uuid(), "a mesh");
-        shop.gadget().extra = unwrap(parseJson(R"({"notes": ["oil", null], "weight": 2.5, "empty": null})"));
+        // Data of no fixed shape keeps what no table of a script can: the order of its
+        // members, and members that hold nothing.
+        shop.gadget().extra = unwrap(
+            parseJson(R"({"zebra": {"stripes": 9, "age": 4}, "notes": ["oil", null], "weight": 2.5, "empty": null})"));
         shop.gadget().turn = quatFromEulerDegrees(Vec3(10.0f, 20.0f, 30.0f));
         shop.gadget().color = Vec3(0.1f, 0.2f, 0.3f);
         shop.gadget().heat = 0.75f;

@@ -810,6 +810,20 @@
             }
         },
         {
+            // The test of the script API in the place where a game uses it:
+            // scripts/selftest.lua calls everything a script can call, in the first frames
+            // of the game, and stops with an error at the first answer that is not as
+            // expected. What it makes it makes below this entity, and takes away again.
+            "id": "10000000-0000-4000-8000-000000000039",
+            "name": "Self-test",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-000000000001",
+            "components": {
+                "Transform": { "position": [0.0, 0.0, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [1.0, 1.0, 1.0] },
+                "Script": { "script": "cb41b1e5-5868-8b3d-a871-ab3cb57a2613", "properties": {} }
+            }
+        },
+        {
             // Glass: what is behind it shows through. Blended surfaces are drawn last,
             // the farthest first.
             "id": "10000000-0000-4000-8000-00000000001a",

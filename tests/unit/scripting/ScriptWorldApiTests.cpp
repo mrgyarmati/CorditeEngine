@@ -94,6 +94,10 @@ TEST_SUITE("ScriptWorldApi") {
                          "#cordite.world.withComponent('Camera'))") == "Yard Shed Shelf Gate Probe\t1\t0");
         CHECK(stage.refusal("cordite.world.withComponent('Roof')") ==
               "bad argument #1 to 'withComponent' (the name of a component expected, such as \"Light\")");
+
+        // Every kind of component there is, by the name it is asked for with: here, those
+        // of the world and the one of the scripts, in the order they were registered.
+        CHECK(stage.line("print(table.concat(cordite.world.componentTypes(), ' '))") == "Transform Camera Script");
     }
 
     TEST_CASE("a script makes entities, and they are there at once") {
@@ -386,7 +390,8 @@ TEST_SUITE("ScriptWorldApi") {
             }
         }
         CHECK(names == Lines{"cordite.world.find", "cordite.world.findById", "cordite.world.create",
-                             "cordite.world.roots", "cordite.world.withComponent", "cordite.time.seconds",
-                             "cordite.time.delta", "cordite.time.frame", "cordite.assets.find"});
+                             "cordite.world.roots", "cordite.world.withComponent", "cordite.world.componentTypes",
+                             "cordite.time.seconds", "cordite.time.delta", "cordite.time.frame",
+                             "cordite.assets.find"});
     }
 }

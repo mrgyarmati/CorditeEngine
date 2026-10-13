@@ -74,8 +74,18 @@ of [AGENTS.md](../../../AGENTS.md)). Everything they can call is a C++ function 
    world looks like afterwards from C++. `ScriptEntityApiTests` pins the list of what an
    entity can be asked; add the name there.
 
-4. **Use it in the showcase**: a script under `samples/showcase/assets/scripts/` calls
-   it, with a comment that says why. The showcase is where people learn the API.
+4. **Call it in the showcase**: `samples/showcase/assets/scripts/selftest.lua` calls
+   every function scripts are given, in the running game, and compares the answer
+   with what it should be:
+
+   ```lua
+   self:expect("how far it is to a point", scratch:distanceTo(vec3(3, 4, 0)) == 5)
+   ```
+
+   The `samples` test fails, with the name of the function, until a script of the
+   showcase has called it. What the self-test changes it changes on the entities it
+   makes itself, and it leaves the scene as it found it - the same test checks that.
+   The showcase is also where people learn the API: say in a comment what is shown.
 
 5. **Document it** where it changes what AGENTS.md or `docs/architecture.md` say, and
    run the pre-commit gate (see the pre-commit-review skill).

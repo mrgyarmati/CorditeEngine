@@ -8,6 +8,7 @@
 
 #include <fmt/format.h>
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -15,6 +16,7 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 namespace cordite {
 namespace {
@@ -336,22 +338,30 @@ Json checkValues(lua_State* state, int index, const ComponentDescriptor& descrip
     return std::move(*values);
 }
 
-/// `value` as a script reads it: without the members that hold nothing, which are not in
-/// the table a script is given.
-Json withoutEmptyMembers(const Json& value) {
+/// `value` as a script hands it back when it has changed nothing: without the members
+/// that hold nothing, which are not in the table a script is given, and with the
+/// members of every object in the order of their names - a table has no order, and
+/// the engine's JSON keeps the one of the file. Two values that are the same to a
+/// script are equal in this form, and only then.
+Json asScriptsHandBack(const Json& value) {
     if (value.is_object()) {
-        Json object = Json::object();
+        std::vector<std::string> names;
         for (const auto& [name, member] : value.items()) {
             if (!member.is_null()) {
-                object[name] = withoutEmptyMembers(member);
+                names.push_back(name);
             }
+        }
+        std::ranges::sort(names);
+        Json object = Json::object();
+        for (const std::string& name : names) {
+            object[name] = asScriptsHandBack(value[name]);
         }
         return object;
     }
     if (value.is_array()) {
         Json array = Json::array();
         for (const Json& element : value) {
-            array.push_back(withoutEmptyMembers(element));
+            array.push_back(asScriptsHandBack(element));
         }
         return array;
     }
@@ -361,8 +371,8 @@ Json withoutEmptyMembers(const Json& value) {
 /// Takes out of `values` what gives a property the value it has, `held` being what the
 /// properties hold now. A script that reads a component, changes something of it and
 /// writes the table back has changed nothing of the rest: that is no attempt at what
-/// may not be changed, and it does not write what a script cannot be handed - a member
-/// that holds nothing - out of data it never touched.
+/// may not be changed, and it does not take what a table cannot hold - a member that
+/// holds nothing, the order of the members - out of data the script never touched.
 void dropUnchanged(Json& values, const TypeInfo& type, const Json& held) {
     for (const PropertyInfo& property : type.properties()) {
         const auto given = values.find(property.name());
@@ -370,7 +380,7 @@ void dropUnchanged(Json& values, const TypeInfo& type, const Json& held) {
         if (given == values.end() || now == held.end()) {
             continue;
         }
-        if (withoutEmptyMembers(*given) == withoutEmptyMembers(*now)) {
+        if (asScriptsHandBack(*given) == asScriptsHandBack(*now)) {
             values.erase(given);
         } else if (property.objectType() != nullptr && given->is_object() && now->is_object()) {
             dropUnchanged(*given, *property.objectType(), *now);

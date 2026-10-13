@@ -2,11 +2,13 @@
 /// Keeps the showcase project complete.
 ///
 /// The showcase is the project that exercises everything the engine has. These tests
-/// fail when a component, a named option of a component or of a material, or an asset
-/// exists but is not used in samples/showcase: adding a feature includes showing it.
+/// fail when a component, a named option of a component or of a material, an asset or a
+/// function that scripts are given exists but is not used in samples/showcase: adding a
+/// feature includes showing it.
 
 #include "cordite/assets/AssetManager.h"
 #include "cordite/assets/Image.h"
+#include "cordite/core/Json.h"
 #include "cordite/core/Log.h"
 #include "cordite/engine/EngineComponents.h"
 #include "cordite/engine/Project.h"
@@ -19,7 +21,9 @@
 #include "cordite/renderer/CameraView.h"
 #include "cordite/renderer/RenderComponents.h"
 #include "cordite/scripting/ScriptComponents.h"
+#include "cordite/scripting/ScriptRuntime.h"
 #include "cordite/scripting/ScriptSystem.h"
+#include "cordite/world/ComponentRegistry.h"
 #include "cordite/world/SceneSerializer.h"
 
 #include "support/TestSupport.h"
@@ -28,6 +32,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <set>
 #include <string>
@@ -246,6 +251,75 @@ TEST_SUITE("Showcase") {
         const test::LogCapture log(LogLevel::Info);
         scripts->clear({.world = showcase.world, .components = showcase.components, .assets = *showcase.assets});
         CHECK(log.contains("Clock (2) stopped"));
+    }
+
+    TEST_CASE("the scripts of the showcase call everything scripts are given, and leave its components as they were") {
+        Showcase showcase;
+        const std::unique_ptr<ScriptSystem> scripts = test::unwrap(ScriptSystem::create());
+
+        // What every component of every entity holds, as a file would have it.
+        const auto components = [&] {
+            std::map<std::string, std::string> held;
+            showcase.world.traverse([&](Entity entity, uint32_t /*depth*/) {
+                for (const ComponentDescriptor* descriptor : showcase.components.components()) {
+                    const void* instance = descriptor->getConst(showcase.world.registry(), entity.handle);
+                    if (instance != nullptr) {
+                        held[showcase.world.id(entity).toString() + " " + descriptor->type.name()] =
+                            dumpJson(descriptor->type.toJson(instance), -1);
+                    }
+                }
+            });
+            return held;
+        };
+        const std::map<std::string, std::string> before = components();
+        REQUIRE(before.size() > 100);
+
+        const test::LogCapture log(LogLevel::Info);
+        for (int frame = 0; frame < 5; ++frame) {
+            scripts->update({.world = showcase.world,
+                             .components = showcase.components,
+                             .assets = *showcase.assets,
+                             .deltaSeconds = 0.25});
+        }
+        for (const ScriptProblem& problem : scripts->problems()) {
+            FAIL_CHECK(problem.message);
+        }
+        // The self-test has come to its end, and says how much it compared.
+        CHECK(log.contains("self-test: "));
+        CHECK(log.contains(" checks passed"));
+        CHECK(log.count(LogLevel::Warn) == 0);
+        CHECK(log.count(LogLevel::Error) == 0);
+
+        // It handed every component of the scene to a script and took it back, and made
+        // and destroyed entities of its own. Nothing of that is left: the scene holds what
+        // it held, to the digit.
+        const std::map<std::string, std::string> after = components();
+        CHECK(after.size() == before.size());
+        for (const auto& [which, held] : before) {
+            CAPTURE(which);
+            const auto now = after.find(which);
+            if (now == after.end()) {
+                FAIL_CHECK("the component is gone");
+            } else {
+                CHECK(now->second == held);
+            }
+        }
+
+        // Every function was called - but for the two that say something is wrong, which
+        // in a scene where nothing is wrong are not.
+        size_t functions = 0;
+        for (const ScriptFunctionInfo& function : scripts->runtime().functions()) {
+            CAPTURE(function.name);
+            ++functions;
+            if (function.name == "cordite.log.warn" || function.name == "cordite.log.error") {
+                CHECK(function.calls == 0);
+            } else {
+                CHECK_MESSAGE(function.calls > 0, "call " << function.name
+                                                          << " in samples/showcase/assets/scripts/selftest.lua, and "
+                                                             "compare what it gives with what it should");
+            }
+        }
+        CHECK(functions > 70);
     }
 
     TEST_CASE("every component type of the engine is used in the showcase") {
