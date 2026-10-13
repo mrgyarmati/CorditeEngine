@@ -184,6 +184,7 @@ cordite_add_test_suite(engine
         unit/engine/ModelInstanceTests.cpp
         unit/engine/ProjectTests.cpp
         unit/engine/SceneAssetsTests.cpp
+        unit/engine/SceneChangeTests.cpp
     LIBRARIES
         cordite::engine)
 

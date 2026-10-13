@@ -1579,6 +1579,27 @@ due an interval after it was due, not after it was called - and it does not catc
 up: after a frame that took a second, a timer of ten a second is called once. A game
 that falls behind should not fall further behind by doing ten frames' work in one.
 
+### A scene is changed between frames, after it has been checked
+
+`cordite.scene.load("scenes/cellar.scene.json")` changes nothing where it is called:
+the script that calls it is running in the scene it wants gone, and so may a dozen
+others be in the same frame. The request is kept, the frame comes to its end as any
+other, and the scene changes where the next one begins.
+
+The change itself (`changeScene`, in the engine module, without anything of the
+renderer in it so that it can be tested without a GPU) is ordered by what can go
+wrong. First the file is read and put into a world of its own: a scene with a
+mistake in it is found before anything of the running one is touched, and the game
+goes on where it was, with the reason in the log. Then the scripts of the old scene
+end, each with its `destroy`, while the entities they belong to still exist. Then
+the bodies and the poses are forgotten - they are kept by entity, and the entities
+of the next scene are given the handles the old ones had. Only then is the world
+given the new scene.
+
+Scripts keep nothing across the change: the system is cleared, its clock with it.
+What a game wants to carry from one scene to the next has no place yet, and will
+need one.
+
 ### The showcase tests the script API from inside the game
 
 Every function scripts are given has unit tests, which run it in a small world

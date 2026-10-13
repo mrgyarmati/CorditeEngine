@@ -10,6 +10,8 @@ cordite_add_module(engine
         Project.h
         SceneAssets.cpp
         SceneAssets.h
+        SceneChange.cpp
+        SceneChange.h
     DEPENDS
         core
         math

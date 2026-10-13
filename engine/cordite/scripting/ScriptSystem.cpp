@@ -259,6 +259,8 @@ struct ScriptSystem::Impl {
     /// The coroutine of the task that is being resumed, which is where wait() may be
     /// called. Null while none is.
     lua_State* task = nullptr;
+    /// The scene a script asked for, until whoever owns the world takes the request.
+    std::optional<Uuid> requestedScene;
     /// The time the updates have let pass, how many there were, and the time of the last.
     double seconds = 0.0;
     uint64_t updates = 0;
@@ -915,6 +917,14 @@ bool ScriptSystem::isRunningTask(const lua_State* state) const {
     return state != nullptr && m_impl->task == state;
 }
 
+void ScriptSystem::requestScene(const Uuid& scene) {
+    m_impl->requestedScene = scene;
+}
+
+std::optional<Uuid> ScriptSystem::takeRequestedScene() {
+    return std::exchange(m_impl->requestedScene, std::nullopt);
+}
+
 void ScriptSystem::destroyLater(Entity entity) {
     if (std::ranges::find(m_impl->doomed, entity) == m_impl->doomed.end()) {
         m_impl->doomed.push_back(entity);
@@ -1143,6 +1153,8 @@ void ScriptSystem::clear(const ScriptContext& context) {
     impl.seconds = 0.0;
     impl.updates = 0;
     impl.deltaSeconds = 0.0;
+    // What a script of the scene that ends asked for is not asked of the next.
+    impl.requestedScene.reset();
     impl.context = nullptr;
 }
 

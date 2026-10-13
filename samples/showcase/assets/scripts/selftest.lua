@@ -211,6 +211,11 @@ function SelfTest:timeAndAssets()
     self.scratch:add("Script", { script = clock, properties = { label = "Scratch" } })
     self:expect("the table of this script", self.entity:script() == self)
     self:expect("a script that was only just added", self.scratch:script() == nil)
+
+    -- Another scene is asked for by where its file is among the assets, and what is no
+    -- scene is refused. To see one loaded, press "travel": scripts/travel.lua, on the
+    -- entity "Way out", asks for the annex - and this scene, this script with it, ends.
+    self:expect("a scene that is none", not pcall(cordite.scene.load, "scripts/clock.lua"))
 end
 
 -- The controls of the game, by the names the input map of the project gives them.

@@ -333,6 +333,46 @@ TEST_SUITE("ScriptWorldApi") {
         CHECK(stage.refusal("cordite.assets.find({})") == "bad argument #1 to 'find' (string expected, got table)");
     }
 
+    TEST_CASE("a script asks for another scene, which whoever owns the world then loads") {
+        ScriptStage stage;
+        const char* empty = R"({"format": "cordite.scene", "version": 1, "name": "Cellar", "entities": []})";
+        const Uuid cellar = stage.write("scenes/cellar.scene.json", empty);
+        const Uuid attic = stage.write("scenes/attic.scene.json", empty);
+        stage.write("scripts/other.lua", "return {}");
+        CHECK_FALSE(stage.scripts->takeRequestedScene().has_value());
+
+        // Asking changes nothing: the script goes on in the scene it is in.
+        CHECK(stage.line("cordite.scene.load('scenes/cellar.scene.json')\n"
+                         "print(entity:isValid(), cordite.world.find('Probe') == entity)") == "true\ttrue");
+        CHECK(stage.scripts->takeRequestedScene() == cellar);
+        // Taken, it is asked for no longer.
+        CHECK_FALSE(stage.scripts->takeRequestedScene().has_value());
+
+        // By its id as well, as cordite.assets.find() gives it; and of two that ask, the
+        // last has its way.
+        CHECK(stage
+                  .lines("cordite.scene.load('scenes/cellar.scene.json')\n"
+                         "cordite.scene.load(cordite.assets.find('scenes/attic.scene.json'))")
+                  .empty());
+        CHECK(stage.scripts->takeRequestedScene() == attic);
+
+        // What is no scene is refused where it is asked for, and nothing is asked then.
+        CHECK(stage.refusal("cordite.scene.load('scenes/garden.scene.json')") ==
+              "bad argument #1 to 'load' (there is no asset 'scenes/garden.scene.json')");
+        CHECK(stage.refusal("cordite.scene.load('scripts/other.lua')") ==
+              "bad argument #1 to 'load' ('scripts/other.lua' is of the kind script, not a scene)");
+        CHECK(stage.refusal("cordite.scene.load('00000000-0000-4000-8000-000000000001')") ==
+              "bad argument #1 to 'load' (there is no asset '00000000-0000-4000-8000-000000000001')");
+        CHECK(stage.refusal("cordite.scene.load()") == "bad argument #1 to 'load' (string expected, got no value)");
+        CHECK_FALSE(stage.scripts->takeRequestedScene().has_value());
+
+        // A system that is cleared - which is what loading a scene begins with - no
+        // longer asks for what a script of the old scene wanted.
+        CHECK(stage.lines("cordite.scene.load('scenes/cellar.scene.json')").empty());
+        stage.scripts->clear(stage.context());
+        CHECK_FALSE(stage.scripts->takeRequestedScene().has_value());
+    }
+
     TEST_CASE("one script reaches another through its entity") {
         ScriptStage stage;
         const Uuid lamp = stage.write("scripts/lamp.lua", R"(
@@ -382,7 +422,7 @@ TEST_SUITE("ScriptWorldApi") {
             CHECK(function.description.size() > 20);
             CHECK(function.description.back() == '.');
             if (function.name.starts_with("cordite.world.") || function.name.starts_with("cordite.time.") ||
-                function.name.starts_with("cordite.assets.")) {
+                function.name.starts_with("cordite.scene.") || function.name.starts_with("cordite.assets.")) {
                 names.push_back(function.name);
                 // A function of a library is written as it is called.
                 CHECK(function.signature.starts_with(function.name + "("));
@@ -392,6 +432,6 @@ TEST_SUITE("ScriptWorldApi") {
                              "cordite.world.roots", "cordite.world.withComponent", "cordite.world.componentTypes",
                              "cordite.time.seconds", "cordite.time.delta", "cordite.time.frame", "cordite.time.after",
                              "cordite.time.every", "cordite.time.cancel", "cordite.time.run", "cordite.time.wait",
-                             "cordite.assets.find"});
+                             "cordite.scene.load", "cordite.assets.find"});
     }
 }

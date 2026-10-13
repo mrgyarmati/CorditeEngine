@@ -188,6 +188,10 @@ public:
     /// Call it once per frame with a running clock, between beginFrame() and drawing:
     /// each call lets the time of a frame pass. A running clock outside a frame is a
     /// mistake, and is taken as a stopped one.
+    ///
+    /// A script may ask for another scene while it runs (`cordite.scene.load`). The
+    /// scene that is there goes on to the end of the frame; the next beginFrame() does
+    /// what loadScene() does.
     void updateWorld(WorldClock clock = WorldClock::Running);
 
     /// Draws the world into the frame target as its primary camera sees it (the first
@@ -266,6 +270,14 @@ public:
     /// What runs the scripts of the world: what keeps them from running
     /// (scripts().problems()), and the runtime that is given the functions they call.
     [[nodiscard]] ScriptSystem& scripts();
+
+    /// Puts another scene into the world of a game that is running, as changeScene()
+    /// (SceneChange.h) does it: the scripts of the scene that is there end, its bodies
+    /// and poses are forgotten, and the scene asset `scene` takes its place. This is
+    /// what happens at the beginning of the next frame when a script calls
+    /// `cordite.scene.load` - there a failure is logged, and the scene that was there
+    /// goes on. Fails as changeScene() does, and with InvalidState during a frame.
+    [[nodiscard]] Status loadScene(const Uuid& scene);
 
     /// Draws worlds. The editor uses it for its viewports as the game does for its view.
     [[nodiscard]] SceneRenderer& sceneRenderer();

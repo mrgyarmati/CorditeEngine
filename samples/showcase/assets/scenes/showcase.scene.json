@@ -865,6 +865,23 @@
             }
         },
         {
+            // The way out of this scene: scripts/travel.lua asks for another - the annex,
+            // scenes/annex.scene.json - when "travel" is pressed, which is T, or Y on a
+            // gamepad. A scene is named by where its file is among the assets. From the
+            // annex the same script leads back here, where everything starts anew.
+            "id": "10000000-0000-4000-8000-00000000003b",
+            "name": "Way out",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-000000000001",
+            "components": {
+                "Transform": { "position": [0.0, 0.0, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [1.0, 1.0, 1.0] },
+                "Script": {
+                    "script": "ff1ef9ce-3ff4-81d9-98b9-72c62a089380",
+                    "properties": { "to": "scenes/annex.scene.json" }
+                }
+            }
+        },
+        {
             // Glass: what is behind it shows through. Blended surfaces are drawn last,
             // the farthest first.
             "id": "10000000-0000-4000-8000-00000000001a",

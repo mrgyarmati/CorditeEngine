@@ -5,7 +5,9 @@
 #include "cordite/core/Log.h"
 #include "cordite/core/Platform.h"
 #include "cordite/core/Time.h"
+#include "cordite/core/Uuid.h"
 #include "cordite/engine/EngineComponents.h"
+#include "cordite/engine/SceneChange.h"
 #include "cordite/renderer/BlitPass.h"
 #include "cordite/renderer/CameraView.h"
 #include "cordite/renderer/FramePacer.h"
@@ -18,7 +20,9 @@
 
 #include <algorithm>
 #include <chrono>
+#include <optional>
 #include <thread>
+#include <utility>
 #include <vector>
 
 namespace cordite {
@@ -96,6 +100,8 @@ struct Engine::Impl {
     Input headlessInput;
     /// What the controls of the game are doing, worked out of the input every frame.
     InputActions actions;
+    /// The scene a script asked for in the frame before: loaded when the next begins.
+    std::optional<Uuid> pendingScene;
 
     ComponentRegistry components;
     World world;
@@ -224,6 +230,14 @@ Result<bool> Engine::beginFrame() {
     impl.windowSystem->pollEvents();
     if (impl.exitRequested || (impl.window && impl.window->shouldClose())) {
         return false;
+    }
+    // Scenes change between frames: what a script asked for in the last one happens
+    // now. A scene that cannot be loaded costs the frame nothing - the one that was
+    // there goes on, and the log says why.
+    if (const std::optional<Uuid> scene = std::exchange(impl.pendingScene, std::nullopt)) {
+        if (const Status changed = loadScene(*scene); !changed) {
+            CORDITE_LOG_ERROR("Engine", "the scene a script asked for was not loaded: {}", changed.error().message);
+        }
     }
     // The events of the frame are in: what they make of the controls of the game is
     // the same for everything that asks during the frame.
@@ -382,6 +396,9 @@ void Engine::updateWorld(WorldClock clock) {
         impl.scriptStatistics = impl.scripts->update(scripted);
         impl.physicsStatistics = impl.physics->update(impl.world, *impl.assets, deltaSeconds);
         impl.scriptStatistics = impl.scripts->tellContacts(scripted, impl.physics->events());
+        if (const std::optional<Uuid> scene = impl.scripts->takeRequestedScene()) {
+            impl.pendingScene = scene;
+        }
         impl.animationStatistics = impl.animation.update(impl.world, *impl.assets, deltaSeconds);
     } else {
         impl.physicsStatistics = impl.physics->synchronize(impl.world, *impl.assets);
@@ -482,6 +499,22 @@ PhysicsSystem& Engine::physics() {
 
 ScriptSystem& Engine::scripts() {
     return *m_impl->scripts;
+}
+
+Status Engine::loadScene(const Uuid& scene) {
+    Impl& impl = *m_impl;
+    CORDITE_ASSERT(!impl.frameOpen, "a scene is loaded between frames, not in one");
+    if (impl.frameOpen) {
+        return makeError(ErrorCode::InvalidState, "a scene is loaded between two frames, not during one");
+    }
+    return changeScene({.world = impl.world,
+                        .components = impl.components,
+                        .assets = *impl.assets,
+                        .scripts = *impl.scripts,
+                        .physics = impl.physics.get(),
+                        .animation = &impl.animation,
+                        .controls = &impl.actions},
+                       scene);
 }
 
 SceneRenderer& Engine::sceneRenderer() {

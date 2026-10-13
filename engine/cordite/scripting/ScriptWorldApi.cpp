@@ -405,13 +405,13 @@ int timeWait(lua_State* state) {
 
 constexpr std::array kTimeFunctions = {
     ScriptFunction{"seconds", "cordite.time.seconds() -> number",
-                   "How long the game has been running, in seconds: the time of every frame so far, this one "
-                   "included.",
+                   "How long the scene has been running, in seconds: the time of every frame since it was "
+                   "loaded, this one included.",
                    timeSeconds},
     ScriptFunction{"delta", "cordite.time.delta() -> number",
                    "The time that passes with this frame, in seconds: what `update` is called with.", timeDelta},
-    ScriptFunction{"frame", "cordite.time.frame() -> integer", "Which frame of the game this is, counted from 1.",
-                   timeFrame},
+    ScriptFunction{"frame", "cordite.time.frame() -> integer",
+                   "Which frame of the scene this is, counted from 1 when it was loaded.", timeFrame},
     ScriptFunction{"after", "cordite.time.after(seconds, callback) -> timer",
                    "Has a function called once, so many seconds from now, with the table of the script - so that "
                    "a function of the script can be given as it is: after(2, self.close). The timer belongs to the "
@@ -453,6 +453,38 @@ int assetsFind(lua_State* state) {
     return 1;
 }
 
+// --- cordite.scene ------------------------------------------------------------------------
+
+int sceneLoad(lua_State* state) {
+    const std::string reference(checkText(state, 1));
+    const AssetDatabase& database = checkContext(state).assets.database();
+    // By where it is, or by its id, as cordite.assets.find() gives it.
+    const AssetInfo* asset = database.findByReference(reference);
+    if (const std::optional<Uuid> id = Uuid::parse(reference); asset == nullptr && id) {
+        asset = database.find(*id);
+    }
+    if (asset == nullptr) {
+        return luaL_argerror(state, 1, lua_pushfstring(state, "there is no asset '%s'", reference.c_str()));
+    }
+    if (asset->type != AssetType::Scene) {
+        const std::string kind(nameOf(asset->type));
+        return luaL_argerror(
+            state, 1,
+            lua_pushfstring(state, "'%s' is of the kind %s, not a scene", asset->reference().c_str(), kind.c_str()));
+    }
+    ScriptSystem::of(state).requestScene(asset->id);
+    return 0;
+}
+
+constexpr std::array kSceneFunctions = {
+    ScriptFunction{"load", "cordite.scene.load(scene)",
+                   "Asks for another scene - by where its file is among the assets, \"scenes/cellar.scene.json\", or "
+                   "by its id. The scene that runs goes on to the end of the frame; then its scripts end, each "
+                   "with its `destroy`, and the next frame begins in the new one. A scene that cannot be loaded is "
+                   "said in the log, and the one that was there stays. An error for what is no scene.",
+                   sceneLoad},
+};
+
 constexpr std::array kAssetFunctions = {
     ScriptFunction{"find", "cordite.assets.find(reference) -> string or nil",
                    "The id of an asset by where it is - \"models/crate.gltf#mesh/0\", \"builtin#mesh/cube\" - which "
@@ -466,6 +498,7 @@ Status registerWorldApi(ScriptRuntime& runtime) {
     CORDITE_TRY(runtime.registerLibrary("cordite.world", kWorldFunctions));
     CORDITE_TRY(runtime.registerLibrary("cordite.Entity", kEntityFunctions));
     CORDITE_TRY(runtime.registerLibrary("cordite.time", kTimeFunctions));
+    CORDITE_TRY(runtime.registerLibrary("cordite.scene", kSceneFunctions));
     return runtime.registerLibrary("cordite.assets", kAssetFunctions);
 }
 

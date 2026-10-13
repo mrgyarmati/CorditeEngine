@@ -23,6 +23,15 @@
                 { "mouseButton": "Left" },
                 { "gamepadAxis": "RightTrigger", "threshold": 0.3 }
             ]
+        },
+        {
+            // What sets off for the other scene of the showcase: scripts/travel.lua asks
+            // for it by this name.
+            "name": "travel",
+            "bindings": [
+                { "key": "T" },
+                { "gamepadButton": "Y" }
+            ]
         }
     ],
     "axes": [

@@ -642,12 +642,12 @@ TEST_SUITE("Engine") {
         CHECK(world.transform(sentry).position.x < -0.9f);
         CHECK(brightness() == 0.0f);
 
-        // The six scripts of the showcase run, and none has a problem: the self-test,
+        // The seven scripts of the showcase run, and none has a problem: the self-test,
         // which compares what every function of the script API gives with what it should
         // and would have stopped at the first that differs, here with the simulation
         // running beside it; the patrol; the clock, which ticks twice a second and has
-        // counted the five seconds; the lamp that flickers; and the two that only hear
-        // what they are told - the post, and the ball. Two of them are updated every
+        // counted the five seconds; the lamp that flickers; and the three that only hear
+        // what they are told - the post, the ball, the way out. Two are updated every
         // frame, and in the frame of a tick the clock's timer is called as well. Two
         // things wait for their time: that timer, and the task that makes the lamp
         // flicker. What the self-test made for a few frames - an entity with a clock of
@@ -655,8 +655,8 @@ TEST_SUITE("Engine") {
         for (const ScriptProblem& problem : engine->scripts().problems()) {
             FAIL_CHECK(problem.message);
         }
-        CHECK(engine->statistics().scripts.scripts == 6);
-        CHECK(engine->statistics().scripts.instances == 6);
+        CHECK(engine->statistics().scripts.scripts == 7);
+        CHECK(engine->statistics().scripts.instances == 7);
         CHECK(engine->statistics().scripts.calls >= 2);
         CHECK(engine->statistics().scripts.calls <= 3);
         CHECK(engine->statistics().scripts.timers == 2);
@@ -709,6 +709,42 @@ TEST_SUITE("Engine") {
         runFrames(*engine, 30);
         CHECK(glm::length(controller()->velocity) == doctest::Approx(0.8).epsilon(0.02));
         CHECK(controller()->velocity.z < -0.5f);
+        for (const ScriptProblem& problem : engine->scripts().problems()) {
+            FAIL_CHECK(problem.message);
+        }
+
+        // T is "travel": the script of the way out asks for the annex. The scene goes on
+        // to the end of that frame, and the next begins in the other - whose two bodies
+        // are made by its first step, and which is drawn through a camera of its own.
+        engine->input().injectKey(Key::T, true);
+        runFrames(*engine, 1);
+        engine->input().injectKey(Key::T, false);
+        CHECK(world.sceneName() == "Showcase");
+        runFrames(*engine, 2);
+        CHECK(world.sceneName() == "Annex");
+        CHECK(world.findByName("Sentry").isNull());
+        CHECK_FALSE(world.findByName("Plinth").isNull());
+        CHECK(engine->statistics().scripts.instances == 1);
+        CHECK(engine->statistics().scripts.timers == 0);
+        CHECK(engine->statistics().physics.bodies == 2);
+        CHECK(engine->statistics().physics.characters == 0);
+        CHECK(engine->statistics().animation == AnimationStatistics{});
+        CHECK(engine->sceneRenderer().statistics().meshRenderers == 2);
+        CHECK(engine->sceneRenderer().statistics().views == 1);
+        // And back, where everything starts anew: the clock at nothing, the sentry at
+        // the beginning of its beat.
+        engine->input().injectKey(Key::T, true);
+        runFrames(*engine, 1);
+        engine->input().injectKey(Key::T, false);
+        runFrames(*engine, 2);
+        CHECK(world.sceneName() == "Showcase");
+        CHECK(world.findByName("Plinth").isNull());
+        CHECK_FALSE(world.findByName("Clock").isNull());
+        CHECK(engine->statistics().physics.bodies == 17);
+        CHECK(engine->sceneRenderer().statistics().meshRenderers == 30);
+        const Entity back = world.findByName("Sentry");
+        REQUIRE_FALSE(back.isNull());
+        CHECK_NEAR(world.transform(back).position, Vec3(-0.8f, 0.0f, -3.9f), 5.0e-2f);
         for (const ScriptProblem& problem : engine->scripts().problems()) {
             FAIL_CHECK(problem.message);
         }

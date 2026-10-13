@@ -13,6 +13,7 @@
 #include "cordite/engine/EngineComponents.h"
 #include "cordite/engine/Project.h"
 #include "cordite/engine/SceneAssets.h"
+#include "cordite/engine/SceneChange.h"
 #include "cordite/math/Color.h"
 #include "cordite/math/Equirectangular.h"
 #include "cordite/math/Math.h"
@@ -37,6 +38,7 @@
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <optional>
 #include <set>
 #include <string>
 #include <variant>
@@ -74,9 +76,25 @@ struct Showcase {
         controls.setMap(test::unwrap(loadInputMap(project.inputMapPath())));
     }
 
+    /// What the engine does where a frame begins: the scene a script asked for in the
+    /// frame before takes the place of the one that is there.
+    void followSceneRequest(ScriptSystem& scripts) {
+        if (const std::optional<Uuid> scene = scripts.takeRequestedScene()) {
+            const Status changed = changeScene({.world = world,
+                                                .components = components,
+                                                .assets = *assets,
+                                                .scripts = scripts,
+                                                .physics = physics.get(),
+                                                .controls = &controls},
+                                               *scene);
+            REQUIRE_MESSAGE(changed.has_value(), test::errorOf(changed));
+        }
+    }
+
     /// A frame of the game, as far as its scripts go: the controls are worked out, every
     /// body is where its entity is, and the scripts run.
     ScriptStatistics play(ScriptSystem& scripts, double deltaSeconds) {
+        followSceneRequest(scripts);
         controls.update(input);
         physics->synchronize(world, *assets);
         const ScriptStatistics statistics = scripts.update({.world = world,
@@ -93,6 +111,7 @@ struct Showcase {
     /// run, the bodies move on, and the scripts are told what met and what parted.
     ScriptStatistics simulate(ScriptSystem& scripts) {
         const double frameSeconds = 1.0 / 60.0;
+        followSceneRequest(scripts);
         controls.update(input);
         const ScriptContext context = {.world = world,
                                        .components = components,
@@ -378,6 +397,55 @@ TEST_SUITE("Showcase") {
         for (const ScriptProblem& problem : scripts->problems()) {
             FAIL_CHECK(problem.message);
         }
+    }
+
+    TEST_CASE("whoever plays the showcase travels to its annex, and back") {
+        Showcase showcase;
+        const std::unique_ptr<ScriptSystem> scripts = test::unwrap(ScriptSystem::create());
+        const test::LogCapture log(LogLevel::Info);
+        showcase.play(*scripts, 0.25);
+        REQUIRE(showcase.world.sceneName() == "Showcase");
+
+        // T is "travel". The script that hears it asks for the annex - and the scene
+        // goes on to the end of its frame, the scripts of all its entities with it.
+        showcase.input.injectKey(Key::T, true);
+        ScriptStatistics statistics = showcase.play(*scripts, 0.25);
+        showcase.input.injectKey(Key::T, false);
+        CHECK(log.contains("leaving for scenes/annex.scene.json"));
+        CHECK(showcase.world.sceneName() == "Showcase");
+        // The seven of the scene, and the clock the self-test has set up for a few frames.
+        CHECK(statistics.instances == 8);
+        CHECK_FALSE(log.contains("Clock stopped"));
+
+        // The next frame begins in the annex. The scripts of the showcase have ended -
+        // the clock had its last word - and of its entities none is left; what runs is
+        // the one script of the annex, which is the way back.
+        statistics = showcase.play(*scripts, 0.25);
+        CHECK(showcase.world.sceneName() == "Annex");
+        CHECK(log.contains("Clock stopped"));
+        CHECK(showcase.world.findByName("Sentry").isNull());
+        CHECK_FALSE(showcase.world.findByName("Way back").isNull());
+        CHECK(statistics.instances == 1);
+        CHECK(statistics.timers == 0);
+        CHECK(scripts->seconds() == 0.25);
+        // What the annex needs of the project is there: its scene has no problems.
+        CHECK(findSceneProblems(showcase.world, showcase.components, showcase.assets->database()).empty());
+
+        // And back: the showcase starts anew, with the clock at nothing.
+        showcase.input.injectKey(Key::T, true);
+        showcase.play(*scripts, 0.25);
+        showcase.input.injectKey(Key::T, false);
+        CHECK(log.contains("leaving for scenes/showcase.scene.json"));
+        statistics = showcase.play(*scripts, 0.25);
+        CHECK(showcase.world.sceneName() == "Showcase");
+        CHECK(showcase.world.findByName("Way back").isNull());
+        CHECK_FALSE(showcase.world.findByName("Clock").isNull());
+        CHECK(statistics.instances == 7);
+        for (const ScriptProblem& problem : scripts->problems()) {
+            FAIL_CHECK(problem.message);
+        }
+        CHECK(log.count(LogLevel::Warn) == 0);
+        CHECK(log.count(LogLevel::Error) == 0);
     }
 
     TEST_CASE("whoever plays the showcase takes the sentry over with the controls of the project") {

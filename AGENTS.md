@@ -934,8 +934,8 @@ are the reference for how one is written: `clock.lua` for what a script is made 
 is, called once and checked. Scripts reach entities and their hierarchy, transforms,
 every component through its properties, vectors and rotations, the time and the ids
 of assets, the controls of the game, and the simulation - rays, what is within
-reach, gravity, pushes - which tells them what meets what, and they have timers and
-tasks; the loading of scenes is to come.
+reach, gravity, pushes - which tells them what meets what, they have timers and
+tasks, and they ask for another scene; sound is to come, with the audio module.
 Step-by-step guide for giving scripts a function:
 [add-script-function](.claude/skills/add-script-function/SKILL.md).
 
@@ -1071,6 +1071,16 @@ Step-by-step guide for giving scripts a function:
 - **Velocities are properties, pushes are functions.** How fast a body moves is in
   its `RigidBody` and set through `entity:set`; a force, an impulse and a torque are
   not states of anything, and have functions.
+- **A scene changes between two frames, and only after it has been checked.** A
+  script asks (`cordite.scene.load`, which is `ScriptSystem::requestScene`); whoever
+  owns the world takes the request when the frame is over and calls `changeScene`
+  (`engine/SceneChange.h`) - the engine does in `beginFrame`. That reads the file and
+  tries it on a world of its own first, so that a scene that is wrong costs the one
+  that runs nothing; then the scripts end while their entities are still there to
+  say `destroy` to, bodies and poses are forgotten - the new entities may have the
+  very handles the old ones had - and the scene is put into the world. Anything else
+  that is kept per entity of a played world has to be let go of there. The clock of
+  the scripts starts again with the scene.
 - **What scripts are given is pinned by tests**: every function has a signature and
   a description (the catalogue, `ScriptRuntime::functions()`), and what each library
   holds is listed, or counted, in the tests of that library. A function that is

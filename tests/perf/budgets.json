@@ -57,21 +57,21 @@
         "characters": 1,
         "joints": 8,
         // What is scripted: the scripts that are loaded - the clock, the patrol of the
-        // sentry, the self-test of the script API, the lamp that flickers, and the two
-        // that only hear what the simulation tells them, the sentry's post and the ball -
-        // and the entities that run one. The functions of scripts a frame calls: the
-        // updates of the patrol and of the self-test, and in some frames the timer of
-        // the clock, the task of the lamp, and the post when the sentry walks into its
-        // trigger or out of it. What waits for its time: that timer, that task, and for
-        // a moment the timer that lets the post's light go out. And the memory all of Lua
-        // holds: 79 kB stay - the runtime with the functions it gives scripts, and the
-        // six scripts, of which the self-test is half - and Lua lets what it holds
+        // sentry, the self-test of the script API, the lamp that flickers, and the three
+        // that only hear what they are told: the sentry's post, the ball, and the way out
+        // to the annex - and the entities that run one. The functions of scripts a frame
+        // calls: the updates of the patrol and of the self-test, and in some frames the
+        // timer of the clock, the task of the lamp, and the post when the sentry walks
+        // into its trigger or out of it. What waits for its time: that timer, that task,
+        // and for a moment the timer that lets the post's light go out. The memory all of Lua
+        // holds: 82 kB stay - the runtime with the functions it gives scripts, and the
+        // seven scripts, of which the self-test is half - and Lua lets what it holds
         // double before it collects.
-        "scripts": 6,
-        "scriptInstances": 6,
+        "scripts": 7,
+        "scriptInstances": 7,
         "scriptCalls": 5,
         "scriptTimers": 3,
-        "scriptBytes": 170000,
+        "scriptBytes": 175000,
         // The image of the sky is 1.4 MiB of this.
         "textureBytes": 9437184,
 

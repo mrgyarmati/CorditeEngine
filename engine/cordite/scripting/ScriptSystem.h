@@ -109,6 +109,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -272,6 +273,17 @@ public:
     [[nodiscard]] double seconds() const;
     [[nodiscard]] uint64_t updates() const;
     [[nodiscard]] double deltaSeconds() const;
+
+    /// For the functions of the engine that scripts call: a script asks for another
+    /// scene, by the id of the scene asset. Nothing happens to the world here - a script
+    /// is running in it. Of several that ask before the request is taken, the last has
+    /// its way.
+    void requestScene(const Uuid& scene);
+
+    /// The scene a script asked for since this was last asked, if one did. Whoever owns
+    /// the world takes it between two frames and changes the scene (changeScene() in
+    /// engine/SceneChange.h does, and clears this system on the way).
+    [[nodiscard]] std::optional<Uuid> takeRequestedScene();
 
     /// The system that owns the runtime a function was called in.
     [[nodiscard]] static ScriptSystem& of(lua_State* state);
