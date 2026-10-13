@@ -369,16 +369,19 @@ void Engine::updateWorld(WorldClock clock) {
     CORDITE_ASSERT(clock == WorldClock::Stopped || impl.frameOpen, "the clock of the world runs only during a frame");
     // Scripts first: what they decide in a frame - where a character is to walk - is
     // what the simulation does in the same frame. Then bodies: what the simulation moves
-    // is where it is before anything is posed or placed against it.
+    // is where it is before anything is posed or placed against it - and what met and
+    // parted on the way is told to the scripts at once, while it is true.
     if (clock == WorldClock::Running && impl.frameOpen) {
         const auto deltaSeconds = static_cast<float>(impl.deltaSeconds);
-        impl.scriptStatistics = impl.scripts->update({.world = impl.world,
-                                                      .components = impl.components,
-                                                      .assets = *impl.assets,
-                                                      .deltaSeconds = impl.deltaSeconds,
-                                                      .controls = &impl.actions,
-                                                      .physics = impl.physics.get()});
+        const ScriptContext scripted = {.world = impl.world,
+                                        .components = impl.components,
+                                        .assets = *impl.assets,
+                                        .deltaSeconds = impl.deltaSeconds,
+                                        .controls = &impl.actions,
+                                        .physics = impl.physics.get()};
+        impl.scriptStatistics = impl.scripts->update(scripted);
         impl.physicsStatistics = impl.physics->update(impl.world, *impl.assets, deltaSeconds);
+        impl.scriptStatistics = impl.scripts->tellContacts(scripted, impl.physics->events());
         impl.animationStatistics = impl.animation.update(impl.world, *impl.assets, deltaSeconds);
     } else {
         impl.physicsStatistics = impl.physics->synchronize(impl.world, *impl.assets);

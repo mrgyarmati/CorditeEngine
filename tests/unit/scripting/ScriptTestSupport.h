@@ -114,12 +114,14 @@ struct ScriptStage {
 
     /// A frame, as the engine has them: the controls are worked out from what was
     /// pressed and moved since the frame before, then the scripts run, and then the
-    /// simulation moves on, where there is one.
+    /// simulation moves on, where there is one, and the scripts are told what met and
+    /// what parted in it.
     ScriptStatistics update(double deltaSeconds = kScriptFrame) {
         controls.update(input);
-        const ScriptStatistics statistics = scripts->update(context(deltaSeconds));
+        ScriptStatistics statistics = scripts->update(context(deltaSeconds));
         if (physics != nullptr) {
             physics->update(world, *assets, static_cast<float>(deltaSeconds));
+            statistics = scripts->tellContacts(context(deltaSeconds), physics->events());
         }
         input.beginFrame();
         return statistics;

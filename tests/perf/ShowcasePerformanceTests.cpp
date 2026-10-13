@@ -163,9 +163,9 @@ TEST_SUITE("Performance") {
 
         // What stands and lies in the showcase has come to rest by now, and sleeps.
         CHECK(statistics.physics.steps == 1);
-        // But for the two that never do: the trigger over the walkway, and the body that
-        // stands for the sentry.
-        CHECK(statistics.physics.activeBodies <= 2);
+        // But for the three that never do: the triggers over the walkway and at the
+        // sentry's post, and the body that stands for the sentry.
+        CHECK(statistics.physics.activeBodies <= 3);
         checkBudget(budgets, "bodies", statistics.physics.bodies);
         checkBudget(budgets, "geometries", statistics.physics.geometries);
         checkBudget(budgets, "physicsJoints", statistics.physics.joints);

@@ -62,8 +62,9 @@ with and without a window:
 4. The program does its work: it changes the world as it sees fit, then calls
    `Engine::updateWorld()`, which runs the scripts of the entities, steps the
    simulation of the world's bodies and puts the entities where their bodies have
-   gone, plays the animations on by the time of the frame, poses the skeletons and
-   works out where every entity is; it records render passes
+   gone, tells the scripts what met and what parted on the way, plays the animations
+   on by the time of the frame, poses the skeletons and works out where every entity
+   is; it records render passes
    into the command list, and describes its interface with ImGui calls. A game calls
    `Engine::drawWorld()`, which renders the world through its primary camera; the
    editor renders it from the viewport's own camera into the viewport panel instead,
@@ -1535,6 +1536,24 @@ smaller, but the functions scripts call could then only be tested against
 stand-ins, with the real thing tested in the engine suite, which needs a GPU. As it
 is, the tests of the script API press real keys into a real `InputActions` and cast
 rays at real bodies, without a window.
+
+### Both are told what met, each from its own side
+
+When two bodies begin to touch, the simulation says so once, of a first and a
+second entity. Scripts hear it twice: the script of each is called with the other
+entity, and the `normal` it is given is the way from itself to the other. A script
+is written from the point of view of one entity, and should not have to ask whether
+it was the first or the second - which is an accident of the order bodies were
+made in. The same holds for a trigger: the entity that has it and the one that
+walked in are both told, with the same function.
+
+The telling happens right after the step, not with the scripts' update of the next
+frame: then what is said is still true when it is heard, and a script that reacts
+by changing a component - a light, a name - has done so before the frame is drawn.
+The other entity may still be gone by the time its name is said, because the
+simulation says that two bodies parted when one of them was destroyed; a script
+gets the value it knew the entity by, so that what it kept under that value can be
+found and dropped, and `isValid()` says the rest.
 
 ### The showcase tests the script API from inside the game
 

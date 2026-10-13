@@ -5,6 +5,8 @@
 #include "cordite/core/Assert.h"
 #include "cordite/core/Json.h"
 #include "cordite/core/Log.h"
+#include "cordite/math/Math.h"
+#include "cordite/physics/PhysicsSystem.h"
 #include "cordite/platform/InputMap.h"
 #include "cordite/scripting/Lua.h"
 #include "cordite/scripting/ScriptBindings.h"
@@ -16,6 +18,8 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
 #include <optional>
 #include <ranges>
 #include <span>
@@ -27,6 +31,26 @@
 
 namespace cordite {
 namespace {
+
+/// The functions the engine calls in a script, in the order a frame calls them.
+enum class Callback : uint8_t {
+    Start,
+    Input,
+    Update,
+    CollisionBegan,
+    CollisionEnded,
+    TriggerEntered,
+    TriggerLeft,
+    Destroy,
+    Count,
+};
+
+constexpr size_t kCallbackCount = static_cast<size_t>(Callback::Count);
+
+/// What a script calls them.
+constexpr std::array<const char*, kCallbackCount> kCallbackNames = {
+    "start", "input", "update", "collisionBegan", "collisionEnded", "triggerEntered", "triggerLeft", "destroy",
+};
 
 /// A script that was loaded - or that could not be.
 struct LoadedScript {
@@ -41,14 +65,14 @@ struct LoadedScript {
     int metatable = LUA_NOREF;
     /// The properties it declares, as data.
     Json defaults = Json::object();
-    bool hasStart = false;
-    bool hasInput = false;
-    bool hasUpdate = false;
-    bool hasDestroy = false;
+    /// Which of the functions the engine calls it has.
+    std::array<bool, kCallbackCount> has{};
     /// Why it cannot be loaded - or why its newest text cannot, while an older runs.
     std::string problem;
 
     [[nodiscard]] bool isLoaded() const { return table != LUA_NOREF; }
+
+    [[nodiscard]] bool hears(Callback callback) const { return has[static_cast<size_t>(callback)]; }
 };
 
 enum class Phase : uint8_t {
@@ -73,10 +97,42 @@ struct Instance {
     std::string problem;
 };
 
+/// How two bodies met, as the script of one of them is told it.
+struct Contact {
+    /// Where they touch, in the world.
+    Vec3 position{0.0f};
+    /// Which way the other lies from the one that is told, there.
+    Vec3 normal{0.0f, 1.0f, 0.0f};
+    /// How fast they were closing in on each other, in metres per second.
+    float speed = 0.0f;
+};
+
 /// What a function of a script is called with besides its instance: numbers, yes or no,
-/// and text that outlives the call.
-using Argument = std::variant<double, bool, std::string_view>;
+/// text that outlives the call, entities - also ones that are gone - and contacts.
+using Argument = std::variant<double, bool, std::string_view, Entity, Contact>;
 using Arguments = std::span<const Argument>;
+
+/// Pushes what a script is called with. Raises as pushing a value does.
+void pushArgument(lua_State* state, const Argument& argument) {
+    if (const double* number = std::get_if<double>(&argument); number != nullptr) {
+        lua_pushnumber(state, static_cast<lua_Number>(*number));
+    } else if (const bool* flag = std::get_if<bool>(&argument); flag != nullptr) {
+        lua_pushboolean(state, *flag ? 1 : 0);
+    } else if (const std::string_view* text = std::get_if<std::string_view>(&argument); text != nullptr) {
+        lua_pushlstring(state, text->data(), text->size());
+    } else if (const Entity* entity = std::get_if<Entity>(&argument); entity != nullptr) {
+        pushEntity(state, *entity);
+    } else {
+        const auto& contact = std::get<Contact>(argument);
+        lua_createtable(state, 0, 3);
+        pushVec3(state, contact.position);
+        lua_setfield(state, -2, "position");
+        pushVec3(state, contact.normal);
+        lua_setfield(state, -2, "normal");
+        lua_pushnumber(state, static_cast<lua_Number>(scriptNumber(contact.speed)));
+        lua_setfield(state, -2, "speed");
+    }
+}
 
 /// What kind of value JSON holds, as far as a property of a script cares.
 enum class Kind : uint8_t {
@@ -166,8 +222,10 @@ struct ScriptSystem::Impl {
     /// AssetDatabase::revision() when the scripts were last compared with their files.
     uint64_t assetRevision = 0;
     bool knowsRevision = false;
-    /// Functions of scripts called by the update that is under way.
+    /// Functions of scripts called since the last update began, and how often each of
+    /// those the engine calls has been called since the system was made.
     uint32_t calls = 0;
+    std::array<uint64_t, kCallbackCount> callbackCalls{};
     /// The time the updates have let pass, how many there were, and the time of the last.
     double seconds = 0.0;
     uint64_t updates = 0;
@@ -187,6 +245,19 @@ struct ScriptSystem::Impl {
         Failed,
     };
 
+    /// Says for as long as it lives which world the scripts reach.
+    class Reach {
+    public:
+        Reach(Impl& impl, const ScriptContext& context) : m_impl(impl) { impl.context = &context; }
+
+        ~Reach() { m_impl.context = nullptr; }
+
+        CORDITE_NON_MOVABLE(Reach);
+
+    private:
+        Impl& m_impl;
+    };
+
     [[nodiscard]] LoadedScript& scriptOf(const Uuid& id);
     Loaded load(LoadedScript& script) const;
     void followAssets();
@@ -201,10 +272,14 @@ struct ScriptSystem::Impl {
     void startAll(const World& world);
     void tellInput(const World& world, std::span<const ActionEvent> events);
     void updateAll(const World& world);
+    /// Tells the script of `entity` that its body and that of `other` began to touch,
+    /// or stopped: `mirrored` for the second of the two, to whom the first lies the
+    /// other way.
+    void tellContact(const World& world, Entity entity, Entity other, const CollisionEvent& event, bool mirrored);
 
     void make(Entity entity, const ScriptComponent& component);
     void stop(Entity entity, Instance& instance, std::string_view problem) const;
-    void call(Entity entity, Instance& instance, const char* function, Arguments arguments = {});
+    void call(Entity entity, Instance& instance, Callback callback, Arguments arguments = {});
     void end(Entity entity);
     void release(Instance& instance) const;
     void destroyDoomed();
@@ -282,10 +357,9 @@ ScriptSystem::Impl::Loaded ScriptSystem::Impl::load(LoadedScript& script) const 
             loaded.defaults = std::move(*declared);
         }
         lua_pop(state, 1);
-        loaded.hasStart = hasFunction(state, "start");
-        loaded.hasInput = hasFunction(state, "input");
-        loaded.hasUpdate = hasFunction(state, "update");
-        loaded.hasDestroy = hasFunction(state, "destroy");
+        for (size_t callback = 0; callback < kCallbackCount; ++callback) {
+            loaded.has[callback] = hasFunction(state, kCallbackNames[callback]);
+        }
 
         lua_pushvalue(state, -1);
         loaded.table = luaL_ref(state, LUA_REGISTRYINDEX);
@@ -323,10 +397,7 @@ ScriptSystem::Impl::Loaded ScriptSystem::Impl::load(LoadedScript& script) const 
     script.table = loaded.table;
     script.metatable = loaded.metatable;
     script.defaults = std::move(loaded.defaults);
-    script.hasStart = loaded.hasStart;
-    script.hasInput = loaded.hasInput;
-    script.hasUpdate = loaded.hasUpdate;
-    script.hasDestroy = loaded.hasDestroy;
+    script.has = loaded.has;
     script.problem.clear();
     return Loaded::Fresh;
 }
@@ -444,26 +515,21 @@ void ScriptSystem::Impl::make(Entity entity, const ScriptComponent& component) {
     instance.self = self;
 }
 
-void ScriptSystem::Impl::call(Entity entity, Instance& instance, const char* function, Arguments arguments) {
+void ScriptSystem::Impl::call(Entity entity, Instance& instance, Callback callback, Arguments arguments) {
     ++calls;
+    ++callbackCalls[static_cast<size_t>(callback)];
     const Status called = runtime->protect([&](lua_State* state) {
         lua_rawgeti(state, LUA_REGISTRYINDEX, instance.self);
         // Found through the instance, so that one which has a function of its own for
         // this is called with that.
-        if (lua_getfield(state, -1, function) != LUA_TFUNCTION) {
+        if (lua_getfield(state, -1, kCallbackNames[static_cast<size_t>(callback)]) != LUA_TFUNCTION) {
             return;
         }
         lua_insert(state, -2);
-        luaL_checkstack(state, static_cast<int>(arguments.size()), "the scripts are out of stack");
+        // An argument takes a place, and a few more while it is put together.
+        luaL_checkstack(state, static_cast<int>(arguments.size()) + 4, "the scripts are out of stack");
         for (const Argument& argument : arguments) {
-            if (const double* number = std::get_if<double>(&argument); number != nullptr) {
-                lua_pushnumber(state, static_cast<lua_Number>(*number));
-            } else if (const bool* flag = std::get_if<bool>(&argument); flag != nullptr) {
-                lua_pushboolean(state, *flag ? 1 : 0);
-            } else {
-                const std::string_view text = std::get<std::string_view>(argument);
-                lua_pushlstring(state, text.data(), text.size());
-            }
+            pushArgument(state, argument);
         }
         lua_call(state, 1 + static_cast<int>(arguments.size()), 0);
     });
@@ -493,9 +559,9 @@ void ScriptSystem::Impl::end(Entity entity) {
     // Only what was started is told that it ends, and only while there is an entity
     // to end for.
     const auto script = scripts.find(instance.blueprint.script);
-    if (instance.phase == Phase::Running && instance.started && script != scripts.end() && script->second.hasDestroy &&
-        context->world.isValid(entity)) {
-        call(entity, instance, "destroy");
+    if (instance.phase == Phase::Running && instance.started && script != scripts.end() &&
+        script->second.hears(Callback::Destroy) && context->world.isValid(entity)) {
+        call(entity, instance, Callback::Destroy);
     }
     release(instance);
     instances.erase(found);
@@ -673,8 +739,8 @@ void ScriptSystem::Impl::startAll(const World& world) {
             continue;
         }
         instance->phase = Phase::Running;
-        if (scripts.at(instance->blueprint.script).hasStart) {
-            call(entity, *instance, "start");
+        if (scripts.at(instance->blueprint.script).hears(Callback::Start)) {
+            call(entity, *instance, Callback::Start);
         }
         // A start that an error cut short has not happened: it is tried again when
         // the script is another, and nothing is told that it ends.
@@ -688,11 +754,12 @@ void ScriptSystem::Impl::tellInput(const World& world, std::span<const ActionEve
             // Asked again for every event: the one before may have stopped the script,
             // or switched its entity off. And nothing is called before `start`.
             Instance* instance = running(world, entity);
-            if (instance == nullptr || !instance->started || !scripts.at(instance->blueprint.script).hasInput) {
+            if (instance == nullptr || !instance->started ||
+                !scripts.at(instance->blueprint.script).hears(Callback::Input)) {
                 break;
             }
             const std::array<Argument, 2> arguments = {Argument(event.action), Argument(event.pressed)};
-            call(entity, *instance, "input", arguments);
+            call(entity, *instance, Callback::Input, arguments);
         }
     }
 }
@@ -700,11 +767,47 @@ void ScriptSystem::Impl::tellInput(const World& world, std::span<const ActionEve
 void ScriptSystem::Impl::updateAll(const World& world) {
     for (const Entity entity : wanted) {
         Instance* instance = running(world, entity);
-        if (instance != nullptr && instance->started && scripts.at(instance->blueprint.script).hasUpdate) {
+        if (instance != nullptr && instance->started &&
+            scripts.at(instance->blueprint.script).hears(Callback::Update)) {
             const std::array<Argument, 1> arguments = {Argument(deltaSeconds)};
-            call(entity, *instance, "update", arguments);
+            call(entity, *instance, Callback::Update, arguments);
         }
     }
+}
+
+void ScriptSystem::Impl::tellContact(const World& world, Entity entity, Entity other, const CollisionEvent& event,
+                                     bool mirrored) {
+    Instance* instance = running(world, entity);
+    if (instance == nullptr || !instance->started) {
+        return;
+    }
+    Callback callback = Callback::CollisionBegan;
+    bool met = true;
+    switch (event.type) {
+        case CollisionEventType::CollisionBegan:
+            break;
+        case CollisionEventType::CollisionEnded:
+            callback = Callback::CollisionEnded;
+            met = false;
+            break;
+        case CollisionEventType::TriggerEntered:
+            callback = Callback::TriggerEntered;
+            break;
+        case CollisionEventType::TriggerLeft:
+            callback = Callback::TriggerLeft;
+            met = false;
+            break;
+    }
+    if (!scripts.at(instance->blueprint.script).hears(callback)) {
+        return;
+    }
+    // What parts has no place where it touches: only what meets is told how.
+    const std::array<Argument, 2> arguments = {
+        Argument(other),
+        Argument(Contact{
+            .position = event.position, .normal = mirrored ? -event.normal : event.normal, .speed = event.speed}),
+    };
+    call(entity, *instance, callback, met ? Arguments(arguments) : Arguments(arguments).first(1));
 }
 
 ScriptStatistics ScriptSystem::update(const ScriptContext& context) {
@@ -714,19 +817,7 @@ ScriptStatistics ScriptSystem::update(const ScriptContext& context) {
         return impl.statistics();
     }
 
-    /// Says for as long as the update lasts which world scripts reach.
-    struct Reach {
-        Reach(Impl& impl, const ScriptContext& context) : m_impl(impl) { impl.context = &context; }
-
-        ~Reach() { m_impl.context = nullptr; }
-
-        CORDITE_NON_MOVABLE(Reach);
-
-    private:
-        Impl& m_impl;
-    };
-
-    const Reach reach(impl, context);
+    const Impl::Reach reach(impl, context);
     const World& world = context.world;
     impl.calls = 0;
     impl.followAssets();
@@ -751,6 +842,33 @@ ScriptStatistics ScriptSystem::update(const ScriptContext& context) {
     std::erase_if(impl.order, [&](Entity entity) { return !impl.instances.contains(entity); });
     impl.listProblems();
     return impl.statistics();
+}
+
+ScriptStatistics ScriptSystem::tellContacts(const ScriptContext& context, std::span<const CollisionEvent> events) {
+    Impl& impl = *m_impl;
+    CORDITE_ASSERT(impl.context == nullptr, "the scripts are told of contacts from inside an update of the scripts");
+    if (impl.context != nullptr || events.empty()) {
+        return impl.statistics();
+    }
+    const Impl::Reach reach(impl, context);
+    const World& world = context.world;
+    for (const CollisionEvent& event : events) {
+        impl.tellContact(world, event.first, event.second, event, false);
+        impl.tellContact(world, event.second, event.first, event, true);
+    }
+    impl.destroyDoomed();
+    std::erase_if(impl.order, [&](Entity entity) { return !impl.instances.contains(entity); });
+    impl.listProblems();
+    return impl.statistics();
+}
+
+std::vector<ScriptCallbackInfo> ScriptSystem::callbacks() const {
+    std::vector<ScriptCallbackInfo> result;
+    result.reserve(kCallbackCount);
+    for (size_t callback = 0; callback < kCallbackCount; ++callback) {
+        result.push_back({.name = kCallbackNames[callback], .calls = m_impl->callbackCalls[callback]});
+    }
+    return result;
 }
 
 void ScriptSystem::clear(const ScriptContext& context) {

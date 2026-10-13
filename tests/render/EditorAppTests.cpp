@@ -539,11 +539,11 @@ TEST_SUITE("EditorApp") {
         // The cable of the hoist is posed by its animator: one skeleton of six joints.
         CHECK(statistics["animation"]["animators"] == 1);
         CHECK(statistics["animation"]["joints"] == 6);
-        // The bodies of the scene are there - sixteen of them, two with shapes made of
+        // The bodies of the scene are there - seventeen of them, two with shapes made of
         // meshes and one that stands for the sentry, a character - and none is
         // simulated: the editor shows a scene, it does not run it. Its joints hold
         // nothing while no time passes, and are not made.
-        CHECK(statistics["physics"]["bodies"] == 16);
+        CHECK(statistics["physics"]["bodies"] == 17);
         CHECK(statistics["physics"]["characters"] == 1);
         CHECK(statistics["physics"]["joints"] == 0);
         CHECK(statistics["physics"]["geometries"] == 2);

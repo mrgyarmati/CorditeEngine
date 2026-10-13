@@ -549,6 +549,13 @@ TEST_SUITE("Engine") {
         runFrames(*engine, 2);
         test::checkAgainstReference(test::unwrap(engine->captureFrame()), "showcase-game-960x540");
 
+        // The light at the end of the sentry's beat is dark: nothing stands in the
+        // trigger there.
+        const Entity post = engine->world().findByName("Sentry post");
+        REQUIRE(engine->world().has<LightComponent>(post));
+        const auto brightness = [&] { return engine->world().tryGet<LightComponent>(post)->intensity; };
+        CHECK(brightness() == 0.0f);
+
         // Everything in the scene that is enabled was found; none of it failed to load.
         const SceneRenderStatistics& statistics = engine->sceneRenderer().statistics();
         CHECK(statistics.meshRenderers == 30);
@@ -557,14 +564,15 @@ TEST_SUITE("Engine") {
         CHECK(statistics.skinnedMeshes == 1);
         CHECK(statistics.jointMatrices == 6);
         CHECK(engine->statistics().animation == AnimationStatistics{.animators = 1, .joints = 6});
-        // Sixteen bodies: the floor, the pillar, the cone, the grating, the trigger over
-        // the walkway, the beam of the rack, what the simulation moves - the crate with
-        // its lid, the barrel, the ball, the gas cylinder and the five things that hang
-        // from the rack, each by a joint - and the body that stands for the sentry, which
-        // is a character. Two have shapes made of meshes: the hull around the barrel, the
-        // triangles of the grating. A frame of a sixtieth of a second is one step.
+        // Seventeen bodies: the floor, the pillar, the cone, the grating, the triggers
+        // over the walkway and at the sentry's post, the beam of the rack, what the
+        // simulation moves - the crate with its lid, the barrel, the ball, the gas
+        // cylinder and the five things that hang from the rack, each by a joint - and the
+        // body that stands for the sentry, which is a character. Two have shapes made of
+        // meshes: the hull around the barrel, the triangles of the grating. A frame of a
+        // sixtieth of a second is one step.
         CHECK(engine->statistics().physics.steps == 1);
-        CHECK(engine->statistics().physics.bodies == 16);
+        CHECK(engine->statistics().physics.bodies == 17);
         CHECK(engine->statistics().physics.joints == 5);
         CHECK(engine->statistics().physics.characters == 1);
         CHECK(engine->statistics().physics.geometries == 2);
@@ -616,28 +624,36 @@ TEST_SUITE("Engine") {
         CHECK_NEAR(Vec3(world.computeWorldMatrix(world.findByName("Sentry body"))[3]),
                    Vec3(-0.8f - walked, 0.9f, -3.9f), 2.0e-2f);
 
+        // It has just walked into the trigger of its post, which reaches a little way
+        // along the beat: the simulation told the script there, and the script has lit
+        // the light.
+        CHECK(brightness() == 3.0f);
+
         // The 1.8 metres to the end of its beat take two seconds and a quarter; three
         // seconds into the game it stands there, resting, and two seconds after that it
-        // is on its way back.
+        // is on its way back - out of the trigger, and the light is dark again.
         runFrames(*engine, 88);
         CHECK_NEAR(world.transform(sentry).position, Vec3(-2.6f, 0.0f, -3.9f), 6.0e-2f);
         CHECK_NEAR(controller()->velocity, Vec3(0.0f), 1.0e-2f);
+        CHECK(brightness() == 3.0f);
         runFrames(*engine, 120);
         CHECK_NEAR(controller()->velocity, Vec3(0.8f, 0.0f, 0.0f), 1.0e-2f);
         CHECK(world.transform(sentry).position.x > -1.5f);
         CHECK(world.transform(sentry).position.x < -0.9f);
+        CHECK(brightness() == 0.0f);
 
-        // The three scripts of the showcase run, and none has a problem: the self-test,
+        // The five scripts of the showcase run, and none has a problem: the self-test,
         // which compares what every function of the script API gives with what it should
         // and would have stopped at the first that differs, here with the simulation
-        // running beside it; the patrol; and the clock, which ticks twice a second and
-        // has counted the five seconds. What the self-test made for a few frames - an
-        // entity with a clock of its own - is gone again.
+        // running beside it; the patrol; the clock, which ticks twice a second and has
+        // counted the five seconds; and the two that only hear what they are told - the
+        // post, and the ball. Three of them are updated every frame. What the self-test
+        // made for a few frames - an entity with a clock of its own - is gone again.
         for (const ScriptProblem& problem : engine->scripts().problems()) {
             FAIL_CHECK(problem.message);
         }
-        CHECK(engine->statistics().scripts.scripts == 3);
-        CHECK(engine->statistics().scripts.instances == 3);
+        CHECK(engine->statistics().scripts.scripts == 5);
+        CHECK(engine->statistics().scripts.instances == 5);
         CHECK(engine->statistics().scripts.calls == 3);
         CHECK(world.findByName("Scratch pad").isNull());
         const Entity selfTest = world.findByName("Self-test");
@@ -669,6 +685,19 @@ TEST_SUITE("Engine") {
         runFrames(*engine, 90);
         CHECK(controller()->ground == GroundState::OnGround);
         CHECK(world.transform(sentry).position.y == doctest::Approx(0.0).epsilon(0.01));
+        // The left button of the pointer is "fire", which knocks the ball off the floor:
+        // six newton seconds on two kilograms are three metres a second, upwards. The
+        // simulation tells its script that it has left the floor and, when it comes
+        // down, that the two have met again - which the script counts in its name.
+        const Entity ball = world.findByName("Ball");
+        REQUIRE_FALSE(ball.isNull());
+        engine->input().injectMouseButton(MouseButton::Left, true);
+        runFrames(*engine, 12);
+        CHECK(world.transform(ball).position.y > 0.6f);
+        CHECK(world.name(ball) == "Ball");
+        runFrames(*engine, 48);
+        CHECK(world.name(ball).starts_with("Ball ("));
+
         // Let go of, it takes up its beat again from where it was walked to: back
         // towards the wall, to the end it was heading for, at its own speed.
         engine->input().releaseAll();

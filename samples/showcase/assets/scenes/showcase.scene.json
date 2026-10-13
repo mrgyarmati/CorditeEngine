@@ -826,6 +826,42 @@
             }
         },
         {
+            // A light at the far end of the sentry's beat, lit while the sentry stands
+            // there. Its collider is a trigger - it stops nothing, and the simulation says
+            // what moves into it and out of it - and scripts/post.lua is what hears that
+            // and sets the brightness. The trigger lies below the light, on the beat.
+            "id": "10000000-0000-4000-8000-00000000003a",
+            "name": "Sentry post",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-000000000001",
+            "components": {
+                "Transform": { "position": [-2.6, 2.4, -3.5], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [1.0, 1.0, 1.0] },
+                "Light": {
+                    "type": "point",
+                    "color": [0.45, 0.8, 1.0],
+                    "intensity": 0.0,
+                    "range": 5.0,
+                    "innerConeDegrees": 25.0,
+                    "outerConeDegrees": 35.0,
+                    "channels": 1,
+                    "castsShadows": false,
+                    "shadowResolution": "low"
+                },
+                "Collider": {
+                    "shape": "box",
+                    "size": [0.9, 2.0, 0.9],
+                    "radius": 0.5,
+                    "height": 2.0,
+                    "mesh": null,
+                    "trigger": true,
+                    "center": [0.0, -1.4, -0.4],
+                    "friction": 0.5,
+                    "restitution": 0.0
+                },
+                "Script": { "script": "d198ea09-36ee-8462-a45a-14692a03964f", "properties": {} }
+            }
+        },
+        {
             // Glass: what is behind it shows through. Blended surfaces are drawn last,
             // the farthest first.
             "id": "10000000-0000-4000-8000-00000000001a",
@@ -871,7 +907,11 @@
                     "gravityScale": 1.0,
                     "continuous": false,
                     "allowSleep": true
-                }
+                },
+                // What makes it hop: scripts/hop.lua knocks it upwards when "fire" is pressed -
+                // the left button of the pointer, or the right trigger of a gamepad - and is
+                // told by the simulation what it meets and what it parts from.
+                "Script": { "script": "1b113571-3a4a-818b-a1dc-5bb92c730ba9", "properties": { "impulse": 6.0 } }
             }
         },
         {

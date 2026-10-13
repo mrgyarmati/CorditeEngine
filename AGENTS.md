@@ -555,8 +555,9 @@ Step-by-step guide for adding a component: [add-component](.claude/skills/add-co
   component type and every named option that a scene can hold - not those of
   `transient` properties, which only a running game has - and use every asset and
   every material option of the project, and its scripts must call every function
-  that scripts are given; the `samples` test fails otherwise. Adding a feature
-  includes showing it there.
+  that scripts are given and have every function the engine calls in a script,
+  with something in the scene that calls it; the `samples` test fails otherwise.
+  Adding a feature includes showing it there.
 
 ## Assets
 
@@ -933,8 +934,8 @@ are the reference for how one is written: `clock.lua` for what a script is made 
 is, called once and checked. Scripts reach entities and their hierarchy, transforms,
 every component through its properties, vectors and rotations, the time and the ids
 of assets, the controls of the game, and the simulation - rays, what is within
-reach, gravity, pushes; what touches what, timers and the loading of scenes are to
-come.
+reach, gravity, pushes - which tells them what meets what; timers and the loading
+of scenes are to come.
 Step-by-step guide for giving scripts a function:
 [add-script-function](.claude/skills/add-script-function/SKILL.md).
 
@@ -957,9 +958,22 @@ Step-by-step guide for giving scripts a function:
   in the frame, `update(deltaSeconds)`. Each asks again whether an instance still
   runs (`Impl::running`): the call before may have stopped it or switched its entity
   off - or on, and nothing of an instance is called before its `start` has been
-  through. A new function the engine calls is another walk, a `has...` flag found
-  when the script is loaded - which is also what refuses `input = 5` - and a line
-  in `ScriptSystem.h`.
+  through.
+- **After the simulation has moved on, scripts are told what met and what parted**
+  (`ScriptSystem::tellContacts`, given `PhysicsSystem::events()`):
+  `collisionBegan(other, contact)`, `collisionEnded(other)`,
+  `triggerEntered(other, contact)`, `triggerLeft(other)`. Both entities of an event
+  hear of it, the first and then the second, each with the other - which may be gone
+  by then, and is still the value the script knew it by - and to the second the
+  `normal` of the contact points the other way: it is always the way from the one
+  that is told to the other. What parts has no contact to tell of.
+- **The functions the engine calls in a script are one list** (`Callback` and
+  `kCallbackNames` in `ScriptSystem.cpp`). Being on it is what makes a function
+  found when a script is loaded - which is also what refuses `input = 5` - and
+  counted (`ScriptSystem::callbacks()`). A new one is an entry there, the place that
+  calls it, its lines in `ScriptSystem.h`, and a script of the showcase that has it:
+  the `samples` test runs the showcase with its simulation and names every function
+  on the list that was never called.
 - **Scripts ask about controls by the names of the input map**, and a name the map
   does not have is an error that lists the ones it has - where `InputActions`
   itself answers "never pressed". A typing mistake in a script, or a control that

@@ -35,6 +35,10 @@
 ///     if action == "use" and pressed then self.travelled = 0 end
 /// end
 ///
+/// function Door:collisionBegan(other, contact)    -- the body of the entity has met that of another
+///     if contact.speed > 2.0 then cordite.log.info(other:name() .. " slammed into the door") end
+/// end
+///
 /// function Door:destroy()                  -- when the script is taken off, or a script destroys the entity
 /// end
 ///
@@ -53,6 +57,14 @@
 ///   the input map that was pressed or released in the frame: with its name, and true
 ///   for pressed. What is tapped within a frame is pressed, then released. Only a
 ///   world that is given controls (ScriptContext::controls) has any.
+/// - **collisionBegan**(other, contact), **collisionEnded**(other),
+///   **triggerEntered**(other, contact) and **triggerLeft**(other) are called when
+///   tellContacts() is given what the simulation saw: for either of the two entities
+///   whose bodies met or parted, with the other entity - which may be gone by then,
+///   and says so (`other:isValid()`). `contact` is a table: `position`, where the two
+///   touch in the world; `normal`, which way the other lies from there; and `speed`,
+///   how fast they were closing in on each other, in metres per second. Of a trigger
+///   both hear too: the entity that has it, and what moved into it.
 /// - An entity that is switched off, itself or by something above it, is left alone:
 ///   nothing of its script is called, and one that has not started waits.
 /// - **destroy** is called while the entity is still there: when its Script is removed,
@@ -92,11 +104,14 @@
 #include <memory>
 #include <span>
 #include <string>
+#include <string_view>
+#include <vector>
 
 namespace cordite {
 
 class InputActions;
 class PhysicsSystem;
+struct CollisionEvent;
 
 struct ScriptSystemDesc {
     /// The limits of the scripts. See ScriptRuntimeDesc.
@@ -131,12 +146,23 @@ struct ScriptStatistics {
     /// error has stopped or that could not be made.
     uint32_t instances = 0;
     uint32_t stopped = 0;
-    /// Functions of scripts that the update called.
+    /// Functions of scripts called since the last update() began: by it, and by what
+    /// tellContacts() has told since.
     uint32_t calls = 0;
     /// The memory the scripts hold, in bytes.
     uint64_t memoryBytes = 0;
 
     bool operator==(const ScriptStatistics&) const = default;
+};
+
+/// A function the engine calls in scripts, and how often it has.
+struct ScriptCallbackInfo {
+    /// What a script calls it: "start", "update", "collisionBegan".
+    std::string_view name;
+    /// Calls since the system was made, of all instances together.
+    uint64_t calls = 0;
+
+    bool operator==(const ScriptCallbackInfo&) const = default;
 };
 
 /// Something that keeps a script, or the script of one entity, from running.
@@ -163,6 +189,18 @@ public:
     /// `start` for those that are new and `update` for all that run, and destroys the
     /// entities that scripts asked to have destroyed.
     ScriptStatistics update(const ScriptContext& context);
+
+    /// Tells the scripts what the bodies of their entities did in the step of the
+    /// simulation that followed update(): `events` is PhysicsSystem::events(). For every
+    /// event the script of the first entity is told, then that of the second - if it
+    /// runs, has started and has a function for it. Destroys the entities that scripts
+    /// asked to have destroyed, as update() does. What it returns goes on from what
+    /// update() returned: `calls` counts both.
+    ScriptStatistics tellContacts(const ScriptContext& context, std::span<const CollisionEvent> events);
+
+    /// Every function the engine calls in scripts, in the order a frame calls them, with
+    /// how often each has been called.
+    [[nodiscard]] std::vector<ScriptCallbackInfo> callbacks() const;
 
     /// Ends every instance - with `destroy`, where its entity is still there - and
     /// forgets every script that was loaded: the next update starts from nothing. Call

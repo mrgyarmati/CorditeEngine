@@ -178,9 +178,10 @@ public:
     /// Brings the world up to date for drawing, after the program has changed what it
     /// wanted to change: the scripts of its entities run (ScriptSystem); the simulation
     /// of its bodies moves on by deltaSeconds(), in steps of a fixed length, and the
-    /// entities follow their bodies (PhysicsSystem); the animators play on by as much
-    /// and every skeleton is posed (AnimationSystem); then the world transforms are
-    /// worked out. With the clock stopped no script runs, nothing is simulated and
+    /// entities follow their bodies (PhysicsSystem); the scripts are told what met and
+    /// what parted in those steps; the animators play on by as much and every skeleton
+    /// is posed (AnimationSystem); then the world transforms are worked out. With the
+    /// clock stopped no script runs, nothing is simulated and
     /// nothing plays: bodies are where their entities are, and the poses are those of
     /// the times the animators hold.
     ///

@@ -32,9 +32,11 @@
         // for one pixel in four of the 960 by 540 the tests draw, two half floats each.
         "ambientOcclusionBytes": 518400,
         // The lights in view, and the entries of the cluster lists they are in: how
-        // many clusters the lamps of the showcase reach, all of them together.
+        // many clusters the lamps of the showcase reach, all of them together. The
+        // light at the sentry's post is among them also while it is dark: a script
+        // gives it its brightness, and a light of none is a light still.
         "lights": 6,
-        "lightListEntries": 1250,
+        "lightListEntries": 1310,
         // Three cascades for the sun, one map for the lamp, six for the wall light, in
         // the atlas of the medium shadow quality: 4096 texels a side, four bytes each.
         "shadowMaps": 12,
@@ -44,27 +46,29 @@
         // cube map.
         "environmentBytes": 4193280,
         "meshBytes": 160000,
-        // What is simulated: the bodies of the scene - of which two are awake at most
-        // once the rest has settled, the trigger and the body that stands for the
+        // What is simulated: the bodies of the scene - of which three are awake at most
+        // once the rest has settled, the two triggers and the body that stands for the
         // character - the shapes that were made of meshes for their colliders, the
         // joints that hold bodies together, the characters, and the joints its animators
         // pose.
-        "bodies": 16,
+        "bodies": 17,
         "geometries": 2,
         "physicsJoints": 5,
         "characters": 1,
         "joints": 8,
         // What is scripted: the scripts that are loaded - the clock, the patrol of the
-        // sentry and the self-test of the script API - the entities that run one, the
-        // functions of scripts a frame calls - an update for each - and the memory all of
-        // Lua holds. What stays is 59 kB: the runtime with the functions it gives
-        // scripts, and the three scripts, of which the self-test is half. The patrol
-        // makes a handful of vectors a frame, and Lua lets what it holds double before
-        // it collects.
-        "scripts": 3,
-        "scriptInstances": 3,
-        "scriptCalls": 3,
-        "scriptBytes": 130000,
+        // sentry, the self-test of the script API, and the two that only hear what the
+        // simulation tells them, the sentry's post and the ball - the entities that run
+        // one, the functions of scripts a frame calls - an update for each of the first
+        // three, and the post is told when the sentry walks into its trigger or out of
+        // it - and the memory all of Lua holds. What stays is 71 kB: the runtime with the
+        // functions it gives scripts, and the five scripts, of which the self-test is
+        // half. The patrol makes a handful of vectors a frame, and Lua lets what it
+        // holds double before it collects.
+        "scripts": 5,
+        "scriptInstances": 5,
+        "scriptCalls": 4,
+        "scriptBytes": 150000,
         // The image of the sky is 1.4 MiB of this.
         "textureBytes": 9437184,
 

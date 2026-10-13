@@ -89,6 +89,24 @@ struct Showcase {
         return statistics;
     }
 
+    /// A frame of the game with its simulation, a sixtieth of a second long: the scripts
+    /// run, the bodies move on, and the scripts are told what met and what parted.
+    ScriptStatistics simulate(ScriptSystem& scripts) {
+        const double frameSeconds = 1.0 / 60.0;
+        controls.update(input);
+        const ScriptContext context = {.world = world,
+                                       .components = components,
+                                       .assets = *assets,
+                                       .deltaSeconds = frameSeconds,
+                                       .controls = &controls,
+                                       .physics = physics.get()};
+        scripts.update(context);
+        physics->update(world, *assets, static_cast<float>(frameSeconds));
+        const ScriptStatistics statistics = scripts.tellContacts(context, physics->events());
+        input.beginFrame();
+        return statistics;
+    }
+
     /// Every asset the scene needs: what its components name, and what those need in turn.
     [[nodiscard]] std::set<Uuid> usedAssets() const {
         std::set<Uuid> used;
@@ -274,6 +292,51 @@ TEST_SUITE("Showcase") {
         const test::LogCapture log(LogLevel::Info);
         scripts->clear({.world = showcase.world, .components = showcase.components, .assets = *showcase.assets});
         CHECK(log.contains("Clock (2) stopped"));
+    }
+
+    TEST_CASE("the scripts of the showcase hear of everything the engine tells scripts") {
+        Showcase showcase;
+        const std::unique_ptr<ScriptSystem> scripts = test::unwrap(ScriptSystem::create());
+        const Entity post = showcase.world.findByName("Sentry post");
+        const Entity ball = showcase.world.findByName("Ball");
+        REQUIRE(showcase.world.has<LightComponent>(post));
+        REQUIRE_FALSE(ball.isNull());
+        const auto brightness = [&] { return showcase.world.tryGet<LightComponent>(post)->intensity; };
+        const auto run = [&](int frames) {
+            for (int frame = 0; frame < frames; ++frame) {
+                showcase.simulate(*scripts);
+            }
+        };
+
+        // Half a second in, the left button of the pointer is "fire": the ball is knocked
+        // off the floor by its script, which the simulation then tells that the two have
+        // parted - and, when it comes down, that they have met again, which it counts.
+        run(30);
+        CHECK(showcase.world.name(ball) == "Ball");
+        CHECK(brightness() == 0.0f);
+        showcase.input.injectMouseButton(MouseButton::Left, true);
+        run(15);
+        CHECK(showcase.world.transform(ball).position.y > 0.45f);
+        showcase.input.injectMouseButton(MouseButton::Left, false);
+
+        // Two and a half seconds in, the sentry stands at the end of its beat, in the
+        // trigger of its post: the light there is lit. Two seconds and a half later it
+        // is on its way back, and the light is dark again.
+        run(105);
+        CHECK(brightness() == 3.0f);
+        CHECK(showcase.world.name(ball).starts_with("Ball ("));
+        run(150);
+        CHECK(brightness() == 0.0f);
+
+        for (const ScriptProblem& problem : scripts->problems()) {
+            FAIL_CHECK(problem.message);
+        }
+        // Every function the engine calls in a script has been called in one of them.
+        for (const ScriptCallbackInfo& callback : scripts->callbacks()) {
+            CAPTURE(callback.name);
+            CHECK_MESSAGE(callback.calls > 0, "give a script of the showcase a function `"
+                                                  << callback.name << "`, and something in the scene that it hears of");
+        }
     }
 
     TEST_CASE("whoever plays the showcase takes the sentry over with the controls of the project") {

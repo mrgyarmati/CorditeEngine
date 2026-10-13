@@ -94,6 +94,23 @@ of [AGENTS.md](../../../AGENTS.md)). Everything they can call is a C++ function 
 5. **Document it** where it changes what AGENTS.md or `docs/architecture.md` say, and
    run the pre-commit gate (see the pre-commit-review skill).
 
+## A function the engine calls in a script
+
+`start`, `update`, `input`, `collisionBegan` and the like go the other way: the engine
+calls them. They are one list - `Callback` and `kCallbackNames` in `ScriptSystem.cpp` -
+and a new one is:
+
+1. an entry in both, in the order a frame calls them;
+2. the place that calls it, with `Impl::call(entity, instance, Callback::..., arguments)`
+   for an instance that `Impl::running()` returns and that has started;
+3. its lines in the comment at the top of `ScriptSystem.h`, which is where a script
+   writer reads what is called when, and with what;
+4. tests in `tests/unit/scripting/` - what it is called with, in which order, and that
+   a script that is off, stopped or not started hears nothing;
+5. a script of the showcase that has it, and something in the scene that makes the
+   engine call it: the `samples` test names every function on the list that the
+   showcase never heard.
+
 ## What goes wrong
 
 - **`bad argument #1 to '?'`**: a function was called through another C function. Check
