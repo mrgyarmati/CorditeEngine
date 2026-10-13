@@ -86,6 +86,7 @@ cordite_add_test_suite(scripting
         unit/scripting/ScriptEntityApiTests.cpp
         unit/scripting/ScriptInputApiTests.cpp
         unit/scripting/ScriptMathApiTests.cpp
+        unit/scripting/ScriptPhysicsApiTests.cpp
         unit/scripting/ScriptRuntimeTests.cpp
         unit/scripting/ScriptSystemTests.cpp
         unit/scripting/ScriptTestSupport.h

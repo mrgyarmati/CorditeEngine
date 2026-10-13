@@ -96,6 +96,7 @@
 namespace cordite {
 
 class InputActions;
+class PhysicsSystem;
 
 struct ScriptSystemDesc {
     /// The limits of the scripts. See ScriptRuntimeDesc.
@@ -116,6 +117,10 @@ struct ScriptContext {
     /// worked out for it. None for a world that nothing is played in: no `input` is
     /// called then, and a script that asks about a control is told that there are none.
     const InputActions* controls = nullptr;
+    /// The simulation of the world's bodies (physics/PhysicsSystem.h), as the last frame
+    /// left it: what scripts ask about rays and reach, and push. None for a world that
+    /// is not simulated, and then a script that asks is told so.
+    PhysicsSystem* physics = nullptr;
 };
 
 /// What an update of the scripts did.

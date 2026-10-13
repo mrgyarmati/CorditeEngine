@@ -25,7 +25,7 @@ of [AGENTS.md](../../../AGENTS.md)). Everything they can call is a C++ function 
 
 1. **Write the function** in the file of its library (`ScriptEntityApi.cpp`,
    `ScriptWorldApi.cpp`, `ScriptMathApi.cpp`, `ScriptComponentApi.cpp`,
-   `ScriptInputApi.cpp`), in the anonymous namespace:
+   `ScriptInputApi.cpp`, `ScriptPhysicsApi.cpp`), in the anonymous namespace:
 
    ```cpp
    int entityDistanceTo(lua_State* state) {
@@ -48,9 +48,9 @@ of [AGENTS.md](../../../AGENTS.md)). Everything they can call is a C++ function 
    - Do not keep a pointer or a reference to a component across anything that runs a
      script or changes components.
    - What a function needs of the engine besides the world comes through
-     `ScriptContext` (`ScriptSystem.h`) - the controls are there - as a pointer that
-     is null where a world has none. Say so in an error (`checkControls`); do not
-     answer as if there were.
+     `ScriptContext` (`ScriptSystem.h`) - the controls and the simulation are there -
+     as a pointer that is null where a world has none. Say so in an error
+     (`checkControls`, `checkPhysics`); do not answer as if there were.
    - A script does not destroy entities; it asks (`ScriptSystem::destroyLater`).
    - A list of entities is in the order of the hierarchy.
 

@@ -566,6 +566,7 @@ Result<std::unique_ptr<ScriptSystem>> ScriptSystem::create(const ScriptSystemDes
     CORDITE_TRY(registerWorldApi(runtime));
     CORDITE_TRY(registerComponentApi(runtime));
     CORDITE_TRY(registerInputApi(runtime));
+    CORDITE_TRY(registerPhysicsApi(runtime));
     return system;
 }
 

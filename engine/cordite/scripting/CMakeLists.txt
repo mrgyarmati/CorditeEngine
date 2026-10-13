@@ -9,6 +9,7 @@ cordite_add_module(scripting
         ScriptEntityApi.cpp
         ScriptInputApi.cpp
         ScriptMathApi.cpp
+        ScriptPhysicsApi.cpp
         ScriptRuntime.cpp
         ScriptRuntime.h
         ScriptSystem.cpp
@@ -22,5 +23,6 @@ cordite_add_module(scripting
         platform
         assets
         world
+        physics
     PRIVATE_LIBRARIES
         cordite::lua)

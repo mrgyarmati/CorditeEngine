@@ -82,5 +82,6 @@ void pushQuat(lua_State* state, const Quat& value);
 [[nodiscard]] Status registerWorldApi(ScriptRuntime& runtime);
 [[nodiscard]] Status registerComponentApi(ScriptRuntime& runtime);
 [[nodiscard]] Status registerInputApi(ScriptRuntime& runtime);
+[[nodiscard]] Status registerPhysicsApi(ScriptRuntime& runtime);
 
 } // namespace cordite

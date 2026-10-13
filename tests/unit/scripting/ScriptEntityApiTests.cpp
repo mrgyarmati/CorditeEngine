@@ -196,7 +196,7 @@ TEST_SUITE("ScriptEntityApi") {
                 "script",   "__tostring",  "parent", "setParent", "children",      "position",         "setPosition",
                 "rotation", "setRotation", "scale",  "setScale",  "worldPosition", "setWorldPosition", "worldRotation",
                 "forward",  "right",       "up",     "translate", "rotate",        "lookAt",           "has",
-                "get",      "set",         "add",    "remove",
+                "get",      "set",         "add",    "remove",    "addForce",      "addImpulse",       "addTorque",
             });
     }
 

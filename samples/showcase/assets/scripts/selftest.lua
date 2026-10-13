@@ -227,6 +227,45 @@ function SelfTest:controls()
     self:expect("a control that there is not", not pcall(cordite.input.isDown, "no such control"))
 end
 
+-- The simulation: what a ray hits, what reaches into a ball or a box, what pulls at
+-- everything, and a push. The bodies of a scene are made when the simulation first
+-- moves on, at the end of a frame - so in the frame a game starts with there are none
+-- to find, and this is looked at one frame later.
+function SelfTest:simulation()
+    local floor = cordite.world.find("Floor")
+    -- Straight down onto a corner of the floor, where nothing stands.
+    local above = vec3(-8, 5, 8)
+    local hit = cordite.physics.raycast(above, vec3(0, -1, 0), 20)
+    self:expect("what a ray hits", hit ~= nil and hit.entity == floor)
+    self:expect("where a ray hits", near(hit.position, vec3(-8, 0, 8), 1.0e-3))
+    self:expect("which way a surface faces", near(hit.normal, vec3(0, 1, 0), 1.0e-3))
+    self:expect("how far a ray goes", math.abs(hit.distance - 5) < 1.0e-3)
+    self:expect("a ray that hits nothing", cordite.physics.raycast(above, vec3(0, 1, 0), 20) == nil)
+
+    -- A ball of half a metre touches the floor half a metre sooner.
+    local touched = cordite.physics.sphereCast(above, vec3(0, -1, 0), 0.5, 20)
+    self:expect("what a ball touches", touched ~= nil and touched.entity == floor)
+    self:expect("how far a ball gets", math.abs(touched.distance - 4.5) < 1.0e-3)
+
+    local reached = cordite.physics.overlapSphere(vec3(-8, 0, 8), 0.5)
+    self:expect("what reaches into a ball", #reached == 1 and reached[1] == floor)
+    reached = cordite.physics.overlapBox(vec3(-8, 2, 8), vec3(1, 1, 1), cordite.euler(0, 45, 0))
+    self:expect("a box that nothing reaches into", #reached == 0)
+
+    -- Gravity is handed back as it was found: the scene is to stay as it is.
+    local gravity = cordite.physics.gravity()
+    self:expect("what pulls at everything", gravity.y < 0)
+    cordite.physics.setGravity(gravity)
+
+    -- A push of nothing moves nothing. What it shows is that the ball can be pushed:
+    -- an entity without a body cannot, and says so.
+    local ball = cordite.world.find("Ball")
+    ball:addForce(vec3())
+    ball:addImpulse(vec3())
+    ball:addTorque(vec3())
+    self:expect("an entity without a body", not pcall(self.entity.addImpulse, self.entity, vec3(0, 1, 0)))
+end
+
 function SelfTest:start()
     self.checked = 0
     self.age = 0
@@ -253,6 +292,7 @@ function SelfTest:update(deltaSeconds)
         self:expect("the properties of another script", clock.properties.label == "Scratch")
         self:expect("the next frame", cordite.time.frame() == self.frame + 1)
         self:expect("the time of a frame", deltaSeconds == cordite.time.delta())
+        self:simulation()
     elseif self.age == 3 then
         -- By now the clock has started and run once: what it keeps can be read.
         self:expect("what another script knows", self.scratch:script().ticks == 0)

@@ -128,7 +128,7 @@ by accident.
 | `world` | `core`, `math` | Entities, components and their hierarchy (EnTT), the component registry, scene files |
 | `animation` | `core`, `math`, `assets`, `world` | Poses of skeletons and what makes them: sampling clips, blending, the matrices a mesh is skinned with and the bounds of a posed mesh; the `Animator` component; `AnimationSystem`, which plays the animators of a world |
 | `physics` | `core`, `math`, `assets`, `world` | `PhysicsWorld`: rigid bodies, their shapes - boxes, balls, capsules, the hulls around sets of points and surfaces of triangles - joints between them, the characters that walk among them, stepping, contact events and queries, over Jolt Physics; the `Collider`, `RigidBody`, `Joint` and `CharacterController` components; `PhysicsSystem`, which keeps the entities of a world and the bodies, joints and characters of a simulation in step and makes shapes of mesh assets |
-| `scripting` | `core`, `math`, `platform`, `assets`, `world` | `ScriptRuntime`: the Lua state that gameplay scripts run in and the fence around it - limits on instructions, memory and nesting, the libraries a script may have, an environment for every chunk, the catalogue of the functions scripts are given - and values on their way between JSON and Lua; the `Script` component; `ScriptSystem`, which gives every entity with a script an instance of it and calls its `start`, `update` and `destroy`; the functions scripts are given: entities and their hierarchy, transforms, components through the reflection, vectors and rotations, the time, the ids of assets, the controls |
+| `scripting` | `core`, `math`, `platform`, `assets`, `world`, `physics` | `ScriptRuntime`: the Lua state that gameplay scripts run in and the fence around it - limits on instructions, memory and nesting, the libraries a script may have, an environment for every chunk, the catalogue of the functions scripts are given - and values on their way between JSON and Lua; the `Script` component; `ScriptSystem`, which gives every entity with a script an instance of it and calls its `start`, `update` and `destroy`; the functions scripts are given: entities and their hierarchy, transforms, components through the reflection, vectors and rotations, the time, the ids of assets, the controls, the simulation |
 | `rhi` | `core`, `math`, `platform` | Vulkan device, swapchain and texture readback over NVRHI |
 | `shaders` | `core` | Shader requests and permutation keys, disk cache, `ShaderLibrary` |
 | `shader_compiler` | `core`, `shaders` | Slang to SPIR-V compiler (not linked into exported games) |
@@ -932,8 +932,9 @@ are the reference for how one is written: `clock.lua` for what a script is made 
 `patrol.lua` for one that moves something, `selftest.lua` for every function there
 is, called once and checked. Scripts reach entities and their hierarchy, transforms,
 every component through its properties, vectors and rotations, the time and the ids
-of assets, and the controls of the game; physics queries, timers and the loading of
-scenes are to come.
+of assets, the controls of the game, and the simulation - rays, what is within
+reach, gravity, pushes; what touches what, timers and the loading of scenes are to
+come.
 Step-by-step guide for giving scripts a function:
 [add-script-function](.claude/skills/add-script-function/SKILL.md).
 
@@ -1020,7 +1021,21 @@ Step-by-step guide for giving scripts a function:
   writes into files. On the way back `checkVec3` and `checkQuat` refuse what is not
   finite as a float: no script puts an entity at "not a number".
 - **A list of entities is in the order of the hierarchy**, never in that of a
-  registry: what a script does to "the first" is the same on every run.
+  registry: what a script does to "the first" is the same on every run. What the
+  simulation finds (`overlapSphere`) is in the simulation's order, which is the
+  same every time as well.
+- **To a script a body is the entity that has it.** A ray names the entity it hit,
+  an overlap lists entities, and what is pushed is an entity (`entity:addImpulse`).
+  A body whose entity is gone - destroyed since the simulation last looked - is no
+  entity: `nil` in a hit, and not in a list.
+- **Scripts see the simulation as the last frame left it.** They run before it
+  moves on, so an entity a script has moved in this frame is found where it was,
+  and one that was only just given a collider has no body until the next frame -
+  there are none at all in the frame a game starts with. A function that needs a
+  body says so when there is none; it does not wait, and it does not do nothing.
+- **Velocities are properties, pushes are functions.** How fast a body moves is in
+  its `RigidBody` and set through `entity:set`; a force, an impulse and a torque are
+  not states of anything, and have functions.
 - **What scripts are given is pinned by tests**: every function has a signature and
   a description (the catalogue, `ScriptRuntime::functions()`), and what each library
   holds is listed, or counted, in the tests of that library. A function that is

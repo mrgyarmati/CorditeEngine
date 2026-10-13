@@ -20,12 +20,20 @@
 ///                       "actions": [{"name": "jump", "bindings": [{"key": "Space"}]}], "axes": []})");
 /// stage.input.injectKey(Key::Space, true);
 /// CHECK(stage.line("print(cordite.input.wasPressed('jump'))") == "true");
+///
+/// // A simulation, for scripts that ask about bodies:
+/// stage.simulate();
+/// stage.world.add<ColliderComponent>(stage.world.createEntity("Wall"));
+/// stage.update();                                       // the step that makes the body
+/// CHECK(stage.line("print(cordite.physics.raycast({0, 0, 5}, {0, 0, -1}).entity)") == "Entity(Wall)");
 /// @endcode
 
 #include "cordite/assets/AssetManager.h"
 #include "cordite/core/FileSystem.h"
 #include "cordite/core/Json.h"
 #include "cordite/core/Log.h"
+#include "cordite/physics/PhysicsComponents.h"
+#include "cordite/physics/PhysicsSystem.h"
 #include "cordite/platform/Input.h"
 #include "cordite/platform/InputMap.h"
 #include "cordite/scripting/ScriptComponents.h"
@@ -86,19 +94,33 @@ struct ScriptStage {
     /// Gives the stage the controls that an input file with this text names.
     void setControls(std::string_view json) { controls.setMap(unwrap(parseInputMap(unwrap(parseJson(json))))); }
 
+    /// Gives the stage a simulation, and its scripts the components of one by name.
+    /// From then on a frame of the stage ends as one of the engine goes on: with the
+    /// simulation catching up - which is also what makes the bodies of new entities.
+    void simulate() {
+        physics = unwrap(PhysicsSystem::create());
+        const Status ofPhysics = registerPhysicsComponents(components);
+        REQUIRE_MESSAGE(ofPhysics.has_value(), errorOf(ofPhysics));
+    }
+
     [[nodiscard]] ScriptContext context(double deltaSeconds = kScriptFrame) {
         return {.world = world,
                 .components = components,
                 .assets = *assets,
                 .deltaSeconds = deltaSeconds,
-                .controls = played ? &controls : nullptr};
+                .controls = played ? &controls : nullptr,
+                .physics = physics.get()};
     }
 
     /// A frame, as the engine has them: the controls are worked out from what was
-    /// pressed and moved since the frame before, and then the scripts run.
+    /// pressed and moved since the frame before, then the scripts run, and then the
+    /// simulation moves on, where there is one.
     ScriptStatistics update(double deltaSeconds = kScriptFrame) {
         controls.update(input);
         const ScriptStatistics statistics = scripts->update(context(deltaSeconds));
+        if (physics != nullptr) {
+            physics->update(world, *assets, static_cast<float>(deltaSeconds));
+        }
         input.beginFrame();
         return statistics;
     }
@@ -175,6 +197,8 @@ struct ScriptStage {
     InputActions controls;
     /// Whether the scripts are given the controls at all.
     bool played = true;
+    /// None until simulate() makes one.
+    std::unique_ptr<PhysicsSystem> physics;
     std::unique_ptr<ScriptSystem> scripts;
 
 private:

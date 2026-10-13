@@ -17,6 +17,7 @@
 #include "cordite/math/Equirectangular.h"
 #include "cordite/math/Math.h"
 #include "cordite/physics/PhysicsComponents.h"
+#include "cordite/physics/PhysicsSystem.h"
 #include "cordite/platform/Input.h"
 #include "cordite/platform/InputMap.h"
 #include "cordite/platform/KeyCodes.h"
@@ -62,6 +63,9 @@ struct Showcase {
     /// project made of it, which is what its scripts ask about.
     Input input;
     InputActions controls;
+    /// The bodies of the scene, for the scripts to ask about. No time passes for them
+    /// here: what falls and what is pushed is for the tests of the engine.
+    std::unique_ptr<PhysicsSystem> physics = test::unwrap(PhysicsSystem::create());
 
     Showcase() {
         REQUIRE(registerEngineComponents(components).has_value());
@@ -70,15 +74,17 @@ struct Showcase {
         controls.setMap(test::unwrap(loadInputMap(project.inputMapPath())));
     }
 
-    /// A frame of the game, as far as its scripts go: the controls are worked out, and
-    /// the scripts run.
+    /// A frame of the game, as far as its scripts go: the controls are worked out, every
+    /// body is where its entity is, and the scripts run.
     ScriptStatistics play(ScriptSystem& scripts, double deltaSeconds) {
         controls.update(input);
+        physics->synchronize(world, *assets);
         const ScriptStatistics statistics = scripts.update({.world = world,
                                                             .components = components,
                                                             .assets = *assets,
                                                             .deltaSeconds = deltaSeconds,
-                                                            .controls = &controls});
+                                                            .controls = &controls,
+                                                            .physics = physics.get()});
         input.beginFrame();
         return statistics;
     }
