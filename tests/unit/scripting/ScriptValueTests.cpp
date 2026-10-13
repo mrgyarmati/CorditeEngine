@@ -8,9 +8,12 @@
 
 #include <fmt/format.h>
 
+#include <cstddef>
 #include <cstdint>
+#include <initializer_list>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -280,6 +283,52 @@ TEST_SUITE("ScriptValue") {
             });
             REQUIRE_MESSAGE(status.has_value(), test::errorOf(status));
             CHECK(before == 1);
+            CHECK(after == before);
+        }
+    }
+
+    TEST_CASE("a list has a length: a table with something at 1 to n, and nothing else") {
+        const std::unique_ptr<ScriptRuntime> runtime = makeRuntime();
+
+        struct Case {
+            std::string_view source;
+            std::optional<size_t> length;
+        };
+
+        for (const Case& expected : std::initializer_list<Case>{
+                 {"return {}", 0},
+                 {"return {'one'}", 1},
+                 {"return {1, 2, 3}", 3},
+                 {"return {{}, {1, 2}, {a = 1}}", 3},
+                 {"return {1, cordite.null, 3}", 3},
+                 // Names, with positions or without; a position beyond the last; one that
+                 // is no whole number; a key that is no number at all.
+                 {"return {a = 1}", std::nullopt},
+                 {"return {1, 2, a = 3}", std::nullopt},
+                 {"return {[1] = 1, [3] = 3}", std::nullopt},
+                 {"return {1, nil, 3}", std::nullopt},
+                 {"return {[0] = 1}", std::nullopt},
+                 {"return {[1.5] = 1}", std::nullopt},
+                 {"return {[true] = 1}", std::nullopt},
+                 // What is no table is no list.
+                 {"return 5", std::nullopt},
+                 {"return 'abc'", std::nullopt},
+                 {"return nil", std::nullopt},
+                 {"return cordite.null", std::nullopt},
+             }) {
+            const std::string text(expected.source);
+            CAPTURE(text);
+            std::optional<size_t> length = 99;
+            int before = 0;
+            int after = -1;
+            const Status status = runtime->protect([&](lua_State* state) {
+                ScriptRuntime::runChunk(state, expected.source, "=value", 1);
+                before = lua_gettop(state);
+                length = scriptListLength(state, -1);
+                after = lua_gettop(state);
+            });
+            REQUIRE_MESSAGE(status.has_value(), test::errorOf(status));
+            CHECK(length == expected.length);
             CHECK(after == before);
         }
     }

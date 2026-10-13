@@ -100,8 +100,8 @@ struct ScriptContext {
     /// Where scripts are loaded from.
     AssetManager& assets;
     /// The time that passes with this update, in seconds. Less than no time, and a time
-    /// that is no number, is no time.
-    float deltaSeconds = 0.0f;
+    /// that is no number, is no time. A double, as every number of a script is.
+    double deltaSeconds = 0.0;
 };
 
 /// What an update of the scripts did.
@@ -167,6 +167,19 @@ public:
     /// the entities go. Until then the entity is as valid as ever. Asking twice is
     /// asking once.
     void destroyLater(Entity entity);
+
+    /// For the functions of the engine that scripts call: pushes the table of the
+    /// instance that runs for `entity` onto the stack of `state`, or nil when none
+    /// does - no Script, one that could not be made, one that is switched off and
+    /// has not been made yet.
+    void pushInstance(lua_State* state, Entity entity) const;
+
+    /// The time the scripts have been running, in seconds: the sum of what the updates
+    /// let pass. How many updates there were, and the time the last of them let pass.
+    /// All nothing after clear().
+    [[nodiscard]] double seconds() const;
+    [[nodiscard]] uint64_t updates() const;
+    [[nodiscard]] double deltaSeconds() const;
 
     /// The system that owns the runtime a function was called in.
     [[nodiscard]] static ScriptSystem& of(lua_State* state);

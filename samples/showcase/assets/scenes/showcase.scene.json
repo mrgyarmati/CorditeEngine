@@ -768,6 +768,13 @@
                     "pushForce": 100.0,
                     "gravityScale": 1.0,
                     "airControl": 1.0
+                },
+                // What tells it where to walk: scripts/patrol.lua sets the `movement` of the
+                // CharacterController above, to and fro along the wall. Vectors among the
+                // properties of a script are lists of three numbers.
+                "Script": {
+                    "script": "5be0c878-a450-870b-a3f8-c2c32e914203",
+                    "properties": { "to": [-1.8, 0.0, 0.0], "speed": 0.8 }
                 }
             }
         },

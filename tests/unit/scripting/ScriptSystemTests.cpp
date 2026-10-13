@@ -70,15 +70,15 @@ TEST_SUITE("ScriptSystem") {
         CHECK(first.calls == 2);
         CHECK(first.memoryBytes > 0);
 
-        const ScriptStatistics second = stage.update(0.25f);
+        const ScriptStatistics second = stage.update(0.25);
         CHECK(stage.said() == Lines{"update Door 0.25"});
         CHECK(second.calls == 1);
         CHECK(second.instances == 1);
 
         // Less than no time, and a time that is no number, is no time.
-        stage.update(-1.0f);
-        stage.update(std::numeric_limits<float>::quiet_NaN());
-        stage.update(std::numeric_limits<float>::infinity());
+        stage.update(-1.0);
+        stage.update(std::numeric_limits<double>::quiet_NaN());
+        stage.update(std::numeric_limits<double>::infinity());
         CHECK(stage.said() == Lines{"update Door 0.0", "update Door 0.0", "update Door 0.0"});
         CHECK(stage.problems().empty());
         CHECK(stage.errors().empty());
@@ -114,7 +114,7 @@ TEST_SUITE("ScriptSystem") {
         REQUIRE(stage.world.setParent(branch, first).has_value());
         stage.world.setSiblingIndex(first, 0);
 
-        stage.update(1.0f);
+        stage.update(1.0);
         CHECK(stage.said() == Lines{"start First", "start Branch", "start Leaf", "start Second", "update First 1.0",
                                     "update Branch 1.0", "update Leaf 1.0", "update Second 1.0"});
         static_cast<void>(second);

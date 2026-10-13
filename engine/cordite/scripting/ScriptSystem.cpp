@@ -69,7 +69,7 @@ struct Instance {
 };
 
 /// What a function of a script is called with besides its instance.
-using Argument = std::optional<float>;
+using Argument = std::optional<double>;
 
 /// What kind of value JSON holds, as far as a property of a script cares.
 enum class Kind : uint8_t {
@@ -161,6 +161,10 @@ struct ScriptSystem::Impl {
     bool knowsRevision = false;
     /// Functions of scripts called by the update that is under way.
     uint32_t calls = 0;
+    /// The time the updates have let pass, how many there were, and the time of the last.
+    double seconds = 0.0;
+    uint64_t updates = 0;
+    double deltaSeconds = 0.0;
 
     /// Kept between updates for what they have allocated.
     std::vector<Entity> wanted;
@@ -529,7 +533,11 @@ Result<std::unique_ptr<ScriptSystem>> ScriptSystem::create(const ScriptSystemDes
     CORDITE_TRY_ASSIGN(impl->runtime, ScriptRuntime::create(desc.runtime));
     std::unique_ptr<ScriptSystem> system(new ScriptSystem(std::move(impl)));
     system->m_impl->runtime->setHost(system.get());
-    CORDITE_TRY(registerEntityApi(*system->m_impl->runtime));
+    ScriptRuntime& runtime = *system->m_impl->runtime;
+    CORDITE_TRY(registerMathApi(runtime));
+    CORDITE_TRY(registerEntityApi(runtime));
+    CORDITE_TRY(registerWorldApi(runtime));
+    CORDITE_TRY(registerComponentApi(runtime));
     return system;
 }
 
@@ -551,6 +559,27 @@ const ScriptContext* ScriptSystem::context() const {
 
 std::span<const ScriptProblem> ScriptSystem::problems() const {
     return m_impl->problems;
+}
+
+void ScriptSystem::pushInstance(lua_State* state, Entity entity) const {
+    const auto found = m_impl->instances.find(entity);
+    if (found == m_impl->instances.end() || found->second.self == LUA_NOREF) {
+        lua_pushnil(state);
+    } else {
+        lua_rawgeti(state, LUA_REGISTRYINDEX, found->second.self);
+    }
+}
+
+double ScriptSystem::seconds() const {
+    return m_impl->seconds;
+}
+
+uint64_t ScriptSystem::updates() const {
+    return m_impl->updates;
+}
+
+double ScriptSystem::deltaSeconds() const {
+    return m_impl->deltaSeconds;
 }
 
 void ScriptSystem::destroyLater(Entity entity) {
@@ -625,7 +654,10 @@ ScriptStatistics ScriptSystem::update(const ScriptContext& context) {
             impl.make(entity, *world.tryGet<ScriptComponent>(entity));
         }
     }
-    const float deltaSeconds = std::isfinite(context.deltaSeconds) ? std::max(context.deltaSeconds, 0.0f) : 0.0f;
+    const double deltaSeconds = std::isfinite(context.deltaSeconds) ? std::max(context.deltaSeconds, 0.0) : 0.0;
+    impl.deltaSeconds = deltaSeconds;
+    impl.seconds += deltaSeconds;
+    ++impl.updates;
     const auto runs = [&](Entity entity) -> Instance* {
         const auto found = impl.instances.find(entity);
         const bool reachable = found != impl.instances.end() && found->second.phase != Phase::Stopped &&
@@ -679,6 +711,9 @@ void ScriptSystem::clear(const ScriptContext& context) {
     impl.scriptOrder.clear();
     impl.problems.clear();
     impl.knowsRevision = false;
+    impl.seconds = 0.0;
+    impl.updates = 0;
+    impl.deltaSeconds = 0.0;
     impl.context = nullptr;
 }
 

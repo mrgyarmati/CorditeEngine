@@ -3,15 +3,18 @@ cordite_add_module(scripting
         Lua.h
         LuaConfig.h
         ScriptBindings.h
+        ScriptComponentApi.cpp
         ScriptComponents.cpp
         ScriptComponents.h
         ScriptEntityApi.cpp
+        ScriptMathApi.cpp
         ScriptRuntime.cpp
         ScriptRuntime.h
         ScriptSystem.cpp
         ScriptSystem.h
         ScriptValue.cpp
         ScriptValue.h
+        ScriptWorldApi.cpp
     DEPENDS
         core
         math

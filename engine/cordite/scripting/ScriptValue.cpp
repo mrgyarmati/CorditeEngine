@@ -7,7 +7,9 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <limits>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -151,6 +153,41 @@ Result<Json> readObject(lua_State* state, int index, uint32_t depth) {
     return object;
 }
 
+/// The keys of a table, counted by what they are.
+struct TableKeys {
+    /// What Lua takes for the length of the table: a position that holds something
+    /// and is followed by one that holds nothing.
+    lua_Unsigned length = 0;
+    /// Keys that are whole numbers from 1 to `length`.
+    lua_Unsigned positions = 0;
+    /// Keys that are strings.
+    lua_Unsigned names = 0;
+    /// The first key that is neither, as a message would call it; empty when there is
+    /// none. The count stops at it.
+    std::string other;
+};
+
+/// Counts the keys of the table at `index`, which is absolute. Needs two places on the
+/// stack and leaves it as it was.
+TableKeys countKeys(lua_State* state, int index) {
+    TableKeys keys{.length = lua_rawlen(state, index)};
+    lua_pushnil(state);
+    while (lua_next(state, index) != 0) {
+        lua_pop(state, 1);
+        if (lua_type(state, -1) == LUA_TSTRING) {
+            ++keys.names;
+        } else if (lua_isinteger(state, -1) != 0 && lua_tointeger(state, -1) >= 1 &&
+                   static_cast<lua_Unsigned>(lua_tointeger(state, -1)) <= keys.length) {
+            ++keys.positions;
+        } else {
+            keys.other = describeKey(state);
+            lua_pop(state, 1);
+            return keys;
+        }
+    }
+    return keys;
+}
+
 Result<Json> readTable(lua_State* state, int index, uint32_t depth) {
     if (depth >= kMaxScriptValueDepth) {
         return makeError(ErrorCode::InvalidArgument, "tables are nested more than {} deep, or one of them holds itself",
@@ -158,41 +195,28 @@ Result<Json> readTable(lua_State* state, int index, uint32_t depth) {
     }
     luaL_checkstack(state, 4, "a value is nested too deeply");
 
-    const lua_Unsigned length = lua_rawlen(state, index);
-    lua_Unsigned positions = 0;
-    lua_Unsigned names = 0;
-    lua_pushnil(state);
-    while (lua_next(state, index) != 0) {
-        lua_pop(state, 1);
-        if (lua_type(state, -1) == LUA_TSTRING) {
-            ++names;
-        } else if (lua_isinteger(state, -1) != 0 && lua_tointeger(state, -1) >= 1 &&
-                   static_cast<lua_Unsigned>(lua_tointeger(state, -1)) <= length) {
-            ++positions;
-        } else {
-            std::string key = describeKey(state);
-            lua_pop(state, 1);
-            return makeError(ErrorCode::InvalidArgument,
-                             "a table can be stored when its keys are 1 to n, or names; this one has a key {}", key);
-        }
+    const TableKeys keys = countKeys(state, index);
+    if (!keys.other.empty()) {
+        return makeError(ErrorCode::InvalidArgument,
+                         "a table can be stored when its keys are 1 to n, or names; this one has a key {}", keys.other);
     }
-    if (names == 0 && positions == 0) {
+    if (keys.names == 0 && keys.positions == 0) {
         return Json::object();
     }
-    if (positions == 0) {
+    if (keys.positions == 0) {
         return readObject(state, index, depth);
     }
-    if (names != 0) {
+    if (keys.names != 0) {
         return makeError(ErrorCode::InvalidArgument,
                          "a table can be stored when its keys are 1 to n, or names; this one has both");
     }
-    if (positions != length) {
+    if (keys.positions != keys.length) {
         return makeError(ErrorCode::InvalidArgument,
                          "a table can be stored when its keys are 1 to n; this one has nothing at some of the "
                          "positions up to {}",
-                         length);
+                         keys.length);
     }
-    return readArray(state, index, length, depth);
+    return readArray(state, index, keys.length, depth);
 }
 
 Result<Json> readValue(lua_State* state, int index, uint32_t depth) {
@@ -246,6 +270,18 @@ void pushScriptValue(lua_State* state, const Json& value) {
 
 Result<Json> readScriptValue(lua_State* state, int index) {
     return readValue(state, index, 0);
+}
+
+std::optional<size_t> scriptListLength(lua_State* state, int index) {
+    if (lua_type(state, index) != LUA_TTABLE) {
+        return std::nullopt;
+    }
+    luaL_checkstack(state, 4, "a value is nested too deeply");
+    const TableKeys keys = countKeys(state, lua_absindex(state, index));
+    if (!keys.other.empty() || keys.names != 0 || keys.positions != keys.length) {
+        return std::nullopt;
+    }
+    return static_cast<size_t>(keys.length);
 }
 
 } // namespace cordite

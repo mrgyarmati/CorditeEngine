@@ -128,7 +128,7 @@ by accident.
 | `world` | `core`, `math` | Entities, components and their hierarchy (EnTT), the component registry, scene files |
 | `animation` | `core`, `math`, `assets`, `world` | Poses of skeletons and what makes them: sampling clips, blending, the matrices a mesh is skinned with and the bounds of a posed mesh; the `Animator` component; `AnimationSystem`, which plays the animators of a world |
 | `physics` | `core`, `math`, `assets`, `world` | `PhysicsWorld`: rigid bodies, their shapes - boxes, balls, capsules, the hulls around sets of points and surfaces of triangles - joints between them, the characters that walk among them, stepping, contact events and queries, over Jolt Physics; the `Collider`, `RigidBody`, `Joint` and `CharacterController` components; `PhysicsSystem`, which keeps the entities of a world and the bodies, joints and characters of a simulation in step and makes shapes of mesh assets |
-| `scripting` | `core`, `math`, `assets`, `world` | `ScriptRuntime`: the Lua state that gameplay scripts run in and the fence around it - limits on instructions, memory and nesting, the libraries a script may have, an environment for every chunk, the catalogue of the functions scripts are given - and values on their way between JSON and Lua; the `Script` component; `ScriptSystem`, which gives every entity with a script an instance of it and calls its `start`, `update` and `destroy`; what scripts can ask of an entity |
+| `scripting` | `core`, `math`, `assets`, `world` | `ScriptRuntime`: the Lua state that gameplay scripts run in and the fence around it - limits on instructions, memory and nesting, the libraries a script may have, an environment for every chunk, the catalogue of the functions scripts are given - and values on their way between JSON and Lua; the `Script` component; `ScriptSystem`, which gives every entity with a script an instance of it and calls its `start`, `update` and `destroy`; the functions scripts are given: entities and their hierarchy, transforms, components through the reflection, vectors and rotations, the time, the ids of assets |
 | `rhi` | `core`, `math`, `platform` | Vulkan device, swapchain and texture readback over NVRHI |
 | `shaders` | `core` | Shader requests and permutation keys, disk cache, `ShaderLibrary` |
 | `shader_compiler` | `core`, `shaders` | Slang to SPIR-V compiler (not linked into exported games) |
@@ -515,8 +515,9 @@ Step-by-step guide for adding a component: [add-component](.claude/skills/add-co
 - **Every component is described once**, with `TypeBuilder` (`core/Reflection.h`), and
   registered by its module's `register...Components` function, which
   `registerEngineComponents` calls. That one description drives scene files, the editor
-  inspector, undo and the automation API. A field that is not described cannot be saved
-  or edited; describe every field, with a `description` and, for numbers, a range.
+  inspector, undo, the automation API and what gameplay scripts read and write. A field
+  that is not described cannot be saved, edited or scripted; describe every field, with
+  a `description` and, for numbers, a range.
   A component that is "some settings, and where they apply" can be a struct built on
   the struct of the settings (`PostProcessComponent : PostProcessSettings`): the
   builder describes inherited members like the struct's own.
@@ -924,10 +925,13 @@ Step-by-step guide: [work-with-assets](.claude/skills/work-with-assets/SKILL.md)
 
 Gameplay scripts are Lua 5.4: `.lua` assets that a `Script` component puts on an
 entity, run by `ScriptSystem` (`scripting/ScriptSystem.h`) in a `ScriptRuntime`
-(`scripting/ScriptRuntime.h`). `samples/showcase/assets/scripts/clock.lua` is the
-reference for how a script is written. What scripts can do so far is little - ask
-their entity for its name, switch it on and off, destroy it; the rest of the API is
-built on what is here.
+(`scripting/ScriptRuntime.h`). The scripts under `samples/showcase/assets/scripts/`
+are the reference for how one is written: `clock.lua` for what a script is made of,
+`patrol.lua` for one that moves something. Scripts reach entities and their
+hierarchy, transforms, every component through its properties, vectors and
+rotations, the time and the ids of assets; input, physics queries, timers and the
+loading of scenes are to come. Step-by-step guide for giving scripts a function:
+[add-script-function](.claude/skills/add-script-function/SKILL.md).
 
 - **A script returns a table**: the functions the engine calls - `start`,
   `update(deltaSeconds)`, `destroy` - and `properties`, what a `Script` component
@@ -962,6 +966,42 @@ built on what is here.
 - **A reference to a component does not outlive a call into a script**, nor the
   loading of one: what runs there may add and remove components. Copy what is
   needed first.
+- **Components reach scripts through the reflection, and only through it.**
+  `entity:get`, `set`, `add` and `remove` (`ScriptComponentApi.cpp`) read and write
+  what `TypeBuilder` describes, and every write goes through `TypeInfo::parseEdit`:
+  the kinds, the ranges, what is read-only and the all-or-nothing of an edit hold
+  for a script as they do for the editor. A new component, and a new property, is
+  scriptable without a line written for it. On the way a `Vec3` becomes a
+  `cordite.Vec3`, a `Quat` a `cordite.Quat` and a reference to an entity the entity.
+  What a script changes is not undoable: scripts run in a game, not in a document.
+- **Writing back what was read changes nothing.** `set` leaves out what has the value
+  it had before it asks `parseEdit`, so a script can read a component, change one
+  thing in the table and hand all of it back - whatever else is in there: a read-only
+  property, which is only an attempt with another value, or free-form data with a
+  member that holds nothing, which no Lua table can hold and which would otherwise
+  be lost by a script that never touched it.
+- **A function is written for what is no property**: a question to a system, an
+  action, a computation. `entity:position()` and its like exist because a script
+  moves things in every other line, not because `get("Transform")` could not.
+- **A vector is a table with `x`, `y` and `z`**, a rotation one with `x`, `y`, `z`
+  and `w`. Those the engine makes have `cordite.Vec3` and `cordite.Quat` as their
+  metatables; wherever one is expected a plain table will do, with the names or with
+  the numbers in a row (`{0, 1, 0}`). They are values: what a script is handed is a
+  copy, and changing it changes nothing until it is given back. They are read
+  without asking a metatable (`readNumbers`), so that nothing of a script runs in
+  the middle of a function of the engine.
+- **Scripts compute in doubles; the engine keeps floats.** The arithmetic of
+  vectors and rotations stays in doubles from end to end. A float crosses into Lua
+  as the double that is written the shortest (`scriptNumber`, `pushVec3`,
+  `pushQuat`) - 0.1, not 0.10000000149011612 - which is the number the reflection
+  writes into files. On the way back `checkVec3` and `checkQuat` refuse what is not
+  finite as a float: no script puts an entity at "not a number".
+- **A list of entities is in the order of the hierarchy**, never in that of a
+  registry: what a script does to "the first" is the same on every run.
+- **What scripts are given is pinned by tests**: every function has a signature and
+  a description (the catalogue, `ScriptRuntime::functions()`), and what each library
+  holds is listed, or counted, in the tests of that library. A function that is
+  added or taken away changes a test.
 
 - **A script that is wrong is an error with a message, never the end of the
   program.** That is what the runtime is for, and each of the rules below has a test
@@ -1015,6 +1055,12 @@ built on what is here.
   describes its data anyway. `null` is `nil`, but `cordite.null` inside an array; a
   table is an array when its keys are 1 to n and an object when they are names, with
   its members sorted; anything else is refused with where in the value it is.
+  Whatever else reads a table of a script takes the same view of it
+  (`scriptListLength`): a table with names in it is never the list of what happens
+  to stand at its positions.
+- **A table of a script may hold itself.** Whatever follows tables into each other
+  counts how deep it is and stops (`kMaxScriptValueDepth`); the types of the engine
+  do not bound it - a list of lists says "a table" of every depth.
 
 ## Editor and automation
 

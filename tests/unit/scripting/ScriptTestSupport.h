@@ -10,6 +10,10 @@
 /// const Entity entity = stage.add("Door", door);
 /// stage.update();
 /// CHECK(stage.said() == std::vector<std::string>{"start Door"});     // what the scripts printed
+///
+/// // A piece of Lua, run once by an entity of its own:
+/// CHECK(stage.line("print(entity:name())") == "Probe");
+/// CHECK(stage.refusal("entity:setName()") == "bad argument #1 to 'setName' (string expected, got no value)");
 /// @endcode
 
 #include "cordite/assets/AssetManager.h"
@@ -35,7 +39,7 @@
 namespace cordite::test {
 
 /// The frame the tests of the script system let pass.
-inline constexpr float kScriptFrame = 0.5f;
+inline constexpr double kScriptFrame = 0.5;
 
 /// A directory of assets, a world, and the scripts that run in it.
 struct ScriptStage {
@@ -71,17 +75,64 @@ struct ScriptStage {
         return entity;
     }
 
-    [[nodiscard]] ScriptContext context(float deltaSeconds = kScriptFrame) {
+    [[nodiscard]] ScriptContext context(double deltaSeconds = kScriptFrame) {
         return {.world = world, .components = components, .assets = *assets, .deltaSeconds = deltaSeconds};
     }
 
-    ScriptStatistics update(float deltaSeconds = kScriptFrame) { return scripts->update(context(deltaSeconds)); }
+    ScriptStatistics update(double deltaSeconds = kScriptFrame) { return scripts->update(context(deltaSeconds)); }
 
     /// What the scripts have printed since this was last asked, in order.
     std::vector<std::string> said() { return take(LogLevel::Info); }
 
     /// What was logged as an error since this was last asked.
     std::vector<std::string> errors() { return take(LogLevel::Error); }
+
+    /// Runs `body` once, as what the script of an entity called "Probe" does in an
+    /// update - the entity is `entity` in there, the table of the script `self` - and
+    /// returns what it printed. The probe is gone afterwards; what it made stays. It
+    /// must run without an error. Two updates pass: the one the probe runs in, and one
+    /// in which the scripts find it gone - whatever else runs in the stage runs twice.
+    std::vector<std::string> lines(std::string_view body) {
+        const Entity probe = addProbe(body);
+        update();
+        std::vector<std::string> printed = said();
+        std::string wrong;
+        for (const std::string& problem : problems()) {
+            wrong += problem + "\n";
+        }
+        REQUIRE_MESSAGE(wrong.empty(), wrong);
+        removeProbe(probe);
+        return printed;
+    }
+
+    /// The same for one line, which is all that `body` is expected to print.
+    std::string line(std::string_view body) {
+        const std::vector<std::string> printed = lines(body);
+        REQUIRE(printed.size() == 1);
+        return printed.front();
+    }
+
+    /// What a probe that runs `body` is stopped with: the error, without the entity and
+    /// the file before it and without the calls that led there after it.
+    std::string refusal(std::string_view body) {
+        const Entity probe = addProbe(body);
+        update();
+        static_cast<void>(said());
+        static_cast<void>(errors());
+        const std::vector<std::string> wrong = problems();
+        REQUIRE(wrong.size() == 1);
+        removeProbe(probe);
+        // "'Probe' (scripts/probe1.lua): scripts/probe1.lua:3: what is wrong\nstack traceback: ..."
+        std::string message = wrong.front().substr(0, wrong.front().find('\n'));
+        const std::string file = "scripts/probe" + std::to_string(m_probes) + ".lua";
+        if (const std::string who = "'Probe' (" + file + "): "; message.starts_with(who)) {
+            message.erase(0, who.size());
+        }
+        if (message.starts_with(file + ":")) {
+            message.erase(0, message.find(": ") + 2);
+        }
+        return message;
+    }
 
     /// The messages of the problems there are, in order.
     [[nodiscard]] std::vector<std::string> problems() const {
@@ -99,6 +150,20 @@ struct ScriptStage {
     std::unique_ptr<ScriptSystem> scripts;
 
 private:
+    /// An entity whose script does `body` in its update, on the third line of its file.
+    Entity addProbe(std::string_view body) {
+        const std::string path = "scripts/probe" + std::to_string(++m_probes) + ".lua";
+        const std::string source =
+            "return {update = function(self)\n    local entity = self.entity\n" + std::string(body) + "\nend}";
+        return add("Probe", write(path, source));
+    }
+
+    void removeProbe(Entity probe) {
+        world.destroyEntity(probe);
+        update();
+        static_cast<void>(said());
+    }
+
     std::vector<std::string> take(LogLevel level) {
         const std::vector<LogMessage> messages = m_log.messages();
         size_t& taken = level == LogLevel::Info ? m_saidTaken : m_errorsTaken;
@@ -117,6 +182,7 @@ private:
     }
 
     LogCapture m_log{LogLevel::Info};
+    int m_probes = 0;
     size_t m_saidTaken = 0;
     size_t m_errorsTaken = 0;
 };

@@ -36,7 +36,7 @@ of slowly turning the code base into a ball of mud.
 | `world` | `core`, `math` | The scene: entities, their components and their parent/child hierarchy, stored with EnTT; the registry of component types known by name; scene files. |
 | `animation` | `core`, `math`, `assets`, `world` | Movement of skeletons: the functions that make a pose (sampling a clip, blending two poses, the matrices a mesh is skinned with, the bounds of a posed mesh), the `Animator` component, and `AnimationSystem`, which plays the animators of a world and gives each the pose it is in. |
 | `physics` | `core`, `math`, `assets`, `world` | The simulation of rigid bodies: `PhysicsWorld` holds bodies - shapes, a mass, where each is and how it moves - steps them on in time and answers what a ray hits. Jolt Physics is behind it and shows in none of its headers. The `Collider` and `RigidBody` components say what of a world is simulated, and `PhysicsSystem` keeps the two in step; it is also what makes the shapes of colliders out of mesh assets. |
-| `scripting` | `core`, `math`, `assets`, `world` | Gameplay scripts: `ScriptRuntime` is the Lua state they run in and what keeps a script that is wrong from being more than an error - limits on instructions, memory and nesting, a build of Lua without what reaches the machine, an environment for every chunk - with the catalogue of the functions scripts are given, and the conversion of values between JSON and Lua. The `Script` component names a script for an entity; `ScriptSystem` gives each such entity an instance and calls it. |
+| `scripting` | `core`, `math`, `assets`, `world` | Gameplay scripts: `ScriptRuntime` is the Lua state they run in and what keeps a script that is wrong from being more than an error - limits on instructions, memory and nesting, a build of Lua without what reaches the machine, an environment for every chunk - with the catalogue of the functions scripts are given, and the conversion of values between JSON and Lua. The `Script` component names a script for an entity; `ScriptSystem` gives each such entity an instance and calls it. What scripts call is in the `Script...Api.cpp` sources, one per subject: entities, the world and its hierarchy and transforms, components (through the reflection), vectors and rotations. |
 | `rhi` | `core`, `math`, `platform` | The GPU: Vulkan instance and device creation, the NVRHI device the renderer programs against, the swapchain, and texture readback. The only module that calls Vulkan. |
 | `shaders` | `core` | What a shader *is* to the engine: requests and their permutation keys, compiled binaries, the on-disk cache, and the `ShaderLibrary` that resolves a request from memory, disk or a compiler. |
 | `shader_compiler` | `core`, `shaders` | The Slang-based implementation of `IShaderCompiler`. Kept separate so exported games do not link a compiler. |
@@ -1474,6 +1474,68 @@ An error in a function of an instance stops that instance and no other. Calling 
 again every frame would say the same thing sixty times a second about a table that
 is half changed; what stopped is said once, kept where the editor and an agent can
 ask for it, and run again when the script has another text.
+
+### Scripts reach components through the reflection
+
+A script reads and writes components by the names of their properties:
+`lamp:get("Light", "intensity")`, `lamp:set("Light", { intensity = 4, color = { 1, 0.5, 0 } })`.
+Behind it is the one description every component has (`TypeBuilder`), which already
+drives scene files, the inspector, undo and the automation API - so a component is
+scriptable the moment it is described, and a script is held to the rules a person
+in the editor is held to: a write goes through `TypeInfo::parseEdit`, which checks
+kinds and ranges, refuses what is read-only, and makes a patch only when all of it
+is right. A change that is refused has changed nothing.
+
+The other way is a binding per component: a `Light` object for scripts with an
+`intensity` field, written or generated for every type. It reads a little nicer
+(`light.intensity = 4`) and is faster, since nothing passes through JSON. It was not
+chosen because it is a second description of every component that has to be kept
+in step with the first, and because the speed is not needed where it is paid: a
+script changes a handful of properties in a frame, and what it does in every line -
+moving and turning entities - has functions of its own that touch the transform
+directly (`entity:setPosition`). A function is written for what is no property, and
+for nothing else.
+
+Values take the shape a script works with on the way: a `Vec3` property is a vector
+with arithmetic, a `Quat` a rotation, and a property that refers to an entity is the
+entity itself, or `nil` when there is none - a script never handles the id.
+
+One rule is the script's own. What people write most is read, change, write back:
+
+```lua
+local light = lamp:get("Light")
+light.intensity = light.intensity * 2
+lamp:set("Light", light)
+```
+
+The table that comes back holds everything, and some of it may not be written: a
+character's `velocity` is read-only, and an edit that names it is refused whatever
+value it gives. So `set` first leaves out what has the value it had, and only what
+is left is an edit. That makes writing back what was read a change of nothing, which
+is what it looks like, and keeps the refusal for the script that really tries.
+
+### Vectors are tables, and scripts compute in doubles
+
+A vector is a Lua table with `x`, `y` and `z`, and the ones the engine makes have a
+metatable with the arithmetic. The alternative is a userdata that wraps a `Vec3`:
+less memory, no hash lookups. A table was chosen because it is what a script can
+write down (`{ 0, 1, 0 }` and `{ x = 0, y = 1, z = 0 }` are both vectors wherever one is
+expected, which is how the properties of a script hold them, as plain data) and
+take apart (`way.y = 0`), and because it keeps Lua's numbers: a table holds doubles,
+a `Vec3` single floats.
+
+That last point decides how numbers cross. The arithmetic of vectors and rotations
+is done in doubles, so what a script computes is as exact as anything else in Lua.
+A float of the engine goes to Lua as the double that is written the shortest and
+still is that float - the 0.1 a person typed into a scene, not 0.10000000149011612,
+which is the same float and would make every `print` of a position unreadable and
+every comparison with a literal false. On the way into the engine a number is
+rounded to the float nearest to it, and refused when that is not finite.
+
+Vectors are values. What a script is given is a copy; changing `position.x` moves
+nothing until the vector is handed back. A vector that wrote through to its entity
+would be a reference to a component, kept by a script for as long as it likes - the
+one thing the world does not allow anybody.
 
 ### A chunk has its own globals, and names must exist
 

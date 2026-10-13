@@ -372,8 +372,10 @@ void Engine::updateWorld(WorldClock clock) {
     // is where it is before anything is posed or placed against it.
     if (clock == WorldClock::Running && impl.frameOpen) {
         const auto deltaSeconds = static_cast<float>(impl.deltaSeconds);
-        impl.scriptStatistics = impl.scripts->update(
-            {.world = impl.world, .components = impl.components, .assets = *impl.assets, .deltaSeconds = deltaSeconds});
+        impl.scriptStatistics = impl.scripts->update({.world = impl.world,
+                                                      .components = impl.components,
+                                                      .assets = *impl.assets,
+                                                      .deltaSeconds = impl.deltaSeconds});
         impl.physicsStatistics = impl.physics->update(impl.world, *impl.assets, deltaSeconds);
         impl.animationStatistics = impl.animation.update(impl.world, *impl.assets, deltaSeconds);
     } else {

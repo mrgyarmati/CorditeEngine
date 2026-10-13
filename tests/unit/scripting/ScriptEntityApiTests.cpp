@@ -188,8 +188,16 @@ TEST_SUITE("ScriptEntityApi") {
                 CHECK(function.calls == 0);
             }
         }
-        CHECK(names == std::vector<std::string>{"isValid", "id", "name", "setName", "isEnabled", "setEnabled",
-                                                "destroy", "__tostring"});
+        // Everything a script can ask of an entity, in the order it was given to scripts.
+        CHECK(
+            names ==
+            std::vector<std::string>{
+                "isValid",  "id",          "name",   "setName",   "isEnabled",     "setEnabled",       "destroy",
+                "script",   "__tostring",  "parent", "setParent", "children",      "position",         "setPosition",
+                "rotation", "setRotation", "scale",  "setScale",  "worldPosition", "setWorldPosition", "worldRotation",
+                "forward",  "right",       "up",     "translate", "rotate",        "lookAt",           "has",
+                "get",      "set",         "add",    "remove",
+            });
     }
 
     TEST_CASE("outside an update there is no world for a script to reach") {

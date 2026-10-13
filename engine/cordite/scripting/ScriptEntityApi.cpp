@@ -64,6 +64,12 @@ int entityDestroy(lua_State* state) {
     return 0;
 }
 
+int entityScript(lua_State* state) {
+    const Entity entity = checkEntity(state, 1);
+    ScriptSystem::of(state).pushInstance(state, entity);
+    return 1;
+}
+
 /// What tostring() and print() make of an entity: its name, or that it is gone.
 int entityToString(lua_State* state) {
     const Entity entity = checkEntityValue(state, 1);
@@ -100,6 +106,11 @@ constexpr std::array kEntityFunctions = {
                    "Destroys the entity and everything below it once the scripts of this frame have run. Until "
                    "then it is as valid as ever; the scripts in there have their `destroy` called first.",
                    entityDestroy},
+    ScriptFunction{"script", "entity:script() -> table or nil",
+                   "The table that the entity's script keeps for it - what the script calls `self` - through "
+                   "which one script calls the functions of another and reads what it knows. nil when the entity "
+                   "runs no script.",
+                   entityScript},
     ScriptFunction{"__tostring", "tostring(entity) -> string",
                    "What print() shows for an entity: its name, or that it is gone.", entityToString},
 };
@@ -138,6 +149,10 @@ Entity checkEntityValue(lua_State* state, int index) {
         luaL_typeerror(state, index, "Entity");
     }
     return *static_cast<const Entity*>(entity);
+}
+
+bool isEntityValue(lua_State* state, int index) {
+    return luaL_testudata(state, index, kEntityType) != nullptr;
 }
 
 Entity checkEntity(lua_State* state, int index) {

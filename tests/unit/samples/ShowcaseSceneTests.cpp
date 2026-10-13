@@ -13,6 +13,8 @@
 #include "cordite/engine/SceneAssets.h"
 #include "cordite/math/Color.h"
 #include "cordite/math/Equirectangular.h"
+#include "cordite/math/Math.h"
+#include "cordite/physics/PhysicsComponents.h"
 #include "cordite/platform/InputMap.h"
 #include "cordite/renderer/CameraView.h"
 #include "cordite/renderer/RenderComponents.h"
@@ -220,7 +222,7 @@ TEST_SUITE("Showcase") {
             statistics = scripts->update({.world = showcase.world,
                                           .components = showcase.components,
                                           .assets = *showcase.assets,
-                                          .deltaSeconds = 0.25f});
+                                          .deltaSeconds = 0.25});
         }
         for (const ScriptProblem& problem : scripts->problems()) {
             FAIL_CHECK(problem.message);
@@ -234,6 +236,11 @@ TEST_SUITE("Showcase") {
         CHECK(statistics.calls > 0);
         // The clock ticks twice a second, as its Script says, and shows it in its name.
         CHECK(showcase.world.name(clock) == "Clock (2)");
+        // The sentry has been told where to walk: to the end of its beat, at the speed
+        // its Script gives it. Nothing is simulated here, so it has not gone anywhere.
+        const Entity sentry = showcase.world.findByName("Sentry");
+        REQUIRE(showcase.world.has<CharacterControllerComponent>(sentry));
+        CHECK(showcase.world.tryGet<CharacterControllerComponent>(sentry)->movement == Vec3(-0.8f, 0.0f, 0.0f));
 
         // Ended, a script has the last word.
         const test::LogCapture log(LogLevel::Info);

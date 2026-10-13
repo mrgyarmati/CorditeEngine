@@ -593,24 +593,49 @@ TEST_SUITE("Engine") {
         CHECK(heightOf("Runner") == doctest::Approx(2.1f).epsilon(0.005));
         CHECK(heightOf("Weight") == doctest::Approx(1.5f).epsilon(0.005));
 
-        // The sentry stands by the wall, on the floor - and walks when it is told to: a
-        // metre and a half in a second, turned as it was.
+        // The sentry patrols along the wall. Its script says where its character is to
+        // walk - a property of a component, set in every frame before the simulation
+        // steps - and the simulation of the same frame walks it: on the floor, turned
+        // as it was. Ninety-two frames into the game it has gone as far as 0.8 metres a
+        // second take it.
         World& world = engine->world();
         const Entity sentry = world.findByName("Sentry");
-        auto* controller = world.tryGet<CharacterControllerComponent>(sentry);
-        REQUIRE(controller != nullptr);
-        CHECK(controller->ground == GroundState::OnGround);
-        CHECK(controller->groundEntity == world.id(world.findByName("Floor")));
-        CHECK_NEAR(world.transform(sentry).position, Vec3(-0.8f, 0.0f, -3.9f), 5.0e-3f);
-        controller->movement = Vec3(-1.5f, 0.0f, 0.0f);
-        runFrames(*engine, 60);
-        controller = world.tryGet<CharacterControllerComponent>(sentry);
-        CHECK_NEAR(world.transform(sentry).position, Vec3(-2.3f, 0.0f, -3.9f), 2.0e-2f);
-        CHECK_NEAR(controller->velocity, Vec3(-1.5f, 0.0f, 0.0f), 1.0e-2f);
+        const auto controller = [&] { return world.tryGet<CharacterControllerComponent>(sentry); };
+        REQUIRE(controller() != nullptr);
+        CHECK(controller()->ground == GroundState::OnGround);
+        CHECK(controller()->groundEntity == world.id(world.findByName("Floor")));
+        const float walked = 0.8f * 92.0f / 60.0f;
+        CHECK_NEAR(world.transform(sentry).position, Vec3(-0.8f - walked, 0.0f, -3.9f), 2.0e-2f);
+        CHECK_NEAR(controller()->velocity, Vec3(-0.8f, 0.0f, 0.0f), 1.0e-2f);
         CHECK(world.transform(sentry).rotation == kIdentityQuat);
         // What is seen of it has come along.
-        CHECK_NEAR(Vec3(world.computeWorldMatrix(world.findByName("Sentry body"))[3]), Vec3(-2.3f, 0.9f, -3.9f),
-                   2.0e-2f);
+        CHECK_NEAR(Vec3(world.computeWorldMatrix(world.findByName("Sentry body"))[3]),
+                   Vec3(-0.8f - walked, 0.9f, -3.9f), 2.0e-2f);
+
+        // The 1.8 metres to the end of its beat take two seconds and a quarter; three
+        // seconds into the game it stands there, resting, and two seconds after that it
+        // is on its way back.
+        runFrames(*engine, 88);
+        CHECK_NEAR(world.transform(sentry).position, Vec3(-2.6f, 0.0f, -3.9f), 6.0e-2f);
+        CHECK_NEAR(controller()->velocity, Vec3(0.0f), 1.0e-2f);
+        runFrames(*engine, 120);
+        CHECK_NEAR(controller()->velocity, Vec3(0.8f, 0.0f, 0.0f), 1.0e-2f);
+        CHECK(world.transform(sentry).position.x > -1.5f);
+        CHECK(world.transform(sentry).position.x < -0.9f);
+
+        // Both scripts of the showcase run, and neither has a problem; the clock, which
+        // ticks twice a second, has counted the five seconds.
+        for (const ScriptProblem& problem : engine->scripts().problems()) {
+            FAIL_CHECK(problem.message);
+        }
+        CHECK(engine->statistics().scripts.scripts == 2);
+        CHECK(engine->statistics().scripts.instances == 2);
+        CHECK(engine->statistics().scripts.calls == 2);
+        // Three hundred sixtieths do not add up to five seconds exactly: the tenth tick
+        // is this frame's or the next.
+        const Entity clock = world.findById(Uuid::parse("10000000-0000-4000-8000-000000000038").value_or(Uuid()));
+        REQUIRE_FALSE(clock.isNull());
+        CHECK((world.name(clock) == "Clock (9)" || world.name(clock) == "Clock (10)"));
         checkNoValidationIssues(engine->graphics());
     }
 

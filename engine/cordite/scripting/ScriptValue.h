@@ -35,7 +35,9 @@
 #include "cordite/core/Json.h"
 #include "cordite/core/Result.h"
 
+#include <cstddef>
 #include <cstdint>
+#include <optional>
 
 struct lua_State;
 
@@ -62,5 +64,12 @@ void pushScriptValue(lua_State* state, const Json& value);
 /// with tables in it more than kMaxScriptValueDepth deep. Raises a Lua error only when
 /// the scripts are out of stack.
 [[nodiscard]] Result<Json> readScriptValue(lua_State* state, int index);
+
+/// How long the list is that the value at `index` holds: a table whose keys are 1 to n
+/// and nothing else, which is what readScriptValue() takes for an array - and a table
+/// without keys, a list of nothing. No length for a table with any other key or with
+/// nothing at one of its positions, and for what is no table. Leaves the stack as it
+/// is; raises a Lua error only when the scripts are out of stack.
+[[nodiscard]] std::optional<size_t> scriptListLength(lua_State* state, int index);
 
 } // namespace cordite
