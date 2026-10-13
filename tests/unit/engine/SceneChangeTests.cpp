@@ -3,6 +3,9 @@
 #include "cordite/animation/AnimationSystem.h"
 #include "cordite/assets/AssetDatabase.h"
 #include "cordite/assets/AssetManager.h"
+#include "cordite/assets/Sound.h"
+#include "cordite/audio/AudioComponents.h"
+#include "cordite/audio/AudioSystem.h"
 #include "cordite/core/FileSystem.h"
 #include "cordite/core/Log.h"
 #include "cordite/core/Result.h"
@@ -21,9 +24,11 @@
 
 #include <fmt/format.h>
 
+#include <algorithm>
 #include <memory>
 #include <string>
 #include <string_view>
+#include <vector>
 
 using namespace cordite;
 using cordite::test::unwrap;
@@ -72,6 +77,7 @@ struct Game {
     std::unique_ptr<ScriptSystem> scripts = unwrap(ScriptSystem::create());
     std::unique_ptr<PhysicsSystem> physics = unwrap(PhysicsSystem::create());
     AnimationSystem animation;
+    std::unique_ptr<AudioSystem> audio = unwrap(AudioSystem::create());
     Uuid yard;
     Uuid cellar;
     Uuid witness;
@@ -96,6 +102,18 @@ struct Game {
         return asset->id;
     }
 
+    /// Writes a sound of the project - a tenth of a second, steady - and has the assets
+    /// look again. Returns its id.
+    Uuid writeSound(std::string_view path) {
+        const SoundData sound{.sampleRate = 48000, .channels = 1, .samples = std::vector<float>(4800, 0.5f)};
+        const Status written = writeBinaryFile(directory.path() / pathFromUtf8(path), unwrap(encodeWav(sound)));
+        REQUIRE_MESSAGE(written.has_value(), test::errorOf(written));
+        REQUIRE(assets->refresh().has_value());
+        const AssetInfo* asset = assets->database().findByReference(path);
+        REQUIRE(asset != nullptr);
+        return asset->id;
+    }
+
     /// A frame of the game: the scripts run, and the simulation moves on.
     ScriptStatistics play() {
         const ScriptStatistics statistics = scripts->update({.world = world,
@@ -113,7 +131,8 @@ struct Game {
                 .assets = *assets,
                 .scripts = *scripts,
                 .physics = physics.get(),
-                .animation = &animation};
+                .animation = &animation,
+                .audio = audio.get()};
     }
 };
 
@@ -158,6 +177,30 @@ TEST_SUITE("SceneChange") {
         CHECK(game.scripts->seconds() == 0.5);
         CHECK_FALSE(game.physics->bodyOf(stairs).isNull());
         CHECK(log.count(LogLevel::Error) == 0);
+    }
+
+    TEST_CASE("what sounds in a scene is over when the scene goes, and goes on when it stays") {
+        Game game;
+        const Uuid drone = game.writeSound("sounds/drone.wav");
+        const Entity gate = game.world.findByName("Gate");
+        game.world.add<AudioSourceComponent>(gate) = {.sound = drone, .loop = true, .spatial = false};
+        const AudioVoiceId shot = unwrap(game.audio->play(*game.assets, {.sound = drone, .loop = true}));
+        CHECK(game.audio->update(game.world, *game.assets, 0.01).voices == 2);
+
+        // A scene that cannot be loaded costs the one that is there nothing it sounds.
+        REQUIRE_FALSE(changeScene(game.change(), game.witness).has_value());
+        CHECK(game.audio->isPlaying(shot));
+        CHECK(game.audio->update(game.world, *game.assets, 0.01).voices == 2);
+        CHECK(game.audio->mixed().back() == 1.0f);
+
+        // One that is loaded takes its place, and it is quiet: neither the source of the
+        // gate nor what was played without an entity is heard in the cellar.
+        REQUIRE(changeScene(game.change(), game.cellar).has_value());
+        CHECK_FALSE(game.audio->isPlaying(shot));
+        CHECK(game.audio->mixed().empty());
+        const AudioStatistics statistics = game.audio->update(game.world, *game.assets, 0.01);
+        CHECK(statistics == AudioStatistics());
+        CHECK(std::ranges::all_of(game.audio->mixed(), [](float sample) { return sample == 0.0f; }));
     }
 
     TEST_CASE("a scene can be loaded again: the one that is there starts anew") {

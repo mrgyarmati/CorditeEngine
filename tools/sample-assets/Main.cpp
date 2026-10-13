@@ -1,5 +1,5 @@
 /// @file
-/// Generates the textures and models of the showcase project.
+/// Generates the textures, models and sounds of the showcase project.
 ///
 /// The engine ships no artwork, and its sample must not depend on any: everything in
 /// samples/showcase/assets that is not text is made by this program, from formulas. Run
@@ -9,9 +9,10 @@
 ///
 /// It writes `textures/*.png` - the textures of the materials, and the lookup table that
 /// grades the picture -, `textures/sky.hdr` - the sky that surrounds the scene and
-/// lights it - and `models/*`. The materials and the scene of the showcase are written
-/// by hand and refer to these files by the ids in their `.meta` files, which the editor
-/// creates and which stay the same when the files are regenerated.
+/// lights it -, `models/*` and `sounds/*.wav`. The materials and the scene of the
+/// showcase are written by hand and refer to these files by the ids in their `.meta`
+/// files, which the editor creates and which stay the same when the files are
+/// regenerated.
 
 #include "cordite/assets/Animation.h"
 #include "cordite/assets/GltfDocument.h"
@@ -21,6 +22,7 @@
 #include "cordite/assets/MeshProcessing.h"
 #include "cordite/assets/Primitives.h"
 #include "cordite/assets/Skeleton.h"
+#include "cordite/assets/Sound.h"
 #include "cordite/core/Assert.h"
 #include "cordite/core/FileSystem.h"
 #include "cordite/core/Log.h"
@@ -33,11 +35,13 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <exception>
 #include <filesystem>
 #include <functional>
+#include <numbers>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -823,7 +827,97 @@ Image makeSky() {
     return image;
 }
 
+// --- Sounds ------------------------------------------------------------------------------
+
+/// Frames per second of every generated sound. Nothing in them is higher than a few
+/// thousand hertz, and files of this rate are half the size.
+constexpr uint32_t kSoundRate = 22050;
+
+/// A sound of `seconds` in one channel, each of whose samples is `sample(time)`.
+SoundData makeSound(double seconds, const std::function<double(double)>& sample) {
+    SoundData sound{.sampleRate = kSoundRate, .channels = 1};
+    const auto frames = static_cast<size_t>(std::lround(seconds * kSoundRate));
+    sound.samples.reserve(frames);
+    for (size_t frame = 0; frame < frames; ++frame) {
+        sound.samples.push_back(static_cast<float>(sample(static_cast<double>(frame) / kSoundRate)));
+    }
+    return sound;
+}
+
+/// A sine of `hertz` at `time`.
+double tone(double hertz, double time) {
+    return std::sin(2.0 * std::numbers::pi * hertz * time);
+}
+
+/// From 0 to 1 over the first `attack` seconds of a sound of `length`, and back to 0
+/// over its last `release`: what keeps a sound from beginning and ending with a click.
+double edges(double time, double length, double attack, double release) {
+    return std::clamp(time / attack, 0.0, 1.0) * std::clamp((length - time) / release, 0.0, 1.0);
+}
+
+/// What a lamp sounds like to somebody standing under it: mains hum and its overtones,
+/// swelling a little once a second. Two seconds that go round without a seam, because
+/// every part of it has a whole number of cycles in them.
+SoundData makeHum() {
+    return makeSound(2.0, [](double time) {
+        const double hum =
+            0.30 * tone(50.0, time) + 0.18 * tone(100.0, time) + 0.08 * tone(150.0, time) + 0.04 * tone(200.0, time);
+        return hum * (0.85 + 0.15 * tone(1.0, time));
+    });
+}
+
+/// Eight plucked notes, half a second each, that go round: every note has died away
+/// before the next begins, the last one before the first.
+SoundData makeTune() {
+    constexpr std::array<double, 8> kNotes = {220.0, 261.63, 329.63, 440.0, 392.0, 329.63, 261.63, 329.63};
+    constexpr double kNoteSeconds = 0.5;
+    return makeSound(kNoteSeconds * static_cast<double>(kNotes.size()), [&](double time) {
+        const auto index = std::min(static_cast<size_t>(time / kNoteSeconds), kNotes.size() - 1);
+        const double since = time - static_cast<double>(index) * kNoteSeconds;
+        const double pluck = std::exp(-6.0 * since) * edges(since, kNoteSeconds, 0.008, 0.03);
+        return 0.35 * pluck * (tone(kNotes[index], since) + 0.3 * tone(2.0 * kNotes[index], since));
+    });
+}
+
+/// Something springy leaving the ground: a tone that falls by an octave as it dies away.
+SoundData makeHop() {
+    constexpr double kSeconds = 0.25;
+    return makeSound(kSeconds, [](double time) {
+        // The pitch halves over the sound; the phase is what that adds up to.
+        const double cycles = 220.0 * kSeconds / std::numbers::ln2 * (1.0 - std::pow(0.5, time / kSeconds));
+        return 0.7 * std::exp(-12.0 * time) * edges(time, kSeconds, 0.003, 0.01) * tone(cycles, 1.0);
+    });
+}
+
+/// A radio that calls: two short tones, the second a fifth above the first.
+SoundData makeCall() {
+    constexpr double kBeep = 0.15;
+    return makeSound(0.4, [](double time) {
+        if (time < kBeep) {
+            return 0.4 * edges(time, kBeep, 0.005, 0.005) * tone(880.0, time);
+        }
+        const double since = time - 0.2;
+        if (since >= 0.0 && since < kBeep) {
+            return 0.4 * edges(since, kBeep, 0.005, 0.005) * tone(1320.0, since);
+        }
+        return 0.0;
+    });
+}
+
+/// A click, as of a switch: a high tone that is over almost before it began.
+SoundData makeClick() {
+    constexpr double kSeconds = 0.05;
+    return makeSound(kSeconds, [](double time) {
+        return 0.6 * std::exp(-90.0 * time) * edges(time, kSeconds, 0.001, 0.005) * tone(1800.0, time);
+    });
+}
+
 // --- Output ------------------------------------------------------------------------------
+
+Status writeSound(const std::filesystem::path& file, const SoundData& sound) {
+    CORDITE_TRY_ASSIGN(const std::vector<std::byte> encoded, encodeWav(sound));
+    return writeBinaryFile(file, encoded);
+}
 
 Status writeTextures(const std::filesystem::path& directory, std::string_view name, const TextureSet& textures,
                      bool withEmissive) {
@@ -842,8 +936,10 @@ Status writeTextures(const std::filesystem::path& directory, std::string_view na
 Status generate(const std::filesystem::path& assetDirectory) {
     const std::filesystem::path textureDirectory = assetDirectory / "textures";
     const std::filesystem::path modelDirectory = assetDirectory / "models";
+    const std::filesystem::path soundDirectory = assetDirectory / "sounds";
     CORDITE_TRY(ensureDirectory(textureDirectory));
     CORDITE_TRY(ensureDirectory(modelDirectory));
+    CORDITE_TRY(ensureDirectory(soundDirectory));
 
     CORDITE_TRY(writeTextures(textureDirectory, "concrete", bake(concrete), false));
     CORDITE_TRY(writeTextures(textureDirectory, "plating", bake(plating), false));
@@ -860,6 +956,12 @@ Status generate(const std::filesystem::path& assetDirectory) {
     CORDITE_TRY(exportGltf(barrel, modelDirectory / "barrel.glb"));
     CORDITE_TRY_ASSIGN(const GltfDocument hoist, makeHoist());
     CORDITE_TRY(exportGltf(hoist, modelDirectory / "hoist.gltf"));
+
+    CORDITE_TRY(writeSound(soundDirectory / "hum.wav", makeHum()));
+    CORDITE_TRY(writeSound(soundDirectory / "tune.wav", makeTune()));
+    CORDITE_TRY(writeSound(soundDirectory / "hop.wav", makeHop()));
+    CORDITE_TRY(writeSound(soundDirectory / "call.wav", makeCall()));
+    CORDITE_TRY(writeSound(soundDirectory / "click.wav", makeClick()));
     return {};
 }
 

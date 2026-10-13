@@ -18,7 +18,7 @@
 ///         break;
 ///     }
 ///     updateGame(engine->world(), engine->deltaSeconds());
-///     engine->updateWorld();                            // scripts run, bodies move, animations play
+///     engine->updateWorld();                            // scripts run, bodies move, sounds play
 ///     CORDITE_TRY(engine->drawWorld());                 // or any passes on engine->commandList()
 ///     ImGui::Text("frame %llu", engine->frameIndex());  // the interface is drawn on top
 ///     CORDITE_TRY(engine->endFrame());
@@ -36,6 +36,7 @@
 #include "cordite/animation/AnimationSystem.h"
 #include "cordite/assets/AssetManager.h"
 #include "cordite/assets/Image.h"
+#include "cordite/audio/AudioSystem.h"
 #include "cordite/core/Base.h"
 #include "cordite/core/Result.h"
 #include "cordite/math/Math.h"
@@ -88,6 +89,10 @@ struct FrameStatistics {
     /// How long the scripts took in the frame, in milliseconds: their update, and what
     /// they were told of the simulation after it. Wall time, as cpuMilliseconds is.
     double scriptMilliseconds = 0.0;
+    /// What was heard in the frame - the sounds that were playing, and who listened:
+    /// what the last updateWorld() of the frame did. All zero for a frame without one,
+    /// and for one whose clock was stopped.
+    AudioStatistics audio;
     /// What the scene renderer drew during the frame, all views together.
     SceneRenderStatistics scene;
     /// What the scene renderer holds on the GPU.
@@ -144,6 +149,12 @@ struct EngineDesc {
     /// What the scripts of the world may use up: memory, and instructions in one call.
     /// See ScriptSystemDesc.
     ScriptSystemDesc scripts;
+
+    /// Where the sound of the world goes, and how many sounds are heard at once. Unless
+    /// it is told otherwise it goes nowhere, and is mixed as the frames say time
+    /// passes: a program that is to be heard asks for AudioOutput::Device. See
+    /// AudioSystemDesc.
+    AudioSystemDesc audio;
 };
 
 /// Whether time passes for a world. See Engine::updateWorld().
@@ -183,10 +194,11 @@ public:
     /// of its bodies moves on by deltaSeconds(), in steps of a fixed length, and the
     /// entities follow their bodies (PhysicsSystem); the scripts are told what met and
     /// what parted in those steps; the animators play on by as much and every skeleton
-    /// is posed (AnimationSystem); then the world transforms are worked out. With the
+    /// is posed (AnimationSystem); then the world transforms are worked out, and what
+    /// the audio sources say is heard from where they now are (AudioSystem). With the
     /// clock stopped no script runs, nothing is simulated and
-    /// nothing plays: bodies are where their entities are, and the poses are those of
-    /// the times the animators hold.
+    /// nothing plays: bodies are where their entities are, the poses are those of
+    /// the times the animators hold, and what was sounding is held where it was.
     ///
     /// Call it once per frame with a running clock, between beginFrame() and drawing:
     /// each call lets the time of a frame pass. A running clock outside a frame is a
@@ -274,12 +286,16 @@ public:
     /// (scripts().problems()), and the runtime that is given the functions they call.
     [[nodiscard]] ScriptSystem& scripts();
 
+    /// What plays the sounds of the world: how loud its buses are, sounds that belong
+    /// to no entity (audio().play()), and where the mix goes.
+    [[nodiscard]] AudioSystem& audio();
+
     /// Puts another scene into the world of a game that is running, as changeScene()
     /// (SceneChange.h) does it: the scripts of the scene that is there end, its bodies
-    /// and poses are forgotten, and the scene asset `scene` takes its place. This is
-    /// what happens at the beginning of the next frame when a script calls
-    /// `cordite.scene.load` - there a failure is logged, and the scene that was there
-    /// goes on. Fails as changeScene() does, and with InvalidState during a frame.
+    /// and poses are forgotten, its sounds stop, and the scene asset `scene` takes its
+    /// place. This is what happens at the beginning of the next frame when a script
+    /// calls `cordite.scene.load` - there a failure is logged, and the scene that was
+    /// there goes on. Fails as changeScene() does, and with InvalidState during a frame.
     [[nodiscard]] Status loadScene(const Uuid& scene);
 
     /// Draws worlds. The editor uses it for its viewports as the game does for its view.

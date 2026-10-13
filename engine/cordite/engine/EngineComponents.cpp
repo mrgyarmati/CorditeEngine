@@ -1,6 +1,7 @@
 #include "cordite/engine/EngineComponents.h"
 
 #include "cordite/animation/AnimationComponents.h"
+#include "cordite/audio/AudioComponents.h"
 #include "cordite/physics/PhysicsComponents.h"
 #include "cordite/renderer/RenderComponents.h"
 #include "cordite/scripting/ScriptComponents.h"
@@ -14,6 +15,7 @@ Status registerEngineComponents(ComponentRegistry& registry) {
     CORDITE_TRY(registerRendererComponents(registry));
     CORDITE_TRY(registerAnimationComponents(registry));
     CORDITE_TRY(registerPhysicsComponents(registry));
+    CORDITE_TRY(registerAudioComponents(registry));
     CORDITE_TRY(registerScriptComponents(registry));
     return {};
 }

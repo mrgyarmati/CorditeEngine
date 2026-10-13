@@ -100,6 +100,14 @@ Json describeFrameStatistics(const FrameStatistics& statistics) {
     scripts["memoryBytes"] = statistics.scripts.memoryBytes;
     scripts["milliseconds"] = statistics.scriptMilliseconds;
 
+    Json audio = Json::object();
+    audio["sources"] = statistics.audio.sources;
+    audio["voices"] = statistics.audio.voices;
+    audio["waiting"] = statistics.audio.waiting;
+    audio["listeners"] = statistics.audio.listeners;
+    audio["sounds"] = statistics.audio.sounds;
+    audio["soundBytes"] = statistics.audio.soundBytes;
+
     Json description = Json::object();
     description["frame"] = statistics.frameIndex;
     description["cpuMilliseconds"] = statistics.cpuMilliseconds;
@@ -107,6 +115,7 @@ Json describeFrameStatistics(const FrameStatistics& statistics) {
     description["physics"] = std::move(physics);
     description["animation"] = std::move(animation);
     description["scripts"] = std::move(scripts);
+    description["audio"] = std::move(audio);
     description["scene"] = std::move(scene);
     description["resources"] = std::move(resources);
     return description;
@@ -134,6 +143,11 @@ void StatisticsPanel::draw(const FrameStatistics& statistics, bool& open) {
                         statistics.scripts.stopped, statistics.scripts.calls, statistics.scriptMilliseconds,
                         statistics.scripts.timers,
                         static_cast<double>(statistics.scripts.memoryBytes) / kBytesPerMebibyte));
+        row("Sounds",
+            fmt::format("{} ({} of sources, {} waiting, {} listeners, {:.1f} MiB of {} sounds)",
+                        statistics.audio.voices, statistics.audio.sources, statistics.audio.waiting,
+                        statistics.audio.listeners,
+                        static_cast<double>(statistics.audio.soundBytes) / kBytesPerMebibyte, statistics.audio.sounds));
 
         const SceneRenderStatistics& scene = statistics.scene;
         row("Views", fmt::format("{}", scene.views));

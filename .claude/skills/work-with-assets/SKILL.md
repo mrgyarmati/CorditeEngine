@@ -17,7 +17,7 @@ everything that refers to it keeps working. The code is in `engine/cordite/asset
 | `GltfImporter`, `GltfExporter`, `GltfDocument` | glTF 2.0 in and out |
 | `Image`, `Mipmaps` | Pixels |
 | `ScriptSource` | The text of a `.lua` file; running it is the business of the `scripting` module |
-| `Sound` | `SoundData`, the samples of a sound file, decoded whole; `decodeSound` reads WAV, FLAC and MP3, `encodeWav` writes WAV |
+| `Sound` | `SoundData`, the samples of a sound file, decoded whole; `decodeSound` reads WAV, FLAC and MP3, `encodeWav` writes WAV. An `AudioSource` component plays one (`audio` module) |
 
 On the GPU side, `renderer/RenderResources` turns loaded assets into buffers and textures.
 
@@ -232,7 +232,7 @@ put the `.hdr` file into the project like any other texture.
 - To make one from a formula, see `skyLight` in `tools/sample-assets/Main.cpp`, which
   makes the showcase's, and `Image::saveHdr`.
 
-## Regenerate the showcase's textures and models
+## Regenerate the showcase's textures, models and sounds
 
 They are made by `tools/sample-assets/Main.cpp`, from formulas:
 
@@ -244,6 +244,13 @@ Then look at what changed (the image files, and the showcase in the editor), run
 - the reference images of the showcase will differ and have to be reviewed (skill:
 `render-tests`) - and commit the generator together with its output. The `.meta` files
 stay as they are, so ids do not change.
+
+A sound cannot be looked at, and nobody listens during a test run. Check what was
+written in numbers instead: that it begins and ends at nothing (or it clicks), that its
+peak is well below 1, and for one that loops that the step from its last sample to its
+first is no larger than the steps inside it. `asset.get` says how long it is; a sound
+that is to go round without a seam is made of parts with a whole number of cycles in it,
+as `makeHum` is.
 
 ## Troubleshooting
 

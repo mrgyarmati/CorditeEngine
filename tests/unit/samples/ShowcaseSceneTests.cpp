@@ -8,6 +8,8 @@
 
 #include "cordite/assets/AssetManager.h"
 #include "cordite/assets/Image.h"
+#include "cordite/audio/AudioComponents.h"
+#include "cordite/audio/AudioSystem.h"
 #include "cordite/core/Json.h"
 #include "cordite/core/Log.h"
 #include "cordite/engine/EngineComponents.h"
@@ -266,8 +268,7 @@ TEST_SUITE("Showcase") {
             hasEmbeddedTexture = hasEmbeddedTexture || (asset.type == AssetType::Texture && !asset.subPath.empty());
             hasBinaryModel = hasBinaryModel || (asset.type == AssetType::Model && asset.path.ends_with(".glb"));
         }
-        for (const AssetType type : {AssetType::Texture, AssetType::Mesh, AssetType::Material, AssetType::Model,
-                                     AssetType::Scene, AssetType::Skeleton, AssetType::Animation, AssetType::Script}) {
+        for (const AssetType type : kAssetTypes) {
             CAPTURE(nameOf(type));
             CHECK(projectTypes.contains(type));
         }
@@ -280,6 +281,77 @@ TEST_SUITE("Showcase") {
             CAPTURE(nameOf(mesh));
             CHECK(used.contains(builtinMeshId(mesh)));
         }
+    }
+
+    TEST_CASE("the showcase is heard: its lamp hums, its music plays, and its camera listens") {
+        Showcase showcase;
+        const test::LogCapture log(LogLevel::Warn);
+        const std::unique_ptr<AudioSystem> audio = test::unwrap(AudioSystem::create());
+        showcase.world.updateWorldTransforms();
+        // A second of it; returns the loudest that was heard at the end of it.
+        AudioStatistics statistics;
+        const auto listen = [&] {
+            float loudest = 0.0f;
+            for (int frame = 0; frame < 60; ++frame) {
+                statistics = audio->update(showcase.world, *showcase.assets, 1.0 / 60.0);
+                if (frame >= 30) {
+                    for (const float sample : audio->mixed()) {
+                        loudest = std::max(loudest, std::abs(sample));
+                    }
+                }
+            }
+            return loudest;
+        };
+
+        // Two sources sound from the start, the lamp and the music; the camera hears them.
+        const float both = listen();
+        CHECK(statistics.sources == 2);
+        CHECK(statistics.voices == 2);
+        CHECK(statistics.waiting == 0);
+        CHECK(statistics.sounds == 2);
+        CHECK(statistics.listeners == 1);
+        CHECK(findAudioListener(showcase.world) == findPrimaryCamera(showcase.world));
+        // Heard, and not so loud that the mix has to cut anything off.
+        CHECK(both > 0.05f);
+        CHECK(both < 0.8f);
+
+        // Each of the two by itself: the music with its bus alone, and the lamp - which
+        // has a place, and is heard from where the camera stands - with its own.
+        REQUIRE(audio->setVolume(AudioBus::Ambience, 0.0f).has_value());
+        const float music = listen();
+        CHECK(music > 0.02f);
+        REQUIRE(audio->setVolume(AudioBus::Ambience, 1.0f).has_value());
+        REQUIRE(audio->setVolume(AudioBus::Music, 0.0f).has_value());
+        const float lamp = listen();
+        CHECK(lamp > 0.02f);
+        REQUIRE(audio->setVolume(AudioBus::Ambience, 0.0f).has_value());
+        CHECK(listen() == 0.0f);
+        REQUIRE(audio->setVolume(AudioBus::Ambience, 1.0f).has_value());
+        REQUIRE(audio->setVolume(AudioBus::Music, 1.0f).has_value());
+
+        // Three more wait to be played. Told to, each plays its sound once and says when
+        // it is over: none of them is as long as a second.
+        std::vector<Entity> waiting;
+        for (const char* name : {"Clock", "Sentry post", "Ball"}) {
+            CAPTURE(name);
+            const Entity entity = showcase.world.findByName(name);
+            auto* source = showcase.world.tryGet<AudioSourceComponent>(entity);
+            REQUIRE(source != nullptr);
+            CHECK_FALSE(source->playing);
+            CHECK_FALSE(source->loop);
+            source->playing = true;
+            waiting.push_back(entity);
+        }
+        statistics = audio->update(showcase.world, *showcase.assets, 1.0 / 60.0);
+        CHECK(statistics.sources == 5);
+        CHECK(statistics.sounds == 5);
+        listen();
+        CHECK(statistics.sources == 2);
+        for (const Entity entity : waiting) {
+            CHECK_FALSE(showcase.world.tryGet<AudioSourceComponent>(entity)->playing);
+        }
+        // Nothing about any of it was worth a warning.
+        CHECK(log.messages().empty());
     }
 
     TEST_CASE("the scripts of the showcase run, and none of them has a problem") {

@@ -5,6 +5,9 @@
 #include "cordite/assets/AssetDatabase.h"
 #include "cordite/assets/GltfExporter.h"
 #include "cordite/assets/ImageCompare.h"
+#include "cordite/assets/Sound.h"
+#include "cordite/audio/AudioComponents.h"
+#include "cordite/audio/AudioSystem.h"
 #include "cordite/core/FileSystem.h"
 #include "cordite/core/Log.h"
 #include "cordite/engine/Project.h"
@@ -28,8 +31,10 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 using namespace cordite;
 using cordite::test::checkNoValidationIssues;
@@ -951,6 +956,89 @@ TEST_SUITE("Engine") {
         REQUIRE(engine->endFrame().has_value());
         CHECK(engine->statistics().animation == AnimationStatistics());
         checkNoValidationIssues(engine->graphics());
+    }
+
+    TEST_CASE("the engine plays the sounds of its world while its clock runs") {
+        const TempDirectory directory;
+        // A second of sound, a quarter as loud as can be.
+        const SoundData steady{.sampleRate = 48000, .channels = 1, .samples = std::vector<float>(48000, 0.25f)};
+        REQUIRE(writeBinaryFile(directory.path() / "steady.wav", test::unwrap(encodeWav(steady))).has_value());
+        REQUIRE(writeTextFile(directory.path() / "empty.scene.json",
+                              R"({"format": "cordite.scene", "version": 1, "name": "Empty", "entities": []})")
+                    .has_value());
+        EngineDesc desc = headlessDesc();
+        desc.assetDirectory = directory.path();
+        const std::unique_ptr<Engine> engine = createEngine(desc);
+        // Sound is one of the things a scene can put on an entity, and so is hearing.
+        CHECK(engine->components().find("AudioSource") != nullptr);
+        CHECK(engine->components().find("AudioListener") != nullptr);
+        // Unless it is asked to, an engine plays nothing on the machine it runs on: it
+        // mixes what would be heard, as its frames say time passes.
+        CHECK(engine->audio().output() == AudioOutput::Offline);
+        CHECK(EngineDesc().audio.output == AudioOutput::Offline);
+
+        const AssetDatabase& database = engine->assets().database();
+        const AssetInfo* sound = database.findByReference("steady.wav");
+        const AssetInfo* scene = database.findByReference("empty.scene.json");
+        REQUIRE(sound != nullptr);
+        REQUIRE(scene != nullptr);
+        World& world = engine->world();
+        const Entity speaker = world.createEntity("Speaker");
+        world.add<AudioSourceComponent>(speaker) = {.sound = sound->id, .spatial = false};
+
+        // runFrame() lets the time of a frame pass, and that much is heard: a sixtieth of
+        // a second is 800 frames of sound, left and right.
+        runFrames(*engine, 3);
+        CHECK(engine->statistics().audio.sources == 1);
+        CHECK(engine->statistics().audio.voices == 1);
+        CHECK(engine->statistics().audio.sounds == 1);
+        CHECK(engine->statistics().audio.soundBytes == 48000 * 4);
+        REQUIRE(engine->audio().mixed().size() == 1600);
+        CHECK(engine->audio().mixed().back() == 0.25f);
+
+        // While time does not pass for the world, nothing is heard and nothing moves on.
+        REQUIRE(test::unwrap(engine->beginFrame()));
+        engine->updateWorld(WorldClock::Stopped);
+        CHECK(engine->audio().mixed().empty());
+        REQUIRE(engine->endFrame().has_value());
+        CHECK(engine->statistics().audio == AudioStatistics());
+        CHECK(world.tryGet<AudioSourceComponent>(speaker)->playing);
+
+        // The second of sound is over after sixty frames with a running clock, and not
+        // before - the frame that stood still is not one of them.
+        runFrames(*engine, 56);
+        CHECK(world.tryGet<AudioSourceComponent>(speaker)->playing);
+        CHECK(engine->statistics().audio.sources == 1);
+        runFrames(*engine, 2);
+        CHECK_FALSE(world.tryGet<AudioSourceComponent>(speaker)->playing);
+        CHECK(engine->statistics().audio.sources == 0);
+
+        // What has a place is heard from where the frame has put it: here, five metres
+        // to the right of whoever listens, which the right ear hears five times as well.
+        const Entity ears = world.createEntity("Ears");
+        world.add<AudioListenerComponent>(ears);
+        world.tryGet<Transform>(speaker)->position = Vec3(5.0f, 0.0f, 0.0f);
+        *world.tryGet<AudioSourceComponent>(speaker) = {.sound = sound->id, .loop = true};
+        runFrames(*engine, 12);
+        CHECK(engine->statistics().audio.listeners == 1);
+        const std::span<const float> heard = engine->audio().mixed();
+        REQUIRE(heard.size() == 1600);
+        CHECK(heard[1599] == doctest::Approx(0.05f).epsilon(0.01));
+        CHECK(heard[1598] == doctest::Approx(0.01f).epsilon(0.01));
+
+        // A sound of the program's own, without an entity.
+        const AudioVoiceId shot = test::unwrap(engine->audio().play(engine->assets(), {.sound = sound->id}));
+        runFrames(*engine, 1);
+        CHECK(engine->statistics().audio.voices == 2);
+        CHECK(engine->statistics().audio.sources == 1);
+
+        // Another scene: what sounded in the one that goes is over.
+        REQUIRE(engine->loadScene(scene->id).has_value());
+        CHECK_FALSE(engine->audio().isPlaying(shot));
+        runFrames(*engine, 1);
+        CHECK(engine->statistics().audio == AudioStatistics());
+        CHECK(std::ranges::all_of(engine->audio().mixed(), [](float sample) { return sample == 0.0f; }));
+        CHECK(engine->graphics().validationIssues().empty());
     }
 
     TEST_CASE("the engine runs the scripts of its world while its clock runs") {

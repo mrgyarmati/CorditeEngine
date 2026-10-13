@@ -115,6 +115,9 @@ struct Engine::Impl {
     /// What the last updateWorld() since the frame began did.
     ScriptStatistics scriptStatistics;
     double scriptMilliseconds = 0.0;
+    std::unique_ptr<AudioSystem> audio;
+    /// What the last updateWorld() since the frame began did.
+    AudioStatistics audioStatistics;
 
     Stopwatch frameClock;
     /// Runs from beginFrame() to the moment the frame is handed to the GPU.
@@ -189,6 +192,7 @@ Status Engine::Impl::initialize() {
     CORDITE_TRY(registerEngineComponents(components));
     CORDITE_TRY_ASSIGN(physics, PhysicsSystem::create(desc.physics));
     CORDITE_TRY_ASSIGN(scripts, ScriptSystem::create(desc.scripts));
+    CORDITE_TRY_ASSIGN(audio, AudioSystem::create(desc.audio));
     frameClock.restart();
     return {};
 }
@@ -279,6 +283,7 @@ Result<bool> Engine::beginFrame() {
     impl.animationStatistics = {};
     impl.scriptStatistics = {};
     impl.scriptMilliseconds = 0.0;
+    impl.audioStatistics = {};
     impl.frameOpen = true;
     return true;
 }
@@ -309,6 +314,7 @@ Status Engine::endFrame() {
     impl.statistics.animation = impl.animationStatistics;
     impl.statistics.scripts = impl.scriptStatistics;
     impl.statistics.scriptMilliseconds = impl.scriptMilliseconds;
+    impl.statistics.audio = impl.audioStatistics;
     impl.statistics.scene = impl.sceneRenderer->takeFrameStatistics();
     impl.statistics.resources = impl.sceneRenderer->resources().statistics();
 
@@ -387,8 +393,10 @@ void Engine::updateWorld(WorldClock clock) {
     // Scripts first: what they decide in a frame - where a character is to walk - is
     // what the simulation does in the same frame. Then bodies: what the simulation moves
     // is where it is before anything is posed or placed against it - and what met and
-    // parted on the way is told to the scripts at once, while it is true.
-    if (clock == WorldClock::Running && impl.frameOpen) {
+    // parted on the way is told to the scripts at once, while it is true. Sound last:
+    // it is heard from where everything has come to be.
+    const bool running = clock == WorldClock::Running && impl.frameOpen;
+    if (running) {
         const auto deltaSeconds = static_cast<float>(impl.deltaSeconds);
         const ScriptContext scripted = {.world = impl.world,
                                         .components = impl.components,
@@ -413,6 +421,12 @@ void Engine::updateWorld(WorldClock clock) {
         impl.animationStatistics = impl.animation.evaluate(impl.world, *impl.assets);
     }
     impl.world.updateWorldTransforms();
+    if (running) {
+        impl.audioStatistics = impl.audio->update(impl.world, *impl.assets, impl.deltaSeconds);
+    } else {
+        impl.audio->pause();
+        impl.audioStatistics = {};
+    }
 }
 
 Result<bool> Engine::runFrame() {
@@ -509,6 +523,10 @@ ScriptSystem& Engine::scripts() {
     return *m_impl->scripts;
 }
 
+AudioSystem& Engine::audio() {
+    return *m_impl->audio;
+}
+
 Status Engine::loadScene(const Uuid& scene) {
     Impl& impl = *m_impl;
     CORDITE_ASSERT(!impl.frameOpen, "a scene is loaded between frames, not in one");
@@ -521,6 +539,7 @@ Status Engine::loadScene(const Uuid& scene) {
                         .scripts = *impl.scripts,
                         .physics = impl.physics.get(),
                         .animation = &impl.animation,
+                        .audio = impl.audio.get(),
                         .controls = &impl.actions},
                        scene);
 }

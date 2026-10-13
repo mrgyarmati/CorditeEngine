@@ -72,6 +72,11 @@
         "scriptCalls": 5,
         "scriptTimers": 3,
         "scriptBytes": 175000,
+        // What is heard: the voices that sound at once - the hum of the lamp and the
+        // music - and the samples of their sounds in memory, four bytes each: the hum is
+        // 44100 of them, the music 88200.
+        "audioVoices": 2,
+        "soundBytes": 529200,
         // The image of the sky is 1.4 MiB of this.
         "textureBytes": 9437184,
 

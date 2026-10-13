@@ -1,0 +1,13 @@
+cordite_add_module(audio
+    SOURCES
+        AudioComponents.cpp
+        AudioComponents.h
+        AudioSystem.cpp
+        AudioSystem.h
+    DEPENDS
+        core
+        math
+        assets
+        world
+    PRIVATE_LIBRARIES
+        cordite::miniaudio)

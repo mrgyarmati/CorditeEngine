@@ -51,7 +51,7 @@ Read this file before changing anything. Task-specific walkthroughs live in
 ./scripts/dev.ps1 run -Target cordite-editor       # open the editor without a project
 ./scripts/dev.ps1 run -Target cordite-editor -- --project samples/showcase
 ./scripts/dev.ps1 run -Target cordite-editor -- --headless --validation --project samples/showcase --exec tests/data/editor-smoke.json --frames 3 --screenshot out.png
-./scripts/dev.ps1 run -Target cordite-sample-assets -- samples/showcase/assets   # regenerate the showcase's textures and models
+./scripts/dev.ps1 run -Target cordite-sample-assets -- samples/showcase/assets   # regenerate the showcase's textures, models and sounds
 ```
 
 `dev.ps1` loads the MSVC environment itself, so it works from any shell. It requires
@@ -93,7 +93,7 @@ in that configuration.
 cmake/                 Build helpers: dependencies, compiler options, module/test macros
 engine/cordite/<mod>/  Engine modules (static libraries), one directory each
 editor/                The cordite-editor executable (a thin main around the editor module)
-tools/                 Development tools, such as the generator of the showcase's textures and models
+tools/                 Development tools, such as the generator of the showcase's textures, models and sounds
 shaders/               Engine shader sources (Slang): common/ is shared code, materials/ what a surface is,
                        passes/ one file per pass, ui/ the interface
 samples/showcase/      The project that uses every feature of the engine; tests keep it complete
@@ -128,6 +128,7 @@ by accident.
 | `world` | `core`, `math` | Entities, components and their hierarchy (EnTT), the component registry, scene files |
 | `animation` | `core`, `math`, `assets`, `world` | Poses of skeletons and what makes them: sampling clips, blending, the matrices a mesh is skinned with and the bounds of a posed mesh; the `Animator` component; `AnimationSystem`, which plays the animators of a world |
 | `physics` | `core`, `math`, `assets`, `world` | `PhysicsWorld`: rigid bodies, their shapes - boxes, balls, capsules, the hulls around sets of points and surfaces of triangles - joints between them, the characters that walk among them, stepping, contact events and queries, over Jolt Physics; the `Collider`, `RigidBody`, `Joint` and `CharacterController` components; `PhysicsSystem`, which keeps the entities of a world and the bodies, joints and characters of a simulation in step and makes shapes of mesh assets |
+| `audio` | `core`, `math`, `assets`, `world` | What is heard: the `AudioSource` and `AudioListener` components, and `AudioSystem`, which plays the sources of a world from where they are - voices, five buses with volumes of their own, sound without an entity - over miniaudio, onto a device or into memory |
 | `scripting` | `core`, `math`, `platform`, `assets`, `world`, `physics` | `ScriptRuntime`: the Lua state that gameplay scripts run in and the fence around it - limits on instructions, memory and nesting, the libraries a script may have, an environment for every chunk, the catalogue of the functions scripts are given - and values on their way between JSON and Lua; the `Script` component; `ScriptSystem`, which gives every entity with a script an instance of it and calls its `start`, `update` and `destroy`; the functions scripts are given: entities and their hierarchy, transforms, components through the reflection, vectors and rotations, the time, the ids of assets, the controls, the simulation |
 | `rhi` | `core`, `math`, `platform` | Vulkan device, swapchain and texture readback over NVRHI |
 | `shaders` | `core` | Shader requests and permutation keys, disk cache, `ShaderLibrary` |
@@ -620,10 +621,10 @@ Step-by-step guide: [work-with-assets](.claude/skills/work-with-assets/SKILL.md)
 - **A broken asset never stops a scene.** The database lists problems
   (`AssetDatabase::problems`), loading returns an error, and the renderer reports once
   and draws the rest. `scene.validate` and `findSceneProblems` find dangling references.
-- **The showcase's textures and models are generated**, by `tools/sample-assets`.
+- **The showcase's textures, models and sounds are generated**, by `tools/sample-assets`.
   Change the generator, run it, look at the result, commit both. Its materials and its
   scene are written by hand, with comments: they are the reference for the file formats.
-  A new model gets its `.meta` file - its id - when the project is next opened in the
+  A new file gets its `.meta` file - its id - when the project is next opened in the
   editor (`cordite-editor --headless --project samples/showcase --frames 1`); the ids
   of what is inside it are listed by `asset.get`.
 
@@ -903,6 +904,51 @@ Step-by-step guide: [work-with-assets](.claude/skills/work-with-assets/SKILL.md)
   complaint that has no volume - `createConvexHull` refuses it, or a body of it
   would have a mass of nothing spread over nothing.
 
+## Audio
+
+- **A source says, the system plays.** `AudioSource` is plain data: which sound, on
+  which bus, how loud, whether it has a place. `AudioSystem::update` gives every
+  enabled source that is `playing` a voice and keeps the voice like the source. The
+  one thing it writes back is `playing = false`, when a sound that does not loop has
+  ended - so a scene file says what plays when the scene starts, and setting
+  `playing` is how anything is played. Sound without an entity is
+  `AudioSystem::play`.
+- **miniaudio stays inside `AudioSystem.cpp`** (and `assets/Sound.cpp`, which decodes).
+  Mixing, placing in space and the devices are its; the engine's types never show
+  its own. What it is told is told once: `apply` sends a voice only what changed,
+  because miniaudio smooths what it is told and begins again when told twice.
+- **Where the mix goes is chosen when the system is made** (`AudioOutput`), and the
+  default is nowhere. `Offline` has no device and no thread: `update` mixes as many
+  frames as it is told time has passed, the same every run, and `mixed()` is what
+  came out - which is how tests hear, and why an `Engine` that is not asked for a
+  device opens none. `Device` is what a game asks for; a machine without sound
+  gets `Silent`, a device that plays to nobody in real time, and a warning. No test
+  opens a real device.
+- **Sound is tested with numbers.** A sound whose samples are all 0.5, or count their
+  own frames, played into memory, says exactly what was heard: which ear, how loud,
+  from which frame on (`AudioSystemTests`). What miniaudio computes about a place -
+  a distance - it computes to a part in a thousand, and it slides to where a source
+  has moved over several hundredths of a second: compare with `about()` and listen
+  with `settled()`. A sound in two channels or without a place is exact, at once.
+- **How a place is heard is miniaudio's rule**, written down in `AudioSystem.h` and
+  pinned by the tests: a source straight ahead is half as loud in both ears, one at
+  a side as loud as it gets in that ear and a fifth of it in the other. Distance
+  is the rolloff's: `inverse` halves at twice `minDistance` and never reaches
+  nothing, `linear` reaches it at `maxDistance`.
+- **While time does not pass nothing is heard.** `Engine::updateWorld` with a stopped
+  clock calls `AudioSystem::pause`, which holds every voice where it is; a scene
+  that is replaced has its voices stopped (`changeScene`, after the scripts have
+  ended). That is why an editor is silent.
+- **A voice is a limited thing** (`AudioSystemDesc::maxVoices`). Sources get theirs in
+  the order of the hierarchy, and those that find none wait and are counted;
+  `play` fails. A sound that cannot be loaded is tried once, said once, and not
+  read again until the assets are refreshed.
+- **The sounds of the showcase are generated**, like its textures
+  (`tools/sample-assets`): written as formulas, begun and ended at nothing, and
+  where they loop made of whole cycles. Nobody can listen in a test run, so look at
+  what was generated in numbers before committing it - peak, first and last
+  samples, the step across the seam of a loop.
+
 ## Input
 
 - **A game asks about its controls by name.** `InputMap` (`platform/InputMap.h`) says
@@ -943,7 +989,8 @@ is, called once and checked. Scripts reach entities and their hierarchy, transfo
 every component through its properties, vectors and rotations, the time and the ids
 of assets, the controls of the game, and the simulation - rays, what is within
 reach, gravity, pushes - which tells them what meets what, they have timers and
-tasks, and they ask for another scene; sound is to come, with the audio module.
+tasks, and they ask for another scene. Sound they reach through the `AudioSource`
+component, like any other; functions of their own for it are to come.
 Step-by-step guide for giving scripts a function:
 [add-script-function](.claude/skills/add-script-function/SKILL.md).
 

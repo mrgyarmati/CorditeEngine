@@ -78,6 +78,13 @@ cordite_add_test_suite(physics
     LIBRARIES
         cordite::physics)
 
+cordite_add_test_suite(audio
+    SOURCES
+        unit/audio/AudioComponentsTests.cpp
+        unit/audio/AudioSystemTests.cpp
+    LIBRARIES
+        cordite::audio)
+
 # Lua's own API is part of what these tests use: the functions they give to scripts are
 # written against it.
 cordite_add_test_suite(scripting

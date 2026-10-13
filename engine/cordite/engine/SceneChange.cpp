@@ -3,6 +3,7 @@
 #include "cordite/animation/AnimationSystem.h"
 #include "cordite/assets/AssetDatabase.h"
 #include "cordite/assets/AssetManager.h"
+#include "cordite/audio/AudioSystem.h"
 #include "cordite/core/FileSystem.h"
 #include "cordite/core/Json.h"
 #include "cordite/physics/PhysicsSystem.h"
@@ -49,6 +50,11 @@ Status changeScene(const SceneChange& change, const Uuid& scene) {
     }
     if (change.animation != nullptr) {
         change.animation->clear();
+    }
+    // After the scripts have ended: what one of them still starts as it goes is not
+    // heard in the scene that comes.
+    if (change.audio != nullptr) {
+        change.audio->clear();
     }
     if (const Status loaded = deserializeScene(change.world, document, change.components); !loaded) {
         // What fitted a world a moment ago fits this one: this is not expected to happen.

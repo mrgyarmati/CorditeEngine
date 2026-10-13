@@ -137,6 +137,8 @@ TEST_SUITE("Performance") {
         simulation["scriptCalls"] = statistics.scripts.calls;
         simulation["scriptTimers"] = statistics.scripts.timers;
         simulation["scriptBytes"] = statistics.scripts.memoryBytes;
+        simulation["audioVoices"] = statistics.audio.voices;
+        simulation["soundBytes"] = statistics.audio.soundBytes;
         report["simulation"] = std::move(simulation);
         report["resources"] = test::describeResources(statistics.resources);
         test::writeReport(report);
@@ -185,6 +187,11 @@ TEST_SUITE("Performance") {
         checkBudget(budgets, "scriptCalls", statistics.scripts.calls);
         checkBudget(budgets, "scriptTimers", statistics.scripts.timers);
         checkBudget(budgets, "scriptBytes", static_cast<double>(statistics.scripts.memoryBytes));
+        // What is heard: nothing has to wait for a voice, and somebody listens.
+        CHECK(statistics.audio.waiting == 0);
+        CHECK(statistics.audio.listeners == 1);
+        checkBudget(budgets, "audioVoices", statistics.audio.voices);
+        checkBudget(budgets, "soundBytes", static_cast<double>(statistics.audio.soundBytes));
         checkBudget(budgets, "drawCalls", statistics.scene.meshes.drawCalls);
         checkBudget(budgets, "screenPasses", statistics.scene.screenPasses);
         checkBudget(budgets, "triangles", static_cast<double>(statistics.scene.meshes.triangles));

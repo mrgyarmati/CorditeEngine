@@ -27,7 +27,7 @@ pinned in [cmake/CorditeDependencies.cmake](../cmake/CorditeDependencies.cmake) 
 | [Jolt Physics](https://github.com/jrouwe/JoltPhysics) | 5.6.0 | MIT | Rigid bodies, collision queries and character movement behind `PhysicsWorld` |
 | [Dear ImGui](https://github.com/ocornut/imgui) | 1.92.9b, docking branch | MIT | Immediate-mode user interface: the editor and in-game debug overlays |
 | [Lua](https://www.lua.org) | 5.4.8 | MIT | The language of gameplay scripts, behind `ScriptRuntime` |
-| [miniaudio](https://github.com/mackron/miniaudio) | 0.11.25 | Unlicense OR MIT-0 | Decoding sound files (WAV, FLAC, MP3) and writing WAV files |
+| [miniaudio](https://github.com/mackron/miniaudio) | 0.11.25 | Unlicense OR MIT-0 | Sound: decoding files (WAV, FLAC, MP3), writing WAV files, and behind `AudioSystem` mixing, placing sound in space and playing it on the machine's device |
 
 EnTT stays on the 3.x line: 4.0 needs C++20 syntax that the default MSVC toolset of
 many Visual Studio 2022 installations (19.38) does not accept. Dear ImGui comes with the

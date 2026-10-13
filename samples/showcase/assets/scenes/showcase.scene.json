@@ -384,7 +384,27 @@
                 },
                 // It flickers: scripts/flicker.lua lets it burn steadily for a few seconds,
                 // dips its brightness three times in a row, and lets it burn on.
-                "Script": { "script": "fba9a526-fe5b-89d4-8f8c-740b56e542e0", "properties": {} }
+                "Script": { "script": "fba9a526-fe5b-89d4-8f8c-740b56e542e0", "properties": {} },
+                // And it hums. A sound that is heard from where its entity is: as loud as it
+                // gets within `minDistance` of whoever listens, and with a linear rolloff
+                // quieter evenly from there to nothing at `maxDistance` - a lamp is not heard
+                // across a yard. It is at the side it is at, to the ear on that side. `loop`
+                // lets sounds/hum.wav, two seconds long, go round without an end, and
+                // `playing` in a scene file says that it sounds from the moment the scene
+                // starts. The ambience bus is what a place sounds like; every bus has a
+                // volume that everything on it shares.
+                "AudioSource": {
+                    "sound": "b7e9c82b-9bcd-8d53-9146-03b3e93e3b40",
+                    "bus": "ambience",
+                    "playing": true,
+                    "loop": true,
+                    "volume": 0.6,
+                    "pitch": 1.0,
+                    "spatial": true,
+                    "rolloff": "linear",
+                    "minDistance": 1.5,
+                    "maxDistance": 14.0
+                }
             }
         },
         {
@@ -811,6 +831,22 @@
                 "Script": {
                     "script": "92700864-23c5-8a72-baa1-f62b910fc6cd",
                     "properties": { "interval": 0.5 }
+                },
+                // A click of the kind an interface makes: not `spatial`, so it is the same in
+                // both ears wherever this entity is, and on the bus of the interface. It is
+                // not playing when the scene starts; whatever sets `playing` hears it once,
+                // from its beginning, and at its end the source says that it is over.
+                "AudioSource": {
+                    "sound": "de33edbb-a943-8747-9055-01ff1c91e6d0",
+                    "bus": "interface",
+                    "playing": false,
+                    "loop": false,
+                    "volume": 0.5,
+                    "pitch": 1.0,
+                    "spatial": false,
+                    "rolloff": "inverse",
+                    "minDistance": 1.0,
+                    "maxDistance": 50.0
                 }
             }
         },
@@ -861,7 +897,21 @@
                     "friction": 0.5,
                     "restitution": 0.0
                 },
-                "Script": { "script": "d198ea09-36ee-8462-a45a-14692a03964f", "properties": {} }
+                "Script": { "script": "d198ea09-36ee-8462-a45a-14692a03964f", "properties": {} },
+                // The radio at the post: two tones, on the bus for what is said. It waits
+                // to be played.
+                "AudioSource": {
+                    "sound": "7d50b612-9964-8dfa-8e9e-581c661256ef",
+                    "bus": "voice",
+                    "playing": false,
+                    "loop": false,
+                    "volume": 1.0,
+                    "pitch": 1.0,
+                    "spatial": true,
+                    "rolloff": "inverse",
+                    "minDistance": 2.0,
+                    "maxDistance": 40.0
+                }
             }
         },
         {
@@ -878,6 +928,31 @@
                 "Script": {
                     "script": "ff1ef9ce-3ff4-81d9-98b9-72c62a089380",
                     "properties": { "to": "scenes/annex.scene.json" }
+                }
+            }
+        },
+        {
+            // Music: eight notes that go round, quietly, on the bus a player turns down
+            // when they have heard them often enough. Music comes from nowhere - it is not
+            // `spatial` - so where this entity is does not matter, and how it would carry
+            // is not asked.
+            "id": "10000000-0000-4000-8000-00000000003c",
+            "name": "Music",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-000000000001",
+            "components": {
+                "Transform": { "position": [0.0, 0.0, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [1.0, 1.0, 1.0] },
+                "AudioSource": {
+                    "sound": "ed251cd4-929c-8c6c-90a1-521db31e9d9e",
+                    "bus": "music",
+                    "playing": true,
+                    "loop": true,
+                    "volume": 0.35,
+                    "pitch": 1.0,
+                    "spatial": false,
+                    "rolloff": "inverse",
+                    "minDistance": 1.0,
+                    "maxDistance": 50.0
                 }
             }
         },
@@ -931,7 +1006,24 @@
                 // What makes it hop: scripts/hop.lua knocks it upwards when "fire" is pressed -
                 // the left button of the pointer, or the right trigger of a gamepad - and is
                 // told by the simulation what it meets and what it parts from.
-                "Script": { "script": "1b113571-3a4a-818b-a1dc-5bb92c730ba9", "properties": { "impulse": 6.0 } }
+                "Script": { "script": "1b113571-3a4a-818b-a1dc-5bb92c730ba9", "properties": { "impulse": 6.0 } },
+                // The sound of a hop, heard from wherever the ball has got to, on the bus of
+                // what happens in the world. An inverse rolloff is how sound carries in the
+                // open: half as loud at twice `minDistance`, a third at three times, and
+                // never quite silent - beyond `maxDistance` it only gets no quieter. A little
+                // lower than it was made, by its `pitch`.
+                "AudioSource": {
+                    "sound": "036d2284-afc3-8b39-9a39-ae878b9b92c5",
+                    "bus": "effects",
+                    "playing": false,
+                    "loop": false,
+                    "volume": 1.0,
+                    "pitch": 0.9,
+                    "spatial": true,
+                    "rolloff": "inverse",
+                    "minDistance": 1.0,
+                    "maxDistance": 30.0
+                }
             }
         },
         {
@@ -1162,7 +1254,12 @@
                     "nearPlane": 0.1,
                     "farPlane": 500.0,
                     "primary": true
-                }
+                },
+                // Whoever looks also listens: everything that is `spatial` is heard from where
+                // it is in relation to this entity, which faces along its -Z axis as a camera
+                // does. The first enabled listener of a scene is the one that hears; `volume`
+                // is how loud everything is to it.
+                "AudioListener": { "volume": 1.0 }
             }
         },
         {
