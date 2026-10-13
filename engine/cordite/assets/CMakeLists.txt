@@ -28,6 +28,7 @@ cordite_add_module(assets
         Primitives.cpp
         Primitives.h
         Skeleton.cpp
+        ScriptSource.h
         Skeleton.h
     DEPENDS
         core

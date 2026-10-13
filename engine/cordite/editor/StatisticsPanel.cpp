@@ -91,12 +91,20 @@ Json describeFrameStatistics(const FrameStatistics& statistics) {
     animation["animators"] = statistics.animation.animators;
     animation["joints"] = statistics.animation.joints;
 
+    Json scripts = Json::object();
+    scripts["scripts"] = statistics.scripts.scripts;
+    scripts["instances"] = statistics.scripts.instances;
+    scripts["stopped"] = statistics.scripts.stopped;
+    scripts["calls"] = statistics.scripts.calls;
+    scripts["memoryBytes"] = statistics.scripts.memoryBytes;
+
     Json description = Json::object();
     description["frame"] = statistics.frameIndex;
     description["cpuMilliseconds"] = statistics.cpuMilliseconds;
     description["gpuMilliseconds"] = statistics.gpuMilliseconds ? Json(*statistics.gpuMilliseconds) : Json(nullptr);
     description["physics"] = std::move(physics);
     description["animation"] = std::move(animation);
+    description["scripts"] = std::move(scripts);
     description["scene"] = std::move(scene);
     description["resources"] = std::move(resources);
     return description;
@@ -118,6 +126,10 @@ void StatisticsPanel::draw(const FrameStatistics& statistics, bool& open) {
                         statistics.physics.bodies, statistics.physics.activeBodies, statistics.physics.steps,
                         statistics.physics.geometries, statistics.physics.joints, statistics.physics.characters));
         row("Animators", fmt::format("{} ({} joints)", statistics.animation.animators, statistics.animation.joints));
+        row("Scripts", fmt::format("{} ({} running, {} stopped, {} calls, {:.1f} MiB)", statistics.scripts.scripts,
+                                   statistics.scripts.instances - statistics.scripts.stopped,
+                                   statistics.scripts.stopped, statistics.scripts.calls,
+                                   static_cast<double>(statistics.scripts.memoryBytes) / kBytesPerMebibyte));
 
         const SceneRenderStatistics& scene = statistics.scene;
         row("Views", fmt::format("{}", scene.views));

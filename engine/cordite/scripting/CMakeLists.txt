@@ -2,11 +2,20 @@ cordite_add_module(scripting
     SOURCES
         Lua.h
         LuaConfig.h
+        ScriptBindings.h
+        ScriptComponents.cpp
+        ScriptComponents.h
+        ScriptEntityApi.cpp
         ScriptRuntime.cpp
         ScriptRuntime.h
+        ScriptSystem.cpp
+        ScriptSystem.h
         ScriptValue.cpp
         ScriptValue.h
     DEPENDS
         core
+        math
+        assets
+        world
     PRIVATE_LIBRARIES
         cordite::lua)

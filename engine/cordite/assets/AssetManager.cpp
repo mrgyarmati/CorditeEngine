@@ -8,8 +8,10 @@
 #include "cordite/core/Log.h"
 
 #include <cstdint>
+#include <filesystem>
 #include <optional>
 #include <string>
+#include <system_error>
 #include <utility>
 #include <vector>
 
@@ -72,6 +74,7 @@ Status AssetManager::refresh() {
     m_models.clear();
     m_skeletons.clear();
     m_animations.clear();
+    m_scripts.clear();
     m_textures.clear();
     m_embeddedImages.clear();
     m_importedFiles.clear();
@@ -342,6 +345,30 @@ Result<std::shared_ptr<const AnimationData>> AssetManager::loadAnimation(const U
         return imported->second;
     }
     return makeError(ErrorCode::NotFound, "{} is no longer in its file", asset->reference());
+}
+
+Result<std::shared_ptr<const ScriptSource>> AssetManager::loadScript(const Uuid& id) {
+    if (const auto cached = m_scripts.find(id); cached != m_scripts.end()) {
+        return cached->second;
+    }
+    CORDITE_TRY_ASSIGN(const AssetInfo* asset, lookUp(id, AssetType::Script));
+
+    // Asked before the file is read: a file of any size can be called a script.
+    const std::filesystem::path file = m_database.sourceFile(*asset);
+    std::error_code failed;
+    const std::uintmax_t size = std::filesystem::file_size(file, failed);
+    if (failed) {
+        return makeError(ErrorCode::IoError, "{} cannot be read: {}", asset->reference(), failed.message());
+    }
+    if (size > kMaxScriptBytes) {
+        return makeError(ErrorCode::InvalidArgument, "{} has {} bytes; a script has {} at most", asset->reference(),
+                         size, kMaxScriptBytes);
+    }
+    CORDITE_TRY_ASSIGN(std::string text, readTextFile(file));
+
+    auto script = std::make_shared<const ScriptSource>(ScriptSource{.text = std::move(text)});
+    m_scripts[id] = script;
+    return script;
 }
 
 } // namespace cordite

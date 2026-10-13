@@ -123,10 +123,12 @@ TEST_SUITE("AssetDatabase") {
         CHECK(nameOf(AssetType::Scene) == "scene");
         CHECK(nameOf(AssetType::Skeleton) == "skeleton");
         CHECK(nameOf(AssetType::Animation) == "animation");
+        CHECK(nameOf(AssetType::Script) == "script");
         CHECK(displayNameOf(AssetType::Texture) == "Texture");
         CHECK(displayNameOf(AssetType::Mesh) == "Mesh");
         CHECK(displayNameOf(AssetType::Skeleton) == "Skeleton");
         CHECK(displayNameOf(AssetType::Animation) == "Animation");
+        CHECK(displayNameOf(AssetType::Script) == "Script");
         // In a sentence a type takes the article its name asks for.
         CHECK(withArticle(AssetType::Texture) == "a texture");
         CHECK(withArticle(AssetType::Mesh) == "a mesh");
@@ -135,8 +137,9 @@ TEST_SUITE("AssetDatabase") {
         CHECK(withArticle(AssetType::Scene) == "a scene");
         CHECK(withArticle(AssetType::Skeleton) == "a skeleton");
         CHECK(withArticle(AssetType::Animation) == "an animation");
+        CHECK(withArticle(AssetType::Script) == "a script");
         // Every type is found by its name, and has a name of its own.
-        CHECK(kAssetTypes.size() == 7);
+        CHECK(kAssetTypes.size() == 8);
         for (const AssetType type : kAssetTypes) {
             CHECK(assetTypeFromName(nameOf(type)) == type);
             CHECK(nameOf(type) != "unknown");
@@ -215,8 +218,12 @@ TEST_SUITE("AssetDatabase") {
         project.writeTexture("a.jpg");
         project.writeText("materials/paint.material.json", R"({"format": "cordite.material", "version": 1})");
         project.writeText("scenes/main.scene.json", "{}");
+        project.writeText("scripts/door.lua", "return {}");
+        project.writeText("scripts/Open.Slowly.LUA", "this is not Lua, and nobody has asked yet");
         project.writeModel("models/crate.gltf");
         // None of these is an asset.
+        project.writeText("scripts/door.lua.bak", "return {}");
+        project.writeText("scripts/notes.luau", "");
         project.writeText("notes.txt", "remember the milk");
         project.writeText("settings.json", "{}");
         project.writeText("models/crate.blend", "");
@@ -234,6 +241,8 @@ TEST_SUITE("AssetDatabase") {
                                              "models/crate.gltf#material/1",
                                              "models/crate.gltf#image/1",
                                              "scenes/main.scene.json",
+                                             "scripts/Open.Slowly.LUA",
+                                             "scripts/door.lua",
                                              "textures/Sky.HDR.PNG",
                                              "textures/wall.png",
                                          });
@@ -247,6 +256,12 @@ TEST_SUITE("AssetDatabase") {
         CHECK(require(database, "scenes/main.scene.json").name == "main");
         CHECK(require(database, "models/crate.gltf").type == AssetType::Model);
         CHECK(require(database, "models/crate.gltf").name == "crate");
+        // A script is its text; whether that is Lua is for whoever runs it to find out.
+        CHECK(require(database, "scripts/door.lua").type == AssetType::Script);
+        CHECK(require(database, "scripts/door.lua").name == "door");
+        CHECK(require(database, "scripts/door.lua").dependencies.empty());
+        CHECK(require(database, "scripts/Open.Slowly.LUA").type == AssetType::Script);
+        CHECK(require(database, "scripts/Open.Slowly.LUA").name == "Open.Slowly");
         // Only the last extension is the type; what is before it is part of the name.
         CHECK(require(database, "textures/Sky.HDR.PNG").type == AssetType::Texture);
         CHECK(require(database, "textures/Sky.HDR.PNG").name == "Sky.HDR");

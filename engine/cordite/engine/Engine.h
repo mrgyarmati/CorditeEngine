@@ -18,7 +18,7 @@
 ///         break;
 ///     }
 ///     updateGame(engine->world(), engine->deltaSeconds());
-///     engine->updateWorld();                            // animations play, transforms follow
+///     engine->updateWorld();                            // scripts run, bodies move, animations play
 ///     CORDITE_TRY(engine->drawWorld());                 // or any passes on engine->commandList()
 ///     ImGui::Text("frame %llu", engine->frameIndex());  // the interface is drawn on top
 ///     CORDITE_TRY(engine->endFrame());
@@ -48,6 +48,7 @@
 #include "cordite/renderer/SceneRenderer.h"
 #include "cordite/renderer/ShaderManager.h"
 #include "cordite/rhi/GraphicsDevice.h"
+#include "cordite/scripting/ScriptSystem.h"
 #include "cordite/shaders/ShaderLibrary.h"
 #include "cordite/ui/UiSystem.h"
 #include "cordite/world/ComponentRegistry.h"
@@ -81,6 +82,9 @@ struct FrameStatistics {
     /// The animators that were posed in the frame, and their joints: what the last
     /// updateWorld() of the frame did. All zero for a frame without one.
     AnimationStatistics animation;
+    /// The scripts that ran in the frame: what the last updateWorld() of the frame did.
+    /// All zero for a frame without one, and for one whose clock was stopped.
+    ScriptStatistics scripts;
     /// What the scene renderer drew during the frame, all views together.
     SceneRenderStatistics scene;
     /// What the scene renderer holds on the GPU.
@@ -133,6 +137,10 @@ struct EngineDesc {
     /// How the bodies of the world are simulated: the pull of gravity, how large the
     /// simulation may become, and how long its steps are. See PhysicsSystemDesc.
     PhysicsSystemDesc physics;
+
+    /// What the scripts of the world may use up: memory, and instructions in one call.
+    /// See ScriptSystemDesc.
+    ScriptSystemDesc scripts;
 };
 
 /// Whether time passes for a world. See Engine::updateWorld().
@@ -168,12 +176,13 @@ public:
     void drawTestPattern();
 
     /// Brings the world up to date for drawing, after the program has changed what it
-    /// wanted to change: the simulation of its bodies moves on by deltaSeconds(), in
-    /// steps of a fixed length, and the entities follow their bodies (PhysicsSystem);
-    /// the animators play on by as much and every skeleton is posed (AnimationSystem);
-    /// then the world transforms are worked out. With the clock stopped nothing is
-    /// simulated and nothing plays: bodies are where their entities are, and the poses
-    /// are those of the times the animators hold.
+    /// wanted to change: the scripts of its entities run (ScriptSystem); the simulation
+    /// of its bodies moves on by deltaSeconds(), in steps of a fixed length, and the
+    /// entities follow their bodies (PhysicsSystem); the animators play on by as much
+    /// and every skeleton is posed (AnimationSystem); then the world transforms are
+    /// worked out. With the clock stopped no script runs, nothing is simulated and
+    /// nothing plays: bodies are where their entities are, and the poses are those of
+    /// the times the animators hold.
     ///
     /// Call it once per frame with a running clock, between beginFrame() and drawing:
     /// each call lets the time of a frame pass. A running clock outside a frame is a
@@ -252,6 +261,10 @@ public:
     /// The simulation of the world's bodies, for what is asked of it directly: what a
     /// ray hits (physics().simulation()), which entity a body belongs to.
     [[nodiscard]] PhysicsSystem& physics();
+
+    /// What runs the scripts of the world: what keeps them from running
+    /// (scripts().problems()), and the runtime that is given the functions they call.
+    [[nodiscard]] ScriptSystem& scripts();
 
     /// Draws worlds. The editor uses it for its viewports as the game does for its view.
     [[nodiscard]] SceneRenderer& sceneRenderer();

@@ -51,6 +51,7 @@ struct AssetFixture {
                   R"({"format": "cordite.material", "version": 1, "roughness": 0.25})");
         writeText("scenes/yard.scene.json",
                   R"({"format": "cordite.scene", "version": 1, "name": "Yard", "entities": []})");
+        writeText("scripts/gate.lua", "-- Opens.\nlocal Gate = {}\nreturn Gate\n");
 
         REQUIRE(registerEngineComponents(components).has_value());
         assets = unwrap(AssetManager::create({.rootDirectory = root}));
@@ -187,6 +188,7 @@ TEST_SUITE("AssetCommands") {
                                                                               "models/cart.gltf#mesh/1",
                                                                               "models/cart.gltf#material/0",
                                                                               "scenes/yard.scene.json",
+                                                                              "scripts/gate.lua",
                                                                               "textures/wall.png",
                                                                           });
 
@@ -202,6 +204,8 @@ TEST_SUITE("AssetCommands") {
               std::vector<std::string>{"textures/wall.png"});
         CHECK(pathsOf(fixture.run("asset.list", R"({"type": "Scene"})")["assets"]) ==
               std::vector<std::string>{"scenes/yard.scene.json"});
+        CHECK(pathsOf(fixture.run("asset.list", R"({"type": "script"})")["assets"]) ==
+              std::vector<std::string>{"scripts/gate.lua"});
         // Seven built-in meshes and the two of the model.
         CHECK(fixture.run("asset.list", R"({"type": "mesh"})")["assets"].size() == 9);
 
@@ -274,6 +278,26 @@ TEST_SUITE("AssetCommands") {
         const Json scene = fixture.run("asset.get", R"({"asset": "scenes/yard.scene.json"})");
         CHECK(scene["type"] == "scene");
         CHECK(scene["content"].empty());
+    }
+
+    TEST_CASE("asset.get shows a script: how long it is, and what it says") {
+        AssetFixture fixture;
+        const Json script = fixture.run("asset.get", R"({"asset": "scripts/gate.lua"})");
+        CHECK(script["type"] == "script");
+        CHECK(script["name"] == "gate");
+        CHECK(script["dependencies"].empty());
+        CHECK(script["content"]["bytes"] == 38);
+        CHECK(script["content"]["lines"] == 3);
+        CHECK(script["content"]["text"] == "-- Opens.\nlocal Gate = {}\nreturn Gate\n");
+
+        // A last line that does not end is a line all the same; no text is no line.
+        fixture.writeText("scripts/gate.lua", "return {}");
+        fixture.writeText("scripts/empty.lua", "");
+        static_cast<void>(fixture.run("asset.refresh"));
+        CHECK(fixture.run("asset.get", R"({"asset": "scripts/gate.lua"})")["content"]["lines"] == 1);
+        const Json empty = fixture.run("asset.get", R"({"asset": "scripts/empty.lua"})");
+        CHECK(empty["content"]["lines"] == 0);
+        CHECK(empty["content"]["bytes"] == 0);
     }
 
     TEST_CASE("asset.get describes a skinned mesh, its skeleton and the animations that move it") {

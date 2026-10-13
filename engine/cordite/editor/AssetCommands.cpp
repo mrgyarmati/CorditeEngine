@@ -3,6 +3,7 @@
 #include "cordite/assets/Animation.h"
 #include "cordite/assets/Material.h"
 #include "cordite/assets/Mesh.h"
+#include "cordite/assets/ScriptSource.h"
 #include "cordite/assets/Skeleton.h"
 #include "cordite/core/FileSystem.h"
 #include "cordite/core/Json.h"
@@ -117,6 +118,14 @@ Result<Json> describeContent(AssetManager& assets, const AssetInfo& asset) {
             content["joints"] = std::move(joints);
             break;
         }
+        case AssetType::Script: {
+            CORDITE_TRY_ASSIGN(const std::shared_ptr<const ScriptSource> script, assets.loadScript(asset.id));
+            content["bytes"] = script->text.size();
+            content["lines"] =
+                std::ranges::count(script->text, '\n') + (script->text.empty() || script->text.back() == '\n' ? 0 : 1);
+            content["text"] = script->text;
+            break;
+        }
         case AssetType::Scene:
             // Opened with scene.open; nothing to say about it without doing that.
             break;
@@ -132,7 +141,8 @@ Status registerAssetCommands(CommandRegistry& commands, EditorContext& context) 
         .description = "Lists the assets the scene can use, each with its id, type, name and path, and what is "
                        "wrong with the asset directory, if anything. Built-in assets have the path \"builtin\".",
         .parameters = {{"type", Type::String,
-                        "Only assets of this type: texture, mesh, material, model, scene, skeleton or animation.",
+                        "Only assets of this type: texture, mesh, material, model, scene, skeleton, animation or "
+                        "script.",
                         false}},
         .handler = [&context](const Json& parameters) -> Result<Json> {
             std::optional<AssetType> type;
@@ -163,7 +173,8 @@ Status registerAssetCommands(CommandRegistry& commands, EditorContext& context) 
     CORDITE_TRY(commands.add({
         .name = "asset.get",
         .description = "Describes one asset: the assets it depends on, what its importer left out, and what is in "
-                       "it - the size of a mesh or a texture, the properties of a material, the nodes of a model. "
+                       "it - the size of a mesh or a texture, the properties of a material, the nodes of a model, "
+                       "the text of a script. "
                        "Fails with the reason when the asset cannot be loaded.",
         .parameters = {{"asset", Type::String, kAssetReference}},
         .handler = [&context](const Json& parameters) -> Result<Json> {

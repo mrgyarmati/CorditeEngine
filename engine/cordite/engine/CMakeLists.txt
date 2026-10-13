@@ -18,6 +18,7 @@ cordite_add_module(engine
         world
         animation
         physics
+        scripting
         rhi
         shaders
         shader_compiler

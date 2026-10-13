@@ -7,6 +7,7 @@
 
 #include "cordite/assets/AssetManager.h"
 #include "cordite/assets/Image.h"
+#include "cordite/core/Log.h"
 #include "cordite/engine/EngineComponents.h"
 #include "cordite/engine/Project.h"
 #include "cordite/engine/SceneAssets.h"
@@ -15,12 +16,15 @@
 #include "cordite/platform/InputMap.h"
 #include "cordite/renderer/CameraView.h"
 #include "cordite/renderer/RenderComponents.h"
+#include "cordite/scripting/ScriptComponents.h"
+#include "cordite/scripting/ScriptSystem.h"
 #include "cordite/world/SceneSerializer.h"
 
 #include "support/TestSupport.h"
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <set>
@@ -149,6 +153,11 @@ TEST_SUITE("Showcase") {
                     CHECK_MESSAGE(animation.has_value(), test::errorOf(animation));
                     break;
                 }
+                case AssetType::Script: {
+                    const auto script = showcase.assets->loadScript(asset.id);
+                    CHECK_MESSAGE(script.has_value(), test::errorOf(script));
+                    break;
+                }
                 case AssetType::Scene:
                     break;
             }
@@ -182,8 +191,8 @@ TEST_SUITE("Showcase") {
             hasEmbeddedTexture = hasEmbeddedTexture || (asset.type == AssetType::Texture && !asset.subPath.empty());
             hasBinaryModel = hasBinaryModel || (asset.type == AssetType::Model && asset.path.ends_with(".glb"));
         }
-        for (const AssetType type :
-             {AssetType::Texture, AssetType::Mesh, AssetType::Material, AssetType::Model, AssetType::Scene}) {
+        for (const AssetType type : {AssetType::Texture, AssetType::Mesh, AssetType::Material, AssetType::Model,
+                                     AssetType::Scene, AssetType::Skeleton, AssetType::Animation, AssetType::Script}) {
             CAPTURE(nameOf(type));
             CHECK(projectTypes.contains(type));
         }
@@ -196,6 +205,40 @@ TEST_SUITE("Showcase") {
             CAPTURE(nameOf(mesh));
             CHECK(used.contains(builtinMeshId(mesh)));
         }
+    }
+
+    TEST_CASE("the scripts of the showcase run, and none of them has a problem") {
+        Showcase showcase;
+        const std::unique_ptr<ScriptSystem> scripts = test::unwrap(ScriptSystem::create());
+        const Entity clock = showcase.world.findByName("Clock");
+        REQUIRE_FALSE(clock.isNull());
+
+        // A second and a quarter of the game, a quarter at a time.
+        ScriptStatistics statistics;
+        size_t scripted = 0;
+        for (int frame = 0; frame < 5; ++frame) {
+            statistics = scripts->update({.world = showcase.world,
+                                          .components = showcase.components,
+                                          .assets = *showcase.assets,
+                                          .deltaSeconds = 0.25f});
+        }
+        for (const ScriptProblem& problem : scripts->problems()) {
+            FAIL_CHECK(problem.message);
+        }
+        showcase.world.traverse([&](Entity entity, uint32_t /*depth*/) {
+            scripted += showcase.world.has<ScriptComponent>(entity) ? 1 : 0;
+        });
+        CHECK(scripted > 0);
+        CHECK(statistics.instances == scripted);
+        CHECK(statistics.stopped == 0);
+        CHECK(statistics.calls > 0);
+        // The clock ticks twice a second, as its Script says, and shows it in its name.
+        CHECK(showcase.world.name(clock) == "Clock (2)");
+
+        // Ended, a script has the last word.
+        const test::LogCapture log(LogLevel::Info);
+        scripts->clear({.world = showcase.world, .components = showcase.components, .assets = *showcase.assets});
+        CHECK(log.contains("Clock (2) stopped"));
     }
 
     TEST_CASE("every component type of the engine is used in the showcase") {

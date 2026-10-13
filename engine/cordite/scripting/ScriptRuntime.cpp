@@ -666,6 +666,16 @@ Status ScriptRuntime::registerLibrary(std::string_view library, std::span<const 
     RuntimeData& data = *m_impl;
     return protect([&](lua_State* state) {
         pushLibrary(state, library);
+        if (!library.empty()) {
+            // Lua looks here for what to call a function that it was not called by
+            // name - handed to pcall(), say - when it has something to say of it:
+            // "bad argument #1 to 'cordite.time.seconds'" instead of "to '?'".
+            const std::string name(library);
+            luaL_getsubtable(state, LUA_REGISTRYINDEX, LUA_LOADED_TABLE);
+            lua_pushvalue(state, -2);
+            lua_setfield(state, -2, name.c_str());
+            lua_pop(state, 1);
+        }
         for (const ScriptFunction& function : functions) {
             CORDITE_ASSERT(function.function != nullptr, "the script function '{}' of '{}' has no function",
                            function.name, library);
@@ -697,6 +707,14 @@ std::vector<ScriptFunctionInfo> ScriptRuntime::functions() const {
 
 size_t ScriptRuntime::memoryBytes() const {
     return m_impl->memoryBytes;
+}
+
+void ScriptRuntime::collectGarbage() {
+    // Collecting runs no script - scripts have no finalizers - but it is Lua's API, and
+    // that is used inside the fence.
+    if (const Status collected = protect([](lua_State* state) { lua_gc(state, LUA_GCCOLLECT, 0); }); !collected) {
+        CORDITE_LOG_ERROR("Script", "Lua could not collect what is no longer held: {}", collected.error().message);
+    }
 }
 
 uint64_t ScriptRuntime::instructions() const {

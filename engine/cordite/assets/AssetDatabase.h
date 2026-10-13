@@ -22,8 +22,8 @@
 /// File types: `.gltf` and `.glb` are models, which contain meshes and materials (and
 /// textures, when images are embedded; skeletons and animations, when they are
 /// skinned); `.png`, `.jpg`, `.jpeg`, `.tga`, `.bmp` and `.hdr`
-/// are textures; `.material.json` is a material; `.scene.json` is a scene. Other files
-/// are ignored, as are directories whose names start with a dot.
+/// are textures; `.material.json` is a material; `.scene.json` is a scene; `.lua` is a
+/// script. Other files are ignored, as are directories whose names start with a dot.
 ///
 /// A file that has no `.meta` yet gets an id derived from its path, so that a freshly
 /// generated project has the same ids on every machine. The `.meta` then keeps that id
@@ -55,11 +55,13 @@ enum class AssetType : uint8_t {
     Skeleton,
     /// A clip that moves the joints of a skeleton.
     Animation,
+    /// The text of a script: what an entity does while the game runs.
+    Script,
 };
 
-inline constexpr std::array<AssetType, 7> kAssetTypes = {
+inline constexpr std::array<AssetType, 8> kAssetTypes = {
     AssetType::Texture, AssetType::Mesh,     AssetType::Material,  AssetType::Model,
-    AssetType::Scene,   AssetType::Skeleton, AssetType::Animation,
+    AssetType::Scene,   AssetType::Skeleton, AssetType::Animation, AssetType::Script,
 };
 
 /// The lowercase name used in files and by tools: "texture", "mesh", ...

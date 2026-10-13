@@ -2,11 +2,13 @@
 
 #include "cordite/assets/GltfExporter.h"
 #include "cordite/assets/Primitives.h"
+#include "cordite/assets/ScriptSource.h"
 #include "cordite/core/Json.h"
 
 #include "AssetTestSupport.h"
 #include "support/SkinnedModelSupport.h"
 
+#include <filesystem>
 #include <memory>
 #include <string>
 #include <vector>
@@ -553,6 +555,59 @@ TEST_SUITE("AssetManager") {
         CHECK(before->roughness == 0.25f);
         CHECK(meshBefore->name == "Lid");
         CHECK(unwrap(assets->loadMesh(idOf(*assets, "models/crate.gltf#mesh/1"))) != meshBefore);
+    }
+
+    TEST_CASE("a script is loaded as the text of its file, and read again after a refresh") {
+        const Project project;
+        const std::string text = "-- A door.\nlocal Door = {}\r\nreturn Door\n";
+        project.writeText("scripts/door.lua", text);
+        project.writeText("scripts/empty.lua", "");
+        const std::unique_ptr<AssetManager> assets = project.open();
+        const Uuid door = idOf(*assets, "scripts/door.lua");
+
+        // As it is: every byte, line ends and all.
+        const std::shared_ptr<const ScriptSource> loaded = unwrap(assets->loadScript(door));
+        CHECK(loaded->text == text);
+        CHECK(unwrap(assets->loadScript(door)) == loaded);
+        CHECK(unwrap(assets->loadScript(idOf(*assets, "scripts/empty.lua")))->text.empty());
+
+        project.writeText("scripts/door.lua", "return {}");
+        CHECK(unwrap(assets->loadScript(door))->text == text);
+        REQUIRE(assets->refresh().has_value());
+        CHECK(unwrap(assets->loadScript(door))->text == "return {}");
+        // What was handed out before is what it was.
+        CHECK(loaded->text == text);
+    }
+
+    TEST_CASE("a script that is no script, too large or gone is an error that names it") {
+        const Project project;
+        project.writeText("scripts/door.lua", "return {}");
+        project.writeText("scripts/huge.lua", std::string(kMaxScriptBytes + 1, ' '));
+        project.writeText("scripts/full.lua", std::string(kMaxScriptBytes, ' '));
+        const std::unique_ptr<AssetManager> assets = project.open();
+
+        const auto mesh = assets->loadScript(idOf(*assets, "models/crate.gltf#mesh/0"));
+        REQUIRE_FALSE(mesh.has_value());
+        CHECK(mesh.error().code == ErrorCode::InvalidArgument);
+        CHECK(mesh.error().message == "models/crate.gltf#mesh/0 is a mesh, not a script");
+        CHECK(assets->loadMesh(idOf(*assets, "scripts/door.lua")).error().message ==
+              "scripts/door.lua is a script, not a mesh");
+        CHECK(assets->loadScript(Uuid::fromName(Uuid(), "no such script")).error().code == ErrorCode::NotFound);
+
+        // As much as a script may hold, and one byte more.
+        CHECK(unwrap(assets->loadScript(idOf(*assets, "scripts/full.lua")))->text.size() == kMaxScriptBytes);
+        const auto huge = assets->loadScript(idOf(*assets, "scripts/huge.lua"));
+        REQUIRE_FALSE(huge.has_value());
+        CHECK(huge.error().code == ErrorCode::InvalidArgument);
+        CHECK(huge.error().message == "scripts/huge.lua has 4194305 bytes; a script has 4194304 at most");
+
+        // A file that was there when the directory was read, and is not any more.
+        const Uuid door = idOf(*assets, "scripts/door.lua");
+        REQUIRE(std::filesystem::remove(project.file("scripts/door.lua")));
+        const auto gone = assets->loadScript(door);
+        REQUIRE_FALSE(gone.has_value());
+        CHECK(gone.error().code == ErrorCode::IoError);
+        CHECK(gone.error().message.starts_with("scripts/door.lua cannot be read: "));
     }
 
     TEST_CASE("a scene is listed, but is not something the manager loads") {

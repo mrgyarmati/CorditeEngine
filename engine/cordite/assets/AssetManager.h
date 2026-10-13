@@ -28,6 +28,7 @@
 #include "cordite/assets/Material.h"
 #include "cordite/assets/Mesh.h"
 #include "cordite/assets/Model.h"
+#include "cordite/assets/ScriptSource.h"
 #include "cordite/assets/Skeleton.h"
 #include "cordite/core/Base.h"
 #include "cordite/core/Result.h"
@@ -68,6 +69,9 @@ public:
     /// validateSkeleton() and validateAnimation().
     [[nodiscard]] Result<std::shared_ptr<const SkeletonData>> loadSkeleton(const Uuid& id);
     [[nodiscard]] Result<std::shared_ptr<const AnimationData>> loadAnimation(const Uuid& id);
+    /// The text of a script file. Fails with InvalidArgument for a file of more than
+    /// kMaxScriptBytes.
+    [[nodiscard]] Result<std::shared_ptr<const ScriptSource>> loadScript(const Uuid& id);
 
 private:
     explicit AssetManager(AssetDatabaseDesc desc);
@@ -83,6 +87,7 @@ private:
     std::unordered_map<Uuid, std::shared_ptr<const ModelData>> m_models;
     std::unordered_map<Uuid, std::shared_ptr<const SkeletonData>> m_skeletons;
     std::unordered_map<Uuid, std::shared_ptr<const AnimationData>> m_animations;
+    std::unordered_map<Uuid, std::shared_ptr<const ScriptSource>> m_scripts;
     std::unordered_map<Uuid, std::weak_ptr<const Image>> m_textures;
     /// The encoded bytes of images that are stored inside model files.
     std::unordered_map<Uuid, std::shared_ptr<const std::vector<std::byte>>> m_embeddedImages;

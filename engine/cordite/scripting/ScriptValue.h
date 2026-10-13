@@ -41,8 +41,8 @@ struct lua_State;
 
 namespace cordite {
 
-/// How deep the tables of a value that is read may be nested. One that holds itself has
-/// no end, and is refused for being deeper.
+/// How deep the tables of a value may be nested, read or pushed. One that holds itself
+/// has no end, and is refused for being deeper.
 inline constexpr uint32_t kMaxScriptValueDepth = 32;
 
 /// Pushes the value that stands for JSON's `null` inside a list. Raises nothing.
@@ -52,7 +52,8 @@ void pushScriptNull(lua_State* state);
 [[nodiscard]] bool isScriptNull(lua_State* state, int index);
 
 /// Pushes `value` onto the stack, as the table above says. Raises a Lua error when the
-/// scripts are out of memory or of stack, as most of Lua's own API does.
+/// scripts are out of memory or of stack, as most of Lua's own API does, and for arrays
+/// and objects more than kMaxScriptValueDepth deep.
 void pushScriptValue(lua_State* state, const Json& value);
 
 /// Reads the value at `index` as JSON, leaving the stack as it is. Fails with

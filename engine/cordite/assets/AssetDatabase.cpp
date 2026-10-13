@@ -31,9 +31,10 @@ struct FileKind {
 };
 
 /// Longer extensions first: "x.material.json" is a material, not an unknown ".json".
-constexpr std::array<FileKind, 10> kFileKinds = {{
+constexpr std::array<FileKind, 11> kFileKinds = {{
     {".material.json", AssetType::Material},
     {".scene.json", AssetType::Scene},
+    {".lua", AssetType::Script},
     {".gltf", AssetType::Model},
     {".glb", AssetType::Model},
     {".png", AssetType::Texture},
@@ -123,6 +124,8 @@ std::string_view nameOf(AssetType type) {
             return "skeleton";
         case AssetType::Animation:
             return "animation";
+        case AssetType::Script:
+            return "script";
     }
     return "unknown";
 }
@@ -143,6 +146,8 @@ std::string_view displayNameOf(AssetType type) {
             return "Skeleton";
         case AssetType::Animation:
             return "Animation";
+        case AssetType::Script:
+            return "Script";
     }
     return "Unknown";
 }
@@ -163,6 +168,8 @@ std::string_view withArticle(AssetType type) {
             return "a skeleton";
         case AssetType::Animation:
             return "an animation";
+        case AssetType::Script:
+            return "a script";
     }
     return "an unknown asset";
 }

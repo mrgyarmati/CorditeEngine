@@ -124,17 +124,17 @@ by accident.
 | `core` | -         | Logging, assertions, `Result`, hashing, UUIDs, JSON, reflection, binary streams, file I/O, config, job system, allocators, timing |
 | `math` | `core`    | glm aliases, `Transform`, bounds, rays, frustum, projections, color, curves, random, spherical harmonics, directions in images of everything around, reflection of math types |
 | `platform` | `core`, `math` | Windows (GLFW), keyboard / mouse / gamepad input, and the controls a game has by name: `InputMap`, `InputActions` |
-| `assets` | `core`, `math` | Assets as data: images and mipmaps, meshes - rigid and skinned - and what prepares them, skeletons, animation clips, materials, glTF import and export, the asset database (ids, `.meta` files) and the asset manager (loading by id) |
+| `assets` | `core`, `math` | Assets as data: images and mipmaps, meshes - rigid and skinned - and what prepares them, skeletons, animation clips, materials, the text of scripts, glTF import and export, the asset database (ids, `.meta` files) and the asset manager (loading by id) |
 | `world` | `core`, `math` | Entities, components and their hierarchy (EnTT), the component registry, scene files |
 | `animation` | `core`, `math`, `assets`, `world` | Poses of skeletons and what makes them: sampling clips, blending, the matrices a mesh is skinned with and the bounds of a posed mesh; the `Animator` component; `AnimationSystem`, which plays the animators of a world |
 | `physics` | `core`, `math`, `assets`, `world` | `PhysicsWorld`: rigid bodies, their shapes - boxes, balls, capsules, the hulls around sets of points and surfaces of triangles - joints between them, the characters that walk among them, stepping, contact events and queries, over Jolt Physics; the `Collider`, `RigidBody`, `Joint` and `CharacterController` components; `PhysicsSystem`, which keeps the entities of a world and the bodies, joints and characters of a simulation in step and makes shapes of mesh assets |
-| `scripting` | `core` | `ScriptRuntime`: the Lua state that gameplay scripts run in and the fence around it - limits on instructions, memory and nesting, the libraries a script may have, an environment for every chunk, the catalogue of the functions scripts are given - and values on their way between JSON and Lua |
+| `scripting` | `core`, `math`, `assets`, `world` | `ScriptRuntime`: the Lua state that gameplay scripts run in and the fence around it - limits on instructions, memory and nesting, the libraries a script may have, an environment for every chunk, the catalogue of the functions scripts are given - and values on their way between JSON and Lua; the `Script` component; `ScriptSystem`, which gives every entity with a script an instance of it and calls its `start`, `update` and `destroy`; what scripts can ask of an entity |
 | `rhi` | `core`, `math`, `platform` | Vulkan device, swapchain and texture readback over NVRHI |
 | `shaders` | `core` | Shader requests and permutation keys, disk cache, `ShaderLibrary` |
 | `shader_compiler` | `core`, `shaders` | Slang to SPIR-V compiler (not linked into exported games) |
 | `renderer` | `core`, `math`, `assets`, `world`, `animation`, `rhi`, `shaders` | The scene renderer and what it is made of: GPU copies of assets, the mesh passes, the G-buffer and its lighting, the lights of a world and the clusters they are sorted into, their shadow maps and the atlas those share, what finishes the picture (exposure, bloom, tone mapping, grading), the environment (the sky and what it lights), ambient occlusion from the screen, fog, the debug views, scene targets, the `MeshRenderer`, `Light`, `AmbientLight`, `Environment`, `Fog` and `PostProcess` components; camera views, debug lines, GPU timing, GPU shader management |
 | `ui` | `core`, `math`, `platform`, `rhi`, `shaders`, `renderer` | The immediate-mode interface: the Dear ImGui context and its NVRHI renderer |
-| `engine` | all of the above but `scripting`, which nothing uses yet | `Engine`: owns the subsystems, the assets, the world and the interface, and runs the frame loop; projects; placing models; checking the assets a scene uses |
+| `engine` | all of the above | `Engine`: owns the subsystems, the assets, the world and the interface, and runs the frame loop; projects; placing models; checking the assets a scene uses |
 | `editor` | `engine` and below | The editor: the scene document, undoable actions, scene and asset commands, panels, `EditorApp` (not linked into exported games) |
 
 `cordite-editor` (in `editor/`) is a thin `main` around `EditorApp`. Everything else,
@@ -922,9 +922,46 @@ Step-by-step guide: [work-with-assets](.claude/skills/work-with-assets/SKILL.md)
 
 ## Scripting
 
-Gameplay scripts are Lua 5.4, run by `ScriptRuntime` (`scripting/ScriptRuntime.h`).
-What there is so far is the runtime; script assets, the component that puts a script
-on an entity and the functions scripts call are built on it.
+Gameplay scripts are Lua 5.4: `.lua` assets that a `Script` component puts on an
+entity, run by `ScriptSystem` (`scripting/ScriptSystem.h`) in a `ScriptRuntime`
+(`scripting/ScriptRuntime.h`). `samples/showcase/assets/scripts/clock.lua` is the
+reference for how a script is written. What scripts can do so far is little - ask
+their entity for its name, switch it on and off, destroy it; the rest of the API is
+built on what is here.
+
+- **A script returns a table**: the functions the engine calls - `start`,
+  `update(deltaSeconds)`, `destroy` - and `properties`, what a `Script` component
+  may give other values of the same kind. Every entity with the script has a table
+  of its own, `self`, with `entity` and `properties` in it; the functions are found
+  through it.
+- **Instances follow the components; nothing listens.** Every update the system walks
+  the hierarchy and brings its instances in line with the `Script` components it
+  finds, as the physics does with bodies: a component that says something else -
+  another script, other properties - gets another instance. `start` and `update` are
+  called in the order of the hierarchy, and nothing of an entity that is switched
+  off.
+- **Scripts run while time passes**: in `Engine::updateWorld()` with a running clock,
+  before the simulation, so that what a script decides in a frame is what the
+  bodies do in it. An editor, whose clock is stopped, runs none.
+- **A script does not destroy; it asks.** `entity:destroy()` is
+  `ScriptSystem::destroyLater()`: the entity goes once the scripts of the update
+  have run, after the instances in it had their `destroy`, children first. An
+  entity that anything else destroys takes its instance along without a call.
+- **An error stops the instance it happened in**, and is said once: in the log and in
+  `ScriptSystem::problems()`, with the entity, the file and the line. A script that
+  cannot be loaded is one problem however many entities name it.
+- **Scripts are loaded again when the assets are refreshed** and their text is another.
+  Instances keep their tables and get the new functions - one metatable per script
+  leads them there - and those that an error stopped are given another go. Text
+  that cannot be loaded leaves the old running.
+- **An entity is one value to scripts**: the same value every time for the same
+  entity (`pushEntity`), with `cordite.Entity` as its methods. It outlives its
+  entity; `checkEntity` raises for one that is gone, and `isValid()` is how a script
+  asks first. A function that scripts call finds the world through `checkContext`,
+  which is only there during an update (`scripting/ScriptBindings.h`).
+- **A reference to a component does not outlive a call into a script**, nor the
+  loading of one: what runs there may add and remove components. Copy what is
+  needed first.
 
 - **A script that is wrong is an error with a message, never the end of the
   program.** That is what the runtime is for, and each of the rules below has a test
@@ -972,7 +1009,8 @@ on an entity and the functions scripts call are built on it.
 - **A function for scripts is registered with `ScriptRuntime::registerLibrary`**,
   with its signature and a sentence that says what it does: the runtime keeps the
   catalogue, and counts the calls. It may raise Lua errors and throw what derives
-  from `std::exception`; a script sees both as errors.
+  from `std::exception`; a script sees both as errors. Arguments are checked with
+  Lua's own `luaL_check...`, whose messages name the function and the argument.
 - **Values cross as JSON** (`scripting/ScriptValue.h`), which is how the engine
   describes its data anyway. `null` is `nil`, but `cordite.null` inside an array; a
   table is an array when its keys are 1 to n and an object when they are names, with
@@ -1270,7 +1308,8 @@ body explaining what changed and why. One logical change per commit.
 - A C function that Lua calls through another C function has no name and no line in
   what it says about its arguments (`bad argument #1 to '?'`). A replacement for one
   of Lua's own functions checks the arguments itself, where Lua can still tell which
-  call of the script it was.
+  call of the script it was. Functions given to scripts with `registerLibrary` are
+  found by the name of their library instead, which is put where Lua looks.
 - `luaL_error` and `lua_error` do not return: they leave the function the way `throw`
   does. What the function holds at that moment is destroyed only because Lua is built
   as C++ here - and for the same reason neither may be called from a destructor or

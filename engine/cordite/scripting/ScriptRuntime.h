@@ -180,6 +180,11 @@ public:
     /// The memory the scripts hold now, in bytes.
     [[nodiscard]] size_t memoryBytes() const;
 
+    /// Has Lua give back, now, everything that nothing holds any more. Lua does that by
+    /// itself as it goes, a little at a time; this is for the moment after much was let
+    /// go of at once - a scene that ended - and for tests that measure.
+    void collectGarbage();
+
     /// The instructions the scripts have executed since the runtime was made, to the
     /// nearest thousand below. Zero when they are not counted.
     [[nodiscard]] uint64_t instructions() const;

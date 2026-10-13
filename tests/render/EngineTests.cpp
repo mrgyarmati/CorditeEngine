@@ -5,12 +5,16 @@
 #include "cordite/assets/AssetDatabase.h"
 #include "cordite/assets/GltfExporter.h"
 #include "cordite/assets/ImageCompare.h"
+#include "cordite/core/FileSystem.h"
+#include "cordite/core/Log.h"
 #include "cordite/math/Color.h"
 #include "cordite/math/Transform.h"
 #include "cordite/physics/PhysicsComponents.h"
 #include "cordite/platform/InputMap.h"
 #include "cordite/platform/KeyCodes.h"
 #include "cordite/renderer/RenderComponents.h"
+#include "cordite/scripting/ScriptComponents.h"
+#include "cordite/scripting/ScriptSystem.h"
 #include "cordite/world/Components.h"
 #include "cordite/world/SceneSerializer.h"
 
@@ -809,6 +813,81 @@ TEST_SUITE("Engine") {
         REQUIRE(test::unwrap(engine->beginFrame()));
         REQUIRE(engine->endFrame().has_value());
         CHECK(engine->statistics().animation == AnimationStatistics());
+        checkNoValidationIssues(engine->graphics());
+    }
+
+    TEST_CASE("the engine runs the scripts of its world while its clock runs") {
+        const TempDirectory directory;
+        REQUIRE(
+            writeTextFile(directory.path() / "counter.lua",
+                          "local Counter = {}\n"
+                          "function Counter:start() self.frames = 0 end\n"
+                          "function Counter:update(deltaSeconds)\n"
+                          "    self.frames = self.frames + 1\n"
+                          "    self.entity:setName(string.format('%d frames of %.4f s', self.frames, deltaSeconds))\n"
+                          "end\n"
+                          "return Counter\n")
+                .has_value());
+        REQUIRE(
+            writeTextFile(directory.path() / "broken.lua", "return {update = function(self) self.missing.x = 1 end}")
+                .has_value());
+        EngineDesc desc = headlessDesc();
+        desc.assetDirectory = directory.path();
+        // What a script may use up is the engine's to say.
+        desc.scripts.runtime.instructionLimit = 50'000;
+        const std::unique_ptr<Engine> engine = createEngine(desc);
+        // A script is one of the things a scene can put on an entity.
+        CHECK(engine->components().find("Script") != nullptr);
+
+        const AssetDatabase& database = engine->assets().database();
+        const AssetInfo* counter = database.findByReference("counter.lua");
+        const AssetInfo* broken = database.findByReference("broken.lua");
+        REQUIRE(counter != nullptr);
+        REQUIRE(broken != nullptr);
+        World& world = engine->world();
+        const Entity entity = world.createEntity("Counter");
+        world.add<ScriptComponent>(entity).script = counter->id;
+
+        // runFrame() lets the time of a frame pass, and the scripts run in it.
+        runFrames(*engine, 3);
+        CHECK(world.name(entity) == "3 frames of 0.0167 s");
+        const ScriptStatistics running = engine->statistics().scripts;
+        CHECK(running.scripts == 1);
+        CHECK(running.instances == 1);
+        CHECK(running.stopped == 0);
+        CHECK(running.calls == 1);
+        CHECK(running.memoryBytes > 0);
+        CHECK(engine->scripts().problems().empty());
+
+        // A program that drives its frames itself says whether time passes for the
+        // world: while it does not, no script runs - which is what keeps an editor from
+        // playing the scene it shows.
+        REQUIRE(test::unwrap(engine->beginFrame()));
+        engine->updateWorld(WorldClock::Stopped);
+        CHECK(world.name(entity) == "3 frames of 0.0167 s");
+        REQUIRE(engine->endFrame().has_value());
+        CHECK(engine->statistics().scripts == ScriptStatistics());
+        REQUIRE(test::unwrap(engine->beginFrame()));
+        engine->updateWorld();
+        CHECK(world.name(entity) == "4 frames of 0.0167 s");
+        REQUIRE(engine->endFrame().has_value());
+
+        // A script that is wrong is a problem the engine can be asked about, and goes
+        // on being one while everything else goes on.
+        const Entity wrong = world.createEntity("Wrong");
+        world.add<ScriptComponent>(wrong).script = broken->id;
+        {
+            const test::LogCapture log(LogLevel::Error);
+            runFrames(*engine, 2);
+            CHECK(log.count(LogLevel::Error) == 1);
+        }
+        CHECK(world.name(entity) == "6 frames of 0.0167 s");
+        REQUIRE(engine->scripts().problems().size() == 1);
+        CHECK(engine->scripts().problems()[0].entity == wrong);
+        CHECK(engine->scripts().problems()[0].message.starts_with(
+            "'Wrong' (broken.lua): broken.lua:1: attempt to index a nil value (field 'missing')"));
+        CHECK(engine->statistics().scripts.stopped == 1);
+        CHECK(engine->statistics().scripts.instances == 2);
         checkNoValidationIssues(engine->graphics());
     }
 

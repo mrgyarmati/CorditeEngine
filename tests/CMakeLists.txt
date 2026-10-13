@@ -82,7 +82,10 @@ cordite_add_test_suite(physics
 # written against it.
 cordite_add_test_suite(scripting
     SOURCES
+        unit/scripting/ScriptEntityApiTests.cpp
         unit/scripting/ScriptRuntimeTests.cpp
+        unit/scripting/ScriptSystemTests.cpp
+        unit/scripting/ScriptTestSupport.h
         unit/scripting/ScriptValueTests.cpp
     LIBRARIES
         cordite::scripting

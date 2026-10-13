@@ -532,6 +532,11 @@ TEST_SUITE("ScriptRuntime") {
         // What Lua's own checks of an argument say names the function and the place.
         CHECK(failure(*runtime, "return test.add(2, 'three')", "sum")
                   .starts_with("sum:1: bad argument #2 to 'add' (number expected, got string)"));
+        // Handed on rather than called by name, a function is known by the name it was
+        // registered under - where Lua by itself would say '?'.
+        CHECK(value(*runtime, "return {pcall(test.add, 2, 'three')}") ==
+              R"json([false,"bad argument #2 to 'test.add' (number expected, got string)"])json");
+        CHECK(contains(failure(*runtime, "local trip = test.trip trip()", "sum"), "[C]: in function 'test.trip'"));
 
         uint64_t added = 0;
         uint64_t tripped = 1;
@@ -544,8 +549,8 @@ TEST_SUITE("ScriptRuntime") {
                 tripped = function.calls;
             }
         }
-        CHECK(added == 6);
-        CHECK(tripped == 0);
+        CHECK(added == 7);
+        CHECK(tripped == 1);
 
         // A library is made where there is none, however deep; no name is the globals.
         const std::array more = {ScriptFunction{"sum", "sum(a, b) -> integer", "The same again.", add}};

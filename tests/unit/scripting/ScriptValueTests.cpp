@@ -228,6 +228,32 @@ TEST_SUITE("ScriptValue") {
         CHECK(refusal(*runtime, "local a, b = {}, {} a[1] = b b[1] = a return a").ends_with(tooDeep));
     }
 
+    TEST_CASE("a value is pushed no deeper than one is read") {
+        const std::unique_ptr<ScriptRuntime> runtime = makeRuntime();
+        // Arrays inside each other, `levels` of them: what text cannot be once it has
+        // been parsed, and what code can put together all the same.
+        const auto nested = [](uint32_t levels) {
+            Json value = Json::array();
+            for (uint32_t level = 1; level < levels; ++level) {
+                Json outer = Json::array();
+                outer.push_back(std::move(value));
+                value = std::move(outer);
+            }
+            return value;
+        };
+
+        const Json deepest = nested(kMaxScriptValueDepth);
+        CHECK(runtime->protect([&](lua_State* state) { pushScriptValue(state, deepest); }).has_value());
+        const Json deeper = nested(kMaxScriptValueDepth + 1);
+        const Status refused = runtime->protect([&](lua_State* state) { pushScriptValue(state, deeper); });
+        REQUIRE_FALSE(refused.has_value());
+        CHECK(refused.error().message == "a value for a script is nested more than 32 deep");
+        // However deep it goes on: it is not followed there.
+        const Json bottomless = nested(100000);
+        CHECK_FALSE(runtime->protect([&](lua_State* state) { pushScriptValue(state, bottomless); }).has_value());
+        CHECK(unwrap(runtime->run("return 'fine'", "after")) == Json("fine"));
+    }
+
     TEST_CASE("the same table is the same JSON every time") {
         const std::unique_ptr<ScriptRuntime> runtime = makeRuntime();
 

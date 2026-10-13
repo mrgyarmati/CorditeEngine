@@ -54,6 +54,15 @@
         "physicsJoints": 5,
         "characters": 1,
         "joints": 8,
+        // What is scripted: the scripts that are loaded, the entities that run one, the
+        // functions of scripts a frame calls - an update for each that has one - and
+        // the memory all of Lua holds. What stays is 17 kB, nearly all of it the runtime
+        // itself; the clock makes a name twice a second, and Lua lets what it holds
+        // double before it collects.
+        "scripts": 1,
+        "scriptInstances": 1,
+        "scriptCalls": 1,
+        "scriptBytes": 40000,
         // The image of the sky is 1.4 MiB of this.
         "textureBytes": 9437184,
 

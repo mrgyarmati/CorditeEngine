@@ -11,11 +11,12 @@ everything that refers to it keeps working. The code is in `engine/cordite/asset
 | File | What it is |
 |------|------------|
 | `AssetDatabase` | What exists: ids, types, names, dependencies, `.meta` files, problems |
-| `AssetManager` | Loads by id and shares the result: `loadMesh`, `loadMaterial`, `loadTexture`, `loadModel` |
+| `AssetManager` | Loads by id and shares the result: `loadMesh`, `loadMaterial`, `loadTexture`, `loadModel`, `loadScript` |
 | `Mesh`, `MeshProcessing`, `Primitives` | Mesh data, tangents and optimization, built-in shapes |
 | `Material` | The material model and the `.material.json` format |
 | `GltfImporter`, `GltfExporter`, `GltfDocument` | glTF 2.0 in and out |
 | `Image`, `Mipmaps` | Pixels |
+| `ScriptSource` | The text of a `.lua` file; running it is the business of the `scripting` module |
 
 On the GPU side, `renderer/RenderResources` turns loaded assets into buffers and textures.
 
@@ -29,11 +30,13 @@ my-game/
         textures/planks.png       + planks.png.meta
         materials/paint.material.json   (+ .meta)
         scenes/main.scene.json    (+ .meta)
+        scripts/door.lua          (+ .meta)
     .cordite/                     derived data; not committed
 ```
 
 File types are told apart by extension: `.gltf`/`.glb` model, `.png .jpg .jpeg .tga
-.bmp .hdr` texture, `.material.json` material, `.scene.json` scene. Anything else, and
+.bmp .hdr` texture, `.material.json` material, `.scene.json` scene, `.lua` script.
+Anything else, and
 any directory whose name starts with a dot, is ignored.
 
 `.meta` files hold the id. The editor writes them; **commit them with the asset and

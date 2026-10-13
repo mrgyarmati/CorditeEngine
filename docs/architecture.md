@@ -32,17 +32,17 @@ of slowly turning the code base into a ball of mud.
 | `core` | -         | Services every other module needs: logging, assertions, error handling, hashing, UUIDs, JSON and binary serialization, file I/O, configuration, the job system, memory allocators, timing, platform queries. |
 | `math` | `core`    | glm type aliases and conventions; `Transform`, bounding volumes, rays and intersection tests, frustum culling, projection matrices, color conversions, keyframed curves, deterministic random numbers, spherical harmonics, and where a direction is in an image of everything around. |
 | `platform` | `core`, `math` | The window system and windows (GLFW), and per-window keyboard, mouse and gamepad state with an injection API for tests and automation. |
-| `assets` | `core`, `math` | Assets as data, and where they come from: images and mipmaps; meshes, primitives and mesh processing; materials; glTF import and export; the asset database, which knows what exists and under which id; the asset manager, which loads by id. Knows nothing of the GPU. |
+| `assets` | `core`, `math` | Assets as data, and where they come from: images and mipmaps; meshes, primitives and mesh processing; materials; the text of scripts; glTF import and export; the asset database, which knows what exists and under which id; the asset manager, which loads by id. Knows nothing of the GPU. |
 | `world` | `core`, `math` | The scene: entities, their components and their parent/child hierarchy, stored with EnTT; the registry of component types known by name; scene files. |
 | `animation` | `core`, `math`, `assets`, `world` | Movement of skeletons: the functions that make a pose (sampling a clip, blending two poses, the matrices a mesh is skinned with, the bounds of a posed mesh), the `Animator` component, and `AnimationSystem`, which plays the animators of a world and gives each the pose it is in. |
 | `physics` | `core`, `math`, `assets`, `world` | The simulation of rigid bodies: `PhysicsWorld` holds bodies - shapes, a mass, where each is and how it moves - steps them on in time and answers what a ray hits. Jolt Physics is behind it and shows in none of its headers. The `Collider` and `RigidBody` components say what of a world is simulated, and `PhysicsSystem` keeps the two in step; it is also what makes the shapes of colliders out of mesh assets. |
-| `scripting` | `core` | Gameplay scripts: `ScriptRuntime` is the Lua state they run in and what keeps a script that is wrong from being more than an error - limits on instructions, memory and nesting, a build of Lua without what reaches the machine, an environment for every chunk - with the catalogue of the functions scripts are given, and the conversion of values between JSON and Lua. |
+| `scripting` | `core`, `math`, `assets`, `world` | Gameplay scripts: `ScriptRuntime` is the Lua state they run in and what keeps a script that is wrong from being more than an error - limits on instructions, memory and nesting, a build of Lua without what reaches the machine, an environment for every chunk - with the catalogue of the functions scripts are given, and the conversion of values between JSON and Lua. The `Script` component names a script for an entity; `ScriptSystem` gives each such entity an instance and calls it. |
 | `rhi` | `core`, `math`, `platform` | The GPU: Vulkan instance and device creation, the NVRHI device the renderer programs against, the swapchain, and texture readback. The only module that calls Vulkan. |
 | `shaders` | `core` | What a shader *is* to the engine: requests and their permutation keys, compiled binaries, the on-disk cache, and the `ShaderLibrary` that resolves a request from memory, disk or a compiler. |
 | `shader_compiler` | `core`, `shaders` | The Slang-based implementation of `IShaderCompiler`. Kept separate so exported games do not link a compiler. |
 | `renderer` | `core`, `math`, `assets`, `world`, `animation`, `rhi`, `shaders` | Drawing: the scene renderer and its passes (depth, G-buffer, deferred lighting, forward, debug views), the GPU copies of assets it draws with, the targets of a view, the components that make an entity visible or make it a light, the lights of a world sorted into the clusters of a view, the environment that surrounds a world made ready to light it, ambient occlusion worked out from the screen; the view a camera gives, debug line drawing, and the `ShaderManager` that turns shader binaries into GPU shader objects. |
 | `ui` | `core`, `math`, `platform`, `rhi`, `shaders`, `renderer` | The immediate-mode user interface: the Dear ImGui context, its input, and the renderer that draws it with NVRHI. |
-| `engine` | all of the above but `scripting`, which nothing uses yet | `Engine`: creates and owns the subsystems, the assets, the world and the interface, and runs the frame loop. Also what needs several of the modules below at once: projects, placing a model in a world, checking the assets a scene refers to. |
+| `engine` | all of the above | `Engine`: creates and owns the subsystems, the assets, the world and the interface, and runs the frame loop. Also what needs several of the modules below at once: projects, placing a model in a world, checking the assets a scene refers to. |
 | `editor` | `engine` and below | The editor: the scene document, undoable actions, the command registry, the panels, and `EditorApp`. Not part of exported games. |
 
 Further modules (audio) are added by the later milestones and will be listed here as
@@ -60,14 +60,15 @@ with and without a window:
 3. It opens the frame's command list, clears the engine's offscreen frame target and
    starts the interface frame.
 4. The program does its work: it changes the world as it sees fit, then calls
-   `Engine::updateWorld()`, which steps the simulation of the world's bodies and
-   puts the entities where their bodies have gone, plays the animations on by the
-   time of the frame, poses the skeletons and works out where every entity is; it records render passes
+   `Engine::updateWorld()`, which runs the scripts of the entities, steps the
+   simulation of the world's bodies and puts the entities where their bodies have
+   gone, plays the animations on by the time of the frame, poses the skeletons and
+   works out where every entity is; it records render passes
    into the command list, and describes its interface with ImGui calls. A game calls
    `Engine::drawWorld()`, which renders the world through its primary camera; the
    editor renders it from the viewport's own camera into the viewport panel instead,
    and updates the world with its clock stopped: a scene that is being worked on is
-   shown as it is, and does not play.
+   shown as it is, and does not play - no script runs, nothing falls.
 5. `endFrame` draws the interface over the frame target, copies the frame target to the
    back buffer and presents (windowed mode only), and releases GPU resources whose last
    use has finished.
@@ -1433,6 +1434,46 @@ the ones Lua reports by itself:
 
 What this does not hold is said in `ScriptRuntime.h`: one call of a library function
 is one instruction however long it takes, and scripts share the library tables.
+
+### A script is a table of functions, and every entity has a table of its own
+
+A script file returns a table - `start`, `update`, `destroy`, and the `properties` an
+entity may set - and the engine makes one more table for every entity that runs it,
+whose metatable leads to the script's. That is the oldest way there is of having
+objects in Lua, and it is chosen for what follows from it: the state of an entity is
+in a place of its own without the script doing anything for it, a script is an
+ordinary Lua module that can be read without knowing the engine, and loading a script
+again is putting another table behind the same metatable - every instance has the new
+functions at once, and none has lost what it knew.
+
+Properties are declared in the script, with the values they have when nobody says
+otherwise, and a `Script` component may only give values to what is declared, of the
+same kind. A name that is written wrongly in a scene is then an error that names it,
+rather than a value nobody reads. Every instance gets a copy of its own: a table
+among the properties that one entity changes is not the table of the next.
+
+### The scripts follow the components, and nothing listens
+
+`ScriptSystem` does what `PhysicsSystem` does: once an update it walks the world,
+compares what the `Script` components ask for with the instances it has, and makes,
+ends and drops instances until the two agree. It does not listen for components
+being added and removed. A listener would be called in the middle of whatever else
+the engine is doing - loading a scene, destroying a hierarchy - and would run script
+code there, which can do anything. Comparing once an update costs a walk through
+the hierarchy, and buys that scripts run at one known point of a frame and nowhere
+else.
+
+The price is what `destroy` can promise. It is called while the entity is still
+there, which the system can only see to for endings it brings about itself: a
+component that is gone or says something else, an entity that a script asked to
+have destroyed - which is why scripts ask, and the system destroys after they have
+all run - and the clearing of everything before another scene is loaded. An entity
+that other code destroys is simply gone at the next update, and its instance with it.
+
+An error in a function of an instance stops that instance and no other. Calling it
+again every frame would say the same thing sixty times a second about a table that
+is half changed; what stopped is said once, kept where the editor and an agent can
+ask for it, and run again when the script has another text.
 
 ### A chunk has its own globals, and names must exist
 

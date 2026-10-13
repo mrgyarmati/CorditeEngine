@@ -105,6 +105,9 @@ struct Engine::Impl {
     AnimationSystem animation;
     /// What the last updateWorld() since the frame began did.
     AnimationStatistics animationStatistics;
+    std::unique_ptr<ScriptSystem> scripts;
+    /// What the last updateWorld() since the frame began did.
+    ScriptStatistics scriptStatistics;
 
     Stopwatch frameClock;
     /// Runs from beginFrame() to the moment the frame is handed to the GPU.
@@ -178,6 +181,7 @@ Status Engine::Impl::initialize() {
 
     CORDITE_TRY(registerEngineComponents(components));
     CORDITE_TRY_ASSIGN(physics, PhysicsSystem::create(desc.physics));
+    CORDITE_TRY_ASSIGN(scripts, ScriptSystem::create(desc.scripts));
     frameClock.restart();
     return {};
 }
@@ -258,6 +262,7 @@ Result<bool> Engine::beginFrame() {
     (void)impl.sceneRenderer->takeFrameStatistics();
     impl.physicsStatistics = {};
     impl.animationStatistics = {};
+    impl.scriptStatistics = {};
     impl.frameOpen = true;
     return true;
 }
@@ -286,6 +291,7 @@ Status Engine::endFrame() {
     impl.statistics.gpuMilliseconds = impl.gpuTimer->latestMilliseconds();
     impl.statistics.physics = impl.physicsStatistics;
     impl.statistics.animation = impl.animationStatistics;
+    impl.statistics.scripts = impl.scriptStatistics;
     impl.statistics.scene = impl.sceneRenderer->takeFrameStatistics();
     impl.statistics.resources = impl.sceneRenderer->resources().statistics();
 
@@ -361,10 +367,13 @@ void Engine::updateWorld(WorldClock clock) {
     Impl& impl = *m_impl;
     // How much time passes is what a frame says; between frames there is none to pass.
     CORDITE_ASSERT(clock == WorldClock::Stopped || impl.frameOpen, "the clock of the world runs only during a frame");
-    // Bodies first: what the simulation moves is where it is before anything is posed
-    // or placed against it.
+    // Scripts first: what they decide in a frame - where a character is to walk - is
+    // what the simulation does in the same frame. Then bodies: what the simulation moves
+    // is where it is before anything is posed or placed against it.
     if (clock == WorldClock::Running && impl.frameOpen) {
         const auto deltaSeconds = static_cast<float>(impl.deltaSeconds);
+        impl.scriptStatistics = impl.scripts->update(
+            {.world = impl.world, .components = impl.components, .assets = *impl.assets, .deltaSeconds = deltaSeconds});
         impl.physicsStatistics = impl.physics->update(impl.world, *impl.assets, deltaSeconds);
         impl.animationStatistics = impl.animation.update(impl.world, *impl.assets, deltaSeconds);
     } else {
@@ -462,6 +471,10 @@ AssetManager& Engine::assets() {
 
 PhysicsSystem& Engine::physics() {
     return *m_impl->physics;
+}
+
+ScriptSystem& Engine::scripts() {
+    return *m_impl->scripts;
 }
 
 SceneRenderer& Engine::sceneRenderer() {

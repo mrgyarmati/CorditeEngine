@@ -57,6 +57,9 @@ size_t loadEveryAsset(AssetManager& assets) {
             case AssetType::Animation:
                 REQUIRE(assets.loadAnimation(asset.id).has_value());
                 break;
+            case AssetType::Script:
+                REQUIRE(assets.loadScript(asset.id).has_value());
+                break;
             case AssetType::Scene:
                 continue;
         }
@@ -103,6 +106,11 @@ TEST_SUITE("Performance") {
         // Validation is off, but the device still reports what it cannot do - running
         // out of versions of a buffer because frames pile up, for one.
         const std::vector<std::string> deviceIssues = engine->graphics().validationIssues();
+        // What keeps scripts of the showcase from running, which is nothing.
+        std::vector<std::string> scriptProblems;
+        for (const ScriptProblem& problem : engine->scripts().problems()) {
+            scriptProblems.push_back(problem.message);
+        }
         engine.reset();
 
         // --- The report -------------------------------------------------------------------------
@@ -118,6 +126,10 @@ TEST_SUITE("Performance") {
         simulation["characters"] = statistics.physics.characters;
         simulation["animators"] = statistics.animation.animators;
         simulation["joints"] = statistics.animation.joints;
+        simulation["scripts"] = statistics.scripts.scripts;
+        simulation["scriptInstances"] = statistics.scripts.instances;
+        simulation["scriptCalls"] = statistics.scripts.calls;
+        simulation["scriptBytes"] = statistics.scripts.memoryBytes;
         report["simulation"] = std::move(simulation);
         report["resources"] = test::describeResources(statistics.resources);
         test::writeReport(report);
@@ -156,6 +168,15 @@ TEST_SUITE("Performance") {
         checkBudget(budgets, "physicsJoints", statistics.physics.joints);
         checkBudget(budgets, "characters", statistics.physics.characters);
         checkBudget(budgets, "joints", statistics.animation.joints);
+        // Every script of the showcase runs: none was stopped, and none failed to load.
+        for (const std::string& problem : scriptProblems) {
+            FAIL_CHECK(problem);
+        }
+        CHECK(statistics.scripts.stopped == 0);
+        checkBudget(budgets, "scripts", statistics.scripts.scripts);
+        checkBudget(budgets, "scriptInstances", statistics.scripts.instances);
+        checkBudget(budgets, "scriptCalls", statistics.scripts.calls);
+        checkBudget(budgets, "scriptBytes", static_cast<double>(statistics.scripts.memoryBytes));
         checkBudget(budgets, "drawCalls", statistics.scene.meshes.drawCalls);
         checkBudget(budgets, "screenPasses", statistics.scene.screenPasses);
         checkBudget(budgets, "triangles", static_cast<double>(statistics.scene.meshes.triangles));

@@ -20,20 +20,20 @@ namespace {
 /// itself and to nothing else, and which nothing has to keep alive.
 const char kNullTag = 0;
 
-void pushValue(lua_State* state, const Json& value, bool inList);
+void pushValue(lua_State* state, const Json& value, bool inList, uint32_t depth);
 
-void pushArray(lua_State* state, const Json& array) {
+void pushArray(lua_State* state, const Json& array, uint32_t depth) {
     const size_t size = array.size();
     lua_createtable(state, static_cast<int>(std::min<size_t>(size, std::numeric_limits<int>::max())), 0);
     lua_Integer position = 1;
     for (const Json& element : array) {
-        pushValue(state, element, true);
+        pushValue(state, element, true, depth + 1);
         lua_rawseti(state, -2, position);
         ++position;
     }
 }
 
-void pushObject(lua_State* state, const Json& object) {
+void pushObject(lua_State* state, const Json& object, uint32_t depth) {
     lua_createtable(state, 0, static_cast<int>(std::min<size_t>(object.size(), std::numeric_limits<int>::max())));
     for (auto member = object.begin(); member != object.end(); ++member) {
         if (member.value().is_null()) {
@@ -41,12 +41,15 @@ void pushObject(lua_State* state, const Json& object) {
         }
         const std::string& name = member.key();
         lua_pushlstring(state, name.data(), name.size());
-        pushValue(state, member.value(), false);
+        pushValue(state, member.value(), false, depth + 1);
         lua_rawset(state, -3);
     }
 }
 
-void pushValue(lua_State* state, const Json& value, bool inList) {
+void pushValue(lua_State* state, const Json& value, bool inList, uint32_t depth) {
+    if (value.is_structured() && depth >= kMaxScriptValueDepth) {
+        luaL_error(state, "a value for a script is nested more than %d deep", static_cast<int>(kMaxScriptValueDepth));
+    }
     luaL_checkstack(state, 4, "a value is nested too deeply");
     switch (value.type()) {
         case Json::value_t::boolean:
@@ -74,10 +77,10 @@ void pushValue(lua_State* state, const Json& value, bool inList) {
             return;
         }
         case Json::value_t::array:
-            pushArray(state, value);
+            pushArray(state, value, depth);
             return;
         case Json::value_t::object:
-            pushObject(state, value);
+            pushObject(state, value, depth);
             return;
         case Json::value_t::null:
         case Json::value_t::binary:
@@ -238,7 +241,7 @@ bool isScriptNull(lua_State* state, int index) {
 }
 
 void pushScriptValue(lua_State* state, const Json& value) {
-    pushValue(state, value, false);
+    pushValue(state, value, false, 0);
 }
 
 Result<Json> readScriptValue(lua_State* state, int index) {
