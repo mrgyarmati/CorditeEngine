@@ -47,20 +47,11 @@ namespace cordite {
     return {value.GetW(), value.GetX(), value.GetY(), value.GetZ()};
 }
 
-/// Whether a value is made of numbers, beside isFinite(Vec3) of Math.h: what comes from a
-/// file, a script or a component is checked before Jolt gets it, which takes numbers for
-/// granted.
+/// Whether a value is a number, beside isFinite(Vec3) and isRotation(Quat) of Math.h:
+/// what comes from a file, a script or a component is checked before Jolt gets it, which
+/// takes numbers for granted.
 [[nodiscard]] inline bool isFinite(float value) noexcept {
     return std::isfinite(value);
-}
-
-[[nodiscard]] inline bool isFinite(const Quat& value) noexcept {
-    return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z) && std::isfinite(value.w);
-}
-
-/// Whether a quaternion can be brought to unit length, to be a rotation.
-[[nodiscard]] inline bool isRotation(const Quat& value) noexcept {
-    return isFinite(value) && glm::length(value) > kEpsilon;
 }
 
 } // namespace cordite

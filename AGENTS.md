@@ -242,7 +242,9 @@ defensively for the other two:
 Right-handed, +Y up, metres, -Z forward. Column-major matrices, column vectors.
 Radians in code, degrees in user-facing data. Direct3D-style clip space with reversed
 depth for scene rendering. Colors are linear unless a name says sRGB. Quaternions are
-serialized as `[x, y, z, w]`. Details are in `engine/cordite/math/Math.h`.
+serialized as `[x, y, z, w]`; four numbers from outside are checked with `isRotation`
+and brought to unit length with `normalizeRotation`, not with `glm::normalize` (see
+[Known pitfalls](#known-pitfalls)). Details are in `engine/cordite/math/Math.h`.
 
 ## Rendering and shaders
 
@@ -1448,6 +1450,12 @@ body explaining what changed and why. One logical change per commit.
   computes its last column from index zero instead, or the seam is a crack.
 - `-0.0f` and `0.0f` compare equal but differ in their bits; code that compares
   vertices by bytes (`meshopt_generateVertexRemap`) must normalize it first.
+- `glm::normalize` can change the last digits of a quaternion that is of unit length
+  already: a rotation that goes through it on its way into a component may come out
+  of the next file different from how it went in. `normalizeRotation`
+  (`math/Math.h`) leaves such a rotation bit for bit. And numbers a float can hold may
+  have squares it cannot - `1e30` - so that their length is infinite and dividing by
+  it gives zeros: `isRotation` says no to those, as to zeros and to what is no number.
 - Multiplying matrices in another order gives another last digit:
   `World::computeWorldMatrix` works from the entity upwards, `updateWorldTransforms`
   from the root downwards, and for an entity three deep the two can differ. Compare a

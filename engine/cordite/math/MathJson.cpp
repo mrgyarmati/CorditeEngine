@@ -95,17 +95,16 @@ Status fromJson(const Json& json, Quat& out) {
     CORDITE_TRY(readNumbers(json, values));
 
     const Quat rotation(values[3], values[0], values[1], values[2]);
-    const float lengthSquared = glm::dot(rotation, rotation);
-    if (lengthSquared < kEpsilon) {
-        return makeError(ErrorCode::ParseError, "a rotation quaternion must not be zero");
+    if (!isRotation(rotation)) {
+        // Finite numbers, so what is wrong is their size: none to speak of, or one whose
+        // square is no number any more.
+        return makeError(ErrorCode::ParseError, "a rotation quaternion must not be zero, and its numbers must not "
+                                                "be too large to have a length");
     }
 
     // A quaternion that is already of unit length, as every saved one is, is kept bit for
-    // bit: renormalizing would nudge its last digits on each load, and files would change
-    // every time they are saved again.
-    constexpr float kUnitLengthTolerance = 1e-5f;
-    const bool isUnitLength = std::abs(lengthSquared - 1.0f) <= kUnitLengthTolerance;
-    out = isUnitLength ? rotation : rotation / std::sqrt(lengthSquared);
+    // bit: files must not change every time they are loaded and saved again.
+    out = normalizeRotation(rotation);
     return {};
 }
 

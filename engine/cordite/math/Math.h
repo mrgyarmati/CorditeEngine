@@ -76,6 +76,27 @@ inline bool isFinite(const Vec3& value) noexcept {
     return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
 }
 
+/// Whether four numbers can be made a rotation, by bringing them to unit length: they
+/// are finite, not too large to be squared, and not all zero or as good as.
+inline bool isRotation(const Quat& rotation) noexcept {
+    const float lengthSquared = glm::dot(rotation, rotation);
+    return std::isfinite(lengthSquared) && lengthSquared > kEpsilon * kEpsilon;
+}
+
+/// Makes four numbers a rotation: a quaternion of length one. One that has that length
+/// already - as every rotation the engine has saved or computed has - is returned bit
+/// for bit: normalizing it again would nudge its last digits each time, and a rotation
+/// that goes through a file, or from one entity to another, would never settle. Returns
+/// the rotation that turns nothing when isRotation() says the numbers are none.
+inline Quat normalizeRotation(const Quat& rotation) noexcept {
+    if (!isRotation(rotation)) {
+        return kIdentityQuat;
+    }
+    constexpr float kUnitLengthTolerance = 1e-5f;
+    const float lengthSquared = glm::dot(rotation, rotation);
+    return std::abs(lengthSquared - 1.0f) <= kUnitLengthTolerance ? rotation : rotation / std::sqrt(lengthSquared);
+}
+
 /// Returns the normalized vector, or `fallback` when the input is too short to normalize.
 inline Vec3 normalizeOr(const Vec3& value, const Vec3& fallback) noexcept {
     const float lengthSquared = glm::dot(value, value);

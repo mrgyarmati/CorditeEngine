@@ -57,6 +57,19 @@ TEST_SUITE("MathJson") {
         const Status zero = fromJson(*parseJson("[0, 0, 0, 0]"), parsed);
         REQUIRE_FALSE(zero.has_value());
         CHECK(zero.error().code == ErrorCode::ParseError);
+
+        // Numbers a float can hold, whose squares it cannot: there is no length to divide
+        // by, and what is read must not be a quaternion of nothing but zeros.
+        const Quat before = parsed;
+        const Status huge = fromJson(*parseJson("[1e30, 0, 0, 1e30]"), parsed);
+        REQUIRE_FALSE(huge.has_value());
+        CHECK(huge.error().code == ErrorCode::ParseError);
+        CHECK(huge.error().message ==
+              "a rotation quaternion must not be zero, and its numbers must not be too large to have a length");
+        CHECK(parsed == before);
+        // Large is fine, as long as it has a length.
+        REQUIRE(fromJson(*parseJson("[0, 1e18, 0, 0]"), parsed).has_value());
+        CHECK(parsed == Quat(0.0f, 0.0f, 1.0f, 0.0f));
     }
 
     TEST_CASE("unit quaternions and vectors are read back bit for bit") {

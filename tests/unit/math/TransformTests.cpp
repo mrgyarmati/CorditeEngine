@@ -5,6 +5,8 @@
 #include "support/MathTestSupport.h"
 #include "support/TestSupport.h"
 
+#include <limits>
+
 using namespace cordite;
 using cordite::test::sameRotation;
 
@@ -89,6 +91,46 @@ TEST_SUITE("Transform") {
         CHECK(std::isfinite(decomposed.rotation.w));
         CHECK(decomposed.scale.y == doctest::Approx(0.0f));
         CHECK(glm::length(decomposed.rotation) == doctest::Approx(1.0f).epsilon(1e-4));
+    }
+
+    TEST_CASE("four numbers are made a rotation, and what is a rotation already is left bit for bit") {
+        // Glm's quaternions are written (w, x, y, z).
+        const Quat made = normalizeRotation(Quat(2.0f, 0.0f, 2.0f, 0.0f));
+        CHECK(glm::length(made) == doctest::Approx(1.0f).epsilon(1e-6));
+        CHECK(sameRotation(made, glm::angleAxis(toRadians(90.0f), kWorldUp), 1e-6f));
+
+        // Of length one as far as single floats go: what comes back is what went in, to
+        // the last bit - although it is not exactly of length one, and could be "improved".
+        const Quat nearly(1.000001f, 0.0f, 0.0f, 0.0f);
+        REQUIRE(nearly.w != 1.0f);
+        CHECK(normalizeRotation(nearly) == nearly);
+        for (const float degrees : {1.0f, 30.0f, 45.0f, 77.7f, 123.4f, 179.0f}) {
+            CAPTURE(degrees);
+            const Quat rotation = glm::angleAxis(toRadians(degrees), glm::normalize(Vec3(0.3f, -0.8f, 0.5f)));
+            CHECK(normalizeRotation(rotation) == rotation);
+        }
+        // A little further off, it is made one.
+        const Quat off(1.00001f, 0.0f, 0.0f, 0.0f);
+        CHECK(normalizeRotation(off) != off);
+        CHECK(normalizeRotation(off).w == doctest::Approx(1.0f).epsilon(1e-6));
+        const Quat under(0.99999f, 0.0f, 0.0f, 0.0f);
+        CHECK(normalizeRotation(under) != under);
+
+        // What has no length, or none that is a number, is no rotation: it turns nothing.
+        const float infinite = std::numeric_limits<float>::infinity();
+        const float notANumber = std::numeric_limits<float>::quiet_NaN();
+        for (const Quat& none :
+             {Quat(0.0f, 0.0f, 0.0f, 0.0f), Quat(1.0e-7f, 0.0f, 0.0f, 0.0f), Quat(1.0f, infinite, 0.0f, 0.0f),
+              Quat(notANumber, 0.0f, 0.0f, 1.0f), Quat(0.0f, 1.0e30f, 0.0f, 0.0f)}) {
+            CHECK_FALSE(isRotation(none));
+            CHECK(normalizeRotation(none) == kIdentityQuat);
+        }
+        // Small is not none, and neither is large - as long as its square is a number.
+        CHECK(isRotation(Quat(0.0f, 0.0f, 1.0e-5f, 0.0f)));
+        CHECK(sameRotation(normalizeRotation(Quat(0.0f, 0.0f, 1.0e-5f, 0.0f)), Quat(0.0f, 0.0f, 1.0f, 0.0f), 1e-6f));
+        CHECK(isRotation(Quat(0.0f, 1.0e18f, 0.0f, 0.0f)));
+        CHECK(normalizeRotation(Quat(0.0f, 1.0e18f, 0.0f, 0.0f)) == Quat(0.0f, 1.0f, 0.0f, 0.0f));
+        CHECK(isRotation(kIdentityQuat));
     }
 
     TEST_CASE("interpolate blends position and scale and slerps rotation") {

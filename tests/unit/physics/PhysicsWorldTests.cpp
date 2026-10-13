@@ -963,6 +963,9 @@ TEST_SUITE("PhysicsWorld") {
         refused({.position = Vec3(0.0f, kNotANumber, 0.0f)});
         refused({.rotation = Quat(0.0f, 0.0f, 0.0f, 0.0f)});
         refused({.rotation = Quat(kNotANumber, 0.0f, 0.0f, 0.0f)});
+        // Numbers a float holds, whose squares it does not: there is no length to bring
+        // them to one by, and what the simulation got would be a rotation of nothing.
+        refused({.rotation = Quat(1.0e30f, 0.0f, 0.0f, 0.0f)});
         // A dynamic body without mass - a static one needs none.
         CHECK(refused({.mass = 0.0f}) == "a dynamic body needs a mass of more than nothing, not 0");
         refused({.mass = -1.0f});
@@ -1088,6 +1091,7 @@ TEST_SUITE("PhysicsWorld") {
               "a sphere cannot be placed in its body: its offset or rotation is not made of numbers");
         refused({.shapes = {{.rotation = Quat(0.0f, 0.0f, 0.0f, 0.0f)}}});
         refused({.shapes = {{.rotation = Quat(kNotANumber, 0.0f, 0.0f, 0.0f)}}});
+        refused({.shapes = {{.rotation = Quat(0.0f, 1.0e30f, 0.0f, 1.0e30f)}}});
         // One shape that is none among good ones: the body is not made of the rest.
         CHECK(refused({.shapes = {{.type = ShapeType::Box},
                                   {.type = ShapeType::Sphere, .radius = 0.0f, .offset = Vec3(2.0f, 0.0f, 0.0f)},
