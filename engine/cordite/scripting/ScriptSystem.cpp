@@ -5,6 +5,7 @@
 #include "cordite/core/Assert.h"
 #include "cordite/core/Json.h"
 #include "cordite/core/Log.h"
+#include "cordite/platform/InputMap.h"
 #include "cordite/scripting/Lua.h"
 #include "cordite/scripting/ScriptBindings.h"
 #include "cordite/scripting/ScriptComponents.h"
@@ -13,12 +14,15 @@
 #include <fmt/format.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <optional>
 #include <ranges>
+#include <span>
 #include <string_view>
 #include <unordered_map>
 #include <utility>
+#include <variant>
 #include <vector>
 
 namespace cordite {
@@ -38,6 +42,7 @@ struct LoadedScript {
     /// The properties it declares, as data.
     Json defaults = Json::object();
     bool hasStart = false;
+    bool hasInput = false;
     bool hasUpdate = false;
     bool hasDestroy = false;
     /// Why it cannot be loaded - or why its newest text cannot, while an older runs.
@@ -68,8 +73,10 @@ struct Instance {
     std::string problem;
 };
 
-/// What a function of a script is called with besides its instance.
-using Argument = std::optional<double>;
+/// What a function of a script is called with besides its instance: numbers, yes or no,
+/// and text that outlives the call.
+using Argument = std::variant<double, bool, std::string_view>;
+using Arguments = std::span<const Argument>;
 
 /// What kind of value JSON holds, as far as a property of a script cares.
 enum class Kind : uint8_t {
@@ -185,9 +192,19 @@ struct ScriptSystem::Impl {
     void followAssets();
     void release(LoadedScript& script) const;
 
+    /// Brings the instances in line with what the Script components of the world ask
+    /// for, and lists in `wanted` who is to be called, parents first.
+    void reconcile(const World& world);
+    /// The instance of an entity that may be called now: one that is there and has not
+    /// stopped, of an entity that is there and switched on, with all above it.
+    [[nodiscard]] Instance* running(const World& world, Entity entity);
+    void startAll(const World& world);
+    void tellInput(const World& world, std::span<const ActionEvent> events);
+    void updateAll(const World& world);
+
     void make(Entity entity, const ScriptComponent& component);
     void stop(Entity entity, Instance& instance, std::string_view problem) const;
-    void call(Entity entity, Instance& instance, const char* function, Argument argument);
+    void call(Entity entity, Instance& instance, const char* function, Arguments arguments = {});
     void end(Entity entity);
     void release(Instance& instance) const;
     void destroyDoomed();
@@ -266,6 +283,7 @@ ScriptSystem::Impl::Loaded ScriptSystem::Impl::load(LoadedScript& script) const 
         }
         lua_pop(state, 1);
         loaded.hasStart = hasFunction(state, "start");
+        loaded.hasInput = hasFunction(state, "input");
         loaded.hasUpdate = hasFunction(state, "update");
         loaded.hasDestroy = hasFunction(state, "destroy");
 
@@ -306,6 +324,7 @@ ScriptSystem::Impl::Loaded ScriptSystem::Impl::load(LoadedScript& script) const 
     script.metatable = loaded.metatable;
     script.defaults = std::move(loaded.defaults);
     script.hasStart = loaded.hasStart;
+    script.hasInput = loaded.hasInput;
     script.hasUpdate = loaded.hasUpdate;
     script.hasDestroy = loaded.hasDestroy;
     script.problem.clear();
@@ -425,7 +444,7 @@ void ScriptSystem::Impl::make(Entity entity, const ScriptComponent& component) {
     instance.self = self;
 }
 
-void ScriptSystem::Impl::call(Entity entity, Instance& instance, const char* function, Argument argument) {
+void ScriptSystem::Impl::call(Entity entity, Instance& instance, const char* function, Arguments arguments) {
     ++calls;
     const Status called = runtime->protect([&](lua_State* state) {
         lua_rawgeti(state, LUA_REGISTRYINDEX, instance.self);
@@ -435,10 +454,18 @@ void ScriptSystem::Impl::call(Entity entity, Instance& instance, const char* fun
             return;
         }
         lua_insert(state, -2);
-        if (argument) {
-            lua_pushnumber(state, static_cast<lua_Number>(*argument));
+        luaL_checkstack(state, static_cast<int>(arguments.size()), "the scripts are out of stack");
+        for (const Argument& argument : arguments) {
+            if (const double* number = std::get_if<double>(&argument); number != nullptr) {
+                lua_pushnumber(state, static_cast<lua_Number>(*number));
+            } else if (const bool* flag = std::get_if<bool>(&argument); flag != nullptr) {
+                lua_pushboolean(state, *flag ? 1 : 0);
+            } else {
+                const std::string_view text = std::get<std::string_view>(argument);
+                lua_pushlstring(state, text.data(), text.size());
+            }
         }
-        lua_call(state, argument ? 2 : 1, 0);
+        lua_call(state, 1 + static_cast<int>(arguments.size()), 0);
     });
     if (!called) {
         stop(entity, instance, called.error().message);
@@ -468,7 +495,7 @@ void ScriptSystem::Impl::end(Entity entity) {
     const auto script = scripts.find(instance.blueprint.script);
     if (instance.phase == Phase::Running && instance.started && script != scripts.end() && script->second.hasDestroy &&
         context->world.isValid(entity)) {
-        call(entity, instance, "destroy", std::nullopt);
+        call(entity, instance, "destroy");
     }
     release(instance);
     instances.erase(found);
@@ -538,6 +565,7 @@ Result<std::unique_ptr<ScriptSystem>> ScriptSystem::create(const ScriptSystemDes
     CORDITE_TRY(registerEntityApi(runtime));
     CORDITE_TRY(registerWorldApi(runtime));
     CORDITE_TRY(registerComponentApi(runtime));
+    CORDITE_TRY(registerInputApi(runtime));
     return system;
 }
 
@@ -588,6 +616,96 @@ void ScriptSystem::destroyLater(Entity entity) {
     }
 }
 
+void ScriptSystem::Impl::reconcile(const World& world) {
+    // Who asks for an instance: every entity that is switched on, with all above it,
+    // and has a Script that names a script - parents before what hangs under them.
+    wanted.clear();
+    world.traverse([&](Entity entity, uint32_t depth) {
+        if (enabledAtDepth.size() <= depth) {
+            enabledAtDepth.resize(depth + 1);
+        }
+        const bool enabled = (depth == 0 || enabledAtDepth[depth - 1]) && world.isEnabled(entity);
+        enabledAtDepth[depth] = enabled;
+        const ScriptComponent* component = enabled ? world.tryGet<ScriptComponent>(entity) : nullptr;
+        if (component != nullptr && !component->script.isNil()) {
+            wanted.push_back(entity);
+        }
+    });
+
+    // Instances whose entity is gone are dropped; those whose entity asks for something
+    // else now - no script, another one, other properties - are ended.
+    for (const Entity entity : order) {
+        const auto found = instances.find(entity);
+        if (found == instances.end()) {
+            continue;
+        }
+        if (!world.isValid(entity)) {
+            release(found->second);
+            instances.erase(found);
+            continue;
+        }
+        const auto* component = world.tryGet<ScriptComponent>(entity);
+        if (component == nullptr || *component != found->second.blueprint) {
+            end(entity);
+        }
+    }
+    std::erase_if(order, [&](Entity entity) { return !instances.contains(entity); });
+
+    for (const Entity entity : wanted) {
+        if (!instances.contains(entity)) {
+            make(entity, *world.tryGet<ScriptComponent>(entity));
+        }
+    }
+}
+
+Instance* ScriptSystem::Impl::running(const World& world, Entity entity) {
+    const auto found = instances.find(entity);
+    const bool reachable = found != instances.end() && found->second.phase != Phase::Stopped && world.isValid(entity) &&
+                           world.isEnabledInHierarchy(entity);
+    return reachable ? &found->second : nullptr;
+}
+
+void ScriptSystem::Impl::startAll(const World& world) {
+    for (const Entity entity : wanted) {
+        Instance* instance = running(world, entity);
+        if (instance == nullptr || instance->started) {
+            continue;
+        }
+        instance->phase = Phase::Running;
+        if (scripts.at(instance->blueprint.script).hasStart) {
+            call(entity, *instance, "start");
+        }
+        // A start that an error cut short has not happened: it is tried again when
+        // the script is another, and nothing is told that it ends.
+        instance->started = instance->phase == Phase::Running;
+    }
+}
+
+void ScriptSystem::Impl::tellInput(const World& world, std::span<const ActionEvent> events) {
+    for (const Entity entity : wanted) {
+        for (const ActionEvent& event : events) {
+            // Asked again for every event: the one before may have stopped the script,
+            // or switched its entity off. And nothing is called before `start`.
+            Instance* instance = running(world, entity);
+            if (instance == nullptr || !instance->started || !scripts.at(instance->blueprint.script).hasInput) {
+                break;
+            }
+            const std::array<Argument, 2> arguments = {Argument(event.action), Argument(event.pressed)};
+            call(entity, *instance, "input", arguments);
+        }
+    }
+}
+
+void ScriptSystem::Impl::updateAll(const World& world) {
+    for (const Entity entity : wanted) {
+        Instance* instance = running(world, entity);
+        if (instance != nullptr && instance->started && scripts.at(instance->blueprint.script).hasUpdate) {
+            const std::array<Argument, 1> arguments = {Argument(deltaSeconds)};
+            call(entity, *instance, "update", arguments);
+        }
+    }
+}
+
 ScriptStatistics ScriptSystem::update(const ScriptContext& context) {
     Impl& impl = *m_impl;
     CORDITE_ASSERT(impl.context == nullptr, "the scripts are updated from inside an update of the scripts");
@@ -608,81 +726,25 @@ ScriptStatistics ScriptSystem::update(const ScriptContext& context) {
     };
 
     const Reach reach(impl, context);
-    World& world = context.world;
+    const World& world = context.world;
     impl.calls = 0;
     impl.followAssets();
+    impl.reconcile(world);
 
-    // Who asks for an instance: every entity that is switched on, with all above it,
-    // and has a Script that names a script - parents before what hangs under them.
-    impl.wanted.clear();
-    world.traverse([&](Entity entity, uint32_t depth) {
-        if (impl.enabledAtDepth.size() <= depth) {
-            impl.enabledAtDepth.resize(depth + 1);
-        }
-        const bool enabled = (depth == 0 || impl.enabledAtDepth[depth - 1]) && world.isEnabled(entity);
-        impl.enabledAtDepth[depth] = enabled;
-        const ScriptComponent* component = enabled ? world.tryGet<ScriptComponent>(entity) : nullptr;
-        if (component != nullptr && !component->script.isNil()) {
-            impl.wanted.push_back(entity);
-        }
-    });
-
-    // Instances whose entity is gone are dropped; those whose entity asks for something
-    // else now - no script, another one, other properties - are ended.
-    for (const Entity entity : impl.order) {
-        const auto found = impl.instances.find(entity);
-        if (found == impl.instances.end()) {
-            continue;
-        }
-        if (!world.isValid(entity)) {
-            impl.release(found->second);
-            impl.instances.erase(found);
-            continue;
-        }
-        const ScriptComponent* component = world.tryGet<ScriptComponent>(entity);
-        if (component == nullptr || *component != found->second.blueprint) {
-            impl.end(entity);
-        }
-    }
-    std::erase_if(impl.order, [&](Entity entity) { return !impl.instances.contains(entity); });
-
-    // New instances, then `start` for what has not started, then `update` for all:
-    // each in the order of the hierarchy. A script may switch an entity off, or have
-    // something else destroy it, before its turn comes.
-    for (const Entity entity : impl.wanted) {
-        if (!impl.instances.contains(entity)) {
-            impl.make(entity, *world.tryGet<ScriptComponent>(entity));
-        }
-    }
     const double deltaSeconds = std::isfinite(context.deltaSeconds) ? std::max(context.deltaSeconds, 0.0) : 0.0;
     impl.deltaSeconds = deltaSeconds;
     impl.seconds += deltaSeconds;
     ++impl.updates;
-    const auto runs = [&](Entity entity) -> Instance* {
-        const auto found = impl.instances.find(entity);
-        const bool reachable = found != impl.instances.end() && found->second.phase != Phase::Stopped &&
-                               world.isValid(entity) && world.isEnabledInHierarchy(entity);
-        return reachable ? &found->second : nullptr;
-    };
-    for (const Entity entity : impl.wanted) {
-        Instance* instance = runs(entity);
-        if (instance == nullptr || instance->started) {
-            continue;
-        }
-        instance->phase = Phase::Running;
-        if (impl.scripts.at(instance->blueprint.script).hasStart) {
-            impl.call(entity, *instance, "start", std::nullopt);
-        }
-        // A start that an error cut short has not happened: it is tried again when
-        // the script is another, and nothing is told that it ends.
-        instance->started = instance->phase == Phase::Running;
-    }
-    for (const Entity entity : impl.wanted) {
-        Instance* instance = runs(entity);
-        if (instance != nullptr && instance->started && impl.scripts.at(instance->blueprint.script).hasUpdate) {
-            impl.call(entity, *instance, "update", deltaSeconds);
-        }
-    }
+
+    // `start` for what has not started, then `input` for what was pressed and released,
+    // then `update` for all: three walks, each in the order of the hierarchy. A script
+    // may switch an entity off, or have something else destroy it, before its turn
+    // comes - which is why every one of them asks again whether an instance runs.
+    impl.startAll(world);
+    // The names in the events are the map's own, and the map is not changed while the
+    // scripts run: they outlive every call.
+    impl.tellInput(world, context.controls != nullptr ? context.controls->events() : std::span<const ActionEvent>());
+    impl.updateAll(world);
 
     impl.destroyDoomed();
     std::erase_if(impl.order, [&](Entity entity) { return !impl.instances.contains(entity); });

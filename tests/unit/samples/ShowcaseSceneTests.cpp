@@ -17,7 +17,9 @@
 #include "cordite/math/Equirectangular.h"
 #include "cordite/math/Math.h"
 #include "cordite/physics/PhysicsComponents.h"
+#include "cordite/platform/Input.h"
 #include "cordite/platform/InputMap.h"
+#include "cordite/platform/KeyCodes.h"
 #include "cordite/renderer/CameraView.h"
 #include "cordite/renderer/RenderComponents.h"
 #include "cordite/scripting/ScriptComponents.h"
@@ -56,11 +58,29 @@ struct Showcase {
         test::unwrap(AssetManager::create({.rootDirectory = project.assetDirectory()}));
     ComponentRegistry components;
     World world;
+    /// What is pressed and moved - by the tests that play - and the controls of the
+    /// project made of it, which is what its scripts ask about.
+    Input input;
+    InputActions controls;
 
     Showcase() {
         REQUIRE(registerEngineComponents(components).has_value());
         const Status loaded = loadScene(project.startScenePath(), world, components);
         REQUIRE_MESSAGE(loaded.has_value(), test::errorOf(loaded));
+        controls.setMap(test::unwrap(loadInputMap(project.inputMapPath())));
+    }
+
+    /// A frame of the game, as far as its scripts go: the controls are worked out, and
+    /// the scripts run.
+    ScriptStatistics play(ScriptSystem& scripts, double deltaSeconds) {
+        controls.update(input);
+        const ScriptStatistics statistics = scripts.update({.world = world,
+                                                            .components = components,
+                                                            .assets = *assets,
+                                                            .deltaSeconds = deltaSeconds,
+                                                            .controls = &controls});
+        input.beginFrame();
+        return statistics;
     }
 
     /// Every asset the scene needs: what its components name, and what those need in turn.
@@ -224,10 +244,7 @@ TEST_SUITE("Showcase") {
         ScriptStatistics statistics;
         size_t scripted = 0;
         for (int frame = 0; frame < 5; ++frame) {
-            statistics = scripts->update({.world = showcase.world,
-                                          .components = showcase.components,
-                                          .assets = *showcase.assets,
-                                          .deltaSeconds = 0.25});
+            statistics = showcase.play(*scripts, 0.25);
         }
         for (const ScriptProblem& problem : scripts->problems()) {
             FAIL_CHECK(problem.message);
@@ -253,6 +270,49 @@ TEST_SUITE("Showcase") {
         CHECK(log.contains("Clock (2) stopped"));
     }
 
+    TEST_CASE("whoever plays the showcase takes the sentry over with the controls of the project") {
+        Showcase showcase;
+        const std::unique_ptr<ScriptSystem> scripts = test::unwrap(ScriptSystem::create());
+        const Entity sentry = showcase.world.findByName("Sentry");
+        REQUIRE(showcase.world.has<CharacterControllerComponent>(sentry));
+        const auto controller = [&]() -> const CharacterControllerComponent& {
+            return *showcase.world.tryGet<CharacterControllerComponent>(sentry);
+        };
+
+        // Left alone it walks its beat, at the speed its Script gives it.
+        showcase.play(*scripts, 0.25);
+        CHECK(controller().movement == Vec3(-0.8f, 0.0f, 0.0f));
+        CHECK(controller().jump == 0.0f);
+
+        // D is "moveX" pushed all the way: to the right, which is +X.
+        showcase.input.injectKey(Key::D, true);
+        showcase.play(*scripts, 0.25);
+        CHECK(controller().movement == Vec3(0.8f, 0.0f, 0.0f));
+        // W as well is forward, which is -Z - and no faster for being both.
+        showcase.input.injectKey(Key::W, true);
+        showcase.play(*scripts, 0.25);
+        CHECK(controller().movement.x == doctest::Approx(0.8 * std::sqrt(0.5)));
+        CHECK(controller().movement.z == doctest::Approx(-0.8 * std::sqrt(0.5)));
+        CHECK(controller().movement.y == 0.0f);
+
+        // Space is "jump": told once, when it goes down, with the speed the script declares.
+        showcase.input.injectKey(Key::Space, true);
+        showcase.play(*scripts, 0.25);
+        CHECK(controller().jump == 4.0f);
+        // The simulation takes that and sets it back; here a test does.
+        showcase.world.tryGet<CharacterControllerComponent>(sentry)->jump = 0.0f;
+        showcase.play(*scripts, 0.25);
+        CHECK(controller().jump == 0.0f);
+
+        // Let go of, it takes up its beat again.
+        showcase.input.releaseAll();
+        showcase.play(*scripts, 0.25);
+        CHECK(controller().movement == Vec3(-0.8f, 0.0f, 0.0f));
+        for (const ScriptProblem& problem : scripts->problems()) {
+            FAIL_CHECK(problem.message);
+        }
+    }
+
     TEST_CASE("the scripts of the showcase call everything scripts are given, and leave its components as they were") {
         Showcase showcase;
         const std::unique_ptr<ScriptSystem> scripts = test::unwrap(ScriptSystem::create());
@@ -276,10 +336,7 @@ TEST_SUITE("Showcase") {
 
         const test::LogCapture log(LogLevel::Info);
         for (int frame = 0; frame < 5; ++frame) {
-            scripts->update({.world = showcase.world,
-                             .components = showcase.components,
-                             .assets = *showcase.assets,
-                             .deltaSeconds = 0.25});
+            showcase.play(*scripts, 0.25);
         }
         for (const ScriptProblem& problem : scripts->problems()) {
             FAIL_CHECK(problem.message);

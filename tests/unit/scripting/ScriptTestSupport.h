@@ -14,12 +14,20 @@
 /// // A piece of Lua, run once by an entity of its own:
 /// CHECK(stage.line("print(entity:name())") == "Probe");
 /// CHECK(stage.refusal("entity:setName()") == "bad argument #1 to 'setName' (string expected, got no value)");
+///
+/// // Controls, and something that presses them:
+/// stage.setControls(R"({"format": "cordite.input", "version": 1,
+///                       "actions": [{"name": "jump", "bindings": [{"key": "Space"}]}], "axes": []})");
+/// stage.input.injectKey(Key::Space, true);
+/// CHECK(stage.line("print(cordite.input.wasPressed('jump'))") == "true");
 /// @endcode
 
 #include "cordite/assets/AssetManager.h"
 #include "cordite/core/FileSystem.h"
 #include "cordite/core/Json.h"
 #include "cordite/core/Log.h"
+#include "cordite/platform/Input.h"
+#include "cordite/platform/InputMap.h"
 #include "cordite/scripting/ScriptComponents.h"
 #include "cordite/scripting/ScriptSystem.h"
 #include "cordite/world/ComponentRegistry.h"
@@ -75,11 +83,25 @@ struct ScriptStage {
         return entity;
     }
 
+    /// Gives the stage the controls that an input file with this text names.
+    void setControls(std::string_view json) { controls.setMap(unwrap(parseInputMap(unwrap(parseJson(json))))); }
+
     [[nodiscard]] ScriptContext context(double deltaSeconds = kScriptFrame) {
-        return {.world = world, .components = components, .assets = *assets, .deltaSeconds = deltaSeconds};
+        return {.world = world,
+                .components = components,
+                .assets = *assets,
+                .deltaSeconds = deltaSeconds,
+                .controls = played ? &controls : nullptr};
     }
 
-    ScriptStatistics update(double deltaSeconds = kScriptFrame) { return scripts->update(context(deltaSeconds)); }
+    /// A frame, as the engine has them: the controls are worked out from what was
+    /// pressed and moved since the frame before, and then the scripts run.
+    ScriptStatistics update(double deltaSeconds = kScriptFrame) {
+        controls.update(input);
+        const ScriptStatistics statistics = scripts->update(context(deltaSeconds));
+        input.beginFrame();
+        return statistics;
+    }
 
     /// What the scripts have printed since this was last asked, in order.
     std::vector<std::string> said() { return take(LogLevel::Info); }
@@ -147,6 +169,12 @@ struct ScriptStage {
     std::unique_ptr<AssetManager> assets;
     ComponentRegistry components;
     World world;
+    /// What is pressed and moved - a test does that with the inject functions - and the
+    /// controls made of it: those of no map, until setControls() gives one.
+    Input input;
+    InputActions controls;
+    /// Whether the scripts are given the controls at all.
+    bool played = true;
     std::unique_ptr<ScriptSystem> scripts;
 
 private:

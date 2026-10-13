@@ -213,6 +213,20 @@ function SelfTest:timeAndAssets()
     self:expect("a script that was only just added", self.scratch:script() == nil)
 end
 
+-- The controls of the game, by the names the input map of the project gives them.
+-- Whoever plays may be holding any of them as the game starts, so what is looked at here
+-- is the kind of answer; that the answers are the right ones is for the tests of the
+-- engine, which press keys.
+function SelfTest:controls()
+    self:expect("whether an action is held", type(cordite.input.isDown("jump")) == "boolean")
+    self:expect("whether an action was pressed", type(cordite.input.wasPressed("fire")) == "boolean")
+    self:expect("whether an action was released", type(cordite.input.wasReleased("fire")) == "boolean")
+    local push = cordite.input.axis("moveX")
+    self:expect("how far an axis is pushed", push >= -1 and push <= 1)
+    -- A name the input map does not have is a mistake, not a control nobody touches.
+    self:expect("a control that there is not", not pcall(cordite.input.isDown, "no such control"))
+end
+
 function SelfTest:start()
     self.checked = 0
     self.age = 0
@@ -225,6 +239,7 @@ function SelfTest:start()
     self:transforms()
     self:components()
     self:timeAndAssets()
+    self:controls()
 end
 
 -- What takes a frame to show is looked at in the frames after the first: a script that

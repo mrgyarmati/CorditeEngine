@@ -7,6 +7,7 @@
 #include "cordite/assets/ImageCompare.h"
 #include "cordite/core/FileSystem.h"
 #include "cordite/core/Log.h"
+#include "cordite/engine/Project.h"
 #include "cordite/math/Color.h"
 #include "cordite/math/Transform.h"
 #include "cordite/physics/PhysicsComponents.h"
@@ -536,11 +537,14 @@ TEST_SUITE("Engine") {
     }
 
     TEST_CASE("the showcase as a game shows it matches the reference image") {
+        // What a game is made of: the assets of its project, the controls the project
+        // names, and the scene it starts with.
+        const Project project = test::unwrap(loadProject(test::sourceDirectory() / "samples" / "showcase"));
         EngineDesc desc = headlessDesc(UVec2(960, 540));
-        desc.assetDirectory = test::sourceDirectory() / "samples" / "showcase" / "assets";
+        desc.assetDirectory = project.assetDirectory();
         const std::unique_ptr<Engine> engine = createEngine(desc);
-        REQUIRE(loadScene(desc.assetDirectory / "scenes" / "showcase.scene.json", engine->world(), engine->components())
-                    .has_value());
+        engine->actions().setMap(test::unwrap(loadInputMap(project.inputMapPath())));
+        REQUIRE(loadScene(project.startScenePath(), engine->world(), engine->components()).has_value());
 
         runFrames(*engine, 2);
         test::checkAgainstReference(test::unwrap(engine->captureFrame()), "showcase-game-960x540");
@@ -644,6 +648,36 @@ TEST_SUITE("Engine") {
         const Entity clock = world.findById(Uuid::parse("10000000-0000-4000-8000-000000000038").value_or(Uuid()));
         REQUIRE_FALSE(clock.isNull());
         CHECK((world.name(clock) == "Clock (9)" || world.name(clock) == "Clock (10)"));
+
+        // Whoever plays takes the sentry over, with the controls of the project. S is
+        // "moveY" pulled all the way back: away from the wall, towards +Z, for as long
+        // as it is held - half a second, 0.4 metres.
+        const Vec3 taken = world.transform(sentry).position;
+        engine->input().injectKey(Key::S, true);
+        runFrames(*engine, 30);
+        CHECK_NEAR(controller()->velocity, Vec3(0.0f, 0.0f, 0.8f), 1.0e-2f);
+        CHECK_NEAR(world.transform(sentry).position, taken + Vec3(0.0f, 0.0f, 0.4f), 3.0e-2f);
+        // Space is "jump": its script is told when the action goes down, and tells the
+        // character, which leaves the floor at four metres a second - a tenth of a
+        // second later it is a third of a metre up, and still going.
+        engine->input().injectKey(Key::Space, true);
+        runFrames(*engine, 6);
+        CHECK(controller()->ground == GroundState::InAir);
+        CHECK(world.transform(sentry).position.y > 0.2f);
+        CHECK(controller()->velocity.y > 2.0f);
+        // Held, the key does not make it jump again: it comes down and stays down.
+        runFrames(*engine, 90);
+        CHECK(controller()->ground == GroundState::OnGround);
+        CHECK(world.transform(sentry).position.y == doctest::Approx(0.0).epsilon(0.01));
+        // Let go of, it takes up its beat again from where it was walked to: back
+        // towards the wall, to the end it was heading for, at its own speed.
+        engine->input().releaseAll();
+        runFrames(*engine, 30);
+        CHECK(glm::length(controller()->velocity) == doctest::Approx(0.8).epsilon(0.02));
+        CHECK(controller()->velocity.z < -0.5f);
+        for (const ScriptProblem& problem : engine->scripts().problems()) {
+            FAIL_CHECK(problem.message);
+        }
         checkNoValidationIssues(engine->graphics());
     }
 

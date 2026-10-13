@@ -375,7 +375,8 @@ void Engine::updateWorld(WorldClock clock) {
         impl.scriptStatistics = impl.scripts->update({.world = impl.world,
                                                       .components = impl.components,
                                                       .assets = *impl.assets,
-                                                      .deltaSeconds = impl.deltaSeconds});
+                                                      .deltaSeconds = impl.deltaSeconds,
+                                                      .controls = &impl.actions});
         impl.physicsStatistics = impl.physics->update(impl.world, *impl.assets, deltaSeconds);
         impl.animationStatistics = impl.animation.update(impl.world, *impl.assets, deltaSeconds);
     } else {

@@ -11,6 +11,7 @@
 #include "cordite/core/Json.h"
 #include "cordite/engine/Engine.h"
 #include "cordite/engine/Project.h"
+#include "cordite/platform/InputMap.h"
 #include "cordite/world/SceneSerializer.h"
 
 #include "perf/PerformanceTestSupport.h"
@@ -96,6 +97,8 @@ TEST_SUITE("Performance") {
         // --- The scene, and the frame that loads what it shows -------------------------------
         milliseconds["sceneLoad"] = millisecondsFor(
             [&] { REQUIRE(loadScene(project.startScenePath(), engine->world(), engine->components()).has_value()); });
+        // The controls of the project, which its scripts ask about; nobody touches them.
+        engine->actions().setMap(unwrap(loadInputMap(project.inputMapPath())));
         milliseconds["firstFrame"] = millisecondsFor([&] { REQUIRE(unwrap(engine->runFrame())); });
 
         // --- Frames like any other -----------------------------------------------------------

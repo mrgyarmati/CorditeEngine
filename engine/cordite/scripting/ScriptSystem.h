@@ -31,6 +31,10 @@
 ///     self.travelled = self.travelled + self.properties.speed * deltaSeconds
 /// end
 ///
+/// function Door:input(action, pressed)     -- for every control that was pressed or released in the frame
+///     if action == "use" and pressed then self.travelled = 0 end
+/// end
+///
 /// function Door:destroy()                  -- when the script is taken off, or a script destroys the entity
 /// end
 ///
@@ -45,6 +49,10 @@
 ///
 /// - **start** is called once for an instance, before its first update, parents before
 ///   what hangs under them. **update** follows in the same order, every update.
+/// - **input** is called between the two, in the same order, once for every action of
+///   the input map that was pressed or released in the frame: with its name, and true
+///   for pressed. What is tapped within a frame is pressed, then released. Only a
+///   world that is given controls (ScriptContext::controls) has any.
 /// - An entity that is switched off, itself or by something above it, is left alone:
 ///   nothing of its script is called, and one that has not started waits.
 /// - **destroy** is called while the entity is still there: when its Script is removed,
@@ -87,6 +95,8 @@
 
 namespace cordite {
 
+class InputActions;
+
 struct ScriptSystemDesc {
     /// The limits of the scripts. See ScriptRuntimeDesc.
     ScriptRuntimeDesc runtime;
@@ -102,6 +112,10 @@ struct ScriptContext {
     /// The time that passes with this update, in seconds. Less than no time, and a time
     /// that is no number, is no time. A double, as every number of a script is.
     double deltaSeconds = 0.0;
+    /// The controls of the game as they are in this frame (platform/InputMap.h), already
+    /// worked out for it. None for a world that nothing is played in: no `input` is
+    /// called then, and a script that asks about a control is told that there are none.
+    const InputActions* controls = nullptr;
 };
 
 /// What an update of the scripts did.

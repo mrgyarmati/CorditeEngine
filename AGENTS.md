@@ -128,7 +128,7 @@ by accident.
 | `world` | `core`, `math` | Entities, components and their hierarchy (EnTT), the component registry, scene files |
 | `animation` | `core`, `math`, `assets`, `world` | Poses of skeletons and what makes them: sampling clips, blending, the matrices a mesh is skinned with and the bounds of a posed mesh; the `Animator` component; `AnimationSystem`, which plays the animators of a world |
 | `physics` | `core`, `math`, `assets`, `world` | `PhysicsWorld`: rigid bodies, their shapes - boxes, balls, capsules, the hulls around sets of points and surfaces of triangles - joints between them, the characters that walk among them, stepping, contact events and queries, over Jolt Physics; the `Collider`, `RigidBody`, `Joint` and `CharacterController` components; `PhysicsSystem`, which keeps the entities of a world and the bodies, joints and characters of a simulation in step and makes shapes of mesh assets |
-| `scripting` | `core`, `math`, `assets`, `world` | `ScriptRuntime`: the Lua state that gameplay scripts run in and the fence around it - limits on instructions, memory and nesting, the libraries a script may have, an environment for every chunk, the catalogue of the functions scripts are given - and values on their way between JSON and Lua; the `Script` component; `ScriptSystem`, which gives every entity with a script an instance of it and calls its `start`, `update` and `destroy`; the functions scripts are given: entities and their hierarchy, transforms, components through the reflection, vectors and rotations, the time, the ids of assets |
+| `scripting` | `core`, `math`, `platform`, `assets`, `world` | `ScriptRuntime`: the Lua state that gameplay scripts run in and the fence around it - limits on instructions, memory and nesting, the libraries a script may have, an environment for every chunk, the catalogue of the functions scripts are given - and values on their way between JSON and Lua; the `Script` component; `ScriptSystem`, which gives every entity with a script an instance of it and calls its `start`, `update` and `destroy`; the functions scripts are given: entities and their hierarchy, transforms, components through the reflection, vectors and rotations, the time, the ids of assets, the controls |
 | `rhi` | `core`, `math`, `platform` | Vulkan device, swapchain and texture readback over NVRHI |
 | `shaders` | `core` | Shader requests and permutation keys, disk cache, `ShaderLibrary` |
 | `shader_compiler` | `core`, `shaders` | Slang to SPIR-V compiler (not linked into exported games) |
@@ -898,9 +898,10 @@ Step-by-step guide: [work-with-assets](.claude/skills/work-with-assets/SKILL.md)
 
 - **A game asks about its controls by name.** `InputMap` (`platform/InputMap.h`) says
   which keys, buttons and sticks press an *action* ("jump") and move an *axis*
-  ("moveX"); `InputActions` works both out of the `Input` of the frame. Game code,
-  and scripts when they come, ask `Engine::actions()` - never `Input` for a key.
-  `Input` is for what has no name in a game: the editor's own interface.
+  ("moveX"); `InputActions` works both out of the `Input` of the frame. Game code
+  asks `Engine::actions()`, and scripts `cordite.input`, which is the same thing -
+  never `Input` for a key. `Input` is for what has no name in a game: the editor's
+  own interface.
 - **The controls of a project are one file**, named by `inputMap` in
   `cordite.project.json` and read as strictly as a scene: a member that is not
   known, a key that has no such name or a binding that names two controls is an
@@ -931,7 +932,8 @@ are the reference for how one is written: `clock.lua` for what a script is made 
 `patrol.lua` for one that moves something, `selftest.lua` for every function there
 is, called once and checked. Scripts reach entities and their hierarchy, transforms,
 every component through its properties, vectors and rotations, the time and the ids
-of assets; input, physics queries, timers and the loading of scenes are to come.
+of assets, and the controls of the game; physics queries, timers and the loading of
+scenes are to come.
 Step-by-step guide for giving scripts a function:
 [add-script-function](.claude/skills/add-script-function/SKILL.md).
 
@@ -949,6 +951,23 @@ Step-by-step guide for giving scripts a function:
 - **Scripts run while time passes**: in `Engine::updateWorld()` with a running clock,
   before the simulation, so that what a script decides in a frame is what the
   bodies do in it. An editor, whose clock is stopped, runs none.
+- **An update is three walks through the hierarchy**: `start` for what has not
+  started, `input(action, pressed)` for every action that was pressed or released
+  in the frame, `update(deltaSeconds)`. Each asks again whether an instance still
+  runs (`Impl::running`): the call before may have stopped it or switched its entity
+  off - or on, and nothing of an instance is called before its `start` has been
+  through. A new function the engine calls is another walk, a `has...` flag found
+  when the script is loaded - which is also what refuses `input = 5` - and a line
+  in `ScriptSystem.h`.
+- **Scripts ask about controls by the names of the input map**, and a name the map
+  does not have is an error that lists the ones it has - where `InputActions`
+  itself answers "never pressed". A typing mistake in a script, or a control that
+  was renamed in the map, is found the first time the line runs.
+- **Whoever runs scripts gives them what they ask about** (`ScriptContext`): the
+  world, the assets, the controls. The engine passes its own; a test that runs the
+  scripts of a project gives them the project's input map, as a game does. A world
+  that is given no controls tells a script that asks so - it does not pretend that
+  nothing is pressed.
 - **A script does not destroy; it asks.** `entity:destroy()` is
   `ScriptSystem::destroyLater()`: the entity goes once the scripts of the update
   have run, after the instances in it had their `destroy`, children first. An

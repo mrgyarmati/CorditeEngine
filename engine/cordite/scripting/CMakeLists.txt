@@ -7,6 +7,7 @@ cordite_add_module(scripting
         ScriptComponents.cpp
         ScriptComponents.h
         ScriptEntityApi.cpp
+        ScriptInputApi.cpp
         ScriptMathApi.cpp
         ScriptRuntime.cpp
         ScriptRuntime.h
@@ -18,6 +19,7 @@ cordite_add_module(scripting
     DEPENDS
         core
         math
+        platform
         assets
         world
     PRIVATE_LIBRARIES

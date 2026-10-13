@@ -36,7 +36,7 @@ of slowly turning the code base into a ball of mud.
 | `world` | `core`, `math` | The scene: entities, their components and their parent/child hierarchy, stored with EnTT; the registry of component types known by name; scene files. |
 | `animation` | `core`, `math`, `assets`, `world` | Movement of skeletons: the functions that make a pose (sampling a clip, blending two poses, the matrices a mesh is skinned with, the bounds of a posed mesh), the `Animator` component, and `AnimationSystem`, which plays the animators of a world and gives each the pose it is in. |
 | `physics` | `core`, `math`, `assets`, `world` | The simulation of rigid bodies: `PhysicsWorld` holds bodies - shapes, a mass, where each is and how it moves - steps them on in time and answers what a ray hits. Jolt Physics is behind it and shows in none of its headers. The `Collider` and `RigidBody` components say what of a world is simulated, and `PhysicsSystem` keeps the two in step; it is also what makes the shapes of colliders out of mesh assets. |
-| `scripting` | `core`, `math`, `assets`, `world` | Gameplay scripts: `ScriptRuntime` is the Lua state they run in and what keeps a script that is wrong from being more than an error - limits on instructions, memory and nesting, a build of Lua without what reaches the machine, an environment for every chunk - with the catalogue of the functions scripts are given, and the conversion of values between JSON and Lua. The `Script` component names a script for an entity; `ScriptSystem` gives each such entity an instance and calls it. What scripts call is in the `Script...Api.cpp` sources, one per subject: entities, the world and its hierarchy and transforms, components (through the reflection), vectors and rotations. |
+| `scripting` | `core`, `math`, `platform`, `assets`, `world` | Gameplay scripts: `ScriptRuntime` is the Lua state they run in and what keeps a script that is wrong from being more than an error - limits on instructions, memory and nesting, a build of Lua without what reaches the machine, an environment for every chunk - with the catalogue of the functions scripts are given, and the conversion of values between JSON and Lua. The `Script` component names a script for an entity; `ScriptSystem` gives each such entity an instance and calls it. What scripts call is in the `Script...Api.cpp` sources, one per subject: entities, the world and its hierarchy and transforms, components (through the reflection), vectors and rotations, the controls of the game. |
 | `rhi` | `core`, `math`, `platform` | The GPU: Vulkan instance and device creation, the NVRHI device the renderer programs against, the swapchain, and texture readback. The only module that calls Vulkan. |
 | `shaders` | `core` | What a shader *is* to the engine: requests and their permutation keys, compiled binaries, the on-disk cache, and the `ShaderLibrary` that resolves a request from memory, disk or a compiler. |
 | `shader_compiler` | `core`, `shaders` | The Slang-based implementation of `IShaderCompiler`. Kept separate so exported games do not link a compiler. |
@@ -1513,6 +1513,27 @@ character's `velocity` is read-only, and an edit that names it is refused whatev
 value it gives. So `set` first leaves out what has the value it had, and only what
 is left is an edit. That makes writing back what was read a change of nothing, which
 is what it looks like, and keeps the refusal for the script that really tries.
+
+### Scripts know the controls by name, and the scripting module knows the input map
+
+A script asks `cordite.input.isDown("jump")` and `cordite.input.axis("moveX")`: the
+actions and axes of the project's input map, never a key. The one difference from
+`InputActions`, which C++ asks, is what an unknown name is. To C++ it is a control
+that is never pressed, so that a game runs with a map that lacks something. To a
+script it is an error that lists the names there are: a script is where names are
+typed by hand, and "nothing happens when I press it" is the hardest thing to find.
+
+Presses and releases also arrive as calls - `input(action, pressed)`, between the
+starts and the updates of a frame - because what happens once (a jump, a shot) is
+awkward to write as a question asked every frame, and what lasts (walking) is
+awkward as an event.
+
+The scripting module depends on `platform` for this, and will depend on `physics`
+for queries. The other way - scripting declares small interfaces, the engine
+module implements them over the real systems - would keep the module smaller, but
+the functions scripts call could then only be tested against stand-ins, with the
+real thing tested in the engine suite, which needs a GPU. As it is, the tests of
+the script API press real keys into a real `InputActions`, without a window.
 
 ### The showcase tests the script API from inside the game
 
