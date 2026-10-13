@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <ranges>
+#include <utility>
 
 namespace cordite {
 namespace {
@@ -183,14 +184,48 @@ void EditorContext::resetDocumentState() {
     m_savedStateId = m_history.stateId();
 }
 
-void EditorContext::newScene() {
+bool EditorContext::hasUnsavedChanges() const {
+    // Of the history of the scene, which is set aside while the scene is played.
+    return (m_play ? m_play->history : m_history).stateId() != m_savedStateId;
+}
+
+Status EditorContext::beginPlay() {
+    if (m_play) {
+        return makeError(ErrorCode::InvalidState, "the scene is being played already");
+    }
+    m_play = PlayedDocument{.scene = serializeScene(m_world, m_components),
+                            .history = std::exchange(m_history, UndoStack())};
+    return {};
+}
+
+Status EditorContext::endPlay() {
+    if (!m_play) {
+        return makeError(ErrorCode::InvalidState, "the scene is not being played");
+    }
+    PlayedDocument played = std::move(*m_play);
+    m_play.reset();
+    m_history = std::move(played.history);
+    // It was this world a moment ago, written by the function that now reads it: a
+    // failure here is not expected, and leaves the document as it should be with a
+    // world that says what went wrong.
+    return deserializeScene(m_world, played.scene, m_components);
+}
+
+Status EditorContext::newScene() {
+    if (m_play) {
+        return makeError(ErrorCode::InvalidState, "the scene is being played: stop it before starting a new one");
+    }
     m_world.clear();
     m_world.setSceneName("Untitled");
     m_scenePath.clear();
     resetDocumentState();
+    return {};
 }
 
 Status EditorContext::openScene(const std::filesystem::path& path) {
+    if (m_play) {
+        return makeError(ErrorCode::InvalidState, "the scene is being played: stop it before opening another");
+    }
     CORDITE_TRY(loadScene(path, m_world, m_components));
     m_scenePath = path;
     resetDocumentState();
@@ -198,6 +233,11 @@ Status EditorContext::openScene(const std::filesystem::path& path) {
 }
 
 Status EditorContext::saveScene(const std::filesystem::path& path) {
+    if (m_play) {
+        return makeError(ErrorCode::InvalidState,
+                         "the scene is being played: stop it before saving, or a game half-way through is "
+                         "what would be saved");
+    }
     const std::filesystem::path& target = path.empty() ? m_scenePath : path;
     if (target.empty()) {
         return makeError(ErrorCode::InvalidState, "the scene has no file yet; say where to save it");

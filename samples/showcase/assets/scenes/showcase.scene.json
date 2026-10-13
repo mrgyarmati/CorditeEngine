@@ -820,8 +820,9 @@
         },
         {
             // A script: scripts/clock.lua runs for this entity while the game runs - an
-            // editor shows the scene and runs no script. `properties` gives other values
-            // to what the script declares; what is left out here is as the script has it.
+            // editor shows the scene and runs no script until it plays it. `properties`
+            // gives other values to what the script declares; what is left out here is as
+            // the script has it.
             "id": "10000000-0000-4000-8000-000000000038",
             "name": "Clock",
             "enabled": true,

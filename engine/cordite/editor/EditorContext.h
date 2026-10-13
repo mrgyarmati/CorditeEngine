@@ -25,9 +25,15 @@
 ///
 /// Changes that should be undoable go through EditorActions, which records them in
 /// history(); only those count as unsaved changes.
+///
+/// A scene can be played where it is edited (PlayMode). beginPlay() remembers the scene
+/// and sets its history aside; endPlay() puts both back. In between, the world is a
+/// game that runs: whatever changes it then - the game itself, or an edit - is gone when
+/// playing ends, and such edits have a history of their own that goes with them.
 
 #include "cordite/assets/AssetManager.h"
 #include "cordite/core/Base.h"
+#include "cordite/core/Json.h"
 #include "cordite/core/Result.h"
 #include "cordite/core/Uuid.h"
 #include "cordite/editor/UndoStack.h"
@@ -36,6 +42,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -104,19 +111,47 @@ public:
     [[nodiscard]] const std::filesystem::path& scenePath() const { return m_scenePath; }
 
     /// Replaces the scene with an empty one. The history and the selection are cleared.
-    void newScene();
+    /// Fails with InvalidState while the scene is being played, and changes nothing then.
+    [[nodiscard]] Status newScene();
 
-    /// Replaces the scene with the one in a file. On failure nothing changes.
+    /// Replaces the scene with the one in a file. On failure nothing changes. Fails with
+    /// InvalidState while the scene is being played.
     [[nodiscard]] Status openScene(const std::filesystem::path& path);
 
     /// Saves to `path`, which becomes the scene's file; an empty path saves to the
-    /// current file. Fails with InvalidState when the scene has no file yet.
+    /// current file. Fails with InvalidState when the scene has no file yet, and while
+    /// it is being played: what would be written is a game half-way through.
     [[nodiscard]] Status saveScene(const std::filesystem::path& path = {});
 
     /// True when edits were made, or undone, since the scene was last saved or loaded.
-    [[nodiscard]] bool hasUnsavedChanges() const { return m_history.stateId() != m_savedStateId; }
+    /// What is edited while the scene is played does not count: it does not stay.
+    [[nodiscard]] bool hasUnsavedChanges() const;
+
+    /// Whether the scene is being played: between beginPlay() and endPlay().
+    [[nodiscard]] bool isPlaying() const { return m_play.has_value(); }
+
+    /// Begins to play the scene: remembers it as it is, to the byte, and sets its
+    /// history aside. From here on history() is another one, empty, for what is edited
+    /// while the game runs. The selection stays. Fails with InvalidState when the scene
+    /// is being played already.
+    [[nodiscard]] Status beginPlay();
+
+    /// Ends playing: the world holds the scene that beginPlay() remembered, and the
+    /// history and what counts as saved are what they were. Of the selection, what is
+    /// still there stays selected. Whoever ran the scene ends what runs first, while the
+    /// world it ran in is still there (Engine::endScene). Fails with InvalidState when
+    /// the scene is not being played.
+    [[nodiscard]] Status endPlay();
 
 private:
+    /// What is kept of the document while its scene is played. What counts as saved
+    /// needs no keeping: nothing is saved while a scene plays.
+    struct PlayedDocument {
+        /// The scene as beginPlay() found it (serializeScene).
+        Json scene;
+        UndoStack history;
+    };
+
     void resetDocumentState();
 
     World& m_world;
@@ -127,6 +162,7 @@ private:
     std::vector<Uuid> m_selection;
     std::filesystem::path m_scenePath;
     uint64_t m_savedStateId = 0;
+    std::optional<PlayedDocument> m_play;
 };
 
 } // namespace cordite

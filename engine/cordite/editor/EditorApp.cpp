@@ -142,6 +142,7 @@ Result<std::unique_ptr<EditorApp>> EditorApp::create(const EditorAppDesc& desc) 
 
     app->m_context =
         std::make_unique<EditorContext>(app->m_engine->world(), app->m_engine->components(), app->m_engine->assets());
+    app->m_play = std::make_unique<PlayMode>(*app->m_engine, *app->m_context);
     CORDITE_TRY(registerEditorCommands(app->m_commands, *app->m_context));
     CORDITE_TRY(registerPhysicsCommands(app->m_commands, *app->m_context, app->m_engine->physics()));
     // Read as strictly as the scene is: a project whose controls cannot be read does not open.
@@ -152,6 +153,7 @@ Result<std::unique_ptr<EditorApp>> EditorApp::create(const EditorAppDesc& desc) 
     CORDITE_TRY(registerInputCommands(app->m_commands, app->m_engine->input(), app->m_engine->actions(), inputMap));
     CORDITE_TRY(registerScriptCommands(app->m_commands, app->m_engine->scripts()));
     CORDITE_TRY(app->registerApplicationCommands());
+    CORDITE_TRY(app->registerPlayCommands());
     CORDITE_TRY_ASSIGN(app->m_viewport, ViewportPanel::create(*app->m_engine));
 
     if (!scene.empty()) {
@@ -175,10 +177,11 @@ Result<bool> EditorApp::runFrame() {
         return false;
     }
     // The scene is a document here, not a game that runs: nothing in it plays on, and
-    // what is animated is shown at the times its animators hold.
-    m_engine->updateWorld(WorldClock::Stopped);
+    // what is animated is shown at the times its animators hold - until it is played.
+    m_engine->updateWorld(m_play->clock());
     drawInterface();
     CORDITE_TRY(m_engine->endFrame());
+    m_play->frameEnded();
 
     updateWindowTitle();
     return true;
@@ -609,6 +612,89 @@ Status EditorApp::registerApplicationCommands() {
     });
 }
 
+Json EditorApp::describePlay() const {
+    Json status = Json::object();
+    status["state"] = nameOf(m_play->state());
+    status["frames"] = m_play->playedFrames();
+    // What keeps a script of the game from running, for whoever plays it without
+    // looking at the log.
+    Json problems = Json::array();
+    for (const ScriptProblem& problem : m_engine->scripts().problems()) {
+        problems.push_back(problem.message);
+    }
+    status["scriptProblems"] = std::move(problems);
+    return status;
+}
+
+Status EditorApp::registerPlayCommands() {
+    CORDITE_TRY(m_commands.add({
+        .name = "play.start",
+        .description = "Plays the scene in the editor: from the next frame on its scripts run, its bodies move "
+                       "and its sounds are heard. Nothing of that stays: play.stop puts the scene back as it "
+                       "was, and what is edited while it plays goes with the game. Returns what play.status "
+                       "returns.",
+        .parameters = {},
+        .handler = [this](const Json& /*parameters*/) -> Result<Json> {
+            CORDITE_TRY(m_play->start());
+            return describePlay();
+        },
+    }));
+
+    CORDITE_TRY(m_commands.add({
+        .name = "play.stop",
+        .description = "Stops playing: the scripts end, and the scene is what it was when play.start was called "
+                       "- its entities, its history, what is selected of what is still there.",
+        .parameters = {},
+        .handler = [this](const Json& /*parameters*/) -> Result<Json> {
+            CORDITE_TRY(m_play->stop());
+            return describePlay();
+        },
+    }));
+
+    CORDITE_TRY(m_commands.add({
+        .name = "play.pause",
+        .description = "Holds the game that is being played where it is: nothing in it moves on and nothing "
+                       "is heard, and the editor shows it as it stands. play.step lets single frames pass.",
+        .parameters = {},
+        .handler = [this](const Json& /*parameters*/) -> Result<Json> {
+            CORDITE_TRY(m_play->pause());
+            return describePlay();
+        },
+    }));
+
+    CORDITE_TRY(m_commands.add({
+        .name = "play.resume",
+        .description = "Lets a game that is paused go on.",
+        .parameters = {},
+        .handler = [this](const Json& /*parameters*/) -> Result<Json> {
+            CORDITE_TRY(m_play->resume());
+            return describePlay();
+        },
+    }));
+
+    CORDITE_TRY(m_commands.add({
+        .name = "play.step",
+        .description = "Lets a game that is paused go on for a number of frames, runs those frames, and "
+                       "leaves it paused: for looking at what a game does one frame at a time.",
+        .parameters = {{"frames", Type::Integer, "How many frames to let pass. Defaults to 1.", false}},
+        .handler = [this](const Json& parameters) -> Result<Json> {
+            CORDITE_TRY_ASSIGN(const uint32_t frames, countParameter(parameters, "frames", 1.0, kMaxScriptFrames));
+            CORDITE_TRY(m_play->step(frames));
+            CORDITE_TRY(runFrames(frames));
+            return describePlay();
+        },
+    }));
+
+    return m_commands.add({
+        .name = "play.status",
+        .description = "Says whether the scene is being played - `state` is \"stopped\", \"playing\" or "
+                       "\"paused\" - for how many `frames` its time has passed since play.start, and what "
+                       "keeps scripts of it from running (`scriptProblems`).",
+        .parameters = {},
+        .handler = [this](const Json& /*parameters*/) -> Result<Json> { return describePlay(); },
+    });
+}
+
 void EditorApp::drawInterface() {
     handleShortcuts();
     drawMainMenu();
@@ -661,6 +747,21 @@ void EditorApp::handleShortcuts() {
         m_openFileDialog = true;
     }
 
+    // Playing begins and ends between two frames, where commands run: these are queued
+    // like lines typed into the console, and run before the next frame.
+    const PlayState playing = m_play->state();
+    if (ImGui::Shortcut(ImGuiMod_Shift | ImGuiKey_F5, route) && playing != PlayState::Stopped) {
+        m_submittedLines.emplace_back("play.stop");
+    } else if (ImGui::Shortcut(ImGuiKey_F5, route) && playing == PlayState::Stopped) {
+        m_submittedLines.emplace_back("play.start");
+    }
+    if (ImGui::Shortcut(ImGuiKey_F6, route) && playing != PlayState::Stopped) {
+        m_submittedLines.emplace_back(playing == PlayState::Playing ? "play.pause" : "play.resume");
+    }
+    if (ImGui::Shortcut(ImGuiKey_F10, route) && playing == PlayState::Paused) {
+        m_submittedLines.emplace_back("play.step");
+    }
+
     const std::vector<Entity> selection = m_context->selection();
     if (!selection.empty()) {
         if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_D, route)) {
@@ -682,7 +783,7 @@ void EditorApp::drawMainMenu() {
 
     if (ImGui::BeginMenu("File")) {
         if (ImGui::MenuItem("New scene")) {
-            m_context->newScene();
+            reportIfFailed(m_context->newScene());
         }
         if (ImGui::MenuItem("Open scene...", "Ctrl+O")) {
             m_fileDialog = FileDialog::Open;
@@ -724,6 +825,7 @@ void EditorApp::drawMainMenu() {
 
     drawEntityMenu();
     drawAssetMenu();
+    drawPlayMenu();
     drawViewMenu();
 
     if (ImGui::BeginMenu("Help")) {
@@ -732,9 +834,12 @@ void EditorApp::drawMainMenu() {
         ImGui::EndMenu();
     }
 
-    // The scene and whether it has unsaved changes, at the right end of the bar.
+    // The scene, whether it has unsaved changes, and whether it is being played, at
+    // the right end of the bar.
+    const PlayState playing = m_play->state();
     const std::string status =
-        fmt::format("{}{}", m_context->world().sceneName(), m_context->hasUnsavedChanges() ? " *" : "");
+        fmt::format("{}{}{}", m_context->world().sceneName(), m_context->hasUnsavedChanges() ? " *" : "",
+                    playing == PlayState::Stopped ? std::string() : fmt::format(" - {}", nameOf(playing)));
     const float statusWidth = ImGui::CalcTextSize(status.c_str()).x + ImGui::GetStyle().ItemSpacing.x * 2.0f;
     if (ImGui::GetContentRegionAvail().x > statusWidth) {
         ImGui::SameLine(ImGui::GetWindowWidth() - statusWidth);
@@ -897,6 +1002,27 @@ void EditorApp::drawEntityMenu() {
     ImGui::EndMenu();
 }
 
+void EditorApp::drawPlayMenu() {
+    if (!ImGui::BeginMenu("Play")) {
+        return;
+    }
+    // Each is a command, queued to run before the next frame: see handleShortcuts().
+    const PlayState state = m_play->state();
+    if (ImGui::MenuItem("Play", "F5", false, state == PlayState::Stopped)) {
+        m_submittedLines.emplace_back("play.start");
+    }
+    if (ImGui::MenuItem(state == PlayState::Paused ? "Resume" : "Pause", "F6", false, state != PlayState::Stopped)) {
+        m_submittedLines.emplace_back(state == PlayState::Paused ? "play.resume" : "play.pause");
+    }
+    if (ImGui::MenuItem("Step a frame", "F10", false, state == PlayState::Paused)) {
+        m_submittedLines.emplace_back("play.step");
+    }
+    if (ImGui::MenuItem("Stop", "Shift+F5", false, state != PlayState::Stopped)) {
+        m_submittedLines.emplace_back("play.stop");
+    }
+    ImGui::EndMenu();
+}
+
 void EditorApp::drawAssetMenu() {
     if (!ImGui::BeginMenu("Assets")) {
         return;
@@ -986,8 +1112,11 @@ void EditorApp::updateWindowTitle() {
     const std::filesystem::path& scenePath = m_context->scenePath();
     const std::string sceneLabel =
         scenePath.empty() ? m_context->world().sceneName() : pathToUtf8(scenePath.filename());
-    std::string title = fmt::format("{}{} - {}{}", sceneLabel, m_context->hasUnsavedChanges() ? " *" : "",
-                                    m_project ? m_project->settings.name + " - " : std::string(), kEditorName);
+    const PlayState playing = m_play->state();
+    std::string title =
+        fmt::format("{}{}{} - {}{}", sceneLabel, m_context->hasUnsavedChanges() ? " *" : "",
+                    playing == PlayState::Stopped ? std::string() : fmt::format(" ({})", nameOf(playing)),
+                    m_project ? m_project->settings.name + " - " : std::string(), kEditorName);
     if (title != m_shownTitle) {
         window->setTitle(title);
         m_shownTitle = std::move(title);

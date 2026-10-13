@@ -6,6 +6,7 @@
 #include "cordite/core/FileSystem.h"
 #include "cordite/engine/Project.h"
 #include "cordite/platform/InputMap.h"
+#include "cordite/world/SceneSerializer.h"
 
 #include "render/RenderTestSupport.h"
 #include "support/MathTestSupport.h"
@@ -56,6 +57,13 @@ Json run(EditorApp& editor, std::string_view command, std::string_view parameter
     const Result<Json> result = editor.commands().execute(command, json(parameters));
     REQUIRE_MESSAGE(result.has_value(), test::errorOf(result));
     return *result;
+}
+
+/// Runs a command that is expected to fail, and returns why it did.
+Error refusal(EditorApp& editor, std::string_view command, std::string_view parameters = "{}") {
+    const Result<Json> result = editor.commands().execute(command, json(parameters));
+    REQUIRE_FALSE(result.has_value());
+    return result.error();
 }
 
 /// A JSON string literal holding a path, quoted and escaped.
@@ -1172,11 +1180,220 @@ TEST_SUITE("EditorApp") {
         checkNoValidationIssues(editor->engine().graphics());
     }
 
+    TEST_CASE("the editor plays the scene it shows, holds it, and puts it back when it stops") {
+        EditorAppDesc desc = headlessDesc(UVec2(640, 360));
+        desc.project = showcaseProject();
+        const std::unique_ptr<EditorApp> editor = createEditor(desc);
+        Engine& engine = editor->engine();
+        const auto scene = [&] { return dumpJson(serializeScene(engine.world(), engine.components()), 2); };
+        // The clock of the showcase writes the time into its name; the ball lies on the floor.
+        const auto clockName = [&] {
+            return run(*editor, "entity.get", R"({"entity": "10000000-0000-4000-8000-000000000038"})")["name"]
+                .get<std::string>();
+        };
+        const auto ballHeight = [&] {
+            return engine.world()
+                .transform(engine.world().findById(*Uuid::parse("10000000-0000-4000-8000-00000000001b")))
+                .position.y;
+        };
+
+        // Shown, not run.
+        run(*editor, "editor.runFrames", R"({"count": 2})");
+        const std::string before = scene();
+        CHECK(run(*editor, "play.status") == json(R"({"state": "stopped", "frames": 0, "scriptProblems": []})"));
+        CHECK(clockName() == "Clock");
+        CHECK(editor->play().state() == PlayState::Stopped);
+        CHECK(engine.audio().output() == AudioOutput::Offline);
+        run(*editor, "selection.set", R"({"entities": ["Stage/Ball", "Stage/Clock"]})");
+
+        // Played: time passes for the world, a sixtieth of a second a frame.
+        CHECK(run(*editor, "play.start")["state"] == "playing");
+        CHECK(editor->context().isPlaying());
+        run(*editor, "editor.runFrames", R"({"count": 90})");
+        Json status = run(*editor, "play.status");
+        CHECK(status["state"] == "playing");
+        CHECK(status["frames"] == 90);
+        CHECK(status["scriptProblems"].empty());
+        // The scripts run - the clock has ticked twice in a second and a half - the
+        // simulation steps and holds its joints, and the lamp and the music are heard by
+        // the camera.
+        CHECK(clockName() == "Clock (2)");
+        Json statistics = run(*editor, "editor.statistics");
+        CHECK(statistics["scripts"]["instances"] == 7);
+        CHECK(statistics["scripts"]["stopped"] == 0);
+        CHECK(statistics["physics"]["steps"] == 1);
+        CHECK(statistics["physics"]["joints"] == 5);
+        CHECK(statistics["audio"]["sources"].get<int>() >= 2);
+        CHECK(statistics["audio"]["listeners"] == 1);
+        CHECK_FALSE(engine.audio().mixed().empty());
+
+        // What is pressed reaches the game: "fire" makes the ball hop.
+        const float rest = ballHeight();
+        run(*editor, "input.inject", R"({"mouseButton": "Left", "down": true})");
+        run(*editor, "editor.runFrames", R"({"count": 12})");
+        run(*editor, "input.inject", R"({"mouseButton": "Left", "down": false})");
+        CHECK(ballHeight() > rest + 0.15f);
+
+        // A scene that is played is not replaced and not saved, and not played twice.
+        for (const char* command : {"scene.new", "scene.save", "play.start"}) {
+            CAPTURE(command);
+            const Error error = refusal(*editor, command);
+            CHECK(error.code == ErrorCode::InvalidState);
+            CHECK(error.message.starts_with(std::string(command) + ": the scene is being played"));
+        }
+        CHECK(refusal(*editor, "scene.open", R"({"path": "scenes/annex.scene.json"})").code == ErrorCode::InvalidState);
+        // It can be edited, as it runs - which is undone like any edit, and goes with
+        // the game in any case.
+        run(*editor, "entity.create", R"({"name": "Marker", "parent": "Stage"})");
+        run(*editor, "component.set",
+            R"({"entity": "Stage/Marker", "component": "Transform", "properties": {"position": [1, 2, 3]}})");
+        run(*editor, "editor.undo");
+
+        // Held: nothing moves on, nothing is heard, and no script runs.
+        CHECK(run(*editor, "play.pause")["state"] == "paused");
+        CHECK(editor->play().state() == PlayState::Paused);
+        const std::string heldName = clockName();
+        const uint64_t heldFrames = run(*editor, "play.status")["frames"].get<uint64_t>();
+        CHECK(heldFrames == 102);
+        run(*editor, "editor.runFrames", R"({"count": 60})");
+        CHECK(clockName() == heldName);
+        CHECK(run(*editor, "play.status")["frames"] == heldFrames);
+        statistics = run(*editor, "editor.statistics");
+        CHECK(statistics["scripts"]["instances"] == 0);
+        CHECK(statistics["physics"]["steps"] == 0);
+        CHECK(statistics["audio"]["voices"] == 0);
+        CHECK(engine.audio().mixed().empty());
+        CHECK(refusal(*editor, "play.pause").message == "play.pause: there is nothing to pause: the scene is paused");
+
+        // A frame at a time: it goes on for as many as are asked for, and is held again.
+        status = run(*editor, "play.step");
+        CHECK(status["state"] == "paused");
+        CHECK(status["frames"] == heldFrames + 1);
+        status = run(*editor, "play.step", R"({"frames": 59})");
+        CHECK(status["state"] == "paused");
+        CHECK(status["frames"] == heldFrames + 60);
+        // A second has passed for the game, and the clock has ticked twice more.
+        CHECK(clockName() == "Clock (5)");
+        run(*editor, "editor.runFrames", R"({"count": 5})");
+        CHECK(run(*editor, "play.status")["frames"] == heldFrames + 60);
+        CHECK(refusal(*editor, "play.step", R"({"frames": 0})").code == ErrorCode::OutOfRange);
+
+        // Let go, it goes on; and only what is held is stepped or let go.
+        CHECK(run(*editor, "play.resume")["state"] == "playing");
+        run(*editor, "editor.runFrames", R"({"count": 30})");
+        CHECK(clockName() == "Clock (6)");
+        CHECK(refusal(*editor, "play.resume").message ==
+              "play.resume: there is nothing to resume: the scene is playing");
+        CHECK(refusal(*editor, "play.step").message ==
+              "play.step: only a game that is paused is played frame by frame; the scene is playing");
+
+        // Stopped: the scripts end and say so, and the scene is what it was - to the
+        // letter, with what was selected still selected.
+        {
+            const test::LogCapture log(LogLevel::Info);
+            status = run(*editor, "play.stop");
+            CHECK(log.contains("Clock (6) stopped"));
+            CHECK(log.count(LogLevel::Error) == 0);
+        }
+        CHECK(status["state"] == "stopped");
+        CHECK(editor->play().state() == PlayState::Stopped);
+        CHECK_FALSE(editor->context().isPlaying());
+        CHECK(scene() == before);
+        CHECK(clockName() == "Clock");
+        const Json selected = run(*editor, "selection.get");
+        REQUIRE(selected.size() == 2);
+        CHECK(selected[0]["name"] == "Ball");
+        CHECK(selected[1]["name"] == "Clock");
+        CHECK_FALSE(editor->context().hasUnsavedChanges());
+        // And it is a document again: shown, and not run.
+        run(*editor, "editor.runFrames", R"({"count": 30})");
+        CHECK(clockName() == "Clock");
+        statistics = run(*editor, "editor.statistics");
+        CHECK(statistics["scripts"]["scripts"] == 0);
+        CHECK(statistics["physics"]["bodies"] == 17);
+        CHECK(statistics["physics"]["joints"] == 0);
+        CHECK(statistics["audio"]["voices"] == 0);
+        for (const char* command : {"play.stop", "play.pause", "play.resume", "play.step"}) {
+            CAPTURE(command);
+            CHECK(refusal(*editor, command).code == ErrorCode::InvalidState);
+        }
+        CHECK(refusal(*editor, "play.stop").message == "play.stop: the scene is not being played");
+        // And scene.validate has nothing to say about it.
+        CHECK(run(*editor, "scene.validate")["problems"].empty());
+        checkNoValidationIssues(engine.graphics());
+    }
+
+    TEST_CASE("a scene that is played again begins again, and one that leaves for another comes back") {
+        EditorAppDesc desc = headlessDesc(UVec2(640, 360));
+        desc.project = showcaseProject();
+        const std::unique_ptr<EditorApp> editor = createEditor(desc);
+        Engine& engine = editor->engine();
+        const auto clockName = [&] {
+            return run(*editor, "entity.get", R"({"entity": "10000000-0000-4000-8000-000000000038"})")["name"]
+                .get<std::string>();
+        };
+        // An edit before it is played: playing must not cost it, nor count as another.
+        run(*editor, "entity.rename", R"({"entity": "Stage/Glass pane", "name": "Window"})");
+        REQUIRE(editor->context().hasUnsavedChanges());
+        const std::string before = dumpJson(serializeScene(engine.world(), engine.components()), 2);
+
+        // Twice in a row: the second time is like the first.
+        for (int round = 0; round < 2; ++round) {
+            CAPTURE(round);
+            run(*editor, "play.start");
+            run(*editor, "editor.runFrames", R"({"count": 45})");
+            CHECK(clockName() == "Clock (1)");
+            CHECK(run(*editor, "play.status")["frames"] == 45);
+            run(*editor, "play.stop");
+            CHECK(clockName() == "Clock");
+            CHECK(dumpJson(serializeScene(engine.world(), engine.components()), 2) == before);
+        }
+        // The edit from before is still the one edit there is to take back.
+        CHECK(editor->context().hasUnsavedChanges());
+        CHECK(editor->context().history().undoCount() == 1);
+
+        // Stopped while it is held, too.
+        run(*editor, "play.start");
+        run(*editor, "editor.runFrames", R"({"count": 10})");
+        run(*editor, "play.pause");
+        run(*editor, "play.stop");
+        CHECK(dumpJson(serializeScene(engine.world(), engine.components()), 2) == before);
+
+        // The game leaves for its annex when "travel" is pressed - which is T. That is
+        // the game's business: what is edited is the scene it was started from, and
+        // stopping brings that back.
+        run(*editor, "play.start");
+        run(*editor, "editor.runFrames", R"({"count": 3})");
+        run(*editor, "input.inject", R"({"key": "T", "down": true})");
+        run(*editor, "editor.runFrames", R"({"count": 3})");
+        run(*editor, "input.inject", R"({"key": "T", "down": false})");
+        CHECK(engine.world().sceneName() == "Annex");
+        CHECK(engine.world().findByName("Clock").isNull());
+        CHECK(run(*editor, "play.status")["state"] == "playing");
+        run(*editor, "editor.runFrames", R"({"count": 10})");
+        run(*editor, "play.stop");
+        CHECK(engine.world().sceneName() == "Showcase");
+        CHECK(dumpJson(serializeScene(engine.world(), engine.components()), 2) == before);
+        // Stopped in the very frame the game asked for another scene, none is loaded
+        // into what is a document again.
+        run(*editor, "play.start");
+        run(*editor, "editor.runFrames", R"({"count": 3})");
+        run(*editor, "input.inject", R"({"key": "T", "down": true})");
+        run(*editor, "editor.runFrames", R"({"count": 1})");
+        run(*editor, "input.inject", R"({"key": "T", "down": false})");
+        run(*editor, "play.stop");
+        run(*editor, "editor.runFrames", R"({"count": 3})");
+        CHECK(engine.world().sceneName() == "Showcase");
+        CHECK(dumpJson(serializeScene(engine.world(), engine.components()), 2) == before);
+        checkNoValidationIssues(engine.graphics());
+    }
+
     TEST_CASE("the application adds its commands to the catalogue") {
         const std::unique_ptr<EditorApp> editor = createEditor(headlessDesc(UVec2(640, 360)));
-        for (const char* name : {"editor.runFrames", "editor.screenshot", "editor.statistics", "editor.showPanel",
-                                 "editor.exit", "viewport.lookAt", "viewport.frame", "viewport.camera",
-                                 "viewport.debugView", "entity.create", "scene.save"}) {
+        for (const char* name :
+             {"editor.runFrames", "editor.screenshot", "editor.statistics", "editor.showPanel", "editor.exit",
+              "viewport.lookAt", "viewport.frame", "viewport.camera", "viewport.debugView", "entity.create",
+              "scene.save", "play.start", "play.stop", "play.pause", "play.resume", "play.step", "play.status"}) {
             CAPTURE(name);
             const CommandDesc* command = editor->commands().find(name);
             REQUIRE(command != nullptr);

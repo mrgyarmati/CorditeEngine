@@ -17,6 +17,27 @@
 
 namespace cordite {
 
+void endScene(const SceneChange& change) {
+    // The scripts end while their entities are still there to be said goodbye to.
+    change.scripts.clear({.world = change.world,
+                          .components = change.components,
+                          .assets = change.assets,
+                          .controls = change.controls,
+                          .physics = change.physics,
+                          .audio = change.audio});
+    if (change.physics != nullptr) {
+        change.physics->clear();
+    }
+    if (change.animation != nullptr) {
+        change.animation->clear();
+    }
+    // After the scripts have ended: what one of them still starts as it goes is not
+    // heard in the scene that comes.
+    if (change.audio != nullptr) {
+        change.audio->clear();
+    }
+}
+
 Status changeScene(const SceneChange& change, const Uuid& scene) {
     const AssetDatabase& database = change.assets.database();
     const AssetInfo* asset = database.find(scene);
@@ -39,24 +60,7 @@ Status changeScene(const SceneChange& change, const Uuid& scene) {
         }
     }
 
-    // The scripts end while their entities are still there to be said goodbye to.
-    change.scripts.clear({.world = change.world,
-                          .components = change.components,
-                          .assets = change.assets,
-                          .controls = change.controls,
-                          .physics = change.physics,
-                          .audio = change.audio});
-    if (change.physics != nullptr) {
-        change.physics->clear();
-    }
-    if (change.animation != nullptr) {
-        change.animation->clear();
-    }
-    // After the scripts have ended: what one of them still starts as it goes is not
-    // heard in the scene that comes.
-    if (change.audio != nullptr) {
-        change.audio->clear();
-    }
+    endScene(change);
     if (const Status loaded = deserializeScene(change.world, document, change.components); !loaded) {
         // What fitted a world a moment ago fits this one: this is not expected to happen.
         return tl::unexpected(loaded.error().withContext(pathToUtf8(path)));

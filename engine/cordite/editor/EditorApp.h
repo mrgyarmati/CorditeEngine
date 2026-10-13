@@ -38,7 +38,9 @@
 /// Besides the scene-editing and asset commands (see EditorCommands.h) the application
 /// adds the ones that need a running editor: `editor.screenshot`, `editor.runFrames`,
 /// `editor.statistics`, `editor.showPanel`, `editor.exit`, `viewport.lookAt`,
-/// `viewport.frame`, `viewport.camera` and `viewport.debugView`.
+/// `viewport.frame`, `viewport.camera` and `viewport.debugView` - and those that play the
+/// scene (PlayMode.h): `play.start`, `play.stop`, `play.pause`, `play.resume`, `play.step`
+/// and `play.status`.
 
 #include "cordite/assets/Image.h"
 #include "cordite/core/Base.h"
@@ -50,6 +52,7 @@
 #include "cordite/editor/EditorContext.h"
 #include "cordite/editor/HierarchyPanel.h"
 #include "cordite/editor/InspectorPanel.h"
+#include "cordite/editor/PlayMode.h"
 #include "cordite/editor/StatisticsPanel.h"
 #include "cordite/editor/ViewportPanel.h"
 #include "cordite/engine/Engine.h"
@@ -127,6 +130,10 @@ public:
 
     [[nodiscard]] ViewportPanel& viewport() { return *m_viewport; }
 
+    /// Playing the scene where it is edited: start it, hold it, stop it. Start and stop
+    /// between frames, never during one - which is where commands run.
+    [[nodiscard]] PlayMode& play() { return *m_play; }
+
     /// The project being worked on, if the editor was started with one.
     [[nodiscard]] const std::optional<Project>& project() const { return m_project; }
 
@@ -134,10 +141,14 @@ private:
     EditorApp() = default;
 
     [[nodiscard]] Status registerApplicationCommands();
+    [[nodiscard]] Status registerPlayCommands();
+    /// What play.status returns: whether the scene is being played, and how it goes.
+    [[nodiscard]] Json describePlay() const;
     void drawInterface();
     void drawMainMenu();
     void drawEntityMenu();
     void drawAssetMenu();
+    void drawPlayMenu();
     void drawViewMenu();
     void drawFileDialog();
     void handleShortcuts();
@@ -154,6 +165,7 @@ private:
     // The engine comes first: everything else refers to it and goes before it.
     std::unique_ptr<Engine> m_engine;
     std::unique_ptr<EditorContext> m_context;
+    std::unique_ptr<PlayMode> m_play;
     CommandRegistry m_commands;
 
     std::unique_ptr<ViewportPanel> m_viewport;

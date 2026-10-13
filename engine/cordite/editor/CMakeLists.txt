@@ -29,6 +29,8 @@ cordite_add_module(editor
         InputCommands.h
         PhysicsCommands.cpp
         PhysicsCommands.h
+        PlayMode.cpp
+        PlayMode.h
         PosedMesh.cpp
         PosedMesh.h
         PropertyEditor.cpp

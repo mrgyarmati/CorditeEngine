@@ -5,6 +5,7 @@
 
 #include "unit/editor/EditorTestSupport.h"
 
+#include <filesystem>
 #include <memory>
 #include <string>
 #include <vector>
@@ -181,13 +182,109 @@ TEST_SUITE("EditorContext") {
         REQUIRE(EditorActions(context).renameEntity(fixture.lamp, "Lantern").has_value());
         REQUIRE(context.hasUnsavedChanges());
 
-        context.newScene();
+        REQUIRE(context.newScene().has_value());
         CHECK(fixture.world.entityCount() == 0);
         CHECK(fixture.world.sceneName() == "Untitled");
         CHECK(context.selection().empty());
         CHECK_FALSE(context.history().canUndo());
         CHECK_FALSE(context.hasUnsavedChanges());
         CHECK(context.scenePath().empty());
+    }
+
+    TEST_CASE("a scene that is played is put back as it was, with its history and what was selected") {
+        EditorFixture fixture;
+        EditorContext& context = fixture.context;
+        World& world = fixture.world;
+        EditorActions actions(context);
+        // An edit that is not saved yet, and something selected.
+        REQUIRE(actions.renameEntity(fixture.lamp, "Lantern").has_value());
+        const Uuid lamp = world.id(fixture.lamp);
+        const Uuid chair = world.id(fixture.chair);
+        const Entity selected[] = {fixture.chair, fixture.lamp};
+        context.setSelection(selected);
+        const std::string before = dumpJson(fixture.scene(), 2);
+        CHECK_FALSE(context.isPlaying());
+
+        REQUIRE(context.beginPlay().has_value());
+        CHECK(context.isPlaying());
+        // The history of the scene is set aside: what is edited now has one of its own.
+        CHECK_FALSE(context.history().canUndo());
+        // What counted as unsaved still does, and nothing that happens now adds to it.
+        CHECK(context.hasUnsavedChanges());
+        CHECK(context.selection() == std::vector<Entity>{fixture.chair, fixture.lamp});
+
+        // The game runs: things move, come and go. And somebody edits while it does.
+        world.transform(fixture.table).position = Vec3(40.0f, 2.0f, 9.0f);
+        world.destroyEntity(fixture.chair);
+        world.createEntity("Spawned");
+        world.setSceneName("Somewhere else");
+        REQUIRE(actions.renameEntity(fixture.lamp, "Torch").has_value());
+        REQUIRE(actions.createEntity({.name = "Marker"}).has_value());
+        CHECK(context.history().undoCount() == 2);
+        REQUIRE(context.history().undo().has_value());
+        CHECK(world.findByName("Marker").isNull());
+        // What is gone is not selected.
+        CHECK(context.selection() == std::vector<Entity>{fixture.lamp});
+
+        // A scene that is played is not replaced, and not saved: a game half-way through
+        // is not what the file is to hold.
+        const test::TempDirectory directory;
+        for (const Status& refused :
+             {context.beginPlay(), context.newScene(), context.openScene(directory.path() / "any.scene.json"),
+              context.saveScene(directory.path() / "played.scene.json")}) {
+            REQUIRE_FALSE(refused.has_value());
+            CHECK(refused.error().code == ErrorCode::InvalidState);
+            CHECK(refused.error().message.starts_with("the scene is being played"));
+        }
+        CHECK_FALSE(std::filesystem::exists(directory.path() / "played.scene.json"));
+        CHECK(world.findByName("Spawned").isNull() == false);
+
+        REQUIRE(context.endPlay().has_value());
+        CHECK_FALSE(context.isPlaying());
+        // The scene is what it was, to the letter.
+        CHECK(dumpJson(fixture.scene(), 2) == before);
+        // Its entities are others than before - the world was put together anew - and
+        // are found by the ids they always had. Both are selected again, in their order.
+        const Entity lampNow = world.findById(lamp);
+        const Entity chairNow = world.findById(chair);
+        REQUIRE_FALSE(lampNow.isNull());
+        REQUIRE_FALSE(chairNow.isNull());
+        CHECK(context.selection() == std::vector<Entity>{chairNow, lampNow});
+        // The history is the one from before, and it still works on what is there.
+        CHECK(context.hasUnsavedChanges());
+        REQUIRE(context.history().undoCount() == 1);
+        CHECK(context.history().undoLabel() == "Rename 'Lamp' to 'Lantern'");
+        REQUIRE(context.history().undo().has_value());
+        CHECK(world.name(lampNow) == "Lamp");
+        CHECK_FALSE(context.hasUnsavedChanges());
+        REQUIRE(context.history().redo().has_value());
+        CHECK(world.name(lampNow) == "Lantern");
+
+        // Nothing is being played any more.
+        const Status ended = context.endPlay();
+        REQUIRE_FALSE(ended.has_value());
+        CHECK(ended.error().code == ErrorCode::InvalidState);
+        CHECK(ended.error().message == "the scene is not being played");
+        // And the scene can be saved, replaced, and played again.
+        CHECK(context.saveScene(directory.path() / "edited.scene.json").has_value());
+        CHECK(context.beginPlay().has_value());
+        CHECK(context.endPlay().has_value());
+        CHECK(context.newScene().has_value());
+    }
+
+    TEST_CASE("playing a scene that has no unsaved changes leaves it without any") {
+        EditorFixture fixture;
+        EditorContext& context = fixture.context;
+        REQUIRE_FALSE(context.hasUnsavedChanges());
+        REQUIRE(context.beginPlay().has_value());
+        // An edit while it plays is no change to the scene that is kept.
+        REQUIRE(EditorActions(context).renameEntity(fixture.lamp, "Torch").has_value());
+        CHECK_FALSE(context.hasUnsavedChanges());
+        REQUIRE(context.endPlay().has_value());
+        CHECK_FALSE(context.hasUnsavedChanges());
+        CHECK_FALSE(context.history().canUndo());
+        CHECK(fixture.world.findByName("Torch").isNull());
+        CHECK_FALSE(fixture.world.findByName("Lamp").isNull());
     }
 
     TEST_CASE("a scene is saved and opened again") {

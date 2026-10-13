@@ -217,6 +217,45 @@ TEST_SUITE("SceneChange") {
         CHECK(std::ranges::all_of(game.audio->mixed(), [](float sample) { return sample == 0.0f; }));
     }
 
+    TEST_CASE("a scene that ends leaves its world as it is, and nothing that ran for it") {
+        Game game;
+        const Uuid drone = game.writeSound("sounds/drone.wav");
+        const Entity gate = game.world.findByName("Gate");
+        game.world.add<AudioSourceComponent>(gate) = {.sound = drone, .loop = true, .spatial = false};
+        const AudioVoiceId shot = unwrap(game.audio->play(*game.assets, {.sound = drone, .loop = true}));
+        CHECK(game.audio->update(game.world, *game.assets, 0.01).voices == 2);
+        const BodyId gateBody = game.physics->bodyOf(gate);
+        REQUIRE_FALSE(gateBody.isNull());
+        const std::string before = dumpJson(serializeScene(game.world, game.components), 2);
+
+        const test::LogCapture log(LogLevel::Info);
+        endScene(game.change());
+        // The script was told, while its entity was there to ask.
+        CHECK(log.contains("destroy Gate"));
+        CHECK(game.scripts->seconds() == 0.0);
+        // Its body, and what was sounding, are gone.
+        CHECK_FALSE(game.physics->simulation().isValid(gateBody));
+        CHECK(game.physics->bodyOf(gate).isNull());
+        CHECK_FALSE(game.audio->isPlaying(shot));
+        // The world is what it was: whoever ends a scene decides what comes next.
+        CHECK(game.world.isValid(gate));
+        CHECK(dumpJson(serializeScene(game.world, game.components), 2) == before);
+
+        // Left as it is and played on, it begins anew: the script starts, the body is
+        // made, the source sounds from its beginning.
+        const ScriptStatistics statistics = game.play();
+        CHECK(log.contains("start Gate"));
+        CHECK(statistics.instances == 1);
+        CHECK_FALSE(game.physics->bodyOf(gate).isNull());
+        CHECK(game.audio->update(game.world, *game.assets, 0.01).voices == 1);
+        CHECK(log.count(LogLevel::Error) == 0);
+
+        // A world that has only scripts ends all the same.
+        endScene(
+            {.world = game.world, .components = game.components, .assets = *game.assets, .scripts = *game.scripts});
+        CHECK(game.scripts->seconds() == 0.0);
+    }
+
     TEST_CASE("a scene can be loaded again: the one that is there starts anew") {
         Game game;
         const test::LogCapture log(LogLevel::Info);

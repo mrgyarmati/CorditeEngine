@@ -80,6 +80,7 @@ Do not guess command or property names; ask the editor.
 | `editor.statistics` | What the last frame cost: CPU and GPU time, draw calls, triangles, lights, shadow maps, memory on the GPU |
 | `physics.raycast` | What a ray hits first - or, with a `radius`, a ball moved along it: the entity, the distance, the point and the normal |
 | `physics.overlap` | The entities whose bodies reach into a ball (`radius`) or a box (`size`, `rotation`) |
+| `play.status` | Whether the scene is being played (`stopped`, `playing`, `paused`), for how many frames, and what keeps scripts of it from running |
 | `script.api` | What gameplay scripts are written against: every function a script can call and every function the engine calls in one, each with its signature and what it does; `prefix` narrows the functions to a library (`"cordite.physics."`) |
 
 ## Refer to entities
@@ -153,8 +154,8 @@ set it like any other property:
   scene holds, and the last four of which cannot be set. Its entity has no
   `RigidBody` and no `Collider` but a trigger. The viewport draws its capsule with
   the colliders.
-  The editor does not simulate: nothing falls, and `editor.statistics` reports the
-  bodies there are and no steps.
+  The editor does not simulate until the scene is played (see "Play the scene"):
+  nothing falls, and `editor.statistics` reports the bodies there are and no steps.
 - A new material is a `.material.json` file written into the project's `assets`
   directory, followed by `asset.refresh` (skill: `work-with-assets`).
 - Run `scene.validate` after editing references; a reference to nothing draws nothing
@@ -246,6 +247,40 @@ scene black. Lights are components like any other:
   `environment.bytes` is the memory of the cube maps made of environments (4 MiB
   each), `environment.made` how many the frame had to make: one in the first frame an
   environment is seen in, none after.
+
+## Play the scene
+
+The editor shows a scene without running it. To see what a scene *does* - its scripts,
+its simulation, its sounds - play it:
+
+```json
+[
+    {"command": "play.start"},
+    {"command": "input.inject", "params": {"key": "Space", "down": true}},
+    {"command": "editor.runFrames", "params": {"count": 30}},
+    {"command": "entity.get", "params": {"entity": "Stage/Sentry"}},
+    {"command": "play.status"},
+    {"command": "editor.screenshot", "params": {"path": "played.png", "viewportOnly": true}},
+    {"command": "play.stop"}
+]
+```
+
+- Time passes for the game only in frames that are run: `editor.runFrames`. Run the
+  editor with `--fixed-time-step 0.0166667` and every frame is a sixtieth of a second,
+  whatever the machine: the same script then plays the same game every time.
+- `play.pause` holds the game, `play.resume` lets it go on, and `play.step {"frames":
+  N}` lets a held game pass exactly N frames and runs them - for looking at what
+  happens one frame at a time.
+- Everything that asks about the scene asks about the game while it plays:
+  `entity.get`, `component.get`, `physics.raycast`, `editor.statistics` (which then
+  reports scripts, steps of the simulation and voices), screenshots. `input.inject`
+  presses what the game's controls are bound to.
+- `play.status` lists `scriptProblems`: a script that stopped with an error says so
+  there, with its entity and its line. Look at it after playing something new.
+- Edits are allowed while it plays, and are gone when it stops - with everything the
+  game did. `play.stop` puts the scene back exactly as `play.start` found it. To
+  keep a change, make it when the scene is stopped.
+- `scene.save`, `scene.open` and `scene.new` fail while the scene plays: stop first.
 
 ## See the result
 

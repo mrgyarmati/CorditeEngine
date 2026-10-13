@@ -66,4 +66,12 @@ struct SceneChange {
 /// bodies and all. Not to be called while the scripts run: between two frames.
 [[nodiscard]] Status changeScene(const SceneChange& change, const Uuid& scene);
 
+/// Ends what is being played in the world, and puts nothing in its place: the scripts
+/// end - each is told so (`destroy`) while its entity still exists - and the bodies, the
+/// poses and the sounds of the world are forgotten. The world itself is left as it is.
+/// For whoever changes what is in the world next by other means: an editor that stops
+/// playing a scene and puts back the one it was working on. changeScene() does this on
+/// its way. Not to be called while the scripts run: between two frames.
+void endScene(const SceneChange& change);
+
 } // namespace cordite

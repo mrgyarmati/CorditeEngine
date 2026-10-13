@@ -298,6 +298,12 @@ public:
     /// there goes on. Fails as changeScene() does, and with InvalidState during a frame.
     [[nodiscard]] Status loadScene(const Uuid& scene);
 
+    /// Ends what is being played in the world and leaves the world as it is, as
+    /// endScene() (SceneChange.h) does it: the scripts end, and bodies, poses and sounds
+    /// are forgotten. For a program that then puts something else into the world itself -
+    /// an editor that stops playing. Fails with InvalidState during a frame.
+    [[nodiscard]] Status endScene();
+
     /// Draws worlds. The editor uses it for its viewports as the game does for its view.
     [[nodiscard]] SceneRenderer& sceneRenderer();
 

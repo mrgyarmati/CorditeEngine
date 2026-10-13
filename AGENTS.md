@@ -938,7 +938,7 @@ Step-by-step guide: [work-with-assets](.claude/skills/work-with-assets/SKILL.md)
 - **While time does not pass nothing is heard.** `Engine::updateWorld` with a stopped
   clock calls `AudioSystem::pause`, which holds every voice where it is; a scene
   that is replaced has its voices stopped (`changeScene`, after the scripts have
-  ended). That is why an editor is silent.
+  ended). That is why an editor is silent until it plays its scene.
 - **Scripts have two ways to be heard, as C++ has.** What an entity sounds like is its
   `AudioSource`: `entity:set("AudioSource", "playing", true)` plays it, and no
   function was added for that. `cordite.audio.play` is for what belongs to no entity;
@@ -1251,11 +1251,27 @@ panels, EditorApp    the interface, built on the three layers above
   pointers or references into the world.
 - **Commands run between frames.** A command may render frames itself (screenshots);
   lines typed in the console are queued and run before the next frame for that reason.
+  A menu item or a shortcut that must not happen in the middle of a frame - starting
+  and stopping play - queues its command the same way.
+- **A scene is played where it is edited, and put back afterwards** (`PlayMode`,
+  `play.start` ... `play.stop`). Playing is the same world with its clock running:
+  `EditorApp::runFrame` asks `PlayMode::clock()` what to tell `Engine::updateWorld`.
+  `EditorContext::beginPlay` remembers the scene as JSON and sets the history aside;
+  stopping ends what runs (`Engine::endScene`) and then reads that JSON back
+  (`endPlay`) - so entities have other handles afterwards and the ids they always
+  had, which is why nothing in the editor may hold a handle across a frame. What
+  the game or an edit did meanwhile is gone, with the history those edits had; a
+  scene that is being played is not saved, opened over or made anew. A new piece
+  of state that belongs to a played world - something a system holds for it - is
+  ended in `endScene`, or it outlives the game.
 - **Batch mode is the test and agent entry point:** `cordite-editor --headless --project
   P --exec script.json --frames N --screenshot out.png`. Exit status: 0 success, 1
   could not run, 2 GPU validation issues, 3 a script step failed. The script's outcome
   goes to standard output as JSON, logs to standard error. With `--fixed-time-step
-  0.0166667` two runs give the same picture, down to the film grain.
+  0.0166667` two runs give the same picture, down to the film grain - and a scene
+  that a script plays (`play.start`, `editor.runFrames`) the same game, frame for
+  frame. Without a window the editor opens no sound device: what would be heard is
+  mixed into memory.
 - **The interface is Dear ImGui**, reached through the `ui` module. It runs without a
   window too, with the pointer fed from `Engine::input()`, so interface code is covered
   by headless tests.

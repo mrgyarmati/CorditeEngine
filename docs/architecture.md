@@ -70,7 +70,8 @@ with and without a window:
    `Engine::drawWorld()`, which renders the world through its primary camera; the
    editor renders it from the viewport's own camera into the viewport panel instead,
    and updates the world with its clock stopped: a scene that is being worked on is
-   shown as it is, and does not play - no script runs, nothing falls.
+   shown as it is, and does not play - no script runs, nothing falls - until the
+   editor is told to play it, which is the same frame with the clock running.
 5. `endFrame` draws the interface over the frame target, copies the frame target to the
    back buffer and presents (windowed mode only), and releases GPU resources whose last
    use has finished.
@@ -1737,6 +1738,38 @@ What a file says of its own length decides nothing. The decoder is asked for a f
 thousand frames at a time and what it hands over is counted, so a file of fifty
 bytes that claims four thousand million is a sound of a few frames, and one that
 really is too long is refused, not cut.
+
+### A scene is played in the world it is edited in, and read back when it stops
+
+The editor has one world, the engine's. Playing a scene does not copy it into a
+second one: the same world is updated with its clock running, so everything that
+shows a scene - the viewport, the hierarchy, the inspector, every command that asks
+about an entity - shows the game without knowing that it is one. What makes this
+safe is done at the two ends. When playing begins the scene is written out, as a
+file would have it, and kept; when it ends, whatever ran for the world is ended
+(`endScene`: scripts are told, bodies, poses and sounds are forgotten) and the
+world is read back from what was kept. The scene after playing is the scene before
+it, to the byte, because it went through the one path that files go through - and
+"files do not churn" is tested.
+
+A second world to play in would let the scene be edited while its game runs. It
+would also need every system and every panel to be told which world it is looking
+at, and that is a great deal of code for a rare wish.
+
+The entities of the scene are others afterwards - new handles, the same ids. The
+editor already refers to entities by id wherever something lasts: the selection,
+the history. Both survive playing for that reason, without a line written for it.
+
+### What is edited while a scene plays goes with the game
+
+Editing is not switched off while a scene plays: moving a light to see what it does
+to a game that runs is half the point. But those edits are made to a world that
+will be thrown away, so they must not be recorded where the edits of the scene are
+- undoing one of them later would change entities that never had it. While a scene
+plays the document has another, empty history, which goes when playing ends; the
+history of the scene is set aside and comes back untouched, and so does the answer
+to "are there unsaved changes". Saving is refused meanwhile, because what would be
+written is a game half-way through.
 
 ### What is heard is said by components, and the world is silent until asked
 

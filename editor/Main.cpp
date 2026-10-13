@@ -11,6 +11,7 @@
 /// The outcome of a script is written to standard output as JSON (or to the file given
 /// with --exec-output); everything else the editor has to say goes to standard error.
 
+#include "cordite/audio/AudioSystem.h"
 #include "cordite/core/FileSystem.h"
 #include "cordite/core/Json.h"
 #include "cordite/core/Log.h"
@@ -109,6 +110,9 @@ int run(const Options& options) {
     desc.engine.renderSize = UVec2(options.width, options.height);
     desc.engine.window.width = options.width;
     desc.engine.window.height = options.height;
+    // Somebody at the editor hears a scene when they play it. A batch run plays to nobody,
+    // as fast as its frames say time passes, and is the same every time.
+    desc.engine.audio.output = options.headless ? AudioOutput::Offline : AudioOutput::Device;
     // A batch run starts from the default layout every time, so that its output does not
     // depend on what a person did to the windows earlier.
     desc.rememberLayout = !options.headless;

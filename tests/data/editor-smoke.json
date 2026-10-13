@@ -81,5 +81,15 @@
     {"command": "viewport.frame", "params": {"entity": "Smoke probe", "radius": 4}},
     {"command": "scene.validate"},
     {"command": "editor.statistics"},
+    {"command": "play.start"},
+    {"command": "editor.runFrames", "params": {"count": 12}},
+    {"command": "play.status"},
+    {"command": "editor.statistics"},
+    {"command": "play.pause"},
+    {"command": "play.step", "params": {"frames": 2}},
+    {"command": "play.resume"},
+    {"command": "editor.runFrames", "params": {"count": 2}},
+    {"command": "play.stop"},
+    {"command": "scene.validate"},
     {"command": "editor.state"}
 ]

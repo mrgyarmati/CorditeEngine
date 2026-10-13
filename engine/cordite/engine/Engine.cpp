@@ -545,6 +545,25 @@ Status Engine::loadScene(const Uuid& scene) {
                        scene);
 }
 
+Status Engine::endScene() {
+    Impl& impl = *m_impl;
+    CORDITE_ASSERT(!impl.frameOpen, "a scene is ended between frames, not in one");
+    if (impl.frameOpen) {
+        return makeError(ErrorCode::InvalidState, "a scene is ended between two frames, not during one");
+    }
+    cordite::endScene({.world = impl.world,
+                       .components = impl.components,
+                       .assets = *impl.assets,
+                       .scripts = *impl.scripts,
+                       .physics = impl.physics.get(),
+                       .animation = &impl.animation,
+                       .audio = impl.audio.get(),
+                       .controls = &impl.actions});
+    // A scene a script asked for is not loaded into a world that is no longer played.
+    impl.pendingScene.reset();
+    return {};
+}
+
 SceneRenderer& Engine::sceneRenderer() {
     return *m_impl->sceneRenderer;
 }

@@ -1043,12 +1043,40 @@ TEST_SUITE("Engine") {
         CHECK(engine->scripts().problems().empty());
         CHECK(engine->statistics().audio.voices == 3);
 
+        // A scene is ended, like it is changed, between two frames.
+        REQUIRE(test::unwrap(engine->beginFrame()));
+#if defined(CORDITE_ENABLE_ASSERTS)
+        CHECK_THROWS_AS((void)engine->endScene(), test::AssertionFailure);
+#endif
+        REQUIRE(engine->endFrame().has_value());
+        CHECK(engine->audio().isPlaying(shot));
+
         // Another scene: what sounded in the one that goes is over.
         REQUIRE(engine->loadScene(scene->id).has_value());
         CHECK_FALSE(engine->audio().isPlaying(shot));
         runFrames(*engine, 1);
         CHECK(engine->statistics().audio == AudioStatistics());
         CHECK(std::ranges::all_of(engine->audio().mixed(), [](float sample) { return sample == 0.0f; }));
+
+        // And a scene that is only ended: the world stays, and what ran for it does not.
+        const Entity again = world.createEntity("Again");
+        world.add<AudioSourceComponent>(again) = {.sound = sound->id, .loop = true, .spatial = false};
+        world.add<ScriptComponent>(again).script = beep->id;
+        runFrames(*engine, 2);
+        CHECK(engine->statistics().audio.voices == 2);
+        CHECK(engine->statistics().scripts.instances == 1);
+        REQUIRE(engine->endScene().has_value());
+        CHECK(world.isValid(again));
+        CHECK(engine->scripts().problems().empty());
+        REQUIRE(test::unwrap(engine->beginFrame()));
+        engine->updateWorld(WorldClock::Stopped);
+        REQUIRE(engine->endFrame().has_value());
+        CHECK(engine->statistics().audio == AudioStatistics());
+        CHECK(engine->statistics().scripts == ScriptStatistics());
+        // Played on, it begins anew: the source from its beginning, the script with its start.
+        runFrames(*engine, 1);
+        CHECK(engine->statistics().audio.voices == 2);
+        CHECK(engine->statistics().scripts.instances == 1);
         CHECK(engine->graphics().validationIssues().empty());
     }
 

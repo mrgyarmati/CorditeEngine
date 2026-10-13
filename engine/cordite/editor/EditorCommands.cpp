@@ -110,10 +110,11 @@ Json describeScene(const EditorContext& context) {
 Status registerSceneCommands(CommandRegistry& commands, EditorContext& context) {
     CORDITE_TRY(commands.add({
         .name = "scene.new",
-        .description = "Replaces the scene with an empty one. Unsaved changes are discarded.",
+        .description = "Replaces the scene with an empty one. Unsaved changes are discarded. Not while the "
+                       "scene is being played.",
         .parameters = {},
         .handler = [&context](const Json& /*parameters*/) -> Result<Json> {
-            context.newScene();
+            CORDITE_TRY(context.newScene());
             return describeScene(context);
         },
     }));
