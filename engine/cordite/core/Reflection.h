@@ -38,8 +38,9 @@
 /// @endcode
 ///
 /// A type becomes usable as a property by specializing PropertyCodec for it. The core
-/// module provides bool, integers, floats, std::string, Uuid and std::vector of any
-/// supported type; cordite/math/MathReflection.h adds vectors and quaternions.
+/// module provides bool, integers, floats, std::string, Uuid, std::vector of any
+/// supported type and Json itself, for data of no fixed shape;
+/// cordite/math/MathReflection.h adds vectors and quaternions.
 
 #include "cordite/core/Assert.h"
 #include "cordite/core/Json.h"
@@ -76,6 +77,9 @@ enum class PropertyType : uint8_t {
     Object,
     /// A sequence of values that all have the type given by PropertyInfo::elementType().
     List,
+    /// A JSON object of any shape: data that only whoever uses it understands, such as
+    /// what a script is told for one entity. It is kept as it is.
+    Json,
 };
 
 std::string_view nameOf(PropertyType type);
@@ -244,6 +248,19 @@ struct PropertyCodec<Uuid> {
     static constexpr PropertyType kType = PropertyType::Uuid;
     static Json toJson(const Uuid& value);
     static Status fromJson(const Json& json, Uuid& out);
+};
+
+/// How deep the arrays and objects of a Json property may be inside each other.
+inline constexpr uint32_t kMaxJsonPropertyNesting = 16;
+
+/// A JSON object of any shape, kept as it is. Anything but an object is rejected, and so
+/// is one that checkJsonData() refuses at kMaxJsonPropertyNesting: nested too deeply, or
+/// holding a number that is not finite.
+template <>
+struct PropertyCodec<Json> {
+    static constexpr PropertyType kType = PropertyType::Json;
+    static Json toJson(const Json& value);
+    static Status fromJson(const Json& json, Json& out);
 };
 
 template <ReflectableValue T>

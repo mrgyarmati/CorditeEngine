@@ -5,7 +5,8 @@
 ///
 /// Given the description of a property and its current value as JSON, a PropertyEditor
 /// draws the fitting ImGui widget - a checkbox, a drag field, a color picker, a list of
-/// options - and reports whether the user changed the value. The inspector is built from
+/// options, a box of text for JSON of no fixed shape - and reports whether the user
+/// changed the value. The inspector is built from
 /// it, and so is any other panel that edits reflected data, which is why a new component
 /// needs no editor code of its own.
 ///
@@ -75,6 +76,7 @@ public:
 private:
     bool drawValue(PropertyType type, const PropertyInfo& property, Json& value);
     bool drawRotation(Json& value);
+    bool drawJson(Json& value);
     bool drawReference(const PropertyInfo& property, Json& value);
     bool drawEntityReference(const std::optional<Uuid>& id, Json& value);
     bool drawAssetReference(const PropertyInfo& property, const std::optional<Uuid>& id, Json& value);
@@ -87,6 +89,18 @@ private:
         Quat rotation = kIdentityQuat;
     };
 
+    /// JSON as someone is typing it: text that is not JSON for most of the time it
+    /// takes to write, and so cannot be the value yet.
+    struct JsonDraft {
+        std::string text;
+        /// The value the text was made of, written out: when the value is another, the
+        /// text is about something that is no longer there.
+        std::string source;
+        /// What is wrong with the text, if it could not become the value.
+        std::string problem;
+        bool editing = false;
+    };
+
     EntityNameLookup m_entityName;
     AssetNameLookup m_assetName;
     AssetChoices m_assetChoices;
@@ -94,6 +108,8 @@ private:
     /// frame, because that conversion jumps between equivalent sets of angles and would
     /// make a field fight the user who is dragging it.
     std::unordered_map<ImGuiID, RotationState> m_rotations;
+    /// Per widget, for as long as it is shown.
+    std::unordered_map<ImGuiID, JsonDraft> m_jsonDrafts;
 };
 
 } // namespace cordite

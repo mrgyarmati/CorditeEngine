@@ -6,6 +6,7 @@
 #include <iterator>
 #include <limits>
 #include <string>
+#include <utility>
 #include <vector>
 
 using namespace cordite;
@@ -49,6 +50,19 @@ const TypeInfo& innerType() {
                                      .property("revision", &Inner::revision, {.readOnly = true})
                                      .build();
     return type;
+}
+
+/// Something that carries data of no fixed shape, as a script's settings are.
+struct Tagged {
+    std::string name = "tagged";
+    Json data = Json::object();
+};
+
+TypeInfo makeTaggedType() {
+    return TypeBuilder<Tagged>("Tagged")
+        .property("name", &Tagged::name)
+        .property("data", &Tagged::data, {.description = "Whatever its user makes of it"})
+        .build();
 }
 
 TypeInfo makeSampleType() {
@@ -577,6 +591,80 @@ TEST_SUITE("Reflection") {
         CHECK_FALSE(type.fromJson(&sample, update).has_value());
     }
 
+    TEST_CASE("a property that is JSON of any shape is kept as it is") {
+        const TypeInfo type = makeTaggedType();
+        Tagged tagged;
+        CHECK(type.toJson(&tagged).dump() == R"({"name":"tagged","data":{}})");
+
+        const Json update =
+            json(R"({"data": {"speed": 2.5, "zone": "north", "opens": ["a", {"b": null}], "count": 3}})");
+        REQUIRE(type.fromJson(&tagged, update).has_value());
+        CHECK(tagged.name == "tagged");
+        // Members in the order they were given, numbers as they were written.
+        CHECK(tagged.data.dump() == R"({"speed":2.5,"zone":"north","opens":["a",{"b":null}],"count":3})");
+        CHECK(type.toJson(&tagged)["data"] == update["data"]);
+        CHECK(type.findProperty("data")->get(&tagged) == update["data"]);
+
+        // An edit replaces the whole of it: what it does not mention is gone.
+        unwrap(type.parseEdit(json(R"({"data": {"speed": 4}})"))).applyTo(&tagged);
+        CHECK(tagged.data.dump() == R"({"speed":4})");
+        REQUIRE(type.findProperty("data")->set(&tagged, Json::object()).has_value());
+        CHECK(tagged.data.dump() == "{}");
+
+        const Json described = type.findProperty("data")->describe();
+        CHECK(described["type"] == "json");
+        CHECK(described["description"] == "Whatever its user makes of it");
+    }
+
+    TEST_CASE("JSON that is not an object, or cannot be kept, is rejected as a property") {
+        const TypeInfo type = makeTaggedType();
+        Tagged tagged;
+        tagged.data = json(R"({"kept": true})");
+
+        const auto refusal = [&](const Json& data) {
+            Json update = Json::object();
+            update["data"] = data;
+            const Status status = type.fromJson(&tagged, update);
+            REQUIRE_FALSE(status.has_value());
+            CHECK(status.error().code == ErrorCode::InvalidArgument);
+            // Whatever was wrong, the object is as it was.
+            CHECK(tagged.data.dump() == R"({"kept":true})");
+            return status.error().message;
+        };
+        CHECK(refusal(json("[1, 2]")) == "Tagged: property 'data': expected an object, found array");
+        CHECK(refusal(json(R"("text")")) == "Tagged: property 'data': expected an object, found string");
+        CHECK(refusal(json("3")) == "Tagged: property 'data': expected an object, found number");
+        CHECK(refusal(json("null")) == "Tagged: property 'data': expected an object, found null");
+
+        // An object and what is in it, as deep as a property holds - and one deeper.
+        const auto nested = [](uint32_t levels) {
+            Json value = Json::object();
+            for (uint32_t level = 1; level < levels; ++level) {
+                // Arrays and objects by turns, with an object outermost.
+                const bool asArray = level + 1 < levels && level % 2 == 1;
+                Json outer = asArray ? Json::array() : Json::object();
+                if (asArray) {
+                    outer.push_back(std::move(value));
+                } else {
+                    outer["inner"] = std::move(value);
+                }
+                value = std::move(outer);
+            }
+            return value;
+        };
+        REQUIRE(kMaxJsonPropertyNesting == 16);
+        Tagged deep;
+        Json update = Json::object();
+        update["data"] = nested(kMaxJsonPropertyNesting);
+        CHECK(type.fromJson(&deep, update).has_value());
+        CHECK(refusal(nested(kMaxJsonPropertyNesting + 1)) ==
+              "Tagged: property 'data': arrays and objects are nested too deeply");
+
+        Json unwritable = Json::object();
+        unwritable["ratio"] = std::numeric_limits<double>::infinity();
+        CHECK(refusal(unwritable) == "Tagged: property 'data': a number that is not finite cannot be kept");
+    }
+
     TEST_CASE("describe publishes a schema for tools") {
         const TypeInfo type = makeSampleType();
         const Json schema = type.describe();
@@ -664,6 +752,7 @@ TEST_SUITE("Reflection") {
         CHECK(nameOf(PropertyType::Enum) == "enum");
         CHECK(nameOf(PropertyType::Object) == "object");
         CHECK(nameOf(PropertyType::List) == "list");
+        CHECK(nameOf(PropertyType::Json) == "json");
     }
 
 #if defined(CORDITE_ENABLE_ASSERTS)

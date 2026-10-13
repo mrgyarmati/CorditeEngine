@@ -16,7 +16,15 @@ Result<Json> parseJson(std::string_view text, std::string_view sourceName) {
     // says nothing; whoever wrote the file would never learn of it.
     std::vector<std::vector<std::string>> open;
     std::optional<std::string> twice;
-    const Json::parser_callback_t watch = [&](int /*depth*/, Json::parse_event_t event, Json& parsed) {
+    // Text that is nested too deeply is not kept from where it is: what is read after
+    // that is thrown away as it comes.
+    bool tooDeep = false;
+    const Json::parser_callback_t watch = [&](int depth, Json::parse_event_t event, Json& parsed) {
+        const bool opens = event == Json::parse_event_t::object_start || event == Json::parse_event_t::array_start;
+        if (tooDeep || (opens && depth >= kMaxJsonNesting)) {
+            tooDeep = true;
+            return false;
+        }
         if (event == Json::parse_event_t::object_start) {
             open.emplace_back();
         } else if (event == Json::parse_event_t::object_end) {
@@ -37,6 +45,10 @@ Result<Json> parseJson(std::string_view text, std::string_view sourceName) {
         const bool allowExceptions = true;
         const bool ignoreComments = true;
         Json parsed = Json::parse(text.begin(), text.end(), watch, allowExceptions, ignoreComments);
+        if (tooDeep) {
+            return makeError(ErrorCode::ParseError, "{}: arrays and objects are nested more than {} deep", sourceName,
+                             kMaxJsonNesting);
+        }
         if (twice) {
             return makeError(ErrorCode::ParseError, "{}: an object has the key \"{}\" twice", sourceName, *twice);
         }
@@ -65,6 +77,22 @@ Status writeJsonFile(const std::filesystem::path& path, const Json& value) {
 
 std::string_view jsonTypeName(const Json& value) {
     return value.type_name();
+}
+
+Status checkJsonData(const Json& value, uint32_t maxNesting) {
+    if (value.is_number_float() && !std::isfinite(value.get<double>())) {
+        return makeError(ErrorCode::InvalidArgument, "a number that is not finite cannot be kept");
+    }
+    if (!value.is_structured()) {
+        return {};
+    }
+    if (maxNesting == 0) {
+        return makeError(ErrorCode::InvalidArgument, "arrays and objects are nested too deeply");
+    }
+    for (const Json& member : value) {
+        CORDITE_TRY(checkJsonData(member, maxNesting - 1));
+    }
+    return {};
 }
 
 Json jsonFromFloat(float value) {

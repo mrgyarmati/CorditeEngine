@@ -278,6 +278,22 @@ binary on macOS and would raise the minimum supported macOS version.
 people and agents and stored in version control, so their layout must be stable and
 readable: fields appear in the order the engine writes them rather than alphabetically.
 
+### JSON has a depth, and data of no fixed shape is checked before it is kept
+
+Text nested ten thousand arrays deep is valid JSON, and the library reads it without
+trouble - and then writes it out, copies it and compares it with functions that call
+themselves once per level, until the stack ends. Nothing the engine reads is deeper
+than a handful of levels, so `parseJson` refuses anything beyond 64 and throws the
+rest away as it comes.
+
+Almost all JSON then goes through the reflection, which knows the shape of what it
+reads. The exception is a property that is JSON itself (`PropertyType::Json`): the
+values a script is given for an entity have whatever shape the script wants. Such a
+value is kept as it is, after `checkJsonData` has made sure that it can be written
+out again - no deeper than 16, no number that is not finite. The alternative, a
+string holding JSON, would have put text full of escaped quotes into scene files
+that people read and write by hand.
+
 ### Deterministic random numbers
 
 `Random` implements PCG32 directly instead of using `<random>`, whose distributions

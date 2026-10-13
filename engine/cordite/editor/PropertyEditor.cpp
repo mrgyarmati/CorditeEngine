@@ -1,5 +1,6 @@
 #include "cordite/editor/PropertyEditor.h"
 
+#include "cordite/core/Result.h"
 #include "cordite/math/Transform.h"
 
 #include <misc/cpp/imgui_stdlib.h>
@@ -25,6 +26,15 @@ constexpr ImGuiTreeNodeFlags kHeaderFlags = ImGuiTreeNodeFlags_SpanAllColumns | 
 
 /// More than any panel shows at once; beyond it the remembered angles are stale anyway.
 constexpr size_t kMaxRememberedRotations = 512;
+
+/// The same for text of JSON that someone is in the middle of typing.
+constexpr size_t kMaxRememberedDrafts = 64;
+
+/// How JSON is written out for someone to read and change.
+constexpr int kJsonIndent = 2;
+
+/// How many lines of JSON are shown at once.
+constexpr float kJsonLines = 6.5f;
 
 /// Two quaternions closer than this describe the same rotation for display purposes.
 constexpr float kSameRotationTolerance = 1.0e-6f;
@@ -66,6 +76,8 @@ Json defaultValue(PropertyType type) {
             return Json::array({0.0, 0.0, 0.0, 0.0});
         case PropertyType::Quat:
             return Json::array({0.0, 0.0, 0.0, 1.0});
+        case PropertyType::Json:
+            return Json::object();
         case PropertyType::Uuid:
         case PropertyType::Enum:
         case PropertyType::Object:
@@ -73,6 +85,17 @@ Json defaultValue(PropertyType type) {
             return nullptr;
     }
     return nullptr;
+}
+
+/// What `text` is as the value of a Json property - or what keeps it from being one,
+/// said before anything is asked to store it.
+Result<Json> jsonFromText(const std::string& text) {
+    CORDITE_TRY_ASSIGN(const Json parsed, parseJson(text, "the text"));
+    Json value;
+    if (const Status valid = PropertyCodec<Json>::fromJson(parsed, value); !valid) {
+        return tl::unexpected(valid.error().withContext("the text"));
+    }
+    return value;
 }
 
 /// Describes a property for the tooltip of its label. The name is repeated because the
@@ -337,6 +360,8 @@ bool PropertyEditor::drawValue(PropertyType type, const PropertyInfo& property, 
             return drawReference(property, value);
         case PropertyType::Enum:
             return drawEnum(property, value);
+        case PropertyType::Json:
+            return drawJson(value);
         case PropertyType::Object:
         case PropertyType::List:
             // Composite values get rows of their own in draw(); nested in a list they
@@ -374,6 +399,47 @@ bool PropertyEditor::drawRotation(Json& value) {
     value = Json::array({jsonFromFloat(state.rotation.x), jsonFromFloat(state.rotation.y),
                          jsonFromFloat(state.rotation.z), jsonFromFloat(state.rotation.w)});
     return true;
+}
+
+bool PropertyEditor::drawJson(Json& value) {
+    if (m_jsonDrafts.size() > kMaxRememberedDrafts) {
+        // Not the one that is being typed, nor one that is waiting to be put right.
+        std::erase_if(m_jsonDrafts,
+                      [](const auto& entry) { return !entry.second.editing && entry.second.problem.empty(); });
+    }
+    JsonDraft& draft = m_jsonDrafts[ImGui::GetID("##value")];
+    // What is shown is the value, until someone types: from then on it is their text,
+    // until it has become the value or the value has become another.
+    const std::string current = dumpJson(value, kJsonIndent);
+    if (!draft.editing && draft.source != current) {
+        draft = {.text = current, .source = current, .problem = {}, .editing = false};
+    }
+
+    const ImVec2 size(-std::numeric_limits<float>::min(), ImGui::GetTextLineHeight() * kJsonLines);
+    ImGui::InputTextMultiline("##value", &draft.text, size, ImGuiInputTextFlags_AllowTabInput);
+    draft.editing = ImGui::IsItemActive();
+
+    // The text becomes the value when its author leaves it - if it is one. If it is not,
+    // it stays as it was typed, with what is wrong with it underneath.
+    bool changed = false;
+    if (ImGui::IsItemDeactivatedAfterEdit()) {
+        if (Result<Json> typed = jsonFromText(draft.text)) {
+            draft.problem.clear();
+            changed = *typed != value;
+            value = std::move(*typed);
+            // Shown the way the engine writes it from here on, however it was typed.
+            draft.source = dumpJson(value, kJsonIndent);
+            draft.text = draft.source;
+        } else {
+            draft.problem = typed.error().message;
+        }
+    }
+    if (!draft.problem.empty()) {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.95f, 0.4f, 0.35f, 1.0f));
+        ImGui::TextWrapped("%s", draft.problem.c_str());
+        ImGui::PopStyleColor();
+    }
+    return changed;
 }
 
 bool PropertyEditor::drawReference(const PropertyInfo& property, Json& value) {

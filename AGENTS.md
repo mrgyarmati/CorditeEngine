@@ -530,6 +530,14 @@ Step-by-step guide for adding a component: [add-component](.claude/skills/add-co
   edited - a color with a picker, an asset reference with a list of assets, a number
   whose bits are switches (`BitMask`) with a row of check boxes - and is published in
   the automation schema.
+- **A property may be JSON of no fixed shape** (`PropertyType::Json`, a member of type
+  `Json`): an object that is kept as it is, for data only its user understands - the
+  values a script is given for one entity. It is nested at most 16 deep and holds
+  only finite numbers (`checkJsonData`), an edit replaces the whole of it, and the
+  inspector shows it as text that becomes the value once it is an object. Nothing in
+  it is followed: an id of an entity in there still names the original after the
+  entity was duplicated. What the engine itself reads is never kept this way: that
+  gets fields, with types and ranges.
 - **Refer to entities by `Uuid`** across frames, saves and undo. `Entity` handles die
   with their entity, and references to components are invalidated when any entity is
   destroyed or any component of that type is added or removed. Hold the `Entity`,
@@ -1267,6 +1275,15 @@ body explaining what changed and why. One logical change per commit.
   does. What the function holds at that moment is destroyed only because Lua is built
   as C++ here - and for the same reason neither may be called from a destructor or
   from a function that is `noexcept`.
+- JSON text that is nested more than 64 deep is refused by `parseJson`
+  (`kMaxJsonNesting`). The parser itself would take any depth in its stride, but
+  writing a value out, copying it and comparing it all follow the nesting by calling
+  themselves. A `Json` that code puts together can still be deeper: check what is
+  kept with `checkJsonData`, and never walk a `Json` of unknown origin with a
+  function that calls itself without counting.
+- An ImGui widget gets its keyboard shortcuts - Ctrl+A in a text field - a frame
+  after it became active, not in the same one. A test that types into the interface
+  waits that frame; see `PropertyEditorTests`.
 - A JSON object that has a key twice is refused by `parseJson`. The library behind it
   keeps one of the two values and says nothing, which is how a budget for the joints
   of the physics went unchecked: it had the name of another. Text that is put

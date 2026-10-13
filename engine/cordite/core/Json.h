@@ -18,6 +18,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include <cstdint>
 #include <filesystem>
 #include <optional>
 #include <string>
@@ -25,10 +26,15 @@
 
 namespace cordite {
 
+/// How deep arrays and objects may be inside each other in JSON text. Data comes nowhere
+/// near it; text that does is refused, because much of what handles JSON - writing it
+/// out, for one - follows the nesting by calling itself, and the stack has an end.
+inline constexpr int kMaxJsonNesting = 64;
+
 /// Parses JSON text. `//` and `/* */` comments are accepted. Fails with ParseError for
-/// text that is not JSON, and for an object that has a key twice - a mistake that would
-/// otherwise go unnoticed, with one of the two values silently lost. `sourceName` is
-/// used in error messages only.
+/// text that is not JSON, for an object that has a key twice - a mistake that would
+/// otherwise go unnoticed, with one of the two values silently lost - and for arrays and
+/// objects more than kMaxJsonNesting deep. `sourceName` is used in error messages only.
 Result<Json> parseJson(std::string_view text, std::string_view sourceName = "<memory>");
 
 /// Serializes with the given indentation. The output is deterministic.
@@ -41,6 +47,12 @@ Status writeJsonFile(const std::filesystem::path& path, const Json& value);
 
 /// Returns the JSON type name of a value ("object", "array", "string", ...).
 std::string_view jsonTypeName(const Json& value);
+
+/// Checks JSON that is to be kept as it is - data whose shape the engine does not know -
+/// whatever made it: fails with InvalidArgument when its arrays and objects are more than
+/// `maxNesting` deep, and for a number that is not finite, which cannot be written out
+/// again. Follows the nesting no further than it allows.
+[[nodiscard]] Status checkJsonData(const Json& value, uint32_t maxNesting);
 
 /// Wraps a float so that it is written the way a person would write it. JSON numbers are
 /// doubles, and the double nearest to 0.1f prints as 0.10000000149011612; this returns

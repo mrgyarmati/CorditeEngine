@@ -206,6 +206,7 @@ cordite_add_test_suite(render
         render/GpuTimerTests.cpp
         render/GraphicsDeviceTests.cpp
         render/PostProcessTests.cpp
+        render/PropertyEditorTests.cpp
         render/RenderPassTests.cpp
         render/RenderTargetTests.cpp
         render/RenderTestSupport.cpp

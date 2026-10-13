@@ -10,6 +10,7 @@
 #include <limits>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 using namespace cordite;
@@ -72,6 +73,95 @@ TEST_SUITE("Json") {
         CHECK((*apart)["name"] == 6);
         // Keys differ by case, and a value may be what a key is elsewhere.
         CHECK(parseJson(R"({"Name": "name", "name": "Name"})").has_value());
+    }
+
+    TEST_CASE("parseJson refuses text that is nested too deeply") {
+        const auto arrays = [](int levels) {
+            const auto count = static_cast<size_t>(levels);
+            return std::string(count, '[') + std::string(count, ']');
+        };
+        const auto objects = [](int levels) {
+            std::string text;
+            for (int level = 1; level < levels; ++level) {
+                text += R"({"inner": )";
+            }
+            return text + "{}" + std::string(static_cast<size_t>(levels - 1), '}');
+        };
+        const std::string tooDeep = "deep.json: arrays and objects are nested more than 64 deep";
+        REQUIRE(kMaxJsonNesting == 64);
+
+        // As deep as is allowed, and one deeper.
+        CHECK(parseJson(arrays(kMaxJsonNesting)).has_value());
+        CHECK(parseJson(objects(kMaxJsonNesting)).has_value());
+        const Result<Json> deeper = parseJson(arrays(kMaxJsonNesting + 1), "deep.json");
+        REQUIRE_FALSE(deeper.has_value());
+        CHECK(deeper.error().code == ErrorCode::ParseError);
+        CHECK(deeper.error().message == tooDeep);
+        CHECK(parseJson(objects(kMaxJsonNesting + 1), "deep.json").error().message == tooDeep);
+
+        // Text that is deep without end is refused the same way, and not followed down:
+        // neither reading it nor throwing it away takes the stack.
+        CHECK(parseJson(arrays(200000), "deep.json").error().message == tooDeep);
+        CHECK(parseJson(objects(200000), "deep.json").error().message == tooDeep);
+        // What is wrong further down is not looked at, and nothing of the text is kept.
+        const std::string twiceDeepDown = std::string(100, '[') + R"({"a": 1, "a": 2})" + std::string(100, ']');
+        CHECK(parseJson(twiceDeepDown, "deep.json").error().message == tooDeep);
+        CHECK(parseJson(R"({"kept": 1, "deep": )" + arrays(kMaxJsonNesting) + "}", "deep.json").error().message ==
+              tooDeep);
+
+        // It is depth that counts, not how much there is side by side.
+        std::string wide = "[";
+        for (int item = 0; item < 5000; ++item) {
+            wide += item == 0 ? "[[]]" : ",[[]]";
+        }
+        wide += "]";
+        CHECK(unwrap(parseJson(wide)).size() == 5000);
+        // And a key that is there twice is still noticed beside something deep.
+        CHECK(
+            parseJson(R"({"deep": )" + arrays(kMaxJsonNesting - 1) + R"(, "a": 1, "a": 2})", "file").error().message ==
+            "file: an object has the key \"a\" twice");
+    }
+
+    TEST_CASE("checkJsonData lets through what can be kept and written out again") {
+        const Json data =
+            unwrap(parseJson(R"({"speed": 2.5, "tags": ["a", "b"], "door": {"open": true, "key": null}})"));
+        CHECK(checkJsonData(data, 2).has_value());
+        CHECK(checkJsonData(data, 16).has_value());
+        // What is not an array or an object is nested in nothing.
+        for (const Json& plain : {Json(nullptr), Json(true), Json(7), Json(-0.5), Json("text")}) {
+            CHECK(checkJsonData(plain, 0).has_value());
+        }
+
+        // One level less than it has is one too few.
+        const Status shallow = checkJsonData(data, 1);
+        REQUIRE_FALSE(shallow.has_value());
+        CHECK(shallow.error().code == ErrorCode::InvalidArgument);
+        CHECK(shallow.error().message == "arrays and objects are nested too deeply");
+        CHECK_FALSE(checkJsonData(Json::array(), 0).has_value());
+        CHECK(checkJsonData(Json::array(), 1).has_value());
+        CHECK_FALSE(checkJsonData(Json::object(), 0).has_value());
+        CHECK(checkJsonData(Json::object(), 1).has_value());
+
+        // A number that is not finite would be written as null: it is not kept.
+        for (const double number : {std::numeric_limits<double>::infinity(), -std::numeric_limits<double>::infinity(),
+                                    std::numeric_limits<double>::quiet_NaN()}) {
+            Json holder = Json::object();
+            holder["list"] = Json::array({1, number});
+            const Status status = checkJsonData(holder, 16);
+            REQUIRE_FALSE(status.has_value());
+            CHECK(status.error().message == "a number that is not finite cannot be kept");
+            CHECK_FALSE(checkJsonData(Json(number), 0).has_value());
+        }
+
+        // A value made in code can be as deep as memory allows; the check goes down no
+        // further than it was told to.
+        Json nested = 1;
+        for (int level = 0; level < 20000; ++level) {
+            Json outer = Json::array();
+            outer.push_back(std::move(nested));
+            nested = std::move(outer);
+        }
+        CHECK_FALSE(checkJsonData(nested, 16).has_value());
     }
 
     TEST_CASE("object keys keep their insertion order") {

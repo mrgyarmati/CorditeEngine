@@ -112,6 +112,8 @@ std::string_view nameOf(PropertyType type) {
             return "object";
         case PropertyType::List:
             return "list";
+        case PropertyType::Json:
+            return "json";
     }
     return "unknown";
 }
@@ -231,6 +233,19 @@ Status PropertyCodec<Uuid>::fromJson(const Json& json, Uuid& out) {
         return makeError(ErrorCode::InvalidArgument, "'{}' is not a valid identifier", json.get<std::string>());
     }
     out = *parsed;
+    return {};
+}
+
+Json PropertyCodec<Json>::toJson(const Json& value) {
+    return value;
+}
+
+Status PropertyCodec<Json>::fromJson(const Json& json, Json& out) {
+    if (!json.is_object()) {
+        return makeError(ErrorCode::InvalidArgument, "expected an object, found {}", jsonTypeName(json));
+    }
+    CORDITE_TRY(checkJsonData(json, kMaxJsonPropertyNesting));
+    out = json;
     return {};
 }
 
