@@ -10,6 +10,9 @@
 /// entity; see EditorCamera for how to move around. It can show any of the renderer's
 /// debug views in place of the lit picture (setDebugView).
 ///
+/// Asked to, it shows the scene through the camera of the game instead
+/// (ViewportCamera::Game): what a player sees, and nothing an editor adds.
+///
 /// @code
 /// CORDITE_TRY_ASSIGN(auto viewport, ViewportPanel::create(engine));
 ///
@@ -36,9 +39,26 @@
 #include "cordite/renderer/ScreenEffects.h"
 #include "cordite/renderer/ShadowPlan.h"
 
+#include <cstdint>
 #include <memory>
+#include <string_view>
 
 namespace cordite {
+
+/// Through whose eyes the viewport shows the scene.
+enum class ViewportCamera : uint8_t {
+    /// The editor's own camera, which is flown around the scene, with what only an
+    /// editor draws: the grid, the markers, the frames around what is selected.
+    Editor,
+    /// The camera the game renders from - the first enabled primary camera of the
+    /// scene - lit and cleared as the game is, and with nothing drawn over it. Nothing
+    /// is picked and nothing is flown. A scene that has no such camera is shown through
+    /// the editor's.
+    Game,
+};
+
+/// The lowercase name: "editor", "game".
+std::string_view nameOf(ViewportCamera camera);
 
 class ViewportPanel {
 public:
@@ -89,6 +109,14 @@ public:
 
     void setAntiAliasing(AntiAliasing antiAliasing) { m_antiAliasing = antiAliasing; }
 
+    /// Through whose eyes the scene is shown. What is asked for, and what the last
+    /// render() came to: the game is shown only where the scene has a camera for it.
+    [[nodiscard]] ViewportCamera viewCamera() const { return m_viewCamera; }
+
+    void setViewCamera(ViewportCamera camera) { m_viewCamera = camera; }
+
+    [[nodiscard]] bool showsGame() const { return m_showsGame; }
+
     /// Whether the collider of every entity that has one is drawn, as lines, and its
     /// joint, and the capsule of a character. Those of selected entities, and of what
     /// hangs below them, always are.
@@ -106,7 +134,8 @@ public:
     [[nodiscard]] Entity pick(EditorContext& context, Vec2 pixel) const;
 
 private:
-    ViewportPanel(SceneRenderer& sceneRenderer, const PhysicsSystem& physics, DebugLinePass linePass);
+    ViewportPanel(SceneRenderer& sceneRenderer, const PhysicsSystem& physics, const SceneRenderSettings& gameSettings,
+                  DebugLinePass linePass);
 
     void collectLines(EditorContext& context, const CameraView& view);
 
@@ -114,6 +143,8 @@ private:
     /// What the colliders that are made of meshes are made of.
     const PhysicsSystem* m_physics;
     ColliderOutlines m_colliderOutlines;
+    /// How the game draws its world: what the game's camera is shown with.
+    const SceneRenderSettings* m_gameSettings;
     DebugLinePass m_linePass;
     SceneTargets m_targets;
     EditorCamera m_camera;
@@ -123,6 +154,9 @@ private:
     PostProcessQuality m_postProcessQuality = PostProcessQuality::Medium;
     AntiAliasing m_antiAliasing = AntiAliasing::Fxaa;
     bool m_showColliders = false;
+    ViewportCamera m_viewCamera = ViewportCamera::Editor;
+    /// Whether the last render() was through the camera of the game.
+    bool m_showsGame = false;
     /// The view render() last used, for pick().
     CameraView m_view;
     /// Rebuilt every frame; members so that their memory is reused. Grid and scene

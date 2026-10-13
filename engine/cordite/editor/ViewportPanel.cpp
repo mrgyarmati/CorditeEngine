@@ -7,6 +7,7 @@
 #include "cordite/math/Color.h"
 #include "cordite/math/Transform.h"
 #include "cordite/physics/PhysicsComponents.h"
+#include "cordite/renderer/CameraView.h"
 #include "cordite/renderer/RenderComponents.h"
 #include "cordite/renderer/SceneLights.h"
 #include "cordite/world/Components.h"
@@ -298,14 +299,28 @@ void drawLight(const SceneLight& light, const Vec4& color, DebugDraw& marker, De
 
 } // namespace
 
-ViewportPanel::ViewportPanel(SceneRenderer& sceneRenderer, const PhysicsSystem& physics, DebugLinePass linePass)
-    : m_sceneRenderer(&sceneRenderer), m_physics(&physics), m_linePass(std::move(linePass)) {}
+std::string_view nameOf(ViewportCamera camera) {
+    switch (camera) {
+        case ViewportCamera::Editor:
+            return "editor";
+        case ViewportCamera::Game:
+            return "game";
+    }
+    return "unknown";
+}
+
+ViewportPanel::ViewportPanel(SceneRenderer& sceneRenderer, const PhysicsSystem& physics,
+                             const SceneRenderSettings& gameSettings, DebugLinePass linePass)
+    : m_sceneRenderer(&sceneRenderer),
+      m_physics(&physics),
+      m_gameSettings(&gameSettings),
+      m_linePass(std::move(linePass)) {}
 
 Result<std::unique_ptr<ViewportPanel>> ViewportPanel::create(Engine& engine) {
     CORDITE_TRY_ASSIGN(DebugLinePass linePass,
                        DebugLinePass::create(engine.graphics().device(), engine.shaderManager()));
     return std::unique_ptr<ViewportPanel>(
-        new ViewportPanel(engine.sceneRenderer(), engine.physics(), std::move(linePass)));
+        new ViewportPanel(engine.sceneRenderer(), engine.physics(), engine.renderSettings(), std::move(linePass)));
 }
 
 void ViewportPanel::collectLines(EditorContext& context, const CameraView& view) {
@@ -382,11 +397,28 @@ Status ViewportPanel::render(nvrhi::IDevice* device, nvrhi::ICommandList* comman
         CORDITE_TRY(m_targets.resize(device, size));
     }
 
-    m_view = m_camera.view(static_cast<float>(size.x) / static_cast<float>(size.y));
-    collectLines(context, m_view);
+    // Through the camera of the game where that is asked for and the scene has one:
+    // what a player sees. Otherwise through the editor's, with what an editor adds.
+    const World& world = context.world();
+    const float aspect = static_cast<float>(size.x) / static_cast<float>(size.y);
+    const Entity gameCamera = m_viewCamera == ViewportCamera::Game ? findPrimaryCamera(world) : Entity{};
+    const auto* gameLens = world.tryGet<CameraComponent>(gameCamera);
+    m_showsGame = gameLens != nullptr;
 
     SceneRenderSettings settings;
-    settings.backgroundColor = srgbToLinear(kBackgroundColor);
+    if (m_showsGame) {
+        m_view = makeCameraView(world.worldMatrix(gameCamera), *gameLens, aspect);
+        m_gridLines.clear();
+        m_sceneLines.clear();
+        m_selectionLines.clear();
+        // Cleared and lit as the game is, by what the game says and by nothing else.
+        settings.backgroundColor = m_gameSettings->backgroundColor;
+        settings.viewEntity = world.id(gameCamera);
+    } else {
+        m_view = m_camera.view(aspect);
+        collectLines(context, m_view);
+        settings.backgroundColor = srgbToLinear(kBackgroundColor);
+    }
     settings.debugView = m_debugView;
     settings.shadowQuality = m_shadowQuality;
     settings.screenEffectsQuality = m_screenEffectsQuality;
@@ -394,8 +426,9 @@ Status ViewportPanel::render(nvrhi::IDevice* device, nvrhi::ICommandList* comman
     settings.antiAliasing = m_antiAliasing;
     settings.deltaSeconds = deltaSeconds;
     settings.timeSeconds = timeSeconds;
-    // A scene that is being started has no lights yet, and would be black.
-    settings.defaultLighting = true;
+    // A scene that is being started has no lights yet, and would be black - which is
+    // what a game that has none is.
+    settings.defaultLighting = m_showsGame ? m_gameSettings->defaultLighting : true;
     m_sceneRenderer->render(commandList, context.world(), m_view, m_targets, settings);
 
     // Over the finished image, in display colors, but still behind what is nearer.
@@ -495,9 +528,10 @@ void ViewportPanel::draw(Engine& engine, EditorContext& context) {
             ImGui::Image(UiSystem::textureId(m_targets.display()), available);
             hovered = ImGui::IsItemHovered();
 
-            // A click that was not the end of a drag selects what is under the pointer.
+            // A click that was not the end of a drag selects what is under the pointer -
+            // in the editor's view. In the game's, a click is the game's.
             const ImVec2 dragged = ImGui::GetMouseDragDelta(ImGuiMouseButton_Left, 0.0f);
-            if (hovered && ImGui::IsMouseReleased(ImGuiMouseButton_Left) &&
+            if (hovered && !m_showsGame && ImGui::IsMouseReleased(ImGuiMouseButton_Left) &&
                 std::abs(dragged.x) + std::abs(dragged.y) <= kClickTolerance) {
                 const ImVec2 pointer = ImGui::GetMousePos();
                 const Entity picked =
@@ -511,14 +545,18 @@ void ViewportPanel::draw(Engine& engine, EditorContext& context) {
                 }
             }
 
-            const Vec3& position = m_camera.position();
-            ImGui::SetCursorScreenPos(ImVec2(origin.x + 8.0f, origin.y + 6.0f));
-            ImGui::TextDisabled("%.1f, %.1f, %.1f", position.x, position.y, position.z);
+            // Where the editor's camera is - when it is the one that is looked through.
+            if (!m_showsGame) {
+                const Vec3& position = m_camera.position();
+                ImGui::SetCursorScreenPos(ImVec2(origin.x + 8.0f, origin.y + 6.0f));
+                ImGui::TextDisabled("%.1f, %.1f, %.1f", position.x, position.y, position.z);
+            }
         }
     }
     ImGui::End();
 
-    m_camera.update(engine.input(), engine.deltaSeconds(), hovered);
+    // The editor's camera is flown only while it is the one that is looked through.
+    m_camera.update(engine.input(), engine.deltaSeconds(), hovered && !m_showsGame);
 
     // While the camera is being steered the pointer is hidden and held in place, so that
     // it cannot run into the edge of the screen.

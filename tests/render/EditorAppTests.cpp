@@ -3,7 +3,9 @@
 #include "cordite/animation/AnimationComponents.h"
 #include "cordite/assets/AssetDatabase.h"
 #include "cordite/assets/ImageCompare.h"
+#include "cordite/assets/Primitives.h"
 #include "cordite/core/FileSystem.h"
+#include "cordite/core/Log.h"
 #include "cordite/engine/Project.h"
 #include "cordite/platform/InputMap.h"
 #include "cordite/world/SceneSerializer.h"
@@ -66,6 +68,15 @@ Error refusal(EditorApp& editor, std::string_view command, std::string_view para
     return result.error();
 }
 
+/// An editor for a picture of its whole window. The console is one of its panels, and
+/// shows what was logged - by this test or by any that ran before it in the same
+/// process: the log is emptied first, so that the picture does not depend on which
+/// tests those were.
+std::unique_ptr<EditorApp> createEditorForPicture(const EditorAppDesc& desc) {
+    Log::clearHistory();
+    return createEditor(desc);
+}
+
 /// A JSON string literal holding a path, quoted and escaped.
 std::string quoted(const std::filesystem::path& path) {
     return Json(pathToUtf8(path)).dump();
@@ -77,7 +88,7 @@ TEST_SUITE("EditorApp") {
     TEST_CASE("the editor showing the showcase scene matches the reference image") {
         EditorAppDesc desc = headlessDesc();
         desc.project = showcaseProject();
-        const std::unique_ptr<EditorApp> editor = createEditor(desc);
+        const std::unique_ptr<EditorApp> editor = createEditorForPicture(desc);
         run(*editor, "selection.set", R"({"entities": ["Cameras/Main camera"]})");
 
         // Windows settle into their docked places over the first frames.
@@ -91,7 +102,7 @@ TEST_SUITE("EditorApp") {
     TEST_CASE("the editor showing a selected light matches the reference image") {
         EditorAppDesc desc = headlessDesc();
         desc.project = showcaseProject();
-        const std::unique_ptr<EditorApp> editor = createEditor(desc);
+        const std::unique_ptr<EditorApp> editor = createEditorForPicture(desc);
         // The inspector shows the light: its kind as a list, its color, numbers with their
         // units, and its lighting channels as a row of switches. The viewport shows how far
         // it reaches.
@@ -1177,6 +1188,205 @@ TEST_SUITE("EditorApp") {
         REQUIRE_FALSE(unknown.has_value());
         CHECK(unknown.error().code == ErrorCode::InvalidArgument);
         CHECK(unknown.error().message.find("statistics") != std::string::npos);
+        checkNoValidationIssues(editor->engine().graphics());
+    }
+
+    TEST_CASE("the viewport shows the scene through the camera of the game, with nothing an editor adds") {
+        EditorAppDesc desc = headlessDesc(UVec2(640, 360));
+        desc.project = showcaseProject();
+        const std::unique_ptr<EditorApp> editor = createEditor(desc);
+        const UVec2 size(640, 360);
+        const auto same = [](const Image& a, const Image& b) {
+            return unwrap(compareImages(a, b, {.channelTolerance = 0, .maxDifferingRatio = 0.0})).matches;
+        };
+        const auto selectedNames = [&] {
+            std::vector<std::string> names;
+            for (const Json& entity : run(*editor, "selection.get")) {
+                names.push_back(entity["name"].get<std::string>());
+            }
+            return names;
+        };
+
+        // Unless it is asked to, it looks through the editor's camera.
+        CHECK(run(*editor, "viewport.show") == json(R"({"camera": "editor", "showsGame": false, "colliders": false})"));
+        CHECK(editor->viewport().viewCamera() == ViewportCamera::Editor);
+        run(*editor, "selection.set", R"({"entities": ["Stage/Crate"]})");
+        const Image editorView = unwrap(editor->captureViewport(size));
+
+        // Through the camera of the game: where the scene's main camera stands, with its
+        // field of view, lit and cleared as the game is - and no grid, no markers, no
+        // frame around the crate that is selected.
+        CHECK(run(*editor, "viewport.show", R"({"camera": "game"})")["camera"] == "game");
+        const Image gameView = unwrap(editor->captureViewport(size));
+        CHECK(run(*editor, "viewport.show")["showsGame"] == true);
+        CHECK(editor->viewport().showsGame());
+        checkAgainstReference(gameView, "editor-game-view-640x360");
+        CHECK_FALSE(same(gameView, editorView));
+
+        // What is selected, and whether colliders are to be drawn, changes nothing in it.
+        run(*editor, "selection.set", R"({"entities": ["Stage/Barrel", "Lighting/Sun"]})");
+        run(*editor, "viewport.show", R"({"colliders": true})");
+        CHECK(same(unwrap(editor->captureViewport(size)), gameView));
+        // Nor does where the editor's camera is.
+        run(*editor, "viewport.lookAt", R"({"position": [-5.5, 3.2, 6.5], "target": [0.5, 0.8, -1.5]})");
+        CHECK(same(unwrap(editor->captureViewport(size)), gameView));
+        // Where the camera of the scene is, does.
+        run(*editor, "component.set",
+            R"({"entity": "Cameras/Main camera", "component": "Transform", "properties": {"position": [4, 4, 6]}})");
+        CHECK_FALSE(same(unwrap(editor->captureViewport(size)), gameView));
+        run(*editor, "editor.undo");
+        CHECK(same(unwrap(editor->captureViewport(size)), gameView));
+
+        // A click in the game's view is the game's: it selects nothing, and takes no
+        // selection away. In the editor's it picks what is under the pointer.
+        run(*editor, "viewport.show", R"({"colliders": false})");
+        run(*editor, "selection.set", R"({"entities": ["Stage/Crate"]})");
+        const auto click = [&] {
+            run(*editor, "input.inject", R"({"mouseMove": [280, 150]})");
+            run(*editor, "editor.runFrames", R"({"count": 2})");
+            run(*editor, "input.inject", R"({"mouseButton": "Left", "down": true})");
+            run(*editor, "editor.runFrames");
+            run(*editor, "input.inject", R"({"mouseButton": "Left", "down": false})");
+            run(*editor, "editor.runFrames", R"({"count": 2})");
+        };
+        run(*editor, "editor.runFrames", R"({"count": 4})");
+        click();
+        CHECK(selectedNames() == std::vector<std::string>{"Crate"});
+        run(*editor, "viewport.show", R"({"camera": "editor"})");
+        run(*editor, "editor.runFrames");
+        click();
+        CHECK(selectedNames() != std::vector<std::string>{"Crate"});
+
+        // Nor is the editor's camera flown from the game's view: the right button and
+        // W turn and move it in its own view, and nothing in the game's.
+        const auto fly = [&] {
+            run(*editor, "input.inject", R"({"mouseMove": [280, 150]})");
+            run(*editor, "editor.runFrames", R"({"count": 2})");
+            run(*editor, "input.inject", R"({"mouseButton": "Right", "down": true})");
+            run(*editor, "input.inject", R"({"key": "W", "down": true})");
+            run(*editor, "editor.runFrames", R"({"count": 2})");
+            run(*editor, "input.inject", R"({"mouseMove": [330, 170]})");
+            run(*editor, "editor.runFrames", R"({"count": 3})");
+            run(*editor, "input.inject", R"({"key": "W", "down": false})");
+            run(*editor, "input.inject", R"({"mouseButton": "Right", "down": false})");
+            run(*editor, "editor.runFrames", R"({"count": 2})");
+        };
+        run(*editor, "viewport.show", R"({"camera": "game"})");
+        run(*editor, "editor.runFrames");
+        const Vec3 stoodAt = editor->camera().position();
+        const float lookedAlong = editor->camera().yawDegrees();
+        fly();
+        CHECK(editor->camera().position() == stoodAt);
+        CHECK(editor->camera().yawDegrees() == lookedAlong);
+        run(*editor, "viewport.show", R"({"camera": "editor"})");
+        run(*editor, "editor.runFrames");
+        fly();
+        CHECK(editor->camera().position() != stoodAt);
+        CHECK(editor->camera().yawDegrees() != lookedAlong);
+
+        // A scene without a camera for the game is shown through the editor's, as an
+        // editor shows it - whatever was asked for.
+        run(*editor, "selection.set", R"({"entities": ["Stage/Crate"]})");
+        const Image editorNow = unwrap(editor->captureViewport(size));
+        run(*editor, "viewport.show", R"({"camera": "game"})");
+        run(*editor, "component.set",
+            R"({"entity": "Cameras/Main camera", "component": "Camera", "properties": {"primary": false}})");
+        // (The camera that is not looked through any more is drawn, as cameras are.)
+        const Image fallback = unwrap(editor->captureViewport(size));
+        CHECK(run(*editor, "viewport.show") == json(R"({"camera": "game", "showsGame": false, "colliders": false})"));
+        CHECK_FALSE(same(fallback, gameView));
+        run(*editor, "editor.undo");
+        run(*editor, "viewport.show", R"({"camera": "editor"})");
+        CHECK(same(unwrap(editor->captureViewport(size)), editorNow));
+
+        // A camera the viewport has not.
+        const Error error = refusal(*editor, "viewport.show", R"({"camera": "player"})");
+        CHECK(error.code == ErrorCode::InvalidArgument);
+        CHECK(error.message == "viewport.show: 'player' is no camera of the viewport; use editor or game");
+        CHECK(run(*editor, "viewport.show")["camera"] == "editor");
+
+        // Played, a scene is looked at through its own camera, and stopped, as before.
+        run(*editor, "play.start");
+        CHECK(run(*editor, "viewport.show")["camera"] == "game");
+        run(*editor, "editor.runFrames", R"({"count": 3})");
+        CHECK(run(*editor, "viewport.show")["showsGame"] == true);
+        run(*editor, "play.stop");
+        CHECK(run(*editor, "viewport.show")["camera"] == "editor");
+        run(*editor, "editor.runFrames");
+        CHECK(run(*editor, "viewport.show")["showsGame"] == false);
+        run(*editor, "play.start");
+        run(*editor, "editor.runFrames");
+        // Somebody who wants to fly around the game that runs says so, and may.
+        CHECK(run(*editor, "viewport.show", R"({"camera": "editor"})")["camera"] == "editor");
+        run(*editor, "editor.runFrames");
+        CHECK(run(*editor, "viewport.show")["showsGame"] == false);
+        run(*editor, "play.stop");
+        CHECK(run(*editor, "viewport.show")["camera"] == "editor");
+        // And whoever looked through the game's camera before goes on doing so after.
+        run(*editor, "viewport.show", R"({"camera": "game"})");
+        run(*editor, "play.start");
+        run(*editor, "play.stop");
+        CHECK(run(*editor, "viewport.show")["camera"] == "game");
+        CHECK(nameOf(ViewportCamera::Editor) == "editor");
+        CHECK(nameOf(ViewportCamera::Game) == "game");
+        checkNoValidationIssues(editor->engine().graphics());
+    }
+
+    TEST_CASE("the game's view is drawn as the game draws: with its background, and with its lights or none") {
+        const std::unique_ptr<EditorApp> editor = createEditor(headlessDesc(UVec2(640, 360)));
+        const UVec2 size(320, 180);
+        // A cube and a camera that looks at it, and no light at all.
+        run(*editor, "entity.create",
+            R"({"name": "Eye", "components": {"Transform": {"position": [0, 0, 5]}, "Camera": {}}})");
+        const Uuid cube = builtinMeshId(BuiltinMesh::Cube);
+        run(*editor, "entity.create",
+            fmt::format(R"({{"name": "Cube", "components": {{"MeshRenderer": {{"mesh": "{}"}}}}}})", cube.toString()));
+        run(*editor, "viewport.lookAt", R"({"position": [0, 0, 5], "target": [0, 0, 0]})");
+        const auto brightness = [](const Vec4& pixel) { return (pixel.r + pixel.g + pixel.b) / 3.0f; };
+        // The middle of the picture is the cube; a corner is what is behind everything.
+        const auto middle = [&] { return unwrap(editor->captureViewport(size)).pixel(160, 90); };
+        const auto corner = [&] { return unwrap(editor->captureViewport(size)).pixel(4, 4); };
+
+        // An editor lights a scene that has no light of its own, so that it can be seen.
+        const float editorCube = brightness(middle());
+        const Vec4 editorCorner = corner();
+        CHECK(editorCube > 0.2f);
+
+        // A game does not, unless it says so: through its camera the cube is dark.
+        run(*editor, "viewport.show", R"({"camera": "game"})");
+        CHECK(brightness(middle()) < 0.05f);
+        CHECK(editor->viewport().showsGame());
+        editor->engine().renderSettings().defaultLighting = true;
+        CHECK(brightness(middle()) > 0.2f);
+        editor->engine().renderSettings().defaultLighting = false;
+
+        // What is behind everything is the game's to say as well, and not the editor's grey.
+        editor->engine().renderSettings().backgroundColor = Vec3(1.0f, 0.0f, 0.0f);
+        const Vec4 gameCorner = corner();
+        CHECK(gameCorner.r > gameCorner.g + 0.5f);
+        CHECK(gameCorner.r > editorCorner.r + 0.5f);
+        // The editor's own view is as it was, whatever the game says.
+        run(*editor, "viewport.show", R"({"camera": "editor"})");
+        CHECK(corner().r == doctest::Approx(editorCorner.r).epsilon(0.02));
+        CHECK(brightness(middle()) == doctest::Approx(editorCube).epsilon(0.02));
+        checkNoValidationIssues(editor->engine().graphics());
+    }
+
+    TEST_CASE("the editor playing the showcase matches the reference image") {
+        EditorAppDesc desc = headlessDesc();
+        desc.project = showcaseProject();
+        const std::unique_ptr<EditorApp> editor = createEditorForPicture(desc);
+        run(*editor, "selection.set", R"({"entities": ["Stage/Clock"]})");
+        REQUIRE(editor->runFrames(4).has_value());
+
+        // Three quarters of a second of the game, a sixtieth at a time - the same game on
+        // every machine. The viewport shows it through its camera, the bar says that it
+        // plays, and the clock that is selected has ticked: its name says so in the
+        // hierarchy and in the inspector, where its sound is seen to have been played.
+        run(*editor, "play.start");
+        REQUIRE(editor->runFrames(45).has_value());
+        checkAgainstReference(unwrap(editor->engine().captureFrame()), "editor-playing-1280x720");
+        run(*editor, "play.stop");
         checkNoValidationIssues(editor->engine().graphics());
     }
 

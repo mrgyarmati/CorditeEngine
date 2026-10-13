@@ -1264,6 +1264,12 @@ panels, EditorApp    the interface, built on the three layers above
   scene that is being played is not saved, opened over or made anew. A new piece
   of state that belongs to a played world - something a system holds for it - is
   ended in `endScene`, or it outlives the game.
+- **The viewport looks through the editor's camera or the game's**
+  (`ViewportCamera`, `viewport.show {"camera": "game"}`). The game's is the first
+  enabled primary camera of the scene, drawn as `Engine::drawWorld` draws it - the
+  game's background, no default light - and with nothing over it: no grid, no
+  markers, no picking, no flying. Playing switches to it and stopping switches
+  back. What an editor adds to the picture belongs to the editor's view only.
 - **Batch mode is the test and agent entry point:** `cordite-editor --headless --project
   P --exec script.json --frames N --screenshot out.png`. Exit status: 0 success, 1
   could not run, 2 GPU validation issues, 3 a script step failed. The script's outcome
@@ -1404,7 +1410,10 @@ body explaining what changed and why. One logical change per commit.
 - Editor reference images show the whole interface, so any visible change to a panel
   changes them. That is intended: look at the new image, then approve it (see the
   render-tests skill). They are rendered with logging silenced; do not add anything to
-  the default layout that shows machine-specific text.
+  the default layout that shows machine-specific text. The console panel shows the
+  log's history, which outlives a test: a test that takes a picture of the whole
+  window empties it first (`createEditorForPicture`), or passes alone and fails in
+  the suite.
 - Agent tools that run shell commands can mangle a here-document that contains an odd
   number of apostrophes. Write files with the file-writing tool instead of `cat <<EOF`.
 - NVRHI's validation layer rejects a second *immediate* command list opened while

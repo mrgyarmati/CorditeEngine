@@ -97,7 +97,9 @@ In the viewport, hold the right mouse button to look around and fly with W A S D
 E; hold the middle button to slide; turn the wheel to move forwards and backwards.
 
 F5 plays the scene where it stands: its scripts run, its bodies fall, its sounds are
-heard, and the controls of the project reach the game - in the showcase W A S D walk
+heard, the viewport shows it through the camera of the game (View > Game camera
+switches between that and the editor's own), and the controls of the project reach the
+game - in the showcase W A S D walk
 the sentry and Space makes it jump, the left mouse button makes the ball hop, and T
 travels to the annex. F6 holds the game and lets it go on, F10 lets one frame of a held
 game pass, and Shift+F5 stops it: the scene is then exactly what it was before,

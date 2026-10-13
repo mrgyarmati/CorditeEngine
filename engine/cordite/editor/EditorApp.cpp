@@ -431,17 +431,33 @@ Status EditorApp::registerApplicationCommands() {
 
     CORDITE_TRY(m_commands.add({
         .name = "viewport.show",
-        .description = "Chooses what the viewport draws over the scene that is not part of it: the collider "
-                       "and the joint of every entity that has one, and the capsule of every character, as "
-                       "lines (`colliders`; those of selected entities and of what hangs below them are "
-                       "always drawn). Returns what is shown now; without a parameter it changes nothing.",
-        .parameters = {{"colliders", Type::Boolean,
+        .description = "Chooses through whose eyes the viewport shows the scene, and what it draws over it. "
+                       "`camera` is \"editor\" - the editor's own camera, with the grid, the markers and the "
+                       "frames around what is selected - or \"game\": the camera the game renders from, the "
+                       "first enabled primary one, and nothing but what a player sees; a scene without "
+                       "such a camera is shown through the editor's. `colliders` draws the collider and "
+                       "the joint of every entity that has one, and the capsule of every character, as "
+                       "lines (those of selected entities and of what hangs below them are always drawn). "
+                       "Returns what is asked for now, and `showsGame`: whether the last picture was the "
+                       "game's. Without a parameter it changes nothing.",
+        .parameters = {{"camera", Type::String, "Whose camera to look through: \"editor\" or \"game\".", false},
+                       {"colliders", Type::Boolean,
                         "Draw the colliders, the joints and the characters of all entities.", false}},
         .handler = [this](const Json& parameters) -> Result<Json> {
+            if (const auto name = jsonGetOr<std::string>(parameters, "camera", ""); !name.empty()) {
+                if (name != nameOf(ViewportCamera::Editor) && name != nameOf(ViewportCamera::Game)) {
+                    return makeError(ErrorCode::InvalidArgument,
+                                     "'{}' is no camera of the viewport; use editor or game", name);
+                }
+                m_viewport->setViewCamera(name == nameOf(ViewportCamera::Game) ? ViewportCamera::Game
+                                                                               : ViewportCamera::Editor);
+            }
             if (parameters.contains("colliders")) {
                 m_viewport->setShowColliders(jsonGetOr<bool>(parameters, "colliders", false));
             }
             Json shown = Json::object();
+            shown["camera"] = nameOf(m_viewport->viewCamera());
+            shown["showsGame"] = m_viewport->showsGame();
             shown["colliders"] = m_viewport->showsColliders();
             return shown;
         },
@@ -630,12 +646,16 @@ Status EditorApp::registerPlayCommands() {
     CORDITE_TRY(m_commands.add({
         .name = "play.start",
         .description = "Plays the scene in the editor: from the next frame on its scripts run, its bodies move "
-                       "and its sounds are heard. Nothing of that stays: play.stop puts the scene back as it "
-                       "was, and what is edited while it plays goes with the game. Returns what play.status "
-                       "returns.",
+                       "and its sounds are heard, and the viewport shows it through the camera of the game "
+                       "(viewport.show changes that). Nothing of it stays: play.stop puts the scene back as "
+                       "it was, and what is edited while it plays goes with the game. Returns what "
+                       "play.status returns.",
         .parameters = {},
         .handler = [this](const Json& /*parameters*/) -> Result<Json> {
             CORDITE_TRY(m_play->start());
+            // A game is looked at through its own camera, until somebody says otherwise.
+            m_viewBeforePlay = m_viewport->viewCamera();
+            m_viewport->setViewCamera(ViewportCamera::Game);
             return describePlay();
         },
     }));
@@ -647,6 +667,7 @@ Status EditorApp::registerPlayCommands() {
         .parameters = {},
         .handler = [this](const Json& /*parameters*/) -> Result<Json> {
             CORDITE_TRY(m_play->stop());
+            m_viewport->setViewCamera(m_viewBeforePlay);
             return describePlay();
         },
     }));
@@ -876,6 +897,11 @@ void EditorApp::drawViewMenu() {
     // What the viewport shows: the picture, or a look into the renderer.
     if (const auto view = chooseFromMenu("Render view", kRenderDebugViews, m_viewport->debugView())) {
         m_viewport->setDebugView(*view);
+    }
+    // Through whose eyes: the editor's camera, or the one the game renders from.
+    const bool game = m_viewport->viewCamera() == ViewportCamera::Game;
+    if (ImGui::MenuItem("Game camera", nullptr, game)) {
+        m_viewport->setViewCamera(game ? ViewportCamera::Editor : ViewportCamera::Game);
     }
     // What is drawn over the scene that is not part of it.
     if (ImGui::MenuItem("Colliders", nullptr, m_viewport->showsColliders())) {

@@ -271,6 +271,9 @@ its simulation, its sounds - play it:
 - `play.pause` holds the game, `play.resume` lets it go on, and `play.step {"frames":
   N}` lets a held game pass exactly N frames and runs them - for looking at what
   happens one frame at a time.
+- The viewport shows the game through its own camera while it plays, so a screenshot
+  with `viewportOnly` is the player's picture. `viewport.show {"camera": "editor"}`
+  looks at the running game from where the editor's camera is instead.
 - Everything that asks about the scene asks about the game while it plays:
   `entity.get`, `component.get`, `physics.raycast`, `editor.statistics` (which then
   reports scripts, steps of the simulation and voices), screenshots. `input.inject`
@@ -290,6 +293,10 @@ its simulation, its sounds - play it:
   saves the scene alone, at any size.
 - `viewport.lookAt {"position": [x,y,z], "target": [x,y,z]}` and
   `viewport.frame {"entity": ...}` place the viewport camera first.
+- `viewport.show {"camera": "game"}` looks through the camera the game renders from
+  - the first enabled primary `Camera` of the scene - and draws nothing an editor
+  adds: what a player would see. `{"camera": "editor"}` goes back. A scene that is
+  played is shown through the game's camera by itself.
 - `viewport.debugView {"view": "normals"}` makes the viewport show something the
   renderer works with instead of the lit picture: `baseColor`, `normals`, `roughness`,
   `metallic`, `specular`, `occlusion`, `emissive`, `depth`, `lightCount`,

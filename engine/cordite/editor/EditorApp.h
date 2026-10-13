@@ -166,6 +166,8 @@ private:
     std::unique_ptr<Engine> m_engine;
     std::unique_ptr<EditorContext> m_context;
     std::unique_ptr<PlayMode> m_play;
+    /// Through whose eyes the viewport showed the scene before it was played.
+    ViewportCamera m_viewBeforePlay = ViewportCamera::Editor;
     CommandRegistry m_commands;
 
     std::unique_ptr<ViewportPanel> m_viewport;

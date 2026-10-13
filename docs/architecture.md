@@ -1760,6 +1760,10 @@ The entities of the scene are others afterwards - new handles, the same ids. The
 editor already refers to entities by id wherever something lasts: the selection,
 the history. Both survive playing for that reason, without a line written for it.
 
+While a scene plays the viewport looks through the camera of the game, as the game
+itself would draw it, because that is what playing is for; it can be told to look
+through the editor's camera again, to fly around a game that runs.
+
 ### What is edited while a scene plays goes with the game
 
 Editing is not switched off while a scene plays: moving a light to see what it does
