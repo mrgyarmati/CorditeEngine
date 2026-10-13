@@ -271,6 +271,45 @@ function SelfTest:simulation()
     self:expect("an entity without a body", not pcall(self.entity.addImpulse, self.entity, vec3(0, 1, 0)))
 end
 
+-- Sound. What an entity sounds like is its AudioSource, a component like the others;
+-- what is here is the rest: a sound that belongs to no entity, and how loud the buses
+-- are. Everything is played at no volume: a self-test is nothing to listen to.
+function SelfTest:sound()
+    -- By where its file is among the assets. What comes back is a number to stop it by.
+    local round = cordite.audio.play("sounds/click.wav", { bus = "interface", volume = 0, loop = true })
+    self:expect("a number for a sound", math.type(round) == "integer")
+    self:expect("a sound that is playing", cordite.audio.isPlaying(round))
+    cordite.audio.stop(round)
+    self:expect("a sound that was stopped", not cordite.audio.isPlaying(round))
+    -- By its id, and from a place: quieter with distance, the way its rolloff says.
+    local placed = cordite.audio.play(cordite.assets.find("sounds/hop.wav"), {
+        volume = 0,
+        pitch = 2,
+        position = vec3(0, 1, 0),
+        rolloff = "linear",
+        minDistance = 1,
+        maxDistance = 10,
+    })
+    self:expect("another sound, another number", placed ~= round and cordite.audio.isPlaying(placed))
+    cordite.audio.stop(placed)
+
+    -- Every bus has a volume, and "master" is that of everything. It is handed back as
+    -- it was found: the game is to stay as loud as its player made it.
+    local music = cordite.audio.volume("music")
+    cordite.audio.setVolume("music", 0.25)
+    self:expect("how loud a bus is", cordite.audio.volume("music") == 0.25)
+    cordite.audio.setVolume("music", music)
+    self:expect("how loud everything is", cordite.audio.volume("master") >= 0)
+
+    -- What is wrong is refused: what is no sound, an option there is none of, a bus
+    -- nobody has heard of, a volume that is none.
+    self:expect("a sound that there is not", not pcall(cordite.audio.play, "sounds/no such sound.wav"))
+    self:expect("an asset that is no sound", not pcall(cordite.audio.play, "scripts/clock.lua"))
+    self:expect("an option that there is not", not pcall(cordite.audio.play, "sounds/click.wav", { loud = 1 }))
+    self:expect("a bus that there is not", not pcall(cordite.audio.volume, "noise"))
+    self:expect("a volume that is none", not pcall(cordite.audio.setVolume, "music", -1))
+end
+
 -- What is to happen later: a function that is called once or again and again, and a
 -- task - a function that waits in the middle of what it does. What they have done is
 -- looked at in the frames that follow, in `update`.
@@ -314,6 +353,7 @@ function SelfTest:start()
     self:components()
     self:timeAndAssets()
     self:controls()
+    self:sound()
     self:timers()
 end
 

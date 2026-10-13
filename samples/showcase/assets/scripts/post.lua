@@ -1,5 +1,6 @@
 -- Lights a light while something stands in the trigger of its entity, and for a moment
--- after it has left.
+-- after it has left. Whoever arrives first is announced: the AudioSource of the entity
+-- is played, where it has one.
 --
 -- A collider that is a trigger stops nothing; the simulation only says what moves into
 -- it and out of it: `triggerEntered` and `triggerLeft`, with the other entity. Both are
@@ -27,6 +28,9 @@ function Post:triggerEntered(other)
     cordite.time.cancel(self.going)
     self.going = nil
     self.entity:set("Light", "intensity", self.properties.lit)
+    if self.inside == 1 and self.entity:has("AudioSource") then
+        self.entity:set("AudioSource", "playing", true)
+    end
 end
 
 function Post:triggerLeft(other)

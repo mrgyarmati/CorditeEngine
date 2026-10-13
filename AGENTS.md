@@ -129,7 +129,7 @@ by accident.
 | `animation` | `core`, `math`, `assets`, `world` | Poses of skeletons and what makes them: sampling clips, blending, the matrices a mesh is skinned with and the bounds of a posed mesh; the `Animator` component; `AnimationSystem`, which plays the animators of a world |
 | `physics` | `core`, `math`, `assets`, `world` | `PhysicsWorld`: rigid bodies, their shapes - boxes, balls, capsules, the hulls around sets of points and surfaces of triangles - joints between them, the characters that walk among them, stepping, contact events and queries, over Jolt Physics; the `Collider`, `RigidBody`, `Joint` and `CharacterController` components; `PhysicsSystem`, which keeps the entities of a world and the bodies, joints and characters of a simulation in step and makes shapes of mesh assets |
 | `audio` | `core`, `math`, `assets`, `world` | What is heard: the `AudioSource` and `AudioListener` components, and `AudioSystem`, which plays the sources of a world from where they are - voices, five buses with volumes of their own, sound without an entity - over miniaudio, onto a device or into memory |
-| `scripting` | `core`, `math`, `platform`, `assets`, `world`, `physics` | `ScriptRuntime`: the Lua state that gameplay scripts run in and the fence around it - limits on instructions, memory and nesting, the libraries a script may have, an environment for every chunk, the catalogue of the functions scripts are given - and values on their way between JSON and Lua; the `Script` component; `ScriptSystem`, which gives every entity with a script an instance of it and calls its `start`, `update` and `destroy`; the functions scripts are given: entities and their hierarchy, transforms, components through the reflection, vectors and rotations, the time, the ids of assets, the controls, the simulation |
+| `scripting` | `core`, `math`, `platform`, `assets`, `world`, `physics`, `audio` | `ScriptRuntime`: the Lua state that gameplay scripts run in and the fence around it - limits on instructions, memory and nesting, the libraries a script may have, an environment for every chunk, the catalogue of the functions scripts are given - and values on their way between JSON and Lua; the `Script` component; `ScriptSystem`, which gives every entity with a script an instance of it and calls its `start`, `update` and `destroy`; the functions scripts are given: entities and their hierarchy, transforms, components through the reflection, vectors and rotations, the time, the ids of assets, the controls, the simulation |
 | `rhi` | `core`, `math`, `platform` | Vulkan device, swapchain and texture readback over NVRHI |
 | `shaders` | `core` | Shader requests and permutation keys, disk cache, `ShaderLibrary` |
 | `shader_compiler` | `core`, `shaders` | Slang to SPIR-V compiler (not linked into exported games) |
@@ -939,6 +939,12 @@ Step-by-step guide: [work-with-assets](.claude/skills/work-with-assets/SKILL.md)
   clock calls `AudioSystem::pause`, which holds every voice where it is; a scene
   that is replaced has its voices stopped (`changeScene`, after the scripts have
   ended). That is why an editor is silent.
+- **Scripts have two ways to be heard, as C++ has.** What an entity sounds like is its
+  `AudioSource`: `entity:set("AudioSource", "playing", true)` plays it, and no
+  function was added for that. `cordite.audio.play` is for what belongs to no entity;
+  it gives nil, not an error, when no voice is free - too much sound is nothing to
+  stop a script for - and an error for what is a mistake: a sound that is none, an
+  option that is spelled wrong. The showcase shows both in `hop.lua`.
 - **A voice is a limited thing** (`AudioSystemDesc::maxVoices`). Sources get theirs in
   the order of the hierarchy, and those that find none wait and are counted;
   `play` fails. A sound that cannot be loaded is tried once, said once, and not
@@ -989,8 +995,9 @@ is, called once and checked. Scripts reach entities and their hierarchy, transfo
 every component through its properties, vectors and rotations, the time and the ids
 of assets, the controls of the game, and the simulation - rays, what is within
 reach, gravity, pushes - which tells them what meets what, they have timers and
-tasks, and they ask for another scene. Sound they reach through the `AudioSource`
-component, like any other; functions of their own for it are to come.
+tasks, they ask for another scene, and they are heard: an entity's `AudioSource` is
+a component like any other, and `cordite.audio` plays what belongs to no entity and
+sets how loud the buses are.
 Step-by-step guide for giving scripts a function:
 [add-script-function](.claude/skills/add-script-function/SKILL.md).
 

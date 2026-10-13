@@ -70,6 +70,9 @@ struct Showcase {
     /// The bodies of the scene, for the scripts to ask about. No time passes for them
     /// here: what falls and what is pushed is for the tests of the engine.
     std::unique_ptr<PhysicsSystem> physics = test::unwrap(PhysicsSystem::create());
+    /// What plays the sounds of the scene, into memory, and what its last frame played.
+    std::unique_ptr<AudioSystem> audio = test::unwrap(AudioSystem::create());
+    AudioStatistics heard;
 
     Showcase() {
         REQUIRE(registerEngineComponents(components).has_value());
@@ -87,14 +90,21 @@ struct Showcase {
                                                 .assets = *assets,
                                                 .scripts = scripts,
                                                 .physics = physics.get(),
+                                                .audio = audio.get(),
                                                 .controls = &controls},
                                                *scene);
             REQUIRE_MESSAGE(changed.has_value(), test::errorOf(changed));
         }
     }
 
+    /// What a frame ends with: what is heard is brought up to date with the scene.
+    void listen(double deltaSeconds) {
+        world.updateWorldTransforms();
+        heard = audio->update(world, *assets, deltaSeconds);
+    }
+
     /// A frame of the game, as far as its scripts go: the controls are worked out, every
-    /// body is where its entity is, and the scripts run.
+    /// body is where its entity is, the scripts run, and what they play is heard.
     ScriptStatistics play(ScriptSystem& scripts, double deltaSeconds) {
         followSceneRequest(scripts);
         controls.update(input);
@@ -104,7 +114,9 @@ struct Showcase {
                                                             .assets = *assets,
                                                             .deltaSeconds = deltaSeconds,
                                                             .controls = &controls,
-                                                            .physics = physics.get()});
+                                                            .physics = physics.get(),
+                                                            .audio = audio.get()});
+        listen(deltaSeconds);
         input.beginFrame();
         return statistics;
     }
@@ -120,10 +132,12 @@ struct Showcase {
                                        .assets = *assets,
                                        .deltaSeconds = frameSeconds,
                                        .controls = &controls,
-                                       .physics = physics.get()};
+                                       .physics = physics.get(),
+                                       .audio = audio.get()};
         scripts.update(context);
         physics->update(world, *assets, static_cast<float>(frameSeconds));
         const ScriptStatistics statistics = scripts.tellContacts(context, physics->events());
+        listen(frameSeconds);
         input.beginFrame();
         return statistics;
     }
@@ -286,7 +300,7 @@ TEST_SUITE("Showcase") {
     TEST_CASE("the showcase is heard: its lamp hums, its music plays, and its camera listens") {
         Showcase showcase;
         const test::LogCapture log(LogLevel::Warn);
-        const std::unique_ptr<AudioSystem> audio = test::unwrap(AudioSystem::create());
+        AudioSystem* audio = showcase.audio.get();
         showcase.world.updateWorldTransforms();
         // A second of it; returns the loudest that was heard at the end of it.
         AudioStatistics statistics;
@@ -395,34 +409,74 @@ TEST_SUITE("Showcase") {
         const std::unique_ptr<ScriptSystem> scripts = test::unwrap(ScriptSystem::create());
         const Entity post = showcase.world.findByName("Sentry post");
         const Entity ball = showcase.world.findByName("Ball");
+        const Entity clock = showcase.world.findByName("Clock");
         REQUIRE(showcase.world.has<LightComponent>(post));
         REQUIRE_FALSE(ball.isNull());
         const auto brightness = [&] { return showcase.world.tryGet<LightComponent>(post)->intensity; };
+
+        // What the scripts do about what they are told is heard, too: which of the three
+        // sources that wait for a script was played in the frames that were run, and
+        // whether a sound was played that belongs to no entity.
+        struct Sounded {
+            bool ball = false;
+            bool post = false;
+            bool clock = false;
+            bool withoutEntity = false;
+        };
+
+        const auto playing = [&](Entity entity) {
+            const auto* source = showcase.world.tryGet<AudioSourceComponent>(entity);
+            REQUIRE(source != nullptr);
+            return source->playing;
+        };
         const auto run = [&](int frames) {
+            Sounded sounded;
             for (int frame = 0; frame < frames; ++frame) {
                 showcase.simulate(*scripts);
+                sounded.ball = sounded.ball || playing(ball);
+                sounded.post = sounded.post || playing(post);
+                sounded.clock = sounded.clock || playing(clock);
+                sounded.withoutEntity = sounded.withoutEntity || showcase.heard.voices > showcase.heard.sources;
             }
+            return sounded;
         };
 
         // Half a second in, the left button of the pointer is "fire": the ball is knocked
         // off the floor by its script, which the simulation then tells that the two have
         // parted - and, when it comes down, that they have met again, which it counts.
-        run(30);
+        Sounded sounded = run(30);
         CHECK(showcase.world.name(ball) == "Ball");
         CHECK(brightness() == 0.0f);
+        // Nothing but the lamp and the music so far - the clock ticks when the half second
+        // is over, not before.
+        CHECK_FALSE((sounded.ball || sounded.post || sounded.clock || sounded.withoutEntity));
         showcase.input.injectMouseButton(MouseButton::Left, true);
-        run(15);
+        sounded = run(15);
         CHECK(showcase.world.transform(ball).position.y > 0.45f);
         showcase.input.injectMouseButton(MouseButton::Left, false);
+        // The hop was heard, from the ball; and the clock has ticked.
+        CHECK(sounded.ball);
+        CHECK(sounded.clock);
+        CHECK_FALSE(sounded.post);
 
         // Two and a half seconds in, the sentry stands at the end of its beat, in the
         // trigger of its post: the light there is lit. Two seconds and a half later it
         // is on its way back, and the light is dark again.
-        run(105);
+        sounded = run(105);
         CHECK(brightness() == 3.0f);
         CHECK(showcase.world.name(ball).starts_with("Ball ("));
-        run(150);
+        // The ball has come down with a thud, which is a sound of no entity, and the
+        // sentry was announced at its post.
+        CHECK(sounded.withoutEntity);
+        CHECK(sounded.post);
+        sounded = run(150);
         CHECK(brightness() == 0.0f);
+        // Announced once: nobody else has come, and the ball lies still.
+        CHECK_FALSE(sounded.post);
+        CHECK_FALSE(sounded.ball);
+        CHECK(sounded.clock);
+        // And when all of that is over, the lamp and the music are what is left.
+        CHECK(showcase.heard.waiting == 0);
 
         for (const ScriptProblem& problem : scripts->problems()) {
             FAIL_CHECK(problem.message);

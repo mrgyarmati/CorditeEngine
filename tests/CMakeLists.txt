@@ -89,6 +89,7 @@ cordite_add_test_suite(audio
 # written against it.
 cordite_add_test_suite(scripting
     SOURCES
+        unit/scripting/ScriptAudioApiTests.cpp
         unit/scripting/ScriptComponentApiTests.cpp
         unit/scripting/ScriptContactTests.cpp
         unit/scripting/ScriptEntityApiTests.cpp

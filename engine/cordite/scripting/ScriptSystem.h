@@ -57,6 +57,9 @@
 ///   the input map that was pressed or released in the frame: with its name, and true
 ///   for pressed. What is tapped within a frame is pressed, then released. Only a
 ///   world that is given controls (ScriptContext::controls) has any.
+/// - What scripts ask of the rest of the engine - `cordite.physics`, `cordite.audio` -
+///   is answered by what the context of the update holds (ScriptContext::physics,
+///   ScriptContext::audio), and is an error that says so where it holds none.
 /// - **Timers and tasks** - what a script makes with `cordite.time.after`, `every` and
 ///   `run` - are called after `input` and before `update`, in the order they were made,
 ///   each once in an update at most. They belong to the instance whose script was
@@ -117,6 +120,7 @@
 
 namespace cordite {
 
+class AudioSystem;
 class InputActions;
 class PhysicsSystem;
 struct CollisionEvent;
@@ -144,6 +148,10 @@ struct ScriptContext {
     /// left it: what scripts ask about rays and reach, and push. None for a world that
     /// is not simulated, and then a script that asks is told so.
     PhysicsSystem* physics = nullptr;
+    /// What plays the sounds of the world (audio/AudioSystem.h): what scripts play
+    /// without an entity, and the volumes of the buses. None for a world in which
+    /// nothing is heard, and then a script that asks is told so.
+    AudioSystem* audio = nullptr;
 };
 
 /// What an update of the scripts did.

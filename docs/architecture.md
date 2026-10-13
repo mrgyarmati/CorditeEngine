@@ -37,7 +37,7 @@ of slowly turning the code base into a ball of mud.
 | `animation` | `core`, `math`, `assets`, `world` | Movement of skeletons: the functions that make a pose (sampling a clip, blending two poses, the matrices a mesh is skinned with, the bounds of a posed mesh), the `Animator` component, and `AnimationSystem`, which plays the animators of a world and gives each the pose it is in. |
 | `physics` | `core`, `math`, `assets`, `world` | The simulation of rigid bodies: `PhysicsWorld` holds bodies - shapes, a mass, where each is and how it moves - steps them on in time and answers what a ray hits. Jolt Physics is behind it and shows in none of its headers. The `Collider` and `RigidBody` components say what of a world is simulated, and `PhysicsSystem` keeps the two in step; it is also what makes the shapes of colliders out of mesh assets. |
 | `audio` | `core`, `math`, `assets`, `world` | Sound: the `AudioSource` and `AudioListener` components, and `AudioSystem`, which gives the sources of a world voices, places them around whoever listens, mixes them through five buses and plays the result on a device - or, for tests and tools, into memory. miniaudio does the mixing and is seen by nothing outside the module. |
-| `scripting` | `core`, `math`, `platform`, `assets`, `world`, `physics` | Gameplay scripts: `ScriptRuntime` is the Lua state they run in and what keeps a script that is wrong from being more than an error - limits on instructions, memory and nesting, a build of Lua without what reaches the machine, an environment for every chunk - with the catalogue of the functions scripts are given, and the conversion of values between JSON and Lua. The `Script` component names a script for an entity; `ScriptSystem` gives each such entity an instance and calls it. What scripts call is in the `Script...Api.cpp` sources, one per subject: entities, the world and its hierarchy and transforms, components (through the reflection), vectors and rotations, the controls of the game, the simulation. |
+| `scripting` | `core`, `math`, `platform`, `assets`, `world`, `physics`, `audio` | Gameplay scripts: `ScriptRuntime` is the Lua state they run in and what keeps a script that is wrong from being more than an error - limits on instructions, memory and nesting, a build of Lua without what reaches the machine, an environment for every chunk - with the catalogue of the functions scripts are given, and the conversion of values between JSON and Lua. The `Script` component names a script for an entity; `ScriptSystem` gives each such entity an instance and calls it. What scripts call is in the `Script...Api.cpp` sources, one per subject: entities, the world and its hierarchy and transforms, components (through the reflection), vectors and rotations, the controls of the game, the simulation. |
 | `rhi` | `core`, `math`, `platform` | The GPU: Vulkan instance and device creation, the NVRHI device the renderer programs against, the swapchain, and texture readback. The only module that calls Vulkan. |
 | `shaders` | `core` | What a shader *is* to the engine: requests and their permutation keys, compiled binaries, the on-disk cache, and the `ShaderLibrary` that resolves a request from memory, disk or a compiler. |
 | `shader_compiler` | `core`, `shaders` | The Slang-based implementation of `IShaderCompiler`. Kept separate so exported games do not link a compiler. |
@@ -1530,8 +1530,8 @@ starts and the updates of a frame - because what happens once (a jump, a shot) i
 awkward to write as a question asked every frame, and what lasts (walking) is
 awkward as an event.
 
-The scripting module depends on `platform` for this, and on `physics` for what
-scripts ask the simulation. The other way - scripting declares small interfaces,
+The scripting module depends on `platform` for this, on `physics` for what
+scripts ask the simulation, and on `audio` for what they play. The other way - scripting declares small interfaces,
 the engine module implements them over the real systems - would keep the module
 smaller, but the functions scripts call could then only be tested against
 stand-ins, with the real thing tested in the engine suite, which needs a GPU. As it
@@ -1753,6 +1753,21 @@ copied or undone.
 What belongs to no entity - a shot, a step - is `AudioSystem::play`, which returns
 a number to stop it by. It is deliberately the smaller interface: whatever should
 be saved with a scene or seen in an inspector is a component.
+
+### Scripts play what belongs to no entity; the rest is a component
+
+`cordite.audio` is small on purpose: `play`, `stop`, `isPlaying`, and the volumes of
+the buses. There is no function to play the sound of an entity, because that is
+already there - an `AudioSource` is reached like every component, and
+`entity:set("AudioSource", "playing", true)` plays it. A second way to do the
+same thing would be a second thing to keep right.
+
+`play` takes a table of options and refuses a name it does not know. Options are
+where a script is most easily wrong without anyone noticing - `{volumee = 0.2}`
+would otherwise be a sound at full volume - so a name that is no option is an
+error that lists the options. What is no mistake of the script is no error: when
+every voice is taken `play` returns nil, and `stop` and `isPlaying` take nil, so
+that a script need not ask before it stops what it may never have started.
 
 ### An engine opens no sound device unless it is told to
 

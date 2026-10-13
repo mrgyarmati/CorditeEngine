@@ -17,7 +17,8 @@ of [AGENTS.md](../../../AGENTS.md)). Everything they can call is a C++ function 
   question to a system, an action, a computation.
 - **Which library?** `cordite.Entity` for what is asked of one entity (`entity:name()`),
   `cordite.world` for the world as a whole, `cordite.Vec3` / `cordite.Quat` for the
-  values, `cordite.time`, `cordite.assets`, `cordite.log`; a new library for a new
+  values, `cordite.time`, `cordite.assets`, `cordite.log`, `cordite.input`,
+  `cordite.physics`, `cordite.audio`, `cordite.scene`; a new library for a new
   subject. Names are `camelCase`, verbs for what changes something (`setPosition`), nouns
   for what is read (`position`).
 
@@ -25,7 +26,8 @@ of [AGENTS.md](../../../AGENTS.md)). Everything they can call is a C++ function 
 
 1. **Write the function** in the file of its library (`ScriptEntityApi.cpp`,
    `ScriptWorldApi.cpp`, `ScriptMathApi.cpp`, `ScriptComponentApi.cpp`,
-   `ScriptInputApi.cpp`, `ScriptPhysicsApi.cpp`), in the anonymous namespace:
+   `ScriptInputApi.cpp`, `ScriptPhysicsApi.cpp`, `ScriptAudioApi.cpp`), in the anonymous
+   namespace:
 
    ```cpp
    int entityDistanceTo(lua_State* state) {

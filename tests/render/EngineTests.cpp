@@ -966,6 +966,9 @@ TEST_SUITE("Engine") {
         REQUIRE(writeTextFile(directory.path() / "empty.scene.json",
                               R"({"format": "cordite.scene", "version": 1, "name": "Empty", "entities": []})")
                     .has_value());
+        REQUIRE(writeTextFile(directory.path() / "beep.lua",
+                              "return {start = function(self) self.voice = cordite.audio.play('steady.wav') end}")
+                    .has_value());
         EngineDesc desc = headlessDesc();
         desc.assetDirectory = directory.path();
         const std::unique_ptr<Engine> engine = createEngine(desc);
@@ -1031,6 +1034,14 @@ TEST_SUITE("Engine") {
         runFrames(*engine, 1);
         CHECK(engine->statistics().audio.voices == 2);
         CHECK(engine->statistics().audio.sources == 1);
+
+        // And one of a script's: the scripts of the engine are given what plays.
+        const AssetInfo* beep = database.findByReference("beep.lua");
+        REQUIRE(beep != nullptr);
+        world.add<ScriptComponent>(world.createEntity("Beeper")).script = beep->id;
+        runFrames(*engine, 1);
+        CHECK(engine->scripts().problems().empty());
+        CHECK(engine->statistics().audio.voices == 3);
 
         // Another scene: what sounded in the one that goes is over.
         REQUIRE(engine->loadScene(scene->id).has_value());

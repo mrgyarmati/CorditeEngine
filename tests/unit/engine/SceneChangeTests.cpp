@@ -14,6 +14,7 @@
 #include "cordite/math/Math.h"
 #include "cordite/physics/PhysicsSystem.h"
 #include "cordite/physics/PhysicsWorld.h"
+#include "cordite/scripting/ScriptComponents.h"
 #include "cordite/scripting/ScriptSystem.h"
 #include "cordite/world/ComponentRegistry.h"
 #include "cordite/world/Entity.h"
@@ -120,7 +121,8 @@ struct Game {
                                                              .components = components,
                                                              .assets = *assets,
                                                              .deltaSeconds = 0.5,
-                                                             .physics = physics.get()});
+                                                             .physics = physics.get(),
+                                                             .audio = audio.get()});
         physics->update(world, *assets, 1.0f / 60.0f);
         return statistics;
     }
@@ -186,6 +188,14 @@ TEST_SUITE("SceneChange") {
         game.world.add<AudioSourceComponent>(gate) = {.sound = drone, .loop = true, .spatial = false};
         const AudioVoiceId shot = unwrap(game.audio->play(*game.assets, {.sound = drone, .loop = true}));
         CHECK(game.audio->update(game.world, *game.assets, 0.01).voices == 2);
+        // A script that asks, as it ends, whether that sound is still to be heard.
+        const Uuid last = game.write("scripts/last.lua",
+                                     fmt::format("return {{destroy = function(self) print('heard to the last: ' .. "
+                                                 "tostring(cordite.audio.isPlaying({}))) end}}",
+                                                 shot));
+        game.world.add<ScriptComponent>(game.world.createEntity("Last")).script = last;
+        game.play();
+        const test::LogCapture log(LogLevel::Info);
 
         // A scene that cannot be loaded costs the one that is there nothing it sounds.
         REQUIRE_FALSE(changeScene(game.change(), game.witness).has_value());
@@ -196,6 +206,10 @@ TEST_SUITE("SceneChange") {
         // One that is loaded takes its place, and it is quiet: neither the source of the
         // gate nor what was played without an entity is heard in the cellar.
         REQUIRE(changeScene(game.change(), game.cellar).has_value());
+        // The scripts end first, with everything still as it was - what they are given
+        // to ask about sound included - and then it falls silent.
+        CHECK(log.contains("heard to the last: true"));
+        CHECK(log.count(LogLevel::Error) == 0);
         CHECK_FALSE(game.audio->isPlaying(shot));
         CHECK(game.audio->mixed().empty());
         const AudioStatistics statistics = game.audio->update(game.world, *game.assets, 0.01);

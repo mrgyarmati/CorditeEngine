@@ -403,7 +403,8 @@ void Engine::updateWorld(WorldClock clock) {
                                         .assets = *impl.assets,
                                         .deltaSeconds = impl.deltaSeconds,
                                         .controls = &impl.actions,
-                                        .physics = impl.physics.get()};
+                                        .physics = impl.physics.get(),
+                                        .audio = impl.audio.get()};
         Stopwatch scriptClock;
         impl.scriptStatistics = impl.scripts->update(scripted);
         double scriptSeconds = scriptClock.elapsedSeconds();

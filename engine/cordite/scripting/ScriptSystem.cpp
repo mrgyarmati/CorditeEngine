@@ -843,6 +843,7 @@ Result<std::unique_ptr<ScriptSystem>> ScriptSystem::create(const ScriptSystemDes
     CORDITE_TRY(registerComponentApi(runtime));
     CORDITE_TRY(registerInputApi(runtime));
     CORDITE_TRY(registerPhysicsApi(runtime));
+    CORDITE_TRY(registerAudioApi(runtime));
     return system;
 }
 

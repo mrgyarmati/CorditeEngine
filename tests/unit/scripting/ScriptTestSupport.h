@@ -26,9 +26,18 @@
 /// stage.world.add<ColliderComponent>(stage.world.createEntity("Wall"));
 /// stage.update();                                       // the step that makes the body
 /// CHECK(stage.line("print(cordite.physics.raycast({0, 0, 5}, {0, 0, -1}).entity)") == "Entity(Wall)");
+///
+/// // Something that plays sounds - into memory - for scripts that make themselves heard:
+/// stage.listen();
+/// stage.writeSound("sounds/beep.wav", 0.5f, 2.0);     // two seconds, every sample a half
+/// CHECK(stage.line("print(cordite.audio.isPlaying(cordite.audio.play('sounds/beep.wav')))") == "true");
+/// CHECK(stage.audio->mixed().back() == 0.5f);         // what the last frame of the stage sounded like
 /// @endcode
 
 #include "cordite/assets/AssetManager.h"
+#include "cordite/assets/Sound.h"
+#include "cordite/audio/AudioComponents.h"
+#include "cordite/audio/AudioSystem.h"
 #include "cordite/core/FileSystem.h"
 #include "cordite/core/Json.h"
 #include "cordite/core/Log.h"
@@ -103,13 +112,38 @@ struct ScriptStage {
         REQUIRE_MESSAGE(ofPhysics.has_value(), errorOf(ofPhysics));
     }
 
+    /// Gives the stage something that plays sounds - into memory - and its scripts the
+    /// components of sound by name. From then on a frame of the stage ends as one of the
+    /// engine does: with what is heard brought up to date, and counted in `heard`.
+    void listen(const AudioSystemDesc& desc = {}) {
+        audio = unwrap(AudioSystem::create(desc));
+        const Status ofAudio = registerAudioComponents(components);
+        REQUIRE_MESSAGE(ofAudio.has_value(), errorOf(ofAudio));
+    }
+
+    /// Writes a sound of one channel at 48 kHz - `seconds` long, every sample `level` -
+    /// and has the assets look again. Returns the id of the sound.
+    Uuid writeSound(std::string_view path, float level, double seconds) {
+        const SoundData sound{.sampleRate = 48000,
+                              .channels = 1,
+                              .samples = std::vector<float>(static_cast<size_t>(seconds * 48000.0), level)};
+        const Status written = writeBinaryFile(directory.path() / pathFromUtf8(path), unwrap(encodeWav(sound)));
+        REQUIRE_MESSAGE(written.has_value(), errorOf(written));
+        const Status refreshed = assets->refresh();
+        REQUIRE_MESSAGE(refreshed.has_value(), errorOf(refreshed));
+        const AssetInfo* asset = assets->database().findByReference(path);
+        REQUIRE(asset != nullptr);
+        return asset->id;
+    }
+
     [[nodiscard]] ScriptContext context(double deltaSeconds = kScriptFrame) {
         return {.world = world,
                 .components = components,
                 .assets = *assets,
                 .deltaSeconds = deltaSeconds,
                 .controls = played ? &controls : nullptr,
-                .physics = physics.get()};
+                .physics = physics.get(),
+                .audio = audio.get()};
     }
 
     /// A frame, as the engine has them: the controls are worked out from what was
@@ -122,6 +156,10 @@ struct ScriptStage {
         if (physics != nullptr) {
             physics->update(world, *assets, static_cast<float>(deltaSeconds));
             statistics = scripts->tellContacts(context(deltaSeconds), physics->events());
+        }
+        if (audio != nullptr) {
+            world.updateWorldTransforms();
+            heard = audio->update(world, *assets, deltaSeconds);
         }
         input.beginFrame();
         return statistics;
@@ -201,6 +239,9 @@ struct ScriptStage {
     bool played = true;
     /// None until simulate() makes one.
     std::unique_ptr<PhysicsSystem> physics;
+    /// None until listen() makes one; and what its last update played.
+    std::unique_ptr<AudioSystem> audio;
+    AudioStatistics heard;
     std::unique_ptr<ScriptSystem> scripts;
 
 private:

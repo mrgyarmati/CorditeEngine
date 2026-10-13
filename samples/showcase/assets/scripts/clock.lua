@@ -31,10 +31,15 @@ function Clock:start()
     cordite.time.every(self.properties.interval, self.tick)
 end
 
--- A function of the script's own: the engine calls it because the timer says so.
+-- A function of the script's own: the engine calls it because the timer says so. A
+-- clock that has something to tick with - an AudioSource - ticks: setting `playing`
+-- plays what the component names, once.
 function Clock:tick()
     self.ticks = self.ticks + 1
     self.entity:setName(string.format("%s (%d)", self.properties.label, self.ticks))
+    if self.entity:has("AudioSource") then
+        self.entity:set("AudioSource", "playing", true)
+    end
 end
 
 -- When the script is taken off its entity, or a script destroys the entity.

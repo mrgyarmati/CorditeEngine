@@ -2,6 +2,7 @@ cordite_add_module(scripting
     SOURCES
         Lua.h
         LuaConfig.h
+        ScriptAudioApi.cpp
         ScriptBindings.h
         ScriptComponentApi.cpp
         ScriptComponents.cpp
@@ -24,5 +25,6 @@ cordite_add_module(scripting
         assets
         world
         physics
+        audio
     PRIVATE_LIBRARIES
         cordite::lua)

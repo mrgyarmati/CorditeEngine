@@ -44,7 +44,8 @@ Status changeScene(const SceneChange& change, const Uuid& scene) {
                           .components = change.components,
                           .assets = change.assets,
                           .controls = change.controls,
-                          .physics = change.physics});
+                          .physics = change.physics,
+                          .audio = change.audio});
     if (change.physics != nullptr) {
         change.physics->clear();
     }
