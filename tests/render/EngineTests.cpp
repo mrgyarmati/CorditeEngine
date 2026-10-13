@@ -642,19 +642,24 @@ TEST_SUITE("Engine") {
         CHECK(world.transform(sentry).position.x < -0.9f);
         CHECK(brightness() == 0.0f);
 
-        // The five scripts of the showcase run, and none has a problem: the self-test,
+        // The six scripts of the showcase run, and none has a problem: the self-test,
         // which compares what every function of the script API gives with what it should
         // and would have stopped at the first that differs, here with the simulation
         // running beside it; the patrol; the clock, which ticks twice a second and has
-        // counted the five seconds; and the two that only hear what they are told - the
-        // post, and the ball. Three of them are updated every frame. What the self-test
-        // made for a few frames - an entity with a clock of its own - is gone again.
+        // counted the five seconds; the lamp that flickers; and the two that only hear
+        // what they are told - the post, and the ball. Two of them are updated every
+        // frame, and in the frame of a tick the clock's timer is called as well. Two
+        // things wait for their time: that timer, and the task that makes the lamp
+        // flicker. What the self-test made for a few frames - an entity with a clock of
+        // its own, timers, a task - is gone again.
         for (const ScriptProblem& problem : engine->scripts().problems()) {
             FAIL_CHECK(problem.message);
         }
-        CHECK(engine->statistics().scripts.scripts == 5);
-        CHECK(engine->statistics().scripts.instances == 5);
-        CHECK(engine->statistics().scripts.calls == 3);
+        CHECK(engine->statistics().scripts.scripts == 6);
+        CHECK(engine->statistics().scripts.instances == 6);
+        CHECK(engine->statistics().scripts.calls >= 2);
+        CHECK(engine->statistics().scripts.calls <= 3);
+        CHECK(engine->statistics().scripts.timers == 2);
         CHECK(world.findByName("Scratch pad").isNull());
         const Entity selfTest = world.findByName("Self-test");
         REQUIRE_FALSE(selfTest.isNull());

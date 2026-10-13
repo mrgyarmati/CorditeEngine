@@ -132,6 +132,7 @@ TEST_SUITE("Performance") {
         simulation["scripts"] = statistics.scripts.scripts;
         simulation["scriptInstances"] = statistics.scripts.instances;
         simulation["scriptCalls"] = statistics.scripts.calls;
+        simulation["scriptTimers"] = statistics.scripts.timers;
         simulation["scriptBytes"] = statistics.scripts.memoryBytes;
         report["simulation"] = std::move(simulation);
         report["resources"] = test::describeResources(statistics.resources);
@@ -179,6 +180,7 @@ TEST_SUITE("Performance") {
         checkBudget(budgets, "scripts", statistics.scripts.scripts);
         checkBudget(budgets, "scriptInstances", statistics.scripts.instances);
         checkBudget(budgets, "scriptCalls", statistics.scripts.calls);
+        checkBudget(budgets, "scriptTimers", statistics.scripts.timers);
         checkBudget(budgets, "scriptBytes", static_cast<double>(statistics.scripts.memoryBytes));
         checkBudget(budgets, "drawCalls", statistics.scene.meshes.drawCalls);
         checkBudget(budgets, "screenPasses", statistics.scene.screenPasses);

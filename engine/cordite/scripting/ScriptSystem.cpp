@@ -107,6 +107,29 @@ struct Contact {
     float speed = 0.0f;
 };
 
+/// Something a script asked to have done later: a function that is called when its time
+/// has come, or a task - a coroutine - that goes on then.
+struct Timer {
+    /// The number scripts know it by. None once it is cancelled, called for the last
+    /// time or at its end: it is then only waiting to be taken off the list.
+    uint64_t id = 0;
+    /// The entity whose script made it. It is called for the instance of that entity,
+    /// and goes when that instance does.
+    Entity owner;
+    /// The function to call, or the coroutine of a task: references into Lua's registry.
+    int function = LUA_NOREF;
+    int thread = LUA_NOREF;
+    /// When it is due, by the clock of the scripts.
+    double due = 0.0;
+    /// How long after that it is due again; none for what is called once.
+    double interval = 0.0;
+};
+
+/// The most timers and tasks the script of one entity may have waiting: far more than a
+/// script has use for, and few enough that one which makes a timer in every frame and
+/// never lets one go is told so within seconds.
+constexpr size_t kMaxTimersPerInstance = 1024;
+
 /// What a function of a script is called with besides its instance: numbers, yes or no,
 /// text that outlives the call, entities - also ones that are gone - and contacts.
 using Argument = std::variant<double, bool, std::string_view, Entity, Contact>;
@@ -226,6 +249,16 @@ struct ScriptSystem::Impl {
     /// those the engine calls has been called since the system was made.
     uint32_t calls = 0;
     std::array<uint64_t, kCallbackCount> callbackCalls{};
+
+    /// What scripts asked to have done later, in the order they asked.
+    std::vector<Timer> timers;
+    uint64_t nextTimer = 1;
+    /// The entity whose script is being called: who a timer that is made now belongs
+    /// to. Null while no script of an entity runs.
+    Entity calling;
+    /// The coroutine of the task that is being resumed, which is where wait() may be
+    /// called. Null while none is.
+    lua_State* task = nullptr;
     /// The time the updates have let pass, how many there were, and the time of the last.
     double seconds = 0.0;
     uint64_t updates = 0;
@@ -243,6 +276,20 @@ struct ScriptSystem::Impl {
         Fresh,
         /// It could not be loaded; what ran before, if anything, still does.
         Failed,
+    };
+
+    /// Says for as long as it lives whose script is being called.
+    class Calling {
+    public:
+        Calling(Impl& impl, Entity entity) : m_impl(impl), m_previous(std::exchange(impl.calling, entity)) {}
+
+        ~Calling() { m_impl.calling = m_previous; }
+
+        CORDITE_NON_MOVABLE(Calling);
+
+    private:
+        Impl& m_impl;
+        Entity m_previous;
     };
 
     /// Says for as long as it lives which world the scripts reach.
@@ -272,6 +319,17 @@ struct ScriptSystem::Impl {
     void startAll(const World& world);
     void tellInput(const World& world, std::span<const ActionEvent> events);
     void updateAll(const World& world);
+    /// Calls the timers that are due, and resumes the tasks, of instances that run: in
+    /// the order they were made, each once at most.
+    void fireTimers(const World& world);
+    /// Resumes the task `id` with `arguments` values that are on top of its coroutine's
+    /// stack, inside a protected call. Raises what the task raised.
+    void resumeTask(lua_State* state, uint64_t id, int arguments);
+    [[nodiscard]] Timer* findTimer(uint64_t id);
+    /// Marks every timer and task of an entity as over; sweepTimers() lets them go.
+    void forgetTimers(Entity owner);
+    /// Lets go of what is over. Not while a script runs: a task may be among them.
+    void sweepTimers();
     /// Tells the script of `entity` that its body and that of `other` began to touch,
     /// or stopped: `mirrored` for the second of the two, to whom the first lies the
     /// other way.
@@ -518,6 +576,7 @@ void ScriptSystem::Impl::make(Entity entity, const ScriptComponent& component) {
 void ScriptSystem::Impl::call(Entity entity, Instance& instance, Callback callback, Arguments arguments) {
     ++calls;
     ++callbackCalls[static_cast<size_t>(callback)];
+    const Calling by(*this, entity);
     const Status called = runtime->protect([&](lua_State* state) {
         lua_rawgeti(state, LUA_REGISTRYINDEX, instance.self);
         // Found through the instance, so that one which has a function of its own for
@@ -563,8 +622,127 @@ void ScriptSystem::Impl::end(Entity entity) {
         script->second.hears(Callback::Destroy) && context->world.isValid(entity)) {
         call(entity, instance, Callback::Destroy);
     }
+    // What it asked to have done later is not done: another instance of the same
+    // entity is not the one that asked.
+    forgetTimers(entity);
     release(instance);
     instances.erase(found);
+}
+
+Timer* ScriptSystem::Impl::findTimer(uint64_t id) {
+    const auto found = std::ranges::find(timers, id, &Timer::id);
+    return id != 0 && found != timers.end() ? &*found : nullptr;
+}
+
+void ScriptSystem::Impl::forgetTimers(Entity owner) {
+    for (Timer& timer : timers) {
+        if (timer.owner == owner) {
+            timer.id = 0;
+        }
+    }
+}
+
+void ScriptSystem::Impl::sweepTimers() {
+    if (std::ranges::none_of(timers, [](const Timer& timer) { return timer.id == 0; })) {
+        return;
+    }
+    if (const Status released = runtime->protect([&](lua_State* state) {
+            for (const Timer& timer : timers) {
+                if (timer.id == 0) {
+                    luaL_unref(state, LUA_REGISTRYINDEX, timer.function);
+                    luaL_unref(state, LUA_REGISTRYINDEX, timer.thread);
+                }
+            }
+        });
+        !released) {
+        CORDITE_LOG_ERROR("Script", "{}", released.error().message);
+    }
+    std::erase_if(timers, [](const Timer& timer) { return timer.id == 0; });
+}
+
+void ScriptSystem::Impl::resumeTask(lua_State* state, uint64_t id, int arguments) {
+    const Timer* found = findTimer(id);
+    if (found == nullptr) {
+        return;
+    }
+    lua_rawgeti(state, LUA_REGISTRYINDEX, found->thread);
+    lua_State* thread = lua_tothread(state, -1);
+    // The registry holds on to it: until the sweep, which is not while it runs.
+    lua_pop(state, 1);
+
+    int results = 0;
+    int status = LUA_OK;
+    {
+        lua_State* const previous = std::exchange(task, thread);
+        status = lua_resume(thread, state, arguments, &results);
+        task = previous;
+    }
+    // The task may have made timers, and the list may be elsewhere now; it may also
+    // have cancelled itself.
+    Timer* timer = findTimer(id);
+    if (status == LUA_YIELD) {
+        // What it waits for is what it yielded: so many seconds, or - for nothing, and
+        // for a yield of the script's own - the next update.
+        double waits = 0.0;
+        if (results >= 1 && lua_type(thread, -results) == LUA_TNUMBER) {
+            waits = static_cast<double>(lua_tonumber(thread, -results));
+        }
+        lua_pop(thread, results);
+        if (timer != nullptr) {
+            timer->due = seconds + (std::isfinite(waits) ? std::max(waits, 0.0) : 0.0);
+        }
+        return;
+    }
+    // At its end, or stopped by an error: over either way.
+    if (timer != nullptr) {
+        timer->id = 0;
+    }
+    if (status != LUA_OK) {
+        // Raised here as if the function had been called, with where the task was.
+        const char* message = lua_tostring(thread, -1);
+        luaL_traceback(state, thread, message != nullptr ? message : "(an error without a message)", 0);
+        lua_error(state);
+    }
+}
+
+void ScriptSystem::Impl::fireTimers(const World& world) {
+    // Only those that were there when the walk began: what a timer makes is for a later
+    // update, also when no time is to pass before it.
+    const size_t count = timers.size();
+    for (size_t index = 0; index < count; ++index) {
+        // A copy: what is called may make timers, and the list may move.
+        const Timer timer = timers[index];
+        if (timer.id == 0 || timer.due > seconds) {
+            continue;
+        }
+        // One whose script does not run waits until it does.
+        Instance* instance = running(world, timer.owner);
+        if (instance == nullptr || !instance->started) {
+            continue;
+        }
+        if (timer.thread == LUA_NOREF && timer.interval > 0.0) {
+            // Due again an interval after it was due - not after it was called, so that
+            // it keeps time - and what a long frame has missed is not made up for.
+            const double missed = std::floor((seconds - timer.due) / timer.interval);
+            timers[index].due = timer.due + timer.interval * (missed + 1.0);
+        } else if (timer.thread == LUA_NOREF) {
+            timers[index].id = 0;
+        }
+        ++calls;
+        const Calling by(*this, timer.owner);
+        const Status called = runtime->protect([&](lua_State* state) {
+            if (timer.thread != LUA_NOREF) {
+                resumeTask(state, timer.id, 0);
+                return;
+            }
+            lua_rawgeti(state, LUA_REGISTRYINDEX, timer.function);
+            lua_rawgeti(state, LUA_REGISTRYINDEX, instance->self);
+            lua_call(state, 1, 0);
+        });
+        if (!called) {
+            stop(timer.owner, *instance, called.error().message);
+        }
+    }
 }
 
 void ScriptSystem::Impl::destroyDoomed() {
@@ -617,6 +795,8 @@ ScriptStatistics ScriptSystem::Impl::statistics() const {
         result.stopped += instance.phase == Phase::Stopped ? 1 : 0;
     }
     result.calls = calls;
+    result.timers =
+        static_cast<uint32_t>(std::ranges::count_if(timers, [](const Timer& timer) { return timer.id != 0; }));
     result.memoryBytes = runtime->memoryBytes();
     return result;
 }
@@ -677,6 +857,64 @@ double ScriptSystem::deltaSeconds() const {
     return m_impl->deltaSeconds;
 }
 
+uint64_t ScriptSystem::addTimer(lua_State* state, double seconds, bool repeats) {
+    Impl& impl = *m_impl;
+    if (impl.calling.isNull()) {
+        luaL_error(state, "a timer belongs to the script of an entity: make it in a function the engine calls");
+    }
+    const auto waiting = static_cast<size_t>(std::ranges::count_if(
+        impl.timers, [&](const Timer& timer) { return timer.id != 0 && timer.owner == impl.calling; }));
+    if (waiting >= kMaxTimersPerInstance) {
+        luaL_error(state,
+                   "the script has %d timers and tasks waiting, which is as many as it may: does it make "
+                   "one in every frame?",
+                   static_cast<int>(kMaxTimersPerInstance));
+    }
+    // On the list before it holds anything, so that nothing is held that is not on it.
+    impl.timers.push_back({.owner = impl.calling, .due = impl.seconds + seconds, .interval = repeats ? seconds : 0.0});
+    impl.timers.back().function = luaL_ref(state, LUA_REGISTRYINDEX);
+    impl.timers.back().id = impl.nextTimer++;
+    return impl.timers.back().id;
+}
+
+uint64_t ScriptSystem::startTask(lua_State* state, int arguments) {
+    Impl& impl = *m_impl;
+    if (impl.calling.isNull()) {
+        luaL_error(state, "a task belongs to the script of an entity: start it in a function the engine calls");
+    }
+    const auto waiting = static_cast<size_t>(std::ranges::count_if(
+        impl.timers, [&](const Timer& timer) { return timer.id != 0 && timer.owner == impl.calling; }));
+    if (waiting >= kMaxTimersPerInstance) {
+        luaL_error(state,
+                   "the script has %d timers and tasks waiting, which is as many as it may: does it start "
+                   "one in every frame?",
+                   static_cast<int>(kMaxTimersPerInstance));
+    }
+    luaL_checkstack(state, 2, "the scripts are out of stack");
+    // The coroutine, below the function and what it is called with - which move over.
+    lua_State* thread = lua_newthread(state);
+    lua_insert(state, -(arguments + 2));
+    lua_xmove(state, thread, arguments + 1);
+    impl.timers.push_back({.owner = impl.calling, .due = impl.seconds});
+    impl.timers.back().thread = luaL_ref(state, LUA_REGISTRYINDEX);
+    const uint64_t id = impl.nextTimer++;
+    impl.timers.back().id = id;
+    // It runs at once, as far as its first wait.
+    impl.resumeTask(state, id, arguments);
+    return id;
+}
+
+void ScriptSystem::cancelTimer(uint64_t timer) {
+    // Marked, not let go of: it may be the task that is asking.
+    if (Timer* found = m_impl->findTimer(timer); found != nullptr) {
+        found->id = 0;
+    }
+}
+
+bool ScriptSystem::isRunningTask(const lua_State* state) const {
+    return state != nullptr && m_impl->task == state;
+}
+
 void ScriptSystem::destroyLater(Entity entity) {
     if (std::ranges::find(m_impl->doomed, entity) == m_impl->doomed.end()) {
         m_impl->doomed.push_back(entity);
@@ -707,6 +945,7 @@ void ScriptSystem::Impl::reconcile(const World& world) {
             continue;
         }
         if (!world.isValid(entity)) {
+            forgetTimers(entity);
             release(found->second);
             instances.erase(found);
             continue;
@@ -743,8 +982,12 @@ void ScriptSystem::Impl::startAll(const World& world) {
             call(entity, *instance, Callback::Start);
         }
         // A start that an error cut short has not happened: it is tried again when
-        // the script is another, and nothing is told that it ends.
+        // the script is another, and nothing is told that it ends. What it had asked
+        // to have done later is not done - the start that is tried again asks again.
         instance->started = instance->phase == Phase::Running;
+        if (!instance->started) {
+            forgetTimers(entity);
+        }
     }
 }
 
@@ -836,9 +1079,11 @@ ScriptStatistics ScriptSystem::update(const ScriptContext& context) {
     // The names in the events are the map's own, and the map is not changed while the
     // scripts run: they outlive every call.
     impl.tellInput(world, context.controls != nullptr ? context.controls->events() : std::span<const ActionEvent>());
+    impl.fireTimers(world);
     impl.updateAll(world);
 
     impl.destroyDoomed();
+    impl.sweepTimers();
     std::erase_if(impl.order, [&](Entity entity) { return !impl.instances.contains(entity); });
     impl.listProblems();
     return impl.statistics();
@@ -857,6 +1102,7 @@ ScriptStatistics ScriptSystem::tellContacts(const ScriptContext& context, std::s
         impl.tellContact(world, event.second, event.first, event, true);
     }
     impl.destroyDoomed();
+    impl.sweepTimers();
     std::erase_if(impl.order, [&](Entity entity) { return !impl.instances.contains(entity); });
     impl.listProblems();
     return impl.statistics();
@@ -883,6 +1129,8 @@ void ScriptSystem::clear(const ScriptContext& context) {
         impl.end(entity);
     }
     impl.destroyDoomed();
+    // Every instance has ended, and its timers with it: what they held is let go of.
+    impl.sweepTimers();
     for (auto& [id, script] : impl.scripts) {
         impl.release(script);
     }

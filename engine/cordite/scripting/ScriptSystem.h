@@ -57,6 +57,13 @@
 ///   the input map that was pressed or released in the frame: with its name, and true
 ///   for pressed. What is tapped within a frame is pressed, then released. Only a
 ///   world that is given controls (ScriptContext::controls) has any.
+/// - **Timers and tasks** - what a script makes with `cordite.time.after`, `every` and
+///   `run` - are called after `input` and before `update`, in the order they were made,
+///   each once in an update at most. They belong to the instance whose script was
+///   being called when they were made: they are called while it runs, wait while it
+///   does not, and are gone when it ends. A timer's function is called with the table
+///   of that instance. A task is a function that runs a piece at a time: at once as
+///   far as its first `cordite.time.wait`, and on from there when the time has passed.
 /// - **collisionBegan**(other, contact), **collisionEnded**(other),
 ///   **triggerEntered**(other, contact) and **triggerLeft**(other) are called when
 ///   tellContacts() is given what the simulation saw: for either of the two entities
@@ -147,8 +154,11 @@ struct ScriptStatistics {
     uint32_t instances = 0;
     uint32_t stopped = 0;
     /// Functions of scripts called since the last update() began: by it, and by what
-    /// tellContacts() has told since.
+    /// tellContacts() has told since. A timer that is called and a task that goes on
+    /// count as well.
     uint32_t calls = 0;
+    /// Timers and tasks that scripts have waiting.
+    uint32_t timers = 0;
     /// The memory the scripts hold, in bytes.
     uint64_t memoryBytes = 0;
 
@@ -186,7 +196,8 @@ public:
     CORDITE_NON_MOVABLE(ScriptSystem);
 
     /// Brings the instances in line with the Script components of the world, then calls
-    /// `start` for those that are new and `update` for all that run, and destroys the
+    /// `start` for those that are new, `input` for what was pressed and released, the
+    /// timers and tasks that are due and `update` for all that run, and destroys the
     /// entities that scripts asked to have destroyed.
     ScriptStatistics update(const ScriptContext& context);
 
@@ -224,6 +235,30 @@ public:
     /// the entities go. Until then the entity is as valid as ever. Asking twice is
     /// asking once.
     void destroyLater(Entity entity);
+
+    /// For the functions of the engine that scripts call. Has the function on top of
+    /// the stack of `state` called in `seconds`, by the clock of the scripts - and if it
+    /// `repeats`, every `seconds` from then on - with the table of the instance whose
+    /// script is being called now, which is who it belongs to: it is called only while
+    /// that instance runs, and goes when it does. Pops the function, and returns the
+    /// number that stands for the timer. Raises a Lua error when no script of an entity
+    /// is being called, and when that script has as many waiting as it may.
+    uint64_t addTimer(lua_State* state, double seconds, bool repeats);
+
+    /// The same for a task: the function below the `arguments` values on top of the
+    /// stack is run as a coroutine, at once and as far as its first wait - a yield of so
+    /// many seconds, or of nothing for the next update - and goes on from there when the
+    /// time has passed. Pops the function and the values. An error in the task is raised
+    /// here, with where the task was; later ones stop the instance, as any error does.
+    uint64_t startTask(lua_State* state, int arguments);
+
+    /// Lets a timer or a task go. A number that stands for none - one that was called,
+    /// that has ended, that never was - is nothing to cancel.
+    void cancelTimer(uint64_t timer);
+
+    /// Whether `state` is the coroutine of the task that is being run: the one place a
+    /// script can wait in.
+    [[nodiscard]] bool isRunningTask(const lua_State* state) const;
 
     /// For the functions of the engine that scripts call: pushes the table of the
     /// instance that runs for `entity` onto the stack of `state`, or nil when none

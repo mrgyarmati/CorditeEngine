@@ -349,6 +349,60 @@ int timeFrame(lua_State* state) {
     return 1;
 }
 
+/// A time to wait at `index`, in seconds: a number that is finite and not below zero.
+double checkSeconds(lua_State* state, int index) {
+    const auto seconds = static_cast<double>(luaL_checknumber(state, index));
+    if (!(seconds >= 0.0) || !std::isfinite(seconds)) {
+        luaL_argerror(state, index, "a time in seconds: a number from 0 up");
+    }
+    return seconds;
+}
+
+int timeAfter(lua_State* state) {
+    const double seconds = checkSeconds(state, 1);
+    luaL_checktype(state, 2, LUA_TFUNCTION);
+    lua_settop(state, 2);
+    lua_pushinteger(state, static_cast<lua_Integer>(ScriptSystem::of(state).addTimer(state, seconds, false)));
+    return 1;
+}
+
+int timeEvery(lua_State* state) {
+    const double seconds = checkSeconds(state, 1);
+    if (!(seconds > 0.0)) {
+        return luaL_argerror(state, 1, "the time between two calls: a number of seconds above 0");
+    }
+    luaL_checktype(state, 2, LUA_TFUNCTION);
+    lua_settop(state, 2);
+    lua_pushinteger(state, static_cast<lua_Integer>(ScriptSystem::of(state).addTimer(state, seconds, true)));
+    return 1;
+}
+
+int timeCancel(lua_State* state) {
+    // Nothing is nothing to cancel: a script need not ask first whether it ever set one.
+    if (!lua_isnoneornil(state, 1)) {
+        ScriptSystem::of(state).cancelTimer(static_cast<uint64_t>(luaL_checkinteger(state, 1)));
+    }
+    return 0;
+}
+
+int timeRun(lua_State* state) {
+    luaL_checktype(state, 1, LUA_TFUNCTION);
+    const int arguments = lua_gettop(state) - 1;
+    lua_pushinteger(state, static_cast<lua_Integer>(ScriptSystem::of(state).startTask(state, arguments)));
+    return 1;
+}
+
+int timeWait(lua_State* state) {
+    const double seconds = lua_isnoneornil(state, 1) ? 0.0 : checkSeconds(state, 1);
+    if (!ScriptSystem::of(state).isRunningTask(state)) {
+        return luaL_error(state, "wait() is for a task: a function that was started with cordite.time.run()");
+    }
+    // What a task yields is how long it waits; the system resumes it then.
+    lua_settop(state, 0);
+    lua_pushnumber(state, static_cast<lua_Number>(seconds));
+    return lua_yield(state, 1);
+}
+
 constexpr std::array kTimeFunctions = {
     ScriptFunction{"seconds", "cordite.time.seconds() -> number",
                    "How long the game has been running, in seconds: the time of every frame so far, this one "
@@ -358,6 +412,31 @@ constexpr std::array kTimeFunctions = {
                    "The time that passes with this frame, in seconds: what `update` is called with.", timeDelta},
     ScriptFunction{"frame", "cordite.time.frame() -> integer", "Which frame of the game this is, counted from 1.",
                    timeFrame},
+    ScriptFunction{"after", "cordite.time.after(seconds, callback) -> timer",
+                   "Has a function called once, so many seconds from now, with the table of the script - so that "
+                   "a function of the script can be given as it is: after(2, self.close). The timer belongs to the "
+                   "entity whose script made it: it is called while that script runs, before its update, and is "
+                   "gone when the script is. Returns a number to cancel() it by.",
+                   timeAfter},
+    ScriptFunction{"every", "cordite.time.every(seconds, callback) -> timer",
+                   "Has a function called again and again, so many seconds apart, as after() calls it once. It "
+                   "keeps time: a call that comes late does not make the next one late, and what a long frame has "
+                   "missed is not made up for.",
+                   timeEvery},
+    ScriptFunction{"cancel", "cordite.time.cancel(timer)",
+                   "Lets a timer or a task go, by the number that after(), every() or run() gave. One that has "
+                   "been called, has ended or never was is nothing to cancel, and neither is nil.",
+                   timeCancel},
+    ScriptFunction{"run", "cordite.time.run(task, ...) -> timer",
+                   "Runs a function as a task: something that takes its time. It is called at once, with what "
+                   "follows it here, and runs as far as its first wait(); from there it goes on when the time has "
+                   "passed, before the update of the script it belongs to. An error in it is an error of that "
+                   "script.",
+                   timeRun},
+    ScriptFunction{"wait", "cordite.time.wait(seconds)",
+                   "In a task: stops here and goes on so many seconds later - in the next frame, when no time is "
+                   "given. An error anywhere else.",
+                   timeWait},
 };
 
 // --- cordite.assets -----------------------------------------------------------------------

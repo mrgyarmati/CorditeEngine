@@ -934,8 +934,8 @@ are the reference for how one is written: `clock.lua` for what a script is made 
 is, called once and checked. Scripts reach entities and their hierarchy, transforms,
 every component through its properties, vectors and rotations, the time and the ids
 of assets, the controls of the game, and the simulation - rays, what is within
-reach, gravity, pushes - which tells them what meets what; timers and the loading
-of scenes are to come.
+reach, gravity, pushes - which tells them what meets what, and they have timers and
+tasks; the loading of scenes is to come.
 Step-by-step guide for giving scripts a function:
 [add-script-function](.claude/skills/add-script-function/SKILL.md).
 
@@ -953,12 +953,33 @@ Step-by-step guide for giving scripts a function:
 - **Scripts run while time passes**: in `Engine::updateWorld()` with a running clock,
   before the simulation, so that what a script decides in a frame is what the
   bodies do in it. An editor, whose clock is stopped, runs none.
-- **An update is three walks through the hierarchy**: `start` for what has not
-  started, `input(action, pressed)` for every action that was pressed or released
-  in the frame, `update(deltaSeconds)`. Each asks again whether an instance still
-  runs (`Impl::running`): the call before may have stopped it or switched its entity
-  off - or on, and nothing of an instance is called before its `start` has been
-  through.
+- **An update is four walks**: `start` for what has not started,
+  `input(action, pressed)` for every action that was pressed or released in the
+  frame, the timers and tasks that are due, `update(deltaSeconds)` - three through
+  the hierarchy, and the timers in the order they were made. Each asks again whether
+  an instance still runs (`Impl::running`): the call before may have stopped it or
+  switched its entity off - or on, and nothing of an instance is called before its
+  `start` has been through.
+- **A timer or a task belongs to the instance whose script was being called when it
+  was made** (`Impl::calling`): it is called for that instance, waits while the
+  instance does not run and goes when the instance ends - also when the same entity
+  gets another, and when its `start` fails: the start that is tried again asks
+  again. Made where no script of an entity is being called - while a file is
+  loaded - it is an error. A script may have 1024 waiting, which is what tells the
+  one that makes a timer in every frame.
+- **What a walk makes waits for the next**: a timer made by a timer, with no time
+  to pass, is not called in the same update, or `after(0, again)` would never end.
+  What repeats is due again an interval after it was *due*, and a long frame calls
+  it once, not once for every interval it spanned.
+- **A task is a coroutine the system resumes**; `cordite.time.wait` yields how long,
+  and is refused anywhere else - in a coroutine the script resumes itself nobody
+  would wake it. A task runs at once as far as its first wait, inside the call that
+  started it, so an error there is an error of that call; later it stops the
+  instance, with the place the task was at.
+- **What is cancelled or done is marked, and let go of in a sweep**
+  (`Impl::sweepTimers`) once no script runs: the task that cancels itself is still
+  running when it asks, and Lua's registry is what keeps its coroutine from being
+  collected under it.
 - **After the simulation has moved on, scripts are told what met and what parted**
   (`ScriptSystem::tellContacts`, given `PhysicsSystem::events()`):
   `collisionBegan(other, contact)`, `collisionEnded(other)`,

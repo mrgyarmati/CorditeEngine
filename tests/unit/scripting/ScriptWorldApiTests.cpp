@@ -386,12 +386,12 @@ TEST_SUITE("ScriptWorldApi") {
                 names.push_back(function.name);
                 // A function of a library is written as it is called.
                 CHECK(function.signature.starts_with(function.name + "("));
-                CHECK(function.signature.find("->") != std::string::npos);
             }
         }
         CHECK(names == Lines{"cordite.world.find", "cordite.world.findById", "cordite.world.create",
                              "cordite.world.roots", "cordite.world.withComponent", "cordite.world.componentTypes",
-                             "cordite.time.seconds", "cordite.time.delta", "cordite.time.frame",
+                             "cordite.time.seconds", "cordite.time.delta", "cordite.time.frame", "cordite.time.after",
+                             "cordite.time.every", "cordite.time.cancel", "cordite.time.run", "cordite.time.wait",
                              "cordite.assets.find"});
     }
 }

@@ -381,7 +381,10 @@
                     "channels": 1,
                     "castsShadows": true,
                     "shadowResolution": "high"
-                }
+                },
+                // It flickers: scripts/flicker.lua lets it burn steadily for a few seconds,
+                // dips its brightness three times in a row, and lets it burn on.
+                "Script": { "script": "fba9a526-fe5b-89d4-8f8c-740b56e542e0", "properties": {} }
             }
         },
         {

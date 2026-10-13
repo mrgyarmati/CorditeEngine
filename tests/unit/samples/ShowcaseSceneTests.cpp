@@ -339,6 +339,47 @@ TEST_SUITE("Showcase") {
         }
     }
 
+    TEST_CASE("the lamp of the showcase flickers: a task that waits, dips the light and waits again") {
+        Showcase showcase;
+        const std::unique_ptr<ScriptSystem> scripts = test::unwrap(ScriptSystem::create());
+        const Entity lamp = showcase.world.findByName("Lamp");
+        REQUIRE(showcase.world.has<LightComponent>(lamp));
+        const float steady = showcase.world.tryGet<LightComponent>(lamp)->intensity;
+        REQUIRE(steady > 1.0f);
+
+        // Seven seconds of the game, a sixtieth at a time. It burns steadily for three to
+        // six of them, then dips three times in a row - a twentieth of a second each, to
+        // three tenths of its brightness - and burns steadily again.
+        int dimFrames = 0;
+        int dips = 0;
+        int firstDip = -1;
+        bool dimmed = false;
+        for (int frame = 0; frame < 420; ++frame) {
+            showcase.simulate(*scripts);
+            const float intensity = showcase.world.tryGet<LightComponent>(lamp)->intensity;
+            const bool dim = intensity < steady;
+            if (dim) {
+                CHECK(intensity == doctest::Approx(steady * 0.3f));
+                ++dimFrames;
+                firstDip = firstDip < 0 ? frame : firstDip;
+            } else {
+                CHECK(intensity == steady);
+            }
+            dips += dim && !dimmed ? 1 : 0;
+            dimmed = dim;
+        }
+        CHECK(firstDip >= 180);
+        CHECK(firstDip <= 361);
+        CHECK(dips == 3);
+        // Three frames a dip, give or take the one a wait ends in.
+        CHECK(dimFrames >= 6);
+        CHECK(dimFrames <= 12);
+        CHECK_FALSE(dimmed);
+        for (const ScriptProblem& problem : scripts->problems()) {
+            FAIL_CHECK(problem.message);
+        }
+    }
+
     TEST_CASE("whoever plays the showcase takes the sentry over with the controls of the project") {
         Showcase showcase;
         const std::unique_ptr<ScriptSystem> scripts = test::unwrap(ScriptSystem::create());

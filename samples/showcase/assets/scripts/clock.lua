@@ -22,20 +22,19 @@ local Clock = {
     },
 }
 
--- Once, before the first update.
+-- Once, before the first update. A timer has the engine call a function later: here
+-- again and again, `interval` seconds apart, and with the table of the script - which is
+-- why a function of the script can be handed over as it is. A timer belongs to the
+-- entity whose script made it, and is gone when the script is.
 function Clock:start()
-    self.elapsed = 0.0
     self.ticks = 0
+    cordite.time.every(self.properties.interval, self.tick)
 end
 
--- Every frame, with the time that has passed since the last, in seconds.
-function Clock:update(deltaSeconds)
-    self.elapsed = self.elapsed + deltaSeconds
-    local ticks = self.elapsed // self.properties.interval
-    if ticks ~= self.ticks then
-        self.ticks = ticks
-        self.entity:setName(string.format("%s (%d)", self.properties.label, ticks))
-    end
+-- A function of the script's own: the engine calls it because the timer says so.
+function Clock:tick()
+    self.ticks = self.ticks + 1
+    self.entity:setName(string.format("%s (%d)", self.properties.label, self.ticks))
 end
 
 -- When the script is taken off its entity, or a script destroys the entity.

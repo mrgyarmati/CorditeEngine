@@ -266,6 +266,36 @@ function SelfTest:simulation()
     self:expect("an entity without a body", not pcall(self.entity.addImpulse, self.entity, vec3(0, 1, 0)))
 end
 
+-- What is to happen later: a function that is called once or again and again, and a
+-- task - a function that waits in the middle of what it does. What they have done is
+-- looked at in the frames that follow, in `update`.
+function SelfTest:timers()
+    self.rang = 0
+    self.ticked = 0
+    -- Called with the table of the script, so that a function of the script can be
+    -- given as it is. No time at all is this frame still: timers are called after the
+    -- starts of a frame, before its updates.
+    cordite.time.after(0, self.ring)
+    -- A thousandth of a second is less than any frame: once a frame, from the next on.
+    self.ticking = cordite.time.every(0.001, function() self.ticked = self.ticked + 1 end)
+    -- A task runs at once, as far as its first wait, with what follows the function.
+    self.task = cordite.time.run(function(word)
+        self.heard = word
+        cordite.time.wait() -- until the next frame
+        self.wentOn = true
+        cordite.time.wait(3600) -- an hour: it is cancelled long before
+        self.overslept = true
+    end, "a word")
+    self:expect("a task that has begun", self.heard == "a word" and self.wentOn == nil)
+    self:expect("numbers to cancel by", math.type(self.ticking) == "integer" and self.task ~= self.ticking)
+    -- Only a task can wait: there is nobody to go on with anything else.
+    self:expect("a wait outside a task", not pcall(cordite.time.wait, 1))
+end
+
+function SelfTest:ring()
+    self.rang = self.rang + 1
+end
+
 function SelfTest:start()
     self.checked = 0
     self.age = 0
@@ -279,6 +309,7 @@ function SelfTest:start()
     self:components()
     self:timeAndAssets()
     self:controls()
+    self:timers()
 end
 
 -- What takes a frame to show is looked at in the frames after the first: a script that
@@ -286,7 +317,12 @@ end
 -- hierarchy down, so this script runs before the one on the entity below it.
 function SelfTest:update(deltaSeconds)
     self.age = self.age + 1
-    if self.age == 2 then
+    if self.age == 1 then
+        self:expect("a timer of no time", self.rang == 1)
+        self:expect("a timer that repeats, before its time", self.ticked == 0)
+    elseif self.age == 2 then
+        self:expect("a timer that repeats", self.ticked == 1 and self.rang == 1)
+        self:expect("a task that has gone on", self.wentOn == true)
         local clock = self.scratch:script()
         self:expect("another script", clock ~= nil and clock.entity == self.scratch)
         self:expect("the properties of another script", clock.properties.label == "Scratch")
@@ -294,11 +330,16 @@ function SelfTest:update(deltaSeconds)
         self:expect("the time of a frame", deltaSeconds == cordite.time.delta())
         self:simulation()
     elseif self.age == 3 then
+        self:expect("a timer that repeats, again", self.ticked == 2)
+        cordite.time.cancel(self.ticking)
+        cordite.time.cancel(self.task)
         -- By now the clock has started and run once: what it keeps can be read.
         self:expect("what another script knows", self.scratch:script().ticks == 0)
         self.scratch:destroy()
         self:expect("an entity that is to be destroyed", self.scratch:isValid())
     elseif self.age == 4 then
+        self:expect("a timer that was cancelled", self.ticked == 2)
+        self:expect("a task that was cancelled", self.overslept == nil)
         self:expect("an entity that is gone", not self.scratch:isValid() and not self.first:isValid())
         self:expect("an entity that is gone, as text", tostring(self.scratch) == "Entity(gone)")
         cordite.log.info(string.format("self-test: %d checks passed", self.checked))

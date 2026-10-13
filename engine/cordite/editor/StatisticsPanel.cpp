@@ -96,6 +96,7 @@ Json describeFrameStatistics(const FrameStatistics& statistics) {
     scripts["instances"] = statistics.scripts.instances;
     scripts["stopped"] = statistics.scripts.stopped;
     scripts["calls"] = statistics.scripts.calls;
+    scripts["timers"] = statistics.scripts.timers;
     scripts["memoryBytes"] = statistics.scripts.memoryBytes;
 
     Json description = Json::object();
@@ -126,10 +127,11 @@ void StatisticsPanel::draw(const FrameStatistics& statistics, bool& open) {
                         statistics.physics.bodies, statistics.physics.activeBodies, statistics.physics.steps,
                         statistics.physics.geometries, statistics.physics.joints, statistics.physics.characters));
         row("Animators", fmt::format("{} ({} joints)", statistics.animation.animators, statistics.animation.joints));
-        row("Scripts", fmt::format("{} ({} running, {} stopped, {} calls, {:.1f} MiB)", statistics.scripts.scripts,
-                                   statistics.scripts.instances - statistics.scripts.stopped,
-                                   statistics.scripts.stopped, statistics.scripts.calls,
-                                   static_cast<double>(statistics.scripts.memoryBytes) / kBytesPerMebibyte));
+        row("Scripts",
+            fmt::format("{} ({} running, {} stopped, {} calls, {} timers, {:.1f} MiB)", statistics.scripts.scripts,
+                        statistics.scripts.instances - statistics.scripts.stopped, statistics.scripts.stopped,
+                        statistics.scripts.calls, statistics.scripts.timers,
+                        static_cast<double>(statistics.scripts.memoryBytes) / kBytesPerMebibyte));
 
         const SceneRenderStatistics& scene = statistics.scene;
         row("Views", fmt::format("{}", scene.views));

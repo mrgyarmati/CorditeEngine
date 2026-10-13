@@ -1555,6 +1555,30 @@ simulation says that two bodies parted when one of them was destroyed; a script
 gets the value it knew the entity by, so that what it kept under that value can be
 found and dropped, and `isValid()` says the rest.
 
+### Timers and tasks belong to the script that made them
+
+A script asks for something to happen later - `cordite.time.after(2, self.close)` -
+and does not say for whom: it is for the entity whose script the engine was calling
+at that moment. That is what makes the common case need no bookkeeping. The door
+that is destroyed, switched off or given another script takes its timers along, and
+a function that would otherwise be called for an entity that is no longer there, or
+no longer what it was, is not called at all. The function is handed the table of
+the script, so that a method can be given as it is.
+
+A task - `cordite.time.run(function() ... cordite.time.wait(0.5) ... end)` - is a
+Lua coroutine that the engine resumes. Lua has coroutines, and a script could
+schedule its own; the engine does it because the hard part is not resuming but
+ending: knowing whose a coroutine is, and dropping it with its owner. Tasks start
+at once rather than in the next frame, so that what a task does before its first
+wait has happened when `run` returns - a script that starts one and then asks what
+it set finds it set.
+
+Time is the clock of the scripts, which only passes in updates, so timers are as
+repeatable as everything else scripts do. A timer that repeats keeps time - it is
+due an interval after it was due, not after it was called - and it does not catch
+up: after a frame that took a second, a timer of ten a second is called once. A game
+that falls behind should not fall further behind by doing ten frames' work in one.
+
 ### The showcase tests the script API from inside the game
 
 Every function scripts are given has unit tests, which run it in a small world
