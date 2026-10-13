@@ -36,16 +36,17 @@ of slowly turning the code base into a ball of mud.
 | `world` | `core`, `math` | The scene: entities, their components and their parent/child hierarchy, stored with EnTT; the registry of component types known by name; scene files. |
 | `animation` | `core`, `math`, `assets`, `world` | Movement of skeletons: the functions that make a pose (sampling a clip, blending two poses, the matrices a mesh is skinned with, the bounds of a posed mesh), the `Animator` component, and `AnimationSystem`, which plays the animators of a world and gives each the pose it is in. |
 | `physics` | `core`, `math`, `assets`, `world` | The simulation of rigid bodies: `PhysicsWorld` holds bodies - shapes, a mass, where each is and how it moves - steps them on in time and answers what a ray hits. Jolt Physics is behind it and shows in none of its headers. The `Collider` and `RigidBody` components say what of a world is simulated, and `PhysicsSystem` keeps the two in step; it is also what makes the shapes of colliders out of mesh assets. |
+| `scripting` | `core` | Gameplay scripts: `ScriptRuntime` is the Lua state they run in and what keeps a script that is wrong from being more than an error - limits on instructions, memory and nesting, a build of Lua without what reaches the machine, an environment for every chunk - with the catalogue of the functions scripts are given, and the conversion of values between JSON and Lua. |
 | `rhi` | `core`, `math`, `platform` | The GPU: Vulkan instance and device creation, the NVRHI device the renderer programs against, the swapchain, and texture readback. The only module that calls Vulkan. |
 | `shaders` | `core` | What a shader *is* to the engine: requests and their permutation keys, compiled binaries, the on-disk cache, and the `ShaderLibrary` that resolves a request from memory, disk or a compiler. |
 | `shader_compiler` | `core`, `shaders` | The Slang-based implementation of `IShaderCompiler`. Kept separate so exported games do not link a compiler. |
 | `renderer` | `core`, `math`, `assets`, `world`, `animation`, `rhi`, `shaders` | Drawing: the scene renderer and its passes (depth, G-buffer, deferred lighting, forward, debug views), the GPU copies of assets it draws with, the targets of a view, the components that make an entity visible or make it a light, the lights of a world sorted into the clusters of a view, the environment that surrounds a world made ready to light it, ambient occlusion worked out from the screen; the view a camera gives, debug line drawing, and the `ShaderManager` that turns shader binaries into GPU shader objects. |
 | `ui` | `core`, `math`, `platform`, `rhi`, `shaders`, `renderer` | The immediate-mode user interface: the Dear ImGui context, its input, and the renderer that draws it with NVRHI. |
-| `engine` | all of the above | `Engine`: creates and owns the subsystems, the assets, the world and the interface, and runs the frame loop. Also what needs several of the modules below at once: projects, placing a model in a world, checking the assets a scene refers to. |
+| `engine` | all of the above but `scripting`, which nothing uses yet | `Engine`: creates and owns the subsystems, the assets, the world and the interface, and runs the frame loop. Also what needs several of the modules below at once: projects, placing a model in a world, checking the assets a scene refers to. |
 | `editor` | `engine` and below | The editor: the scene document, undoable actions, the command registry, the panels, and `EditorApp`. Not part of exported games. |
 
-Further modules (audio, scripting) are added by the later milestones and will be
-listed here as they land.
+Further modules (audio) are added by the later milestones and will be listed here as
+they land.
 
 ### A frame
 
@@ -431,7 +432,9 @@ that.
 EnTT and ImGui check how they are used and, by default, report through the C runtime's
 `assert`, which on Windows can open a dialog and hang an unattended run. Both are
 configured to call the engine's assertion handler instead (`ExternalAssert.h` for code
-that must not include engine headers). Their checks are then logged, turned into test
+that must not include engine headers). Lua checks nothing by default; it is given the
+same handler for the checks of its API, which are worth more than they cost wherever
+assertions are on. Their checks are then logged, turned into test
 failures by the test harness, and compiled out of `Release` together with ours.
 
 ### Undo stores ids and validated patches
@@ -1342,6 +1345,98 @@ they turn a pointer and a stick on the same axis into a fight between two units.
 
 The map is no asset with an id: nothing in a scene refers to it. The project names
 it by path, as it names its start scene.
+
+### Scripts are Lua, bound by hand
+
+Gameplay scripts are written in Lua 5.4: small enough to read in an afternoon, built
+from two dozen C files with nothing but a compiler, and the language most people who
+have scripted a game have already used. LuaJIT is faster and was not chosen: it is
+Lua 5.1, it has no releases to pin, and its build is not a matter of compiling files.
+
+The engine talks to Lua through Lua's own C API rather than through a binding
+library such as sol2. Such a library earns its keep where hundreds of C++ classes
+are exposed one method at a time. Here components are reached through the
+reflection - one description of a type already drives scene files, the inspector
+and the automation API, and it drives scripts as well - so what is left to bind by
+hand is a few dozen functions. Against that stands a large body of templates that
+would have to compile on three compilers, two of which no machine at hand can run.
+
+Values cross between the two sides as JSON (`ScriptValue.h`), because that is what
+the reflection reads and writes. It is not the fastest way to hand a number to a
+script, and what scripts do every frame - moving an entity - gets functions of its
+own.
+
+### Lua is compiled as C++
+
+Lua reports an error by leaving the function it is in - with `longjmp` when it is
+built as C, by throwing when it is built as C++. A function of the engine that a
+script calls is C++: it has strings, vectors and locks on its stack, and a
+`longjmp` over them destroys none. So Lua's sources are compiled as C++ (they are
+written to be), an error is an exception that never leaves Lua's own protected
+calls, and every destructor on the way runs. The price is that Lua's headers must
+not be read as C anywhere: `cordite/scripting/Lua.h` is the one place that includes
+them, and a test keeps it so.
+
+Lua takes anything thrown through it for an error of its own, without knowing what
+it is. What the engine throws inside - an assertion under the test harness, a
+container out of memory - is therefore caught where Lua calls the engine and raised
+again as a Lua error with the text it had.
+
+### A script cannot be more than an error
+
+A script is written by whoever makes the game, changed while the game runs, and
+wrong as often as any other code. The brief asks that a script error never crash the
+engine; `ScriptRuntime` takes that to mean every way a script can go wrong, not only
+the ones Lua reports by itself:
+
+- A script that does not end. Lua calls back every thousand instructions, and a call
+  into the scripts that has used up its ten million is ended with an error. Counting
+  is not free - the interpreter asks before every instruction whether it is time,
+  which costs code that only computes about four tenths more time (0.52 s against
+  0.73 s for ninety million instructions) - so it can be turned off, by a game that
+  is finished and would rather be fast than stoppable.
+- A script that catches that error and carries on. `pcall`, `xpcall` and
+  `coroutine.resume` are replaced by versions that pass it on. There was one more
+  way: the handler given to `xpcall` runs while the error is still on its way, and
+  Lua calls no hook while one is raising an error - a handler that loops was never
+  stopped. It is not asked about this error.
+- A script that takes all memory. Lua allocates through a function of the engine,
+  which counts and refuses past a limit; Lua turns the refusal into an error.
+- A script that calls itself without end. From script to script that ends at the
+  limit of Lua's own stack. Through C - `pcall`, a metamethod, a library function
+  that calls back - it uses the stack of the program, where running out is not an
+  error. Lua stops at 200 such levels, which is safe when Lua is optimized; an
+  unoptimized MSVC build spends 6.6 kB on a level and has 1 MB. The limit is 64, the
+  same in every build so that a script does not work in one and fail in another,
+  and a test measures how much stack the deepest nesting takes.
+- A finalizer. Lua runs `__gc` whenever it collects, with the hook switched off, so
+  scripts cannot set one.
+- Reaching the machine. The libraries for files, the operating system, loading code
+  and debugging are not compiled into the engine at all, and compiled chunks are not
+  loaded: Lua does not verify them.
+
+What this does not hold is said in `ScriptRuntime.h`: one call of a library function
+is one instruction however long it takes, and scripts share the library tables.
+
+### A chunk has its own globals, and names must exist
+
+In Lua a name that was never assigned reads as `nil`, and assigning to a name
+without `local` makes a global. Both are the commonest mistakes there are - a typing
+error that shows up three calls later as "attempt to index a nil value", a counter
+that two scripts turn out to share - and both are silent. So every chunk runs in an
+environment of its own, whose globals no other chunk sees; reading a name that is
+not there is an error that says which; and once a chunk has run it cannot make new
+globals, so that the `local` someone forgot inside a function is found the first
+time the function runs.
+
+### Scripts run the same way twice
+
+Lua seeds two things from the clock and from where the state happens to lie in
+memory: the hashes of its strings, which decide the order in which `pairs()` walks
+a table, and `math.random()`. A game whose scripts behave differently from one run
+to the next cannot be tested and cannot be played back. Both seeds are fixed. The
+random hash seed is a defence against keys chosen by an attacker, which the scripts
+of a game are not.
 
 ### A body of several shapes is an entity with colliders below it
 

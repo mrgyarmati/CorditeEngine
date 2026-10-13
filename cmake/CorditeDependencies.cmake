@@ -219,10 +219,18 @@ cordite_dependency_option(JPH_USE_VK OFF)
 cordite_dependency_option(JPH_USE_MTL OFF)
 cordite_dependency_option(JPH_USE_CPU_COMPUTE OFF)
 
+# --- Lua: the language gameplay scripts are written in ----------------------------------
+# Published as an archive of C sources with a makefile; the cordite_lua target below
+# compiles them.
+cordite_declare_dependency(lua
+    URL https://www.lua.org/ftp/lua-5.4.8.tar.gz
+    SHA256 4f18ddae154e793e46eeab727c59ef1c0c0c2b744e7b94219710d76f530629ae
+    SOURCES_ONLY)
+
 FetchContent_MakeAvailable(
     fmt spdlog nlohmann_json tl_expected enkits xxhash glm
     glfw vulkan_headers nvrhi stb cli11 entt imgui
-    cgltf meshoptimizer mikktspace joltphysics)
+    cgltf meshoptimizer mikktspace joltphysics lua)
 
 # Jolt checks itself where the engine does: in the configurations with assertions. They
 # are reported through the engine's (see cordite/physics/PhysicsWorld.cpp).
@@ -245,6 +253,45 @@ add_library(cordite_mikktspace STATIC "${mikktspace_SOURCE_DIR}/mikktspace.c")
 add_library(cordite::mikktspace ALIAS cordite_mikktspace)
 target_include_directories(cordite_mikktspace SYSTEM PUBLIC "${mikktspace_SOURCE_DIR}")
 set_target_properties(cordite_mikktspace PROPERTIES FOLDER "ThirdParty")
+
+# Lua, without what reaches the machine a script runs on: the libraries for files, for
+# the operating system, for loading code and for looking into the interpreter are not
+# compiled, so no script can be given them - and neither are the two programs of the
+# distribution, nor the file that opens all libraries at once. What reads and writes
+# chunks that are compiled already belongs to the core and cannot be left out; the
+# engine loads text only, and takes string.dump() away (ScriptRuntime.cpp).
+#
+# It is compiled as C++. An error in a script leaves the functions it passes through by
+# an exception then, which runs their destructors on the way; compiled as C it would
+# jump over them. Whoever includes its headers includes them as C++ as well - through
+# engine/cordite/scripting/Lua.h, not lua.hpp, which says they are C.
+#
+# Lua is configured through engine/cordite/scripting/LuaConfig.h, which lua.h includes
+# wherever it is used (LUA_USER_H) - in Lua's own sources as in the engine's. That header
+# routes the checks of Lua's API into the engine's assertions, hence the link to core.
+set(cordite_lua_sources)
+foreach(cordite_lua_source
+        lapi lauxlib lbaselib lcode lcorolib lctype ldebug ldo ldump lfunc lgc llex lmathlib lmem
+        lobject lopcodes lparser lstate lstring lstrlib ltable ltablib ltm lundump lutf8lib lvm lzio)
+    list(APPEND cordite_lua_sources "${lua_SOURCE_DIR}/src/${cordite_lua_source}.c")
+endforeach()
+set_source_files_properties(${cordite_lua_sources} PROPERTIES LANGUAGE CXX)
+add_library(cordite_lua STATIC ${cordite_lua_sources})
+add_library(cordite::lua ALIAS cordite_lua)
+target_compile_features(cordite_lua PRIVATE cxx_std_20)
+target_include_directories(cordite_lua SYSTEM PUBLIC "${lua_SOURCE_DIR}/src")
+target_include_directories(cordite_lua PUBLIC "${PROJECT_SOURCE_DIR}/engine")
+target_compile_definitions(cordite_lua PUBLIC LUA_USER_H="cordite/scripting/LuaConfig.h")
+target_link_libraries(cordite_lua
+    PUBLIC cordite::build_configuration
+    PRIVATE $<LINK_ONLY:cordite::core>)
+set_target_properties(cordite_lua PROPERTIES FOLDER "ThirdParty" LINKER_LANGUAGE CXX)
+# Its warnings are its authors' to read.
+if(MSVC)
+    target_compile_options(cordite_lua PRIVATE /w)
+else()
+    target_compile_options(cordite_lua PRIVATE -w)
+endif()
 
 # Dear ImGui is configured through engine/cordite/ui/ImGuiConfig.h, which every file that
 # includes imgui.h picks up through IMGUI_USER_CONFIG - ImGui's own sources included.

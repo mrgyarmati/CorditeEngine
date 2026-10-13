@@ -78,6 +78,16 @@ cordite_add_test_suite(physics
     LIBRARIES
         cordite::physics)
 
+# Lua's own API is part of what these tests use: the functions they give to scripts are
+# written against it.
+cordite_add_test_suite(scripting
+    SOURCES
+        unit/scripting/ScriptRuntimeTests.cpp
+        unit/scripting/ScriptValueTests.cpp
+    LIBRARIES
+        cordite::scripting
+        cordite::lua)
+
 cordite_add_test_suite(platform
     SOURCES
         unit/platform/InputMapTests.cpp

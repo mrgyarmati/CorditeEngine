@@ -26,11 +26,17 @@ pinned in [cmake/CorditeDependencies.cmake](../cmake/CorditeDependencies.cmake) 
 | [EnTT](https://github.com/skypjack/entt) | 3.16.0 | MIT | Entity and component storage behind `World` |
 | [Jolt Physics](https://github.com/jrouwe/JoltPhysics) | 5.6.0 | MIT | Rigid bodies, collision queries and character movement behind `PhysicsWorld` |
 | [Dear ImGui](https://github.com/ocornut/imgui) | 1.92.9b, docking branch | MIT | Immediate-mode user interface: the editor and in-game debug overlays |
+| [Lua](https://www.lua.org) | 5.4.8 | MIT | The language of gameplay scripts, behind `ScriptRuntime` |
 
 EnTT stays on the 3.x line: 4.0 needs C++20 syntax that the default MSVC toolset of
 many Visual Studio 2022 installations (19.38) does not accept. Dear ImGui comes with the
 fonts it embeds (ProggyClean and ProggyForever, MIT) and uses its bundled
 copies of stb_rect_pack, stb_textedit and stb_truetype (public domain / MIT).
+
+Lua is built from its sources as C++, so that an error in a script unwinds the engine's
+functions as an exception does, and without the libraries a script has no business
+with: files, the operating system, loading of code and the debug library are not
+compiled (see `cmake/CorditeDependencies.cmake` and `engine/cordite/scripting/LuaConfig.h`).
 
 glTF files are written by the engine's own exporter, on top of the JSON library, not
 by cgltf's writer: a glTF file is a JSON document plus a buffer, and building cgltf's

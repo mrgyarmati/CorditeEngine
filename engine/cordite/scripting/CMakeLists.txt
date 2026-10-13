@@ -1,0 +1,12 @@
+cordite_add_module(scripting
+    SOURCES
+        Lua.h
+        LuaConfig.h
+        ScriptRuntime.cpp
+        ScriptRuntime.h
+        ScriptValue.cpp
+        ScriptValue.h
+    DEPENDS
+        core
+    PRIVATE_LIBRARIES
+        cordite::lua)

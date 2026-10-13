@@ -17,10 +17,13 @@ endif()
 set(ENGINE_DIR "${REPOSITORY_DIR}/engine/cordite")
 
 # Third-party libraries that are configured through macros and therefore must be seen
-# identically by every translation unit. Each entry is "<include prefix>|<the one file
-# allowed to include it>"; everything else includes that file.
+# identically by every translation unit, or that link only when they are included one
+# particular way (Lua, which is built as C++). Each entry is "<include prefix>|<the one
+# file allowed to include it>"; everything else includes that file.
 set(WRAPPED_LIBRARIES
-    "entt/|engine/cordite/world/Entt.h")
+    "entt/|engine/cordite/world/Entt.h"
+    "lua|engine/cordite/scripting/Lua.h"
+    "lauxlib|engine/cordite/scripting/Lua.h")
 
 string(REPLACE "|" ";" entries "${DEPENDENCY_TABLE}")
 

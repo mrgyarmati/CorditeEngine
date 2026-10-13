@@ -128,12 +128,13 @@ by accident.
 | `world` | `core`, `math` | Entities, components and their hierarchy (EnTT), the component registry, scene files |
 | `animation` | `core`, `math`, `assets`, `world` | Poses of skeletons and what makes them: sampling clips, blending, the matrices a mesh is skinned with and the bounds of a posed mesh; the `Animator` component; `AnimationSystem`, which plays the animators of a world |
 | `physics` | `core`, `math`, `assets`, `world` | `PhysicsWorld`: rigid bodies, their shapes - boxes, balls, capsules, the hulls around sets of points and surfaces of triangles - joints between them, the characters that walk among them, stepping, contact events and queries, over Jolt Physics; the `Collider`, `RigidBody`, `Joint` and `CharacterController` components; `PhysicsSystem`, which keeps the entities of a world and the bodies, joints and characters of a simulation in step and makes shapes of mesh assets |
+| `scripting` | `core` | `ScriptRuntime`: the Lua state that gameplay scripts run in and the fence around it - limits on instructions, memory and nesting, the libraries a script may have, an environment for every chunk, the catalogue of the functions scripts are given - and values on their way between JSON and Lua |
 | `rhi` | `core`, `math`, `platform` | Vulkan device, swapchain and texture readback over NVRHI |
 | `shaders` | `core` | Shader requests and permutation keys, disk cache, `ShaderLibrary` |
 | `shader_compiler` | `core`, `shaders` | Slang to SPIR-V compiler (not linked into exported games) |
 | `renderer` | `core`, `math`, `assets`, `world`, `animation`, `rhi`, `shaders` | The scene renderer and what it is made of: GPU copies of assets, the mesh passes, the G-buffer and its lighting, the lights of a world and the clusters they are sorted into, their shadow maps and the atlas those share, what finishes the picture (exposure, bloom, tone mapping, grading), the environment (the sky and what it lights), ambient occlusion from the screen, fog, the debug views, scene targets, the `MeshRenderer`, `Light`, `AmbientLight`, `Environment`, `Fog` and `PostProcess` components; camera views, debug lines, GPU timing, GPU shader management |
 | `ui` | `core`, `math`, `platform`, `rhi`, `shaders`, `renderer` | The immediate-mode interface: the Dear ImGui context and its NVRHI renderer |
-| `engine` | all of the above | `Engine`: owns the subsystems, the assets, the world and the interface, and runs the frame loop; projects; placing models; checking the assets a scene uses |
+| `engine` | all of the above but `scripting`, which nothing uses yet | `Engine`: owns the subsystems, the assets, the world and the interface, and runs the frame loop; projects; placing models; checking the assets a scene uses |
 | `editor` | `engine` and below | The editor: the scene document, undoable actions, scene and asset commands, panels, `EditorApp` (not linked into exported games) |
 
 `cordite-editor` (in `editor/`) is a thin `main` around `EditorApp`. Everything else,
@@ -911,6 +912,64 @@ Step-by-step guide: [work-with-assets](.claude/skills/work-with-assets/SKILL.md)
 - **The showcase binds every kind of control**: the `samples` test fails for a kind
   of binding that its input map does not use.
 
+## Scripting
+
+Gameplay scripts are Lua 5.4, run by `ScriptRuntime` (`scripting/ScriptRuntime.h`).
+What there is so far is the runtime; script assets, the component that puts a script
+on an entity and the functions scripts call are built on it.
+
+- **A script that is wrong is an error with a message, never the end of the
+  program.** That is what the runtime is for, and each of the rules below has a test
+  that tries to get past it (`ScriptRuntimeTests`). A change to the runtime that makes
+  one of those tests hang has opened the hole the test is there for.
+- **Lua's API is used inside `ScriptRuntime::protect()`, or in a function that a
+  script calls - nowhere else.** An error raised anywhere else has nowhere to go, and
+  Lua ends the program. Out of memory is such an error, and a script can bring it
+  about whenever it likes.
+- **Lua is built as C++**, so that an error leaves the engine's functions the way an
+  exception does and their destructors run. Include it through
+  `cordite/scripting/Lua.h` only - never `lua.hpp`, which declares everything a C
+  function; the `module_layering` test rejects a direct include. Its compile-time
+  settings are in `scripting/LuaConfig.h`, which `lua.h` includes itself.
+- **Take what is needed out of the engine first, then call the script.** An error
+  unwinds whatever is on the stack; work of the engine that is half done when a
+  script is called stays half done.
+- **A call into the scripts has three limits.** Instructions: ten million for the
+  outermost `protect()` and everything inside it; counting them costs a script that
+  only computes about four tenths more time, and `instructionLimit` 0 turns it off.
+  Memory: 256 MiB for all scripts together. Nesting: 64 calls inside each other that
+  go through C - `pcall`, a metamethod, a function of the engine that calls back -
+  because each takes up to 6.6 kB of the program's stack in an unoptimized build and
+  a Windows main thread has 1 MB. A test measures what the deepest nesting takes, and
+  fails long before a crash would.
+- **The error that stops a script which does not end cannot be caught by it.**
+  `pcall`, `xpcall` and `coroutine.resume` are the runtime's own and pass it on, and
+  `xpcall` does not ask the script's handler about it. Whatever else is ever given to
+  scripts that catches errors has to pass it on as well.
+- **Scripts have no finalizers.** Lua counts no instructions while `__gc` runs, nor
+  while an error that the counter raised is on its way; script code must not run in
+  either place.
+- **What a script cannot reach is not in the build**: files, the operating system,
+  loading of libraries, the debug library. `load`, `dofile`, `loadfile`,
+  `collectgarbage` and `string.dump` are taken out, and only text is compiled.
+- **Every chunk has an environment of its own**, and a name that was never given a
+  value is a mistake: reading one is an error that names it, and so is assigning to
+  one after the chunk has run. `rawget(_G, name)` and `rawset(_G, name, value)` are
+  for whoever means it.
+- **Scripts run the same way twice**: the seed of Lua's string hashes is fixed, so
+  `pairs()` walks tables of names in the same order every run, and `math.random()`
+  starts from the same seed. The first numbers are pinned by a test. And the same on
+  every machine: where Lua would lean on the C library of the platform - numbers in
+  hexadecimal - it is told to use its own code (`LuaConfig.h`).
+- **A function for scripts is registered with `ScriptRuntime::registerLibrary`**,
+  with its signature and a sentence that says what it does: the runtime keeps the
+  catalogue, and counts the calls. It may raise Lua errors and throw what derives
+  from `std::exception`; a script sees both as errors.
+- **Values cross as JSON** (`scripting/ScriptValue.h`), which is how the engine
+  describes its data anyway. `null` is `nil`, but `cordite.null` inside an array; a
+  table is an array when its keys are 1 to n and an object when they are names, with
+  its members sorted; anything else is refused with where in the value it is.
+
 ## Editor and automation
 
 Step-by-step guide for scripting the editor and adding commands:
@@ -1197,6 +1256,17 @@ body explaining what changed and why. One logical change per commit.
   fog stops getting denser below the height it is given (`Fog.h`), so every exponent
   is at most zero. The usual closed form also divides by the change of height along
   the way, which is nothing for a level one: `fogMeanDecayOver` takes the series there.
+- Lua takes whatever is thrown through it for an error of a script - also the
+  exception of a failed `REQUIRE`. Inside `ScriptRuntime::protect()` and in a function
+  that a script calls, a test uses `CHECK`, never `REQUIRE` or `test::unwrap`.
+- A C function that Lua calls through another C function has no name and no line in
+  what it says about its arguments (`bad argument #1 to '?'`). A replacement for one
+  of Lua's own functions checks the arguments itself, where Lua can still tell which
+  call of the script it was.
+- `luaL_error` and `lua_error` do not return: they leave the function the way `throw`
+  does. What the function holds at that moment is destroyed only because Lua is built
+  as C++ here - and for the same reason neither may be called from a destructor or
+  from a function that is `noexcept`.
 - A JSON object that has a key twice is refused by `parseJson`. The library behind it
   keeps one of the two values and says nothing, which is how a budget for the joints
   of the physics went unchecked: it had the name of another. Text that is put
