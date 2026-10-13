@@ -59,11 +59,13 @@ enum class AssetType : uint8_t {
     Script,
     /// Something to hear: the samples of a WAV, FLAC or MP3 file.
     Sound,
+    /// A few entities that belong together, to be placed in a scene as often as wanted.
+    Prefab,
 };
 
-inline constexpr std::array<AssetType, 9> kAssetTypes = {
+inline constexpr std::array<AssetType, 10> kAssetTypes = {
     AssetType::Texture,  AssetType::Mesh,      AssetType::Material, AssetType::Model, AssetType::Scene,
-    AssetType::Skeleton, AssetType::Animation, AssetType::Script,   AssetType::Sound,
+    AssetType::Skeleton, AssetType::Animation, AssetType::Script,   AssetType::Sound, AssetType::Prefab,
 };
 
 /// The lowercase name used in files and by tools: "texture", "mesh", ...
@@ -99,6 +101,12 @@ std::string_view nameOf(BuiltinMesh mesh);
 /// The id of the material a surface has when it names none: plain white, neither metal
 /// nor mirror (a MaterialData with every value at its default).
 [[nodiscard]] Uuid defaultMaterialId();
+
+/// What kind of asset a file is, by how its name ends, whatever the case of that:
+/// "prefabs/cart.prefab.json" is a prefab. `path` is written with forward slashes, as
+/// AssetInfo::path is. None for a file that is no asset, and for one that is called
+/// nothing but such an ending - "prefabs/.prefab.json".
+[[nodiscard]] std::optional<AssetType> assetTypeOfFile(std::string_view path);
 
 /// The `path` of assets that are built into the engine.
 inline constexpr std::string_view kBuiltinAssetPath = "builtin";

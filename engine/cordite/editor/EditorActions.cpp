@@ -1,14 +1,26 @@
 #include "cordite/editor/EditorActions.h"
 
+#include "cordite/assets/AssetDatabase.h"
+#include "cordite/assets/Prefab.h"
+#include "cordite/core/FileSystem.h"
+#include "cordite/core/StringUtils.h"
+#include "cordite/world/Components.h"
 #include "cordite/world/SceneSerializer.h"
 
+#include <fmt/format.h>
+
 #include <algorithm>
+#include <filesystem>
 #include <memory>
+#include <system_error>
 #include <unordered_set>
 #include <utility>
 
 namespace cordite {
 namespace {
+
+/// The name of the component that marks an instance of a prefab.
+constexpr std::string_view kPrefabInstance = "PrefabInstance";
 
 /// Where an entity sits among its siblings, for putting it back there.
 struct Placement {
@@ -280,6 +292,29 @@ Result<Entity> EditorActions::instantiateModel(const Uuid& model, const ModelIns
     CORDITE_TRY_ASSIGN(const std::shared_ptr<const ModelData> data, m_context.assets().loadModel(model));
 
     const Entity instance = cordite::instantiateModel(world, *data, options);
+    recordPlaced(instance);
+    return instance;
+}
+
+Result<Entity> EditorActions::instantiatePrefab(const Uuid& prefab, const PrefabInstanceOptions& options) {
+    if (!options.parent.isNull()) {
+        CORDITE_TRY(requireValid(m_context, options.parent));
+    }
+    CORDITE_TRY_ASSIGN(const std::shared_ptr<const PrefabData> data, m_context.assets().loadPrefab(prefab));
+
+    const Result<Entity> instance =
+        cordite::instantiatePrefab(m_context.world(), m_context.components(), data->entities, prefab, options);
+    if (!instance) {
+        // What is wrong is wrong with a file, and the message says which.
+        const AssetInfo* asset = m_context.assets().database().find(prefab);
+        return tl::unexpected(instance.error().withContext(asset != nullptr ? asset->reference() : prefab.toString()));
+    }
+    recordPlaced(*instance);
+    return *instance;
+}
+
+void EditorActions::recordPlaced(Entity instance) {
+    const World& world = m_context.world();
 
     // Redoing must bring back these very entities, ids included, so that later history
     // entries still find them.
@@ -297,7 +332,86 @@ Result<Entity> EditorActions::instantiateModel(const Uuid& model, const ModelIns
     });
 
     m_context.setSelection(roots);
-    return instance;
+}
+
+Result<Uuid> EditorActions::createPrefab(Entity entity, std::string_view assetPath, bool overwrite) {
+    CORDITE_TRY(requireValid(m_context, entity));
+    if (m_context.isPlaying()) {
+        return makeError(ErrorCode::InvalidState,
+                         "the scene is being played: stop it before making a prefab, or it is made of a game "
+                         "half-way through");
+    }
+    AssetManager& assets = m_context.assets();
+    const std::filesystem::path& root = assets.database().rootDirectory();
+    if (root.empty()) {
+        return makeError(ErrorCode::InvalidState, "there is no project open to keep a prefab in");
+    }
+
+    const World& world = m_context.world();
+    const std::string path = assetPath.empty() ? defaultPrefabPath(world.name(entity)) : std::string(assetPath);
+    const std::filesystem::path file = root / pathFromUtf8(path);
+    // Asks the file system, so that a path cannot leave by a link or by "..".
+    CORDITE_TRY_ASSIGN(const std::string reference, relativePathWithin(root, file));
+    if (assetTypeOfFile(reference) != AssetType::Prefab) {
+        return makeError(ErrorCode::InvalidArgument, "the name of a prefab file ends in \".prefab.json\"; got '{}'",
+                         reference);
+    }
+    std::error_code failed;
+    if (!overwrite && std::filesystem::exists(file, failed)) {
+        return makeError(ErrorCode::AlreadyExists, "'{}' exists already; it is replaced only when that is asked for",
+                         reference);
+    }
+
+    PrefabData prefab{.name = world.name(entity),
+                      .entities = serializePrefabEntities(world, m_context.components(), entity)};
+    if (prefab.entities.size() > kMaxPrefabEntities) {
+        return makeError(ErrorCode::InvalidArgument,
+                         "'{}' is {} entities with what is below it; a prefab may have {} at most", prefab.name,
+                         prefab.entities.size(), kMaxPrefabEntities);
+    }
+
+    if (const std::filesystem::path directory = file.parent_path(); !directory.empty()) {
+        CORDITE_TRY(ensureDirectory(directory));
+    }
+    CORDITE_TRY(writeJsonFile(file, prefabDocument(prefab)));
+    CORDITE_TRY(assets.refresh());
+
+    // Found by the file, not by its name: on a file system that does not tell upper from
+    // lower case, the name the assets have for it need not be the one that was asked for.
+    // Only prefabs are looked at, since each look asks the file system.
+    const AssetDatabase& database = assets.database();
+    const auto listed = std::ranges::find_if(database.assets(), [&](const AssetInfo& candidate) {
+        std::error_code ignored;
+        return candidate.type == AssetType::Prefab &&
+               std::filesystem::equivalent(database.sourceFile(candidate), file, ignored);
+    });
+    if (listed == database.assets().end()) {
+        return makeError(ErrorCode::InvalidState, "the prefab was written to '{}', but the assets do not list it",
+                         reference);
+    }
+    const Uuid id = listed->id;
+
+    Json mark = Json::object();
+    mark["prefab"] = id.toString();
+    CORDITE_TRY(world.has<PrefabInstanceComponent>(entity) ? setComponentProperties(entity, kPrefabInstance, mark)
+                                                           : addComponent(entity, kPrefabInstance, mark));
+    return id;
+}
+
+std::string defaultPrefabPath(std::string_view entityName) {
+    std::string file;
+    for (const char character : toLowerAscii(entityName)) {
+        const bool plain = (character >= 'a' && character <= 'z') || (character >= '0' && character <= '9');
+        if (plain) {
+            file.push_back(character);
+        } else if (!file.empty() && file.back() != '-') {
+            file.push_back('-');
+        }
+    }
+    if (!file.empty() && file.back() == '-') {
+        file.pop_back();
+    }
+    return fmt::format("prefabs/{}.prefab.json", file.empty() ? "prefab" : file);
 }
 
 Status EditorActions::renameEntity(Entity entity, std::string_view name) {

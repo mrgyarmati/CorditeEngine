@@ -1,6 +1,7 @@
 #include "cordite/assets/AssetManager.h"
 
 #include "cordite/assets/GltfExporter.h"
+#include "cordite/assets/Prefab.h"
 #include "cordite/assets/Primitives.h"
 #include "cordite/assets/ScriptSource.h"
 #include "cordite/assets/Sound.h"
@@ -691,6 +692,77 @@ TEST_SUITE("AssetManager") {
         REQUIRE_FALSE(gone.has_value());
         CHECK(gone.error().code == ErrorCode::IoError);
         CHECK(gone.error().message.starts_with("sounds/click.wav cannot be read: "));
+    }
+
+    TEST_CASE("a prefab is loaded as what its file holds, once, and again after a refresh") {
+        const Project project;
+        const auto prefabOf = [](std::string_view name, std::string_view entity) {
+            return fmt::format(R"({{"format": "cordite.prefab", "version": 1{}, "entities": [
+                                   {{"id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "name": "{}", "enabled": true,
+                                     "parent": null, "components": {{}}}}]}})",
+                               name.empty() ? std::string() : fmt::format(", \"name\": \"{}\"", name), entity);
+        };
+        project.writeText("prefabs/cart.prefab.json", prefabOf("Hand cart", "Cart"));
+        project.writeText("prefabs/barrel.prefab.json", prefabOf("", "Barrel"));
+        const std::unique_ptr<AssetManager> assets = project.open();
+        const Uuid cart = idOf(*assets, "prefabs/cart.prefab.json");
+
+        const std::shared_ptr<const PrefabData> loaded = unwrap(assets->loadPrefab(cart));
+        CHECK(loaded->name == "Hand cart");
+        REQUIRE(loaded->entities.size() == 1);
+        CHECK(loaded->entities[0]["name"] == "Cart");
+        CHECK(unwrap(assets->loadPrefab(cart)) == loaded);
+        // One that does not say what it is called is called what its file is.
+        CHECK(unwrap(assets->loadPrefab(idOf(*assets, "prefabs/barrel.prefab.json")))->name == "barrel");
+
+        project.writeText("prefabs/cart.prefab.json", prefabOf("Wagon", "Wagon"));
+        CHECK(unwrap(assets->loadPrefab(cart)) == loaded);
+        REQUIRE(assets->refresh().has_value());
+        CHECK(unwrap(assets->loadPrefab(cart))->name == "Wagon");
+        // What was handed out before is what it was.
+        CHECK(loaded->name == "Hand cart");
+    }
+
+    TEST_CASE("a prefab that is none, too large or gone is an error that names it") {
+        const Project project;
+        project.writeText("prefabs/cart.prefab.json",
+                          R"({"format": "cordite.prefab", "version": 1, "entities": [{}]})");
+        project.writeText("prefabs/words.prefab.json", "these are words");
+        project.writeText("prefabs/scene.prefab.json", R"({"format": "cordite.scene", "version": 1})");
+        project.writeText("prefabs/huge.prefab.json", "{}");
+        std::filesystem::resize_file(project.file("prefabs/huge.prefab.json"), kMaxPrefabFileBytes + 1);
+        const std::unique_ptr<AssetManager> assets = project.open();
+
+        const auto mesh = assets->loadPrefab(idOf(*assets, "models/crate.gltf#mesh/0"));
+        REQUIRE_FALSE(mesh.has_value());
+        CHECK(mesh.error().code == ErrorCode::InvalidArgument);
+        CHECK(mesh.error().message == "models/crate.gltf#mesh/0 is a mesh, not a prefab");
+        CHECK(assets->loadMesh(idOf(*assets, "prefabs/cart.prefab.json")).error().message ==
+              "prefabs/cart.prefab.json is a prefab, not a mesh");
+        CHECK(assets->loadPrefab(Uuid::fromName(Uuid(), "no such prefab")).error().code == ErrorCode::NotFound);
+
+        const auto words = assets->loadPrefab(idOf(*assets, "prefabs/words.prefab.json"));
+        REQUIRE_FALSE(words.has_value());
+        CHECK(words.error().code == ErrorCode::ParseError);
+        const auto scene = assets->loadPrefab(idOf(*assets, "prefabs/scene.prefab.json"));
+        REQUIRE_FALSE(scene.has_value());
+        CHECK(scene.error().code == ErrorCode::ParseError);
+        CHECK(scene.error().message ==
+              "prefabs/scene.prefab.json: not a Cordite prefab: 'format' must be \"cordite.prefab\"");
+
+        const auto huge = assets->loadPrefab(idOf(*assets, "prefabs/huge.prefab.json"));
+        REQUIRE_FALSE(huge.has_value());
+        CHECK(huge.error().code == ErrorCode::InvalidArgument);
+        CHECK(huge.error().message ==
+              "prefabs/huge.prefab.json has 16777217 bytes; a prefab file has 16777216 at most");
+
+        // A file that was there when the directory was read, and is not any more.
+        const Uuid cart = idOf(*assets, "prefabs/cart.prefab.json");
+        REQUIRE(std::filesystem::remove(project.file("prefabs/cart.prefab.json")));
+        const auto gone = assets->loadPrefab(cart);
+        REQUIRE_FALSE(gone.has_value());
+        CHECK(gone.error().code == ErrorCode::IoError);
+        CHECK(gone.error().message.starts_with("prefabs/cart.prefab.json cannot be read: "));
     }
 
     TEST_CASE("a scene is listed, but is not something the manager loads") {

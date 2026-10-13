@@ -29,6 +29,7 @@
 #include "cordite/assets/Material.h"
 #include "cordite/assets/Mesh.h"
 #include "cordite/assets/Model.h"
+#include "cordite/assets/Prefab.h"
 #include "cordite/assets/ScriptSource.h"
 #include "cordite/assets/Skeleton.h"
 #include "cordite/assets/Sound.h"
@@ -37,7 +38,9 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <memory>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -78,11 +81,21 @@ public:
     /// with InvalidArgument for a file of more than kMaxSoundFileBytes, and as
     /// decodeSound() does.
     [[nodiscard]] Result<std::shared_ptr<const SoundData>> loadSound(const Uuid& id);
+    /// What a prefab file holds. Fails with InvalidArgument for a file of more than
+    /// kMaxPrefabFileBytes, and as readJsonFile() and parsePrefab() do. A prefab whose
+    /// file gives it no name has that of the file.
+    [[nodiscard]] Result<std::shared_ptr<const PrefabData>> loadPrefab(const Uuid& id);
 
 private:
     explicit AssetManager(AssetDatabaseDesc desc);
 
     [[nodiscard]] Result<const AssetInfo*> lookUp(const Uuid& id, AssetType type) const;
+    /// The file of an asset that is read whole, once it is known to have `maxBytes` at
+    /// most: a file of any size can be given the name of a script. Fails with IoError
+    /// for a file that cannot be asked, and with InvalidArgument for one that is larger;
+    /// `what` is what the message calls such a file, "a script".
+    [[nodiscard]] Result<std::filesystem::path> sourceFileWithin(const AssetInfo& asset, size_t maxBytes,
+                                                                 std::string_view what) const;
     [[nodiscard]] Status importModelFile(const AssetInfo& asset);
     [[nodiscard]] Result<std::shared_ptr<const MaterialData>> loadMaterial(const Uuid& id, uint32_t depth);
     [[nodiscard]] Result<MaterialData> readMaterialFile(const AssetInfo& asset, uint32_t depth);
@@ -95,6 +108,7 @@ private:
     std::unordered_map<Uuid, std::shared_ptr<const AnimationData>> m_animations;
     std::unordered_map<Uuid, std::shared_ptr<const ScriptSource>> m_scripts;
     std::unordered_map<Uuid, std::shared_ptr<const SoundData>> m_sounds;
+    std::unordered_map<Uuid, std::shared_ptr<const PrefabData>> m_prefabs;
     std::unordered_map<Uuid, std::weak_ptr<const Image>> m_textures;
     /// The encoded bytes of images that are stored inside model files.
     std::unordered_map<Uuid, std::shared_ptr<const std::vector<std::byte>>> m_embeddedImages;

@@ -1123,6 +1123,111 @@
             }
         },
         {
+            // Two bollards, placed from a prefab (prefabs/bollard.prefab.json) as
+            // asset.instantiate places one: copies of its entities, with ids of their own.
+            // The PrefabInstance on the root of each says where it came from, and that is
+            // all it does - these are entities like the others, which is why they are
+            // written out here. Move or turn the root to place the whole bollard.
+            "id": "10000000-0000-4000-8000-00000000003d",
+            "name": "Bollard 1",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-000000000001",
+            "components": {
+                "Transform": { "position": [-0.2, 0.0, 3.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [1.0, 1.0, 1.0] },
+                "PrefabInstance": { "prefab": "6c041688-c090-8241-b6d2-251f33c18abd" },
+                "Collider": {
+                    "shape": "box",
+                    "size": [0.24, 0.9, 0.24],
+                    "radius": 0.5,
+                    "height": 2.0,
+                    "mesh": null,
+                    "trigger": false,
+                    "center": [0.0, 0.45, 0.0],
+                    "friction": 0.5,
+                    "restitution": 0.0
+                }
+            }
+        },
+        {
+            "id": "10000000-0000-4000-8000-00000000003e",
+            "name": "Post",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-00000000003d",
+            "components": {
+                "Transform": { "position": [0.0, 0.45, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [0.2, 0.9, 0.2] },
+                "MeshRenderer": {
+                    "mesh": "2c51a473-c570-8ef1-a45b-3b3ba054e8e5",
+                    "materials": ["8733a23e-9efb-81d0-8529-eb712ff4332a"]
+                }
+            }
+        },
+        {
+            "id": "10000000-0000-4000-8000-00000000003f",
+            "name": "Cap",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-00000000003d",
+            "components": {
+                "Transform": { "position": [0.0, 0.9, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [0.26, 0.26, 0.26] },
+                "MeshRenderer": {
+                    "mesh": "aa35bb57-6b9a-8ecb-9eda-83a2a1be3014",
+                    "materials": ["c40ceb3a-92fb-8ca6-8c0c-a72bda94bf24"]
+                }
+            }
+        },
+        {
+            // The second one, an eighth of a turn about its post: what is placed is placed
+            // where and how its root is, and is its own from then on.
+            "id": "10000000-0000-4000-8000-000000000040",
+            "name": "Bollard 2",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-000000000001",
+            "components": {
+                "Transform": {
+                    "position": [1.2, 0.0, 3.5],
+                    "rotation": [0.0, 0.38268343, 0.0, 0.9238795],
+                    "scale": [1.0, 1.0, 1.0]
+                },
+                "PrefabInstance": { "prefab": "6c041688-c090-8241-b6d2-251f33c18abd" },
+                "Collider": {
+                    "shape": "box",
+                    "size": [0.24, 0.9, 0.24],
+                    "radius": 0.5,
+                    "height": 2.0,
+                    "mesh": null,
+                    "trigger": false,
+                    "center": [0.0, 0.45, 0.0],
+                    "friction": 0.5,
+                    "restitution": 0.0
+                }
+            }
+        },
+        {
+            "id": "10000000-0000-4000-8000-000000000041",
+            "name": "Post",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-000000000040",
+            "components": {
+                "Transform": { "position": [0.0, 0.45, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [0.2, 0.9, 0.2] },
+                "MeshRenderer": {
+                    "mesh": "2c51a473-c570-8ef1-a45b-3b3ba054e8e5",
+                    "materials": ["8733a23e-9efb-81d0-8529-eb712ff4332a"]
+                }
+            }
+        },
+        {
+            "id": "10000000-0000-4000-8000-000000000042",
+            "name": "Cap",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-000000000040",
+            "components": {
+                "Transform": { "position": [0.0, 0.9, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [0.26, 0.26, 0.26] },
+                "MeshRenderer": {
+                    "mesh": "aa35bb57-6b9a-8ecb-9eda-83a2a1be3014",
+                    "materials": ["c40ceb3a-92fb-8ca6-8c0c-a72bda94bf24"]
+                }
+            }
+        },
+        {
             // A model with a skeleton (models/hoist.gltf), as placing it with
             // asset.instantiate lays it out. This entity is where the model is; move, turn
             // or scale it to place the whole hoist. It stands behind the fallen barrel, its

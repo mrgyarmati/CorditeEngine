@@ -3,7 +3,6 @@
 #include "cordite/audio/AudioComponents.h"
 #include "cordite/audio/AudioSystem.h"
 #include "cordite/core/StringUtils.h"
-#include "cordite/core/Uuid.h"
 #include "cordite/math/Math.h"
 #include "cordite/scripting/Lua.h"
 #include "cordite/scripting/ScriptBindings.h"
@@ -53,27 +52,6 @@ std::string busNames() {
         names += nameOf(bus);
     }
     return names;
-}
-
-/// The sound asset named at `index`: by where its file is among the assets, or by its
-/// id, as cordite.assets.find() gives it. Raises for what is no asset, and no sound.
-Uuid checkSound(lua_State* state, int index) {
-    const std::string reference(checkText(state, index));
-    const AssetDatabase& database = checkContext(state).assets.database();
-    const AssetInfo* asset = database.findByReference(reference);
-    if (const std::optional<Uuid> id = Uuid::parse(reference); asset == nullptr && id) {
-        asset = database.find(*id);
-    }
-    if (asset == nullptr) {
-        luaL_argerror(state, index, lua_pushfstring(state, "there is no asset '%s'", reference.c_str()));
-        return {};
-    }
-    if (asset->type != AssetType::Sound) {
-        const std::string kind(nameOf(asset->type));
-        luaL_argerror(state, index,
-                      lua_pushfstring(state, "'%s' is of the kind %s, not a sound", reference.c_str(), kind.c_str()));
-    }
-    return asset->id;
 }
 
 /// The value at the top of the stack as the number of the option `name`. Raises for
@@ -190,7 +168,7 @@ std::optional<AudioBus> checkBusOrMaster(lua_State* state, int index) {
 int audioPlay(lua_State* state) {
     AudioSystem& audio = checkAudio(state);
     AudioPlayDesc desc;
-    desc.sound = checkSound(state, 1);
+    desc.sound = checkAsset(state, 1, AssetType::Sound);
     readOptions(state, 2, desc);
     const Result<AudioVoiceId> voice = audio.play(checkContext(state).assets, desc);
     if (voice) {

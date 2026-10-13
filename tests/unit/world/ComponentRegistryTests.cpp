@@ -46,9 +46,10 @@ TEST_SUITE("ComponentRegistry") {
         ComponentRegistry registry;
         REQUIRE(registerWorldComponents(registry).has_value());
 
-        REQUIRE(registry.components().size() == 2);
+        REQUIRE(registry.components().size() == 3);
         CHECK(registry.components()[0]->type.name() == "Transform");
         CHECK(registry.components()[1]->type.name() == "Camera");
+        CHECK(registry.components()[2]->type.name() == "PrefabInstance");
 
         const ComponentDescriptor* transform = registry.find("Transform");
         REQUIRE(transform != nullptr);
@@ -93,7 +94,7 @@ TEST_SUITE("ComponentRegistry") {
         const Status twice = registerWorldComponents(registry);
         REQUIRE_FALSE(twice.has_value());
         CHECK(twice.error().code == ErrorCode::AlreadyExists);
-        CHECK(registry.components().size() == 3);
+        CHECK(registry.components().size() == 4);
     }
 
     TEST_CASE("a component type needs a name") {

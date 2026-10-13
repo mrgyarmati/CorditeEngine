@@ -11,7 +11,8 @@ everything that refers to it keeps working. The code is in `engine/cordite/asset
 | File | What it is |
 |------|------------|
 | `AssetDatabase` | What exists: ids, types, names, dependencies, `.meta` files, problems |
-| `AssetManager` | Loads by id and shares the result: `loadMesh`, `loadMaterial`, `loadTexture`, `loadModel`, `loadScript`, `loadSound` |
+| `AssetManager` | Loads by id and shares the result: `loadMesh`, `loadMaterial`, `loadTexture`, `loadModel`, `loadScript`, `loadSound`, `loadPrefab` |
+| `Prefab` | `PrefabData`: what a `.prefab.json` holds, a name and entities as a scene writes them. Placing one is the business of the `world` module (`world/Prefab.h`) |
 | `Mesh`, `MeshProcessing`, `Primitives` | Mesh data, tangents and optimization, built-in shapes |
 | `Material` | The material model and the `.material.json` format |
 | `GltfImporter`, `GltfExporter`, `GltfDocument` | glTF 2.0 in and out |
@@ -32,12 +33,14 @@ my-game/
         materials/paint.material.json   (+ .meta)
         scenes/main.scene.json    (+ .meta)
         scripts/door.lua          (+ .meta)
+        prefabs/cart.prefab.json  (+ .meta)
         sounds/creak.wav          (+ .meta)
     .cordite/                     derived data; not committed
 ```
 
 File types are told apart by extension: `.gltf`/`.glb` model, `.png .jpg .jpeg .tga
-.bmp .hdr` texture, `.material.json` material, `.scene.json` scene, `.lua` script,
+.bmp .hdr` texture, `.material.json` material, `.scene.json` scene, `.prefab.json`
+prefab, `.lua` script,
 `.wav .flac .mp3` sound. Anything else, and any directory whose name starts with a dot,
 is ignored.
 
@@ -173,6 +176,47 @@ other whose tracks name joints this skeleton has:
 
 Ids of what is inside a model follow from its position in the file. Re-exporting a model
 keeps them as long as the order of its meshes and materials stays the same.
+
+## Make and place a prefab
+
+A prefab is an entity with everything below it, kept in a `.prefab.json` to be placed
+again. In the editor:
+
+```json
+[
+    {"command": "prefab.create", "params": {"entity": "Yard/Cart", "path": "prefabs/cart.prefab.json"}},
+    {"command": "asset.instantiate", "params": {"asset": "prefabs/cart.prefab.json", "parent": "Yard", "name": "Cart 2"}}
+]
+```
+
+`prefab.create` writes the file - it refuses to write over one unless it is given
+`"overwrite": true` -, reads the assets again and marks the entity with a
+`PrefabInstance` component. Without a `path` the file is named after the entity:
+`prefabs/cart.prefab.json` for "Cart". In the menus these are Entity > Make prefab and
+Assets > Place prefab.
+
+A script places one and gets its root back; scripts inside the prefab start with the
+next frame:
+
+```lua
+local cart = cordite.world.instantiate("prefabs/cart.prefab.json",
+                                       { parent = yard, position = cordite.vec3(2, 0, -1) })
+```
+
+What is placed is a copy: entities with ids of their own, saved in full with their
+scene. Changing the prefab changes what is placed afterwards, not what was. Undoing
+`prefab.create` takes the mark off the entity; the file stays.
+
+The file is a small scene - the same format for its entities, one root, which comes
+first. `samples/showcase/assets/prefabs/bollard.prefab.json` is the example, with
+comments. After writing one by hand, ask `asset.get {"asset": "prefabs/x.prefab.json"}`:
+it names the entities, the `assets` they use, and the `problems` placing it would
+meet - a component that does not exist, a mesh that is not there - without placing it.
+
+In code: `AssetManager::loadPrefab(id)` gives the `PrefabData`,
+`instantiatePrefab(world, components, prefab->entities, id, options)` in
+`world/Prefab.h` places it, and `serializePrefabEntities` with `prefabDocument` makes
+what is written into a file.
 
 ## Change the importer or the database
 

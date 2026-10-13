@@ -8,7 +8,8 @@
 /// | `asset.list`       | Lists the assets, optionally of one type.                             |
 /// | `asset.get`        | Describes one asset: what it needs, and what is in it.                |
 /// | `asset.refresh`    | Reads the asset directory again after files changed.                  |
-/// | `asset.instantiate`| Places a model in the scene as a group of entities.                   |
+/// | `asset.instantiate`| Places a model or a prefab in the scene as a group of entities.       |
+/// | `prefab.create`    | Makes a prefab of an entity and everything below it.                  |
 /// | `scene.validate`   | Finds references to assets that are missing or of the wrong kind.     |
 ///
 /// @code

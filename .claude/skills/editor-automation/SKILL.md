@@ -119,6 +119,11 @@ set it like any other property:
   to one of the model's animations (`asset.list` with `"type": "animation"`), and its
   `time` to the moment of the clip to look at - the editor shows a pose, it does not
   play (skill: `work-with-assets`).
+- `asset.instantiate` places a prefab the same way: copies of its entities, under the
+  root it returns, which a `PrefabInstance` component marks. `prefab.create` makes a
+  prefab of an entity and everything below it: `{"entity": "Yard/Cart", "path":
+  "prefabs/cart.prefab.json"}`. It writes a file, which undo does not take back
+  (skill: `work-with-assets`).
 - The built-in meshes (cube, sphere, plane, cylinder, cone, capsule, torus) have the
   same ids in every project. `materials` takes one entry per submesh (`asset.get` tells
   how many a mesh has); a missing or null entry is drawn with the default material.

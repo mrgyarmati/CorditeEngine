@@ -1,16 +1,21 @@
 #include "cordite/assets/AssetDatabase.h"
+#include "cordite/assets/AssetManager.h"
+#include "cordite/assets/Prefab.h"
+#include "cordite/core/Result.h"
 #include "cordite/core/Uuid.h"
 #include "cordite/math/Math.h"
 #include "cordite/math/Transform.h"
 #include "cordite/scripting/Lua.h"
 #include "cordite/scripting/ScriptBindings.h"
 #include "cordite/world/ComponentRegistry.h"
+#include "cordite/world/Prefab.h"
 #include "cordite/world/World.h"
 
 #include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -73,6 +78,87 @@ int worldCreate(lua_State* state) {
     return 1;
 }
 
+/// The options of an instance of a prefab, for a message.
+constexpr const char* kInstanceOptionNames = "parent, name, position, rotation";
+
+/// Reads the option called `name`, whose value is at the top of the stack, into
+/// `options`. Raises for a name that is no option, and for a value of the wrong kind.
+/// Whether a position and a rotation are ones an entity can have is for
+/// instantiatePrefab() to say.
+void readInstanceOption(lua_State* state, std::string_view name, PrefabInstanceOptions& options) {
+    const int value = lua_gettop(state);
+    if (name == "parent") {
+        if (!isEntityValue(state, value)) {
+            luaL_error(state, "the option 'parent' is an entity, not a %s", luaL_typename(state, value));
+        }
+        options.parent = checkEntityValue(state, value);
+        if (!checkContext(state).world.isValid(options.parent)) {
+            luaL_error(state, "the option 'parent' is an entity that is gone: it was destroyed");
+        }
+    } else if (name == "name") {
+        if (lua_type(state, value) != LUA_TSTRING) {
+            luaL_error(state, "the option 'name' is text, not a %s", luaL_typename(state, value));
+        }
+        size_t length = 0;
+        const char* text = lua_tolstring(state, value, &length);
+        options.name.assign(text, length);
+    } else if (name == "position") {
+        std::array<double, 3> numbers{};
+        if (!lua_istable(state, value) || !readNumbers(state, value, 3, numbers.data())) {
+            luaL_error(state, "the option 'position' is a vector: a table with x, y and z");
+        }
+        options.position =
+            Vec3(static_cast<float>(numbers[0]), static_cast<float>(numbers[1]), static_cast<float>(numbers[2]));
+    } else if (name == "rotation") {
+        std::array<double, 4> numbers{};
+        if (!lua_istable(state, value) || !readNumbers(state, value, 4, numbers.data())) {
+            luaL_error(state, "the option 'rotation' is a rotation: a table with x, y, z and w");
+        }
+        options.rotation = Quat(static_cast<float>(numbers[3]), static_cast<float>(numbers[0]),
+                                static_cast<float>(numbers[1]), static_cast<float>(numbers[2]));
+    } else {
+        const std::string unknown(name);
+        luaL_error(state, "an instance has no option '%s'; it has: %s", unknown.c_str(), kInstanceOptionNames);
+    }
+}
+
+int worldInstantiate(lua_State* state) {
+    const ScriptContext& context = checkContext(state);
+    const Uuid prefab = checkAsset(state, 1, AssetType::Prefab);
+    PrefabInstanceOptions options;
+    if (!lua_isnoneornil(state, 2)) {
+        luaL_checktype(state, 2, LUA_TTABLE);
+        lua_pushnil(state);
+        while (lua_next(state, 2) != 0) {
+            // The key is looked at before it is read: reading a number as text would make
+            // it text where it lies, and that is no key lua_next can go on from.
+            if (lua_type(state, -2) != LUA_TSTRING) {
+                return luaL_error(state, "the options of an instance have names: %s", kInstanceOptionNames);
+            }
+            size_t length = 0;
+            const char* name = lua_tolstring(state, -2, &length);
+            readInstanceOption(state, std::string_view(name, length), options);
+            lua_pop(state, 1);
+        }
+    }
+
+    // A prefab that cannot be read, or whose entities are wrong, is a mistake somebody
+    // has to hear of where it is made: an error of the script, which names the file.
+    const Result<std::shared_ptr<const PrefabData>> data = context.assets.loadPrefab(prefab);
+    if (!data) {
+        return luaL_error(state, "%s", data.error().message.c_str());
+    }
+    const Result<Entity> instance =
+        instantiatePrefab(context.world, context.components, (*data)->entities, prefab, options);
+    if (!instance) {
+        const AssetInfo* asset = context.assets.database().find(prefab);
+        const std::string file = asset != nullptr ? asset->reference() : prefab.toString();
+        return luaL_error(state, "%s: %s", file.c_str(), instance.error().message.c_str());
+    }
+    pushEntity(state, *instance);
+    return 1;
+}
+
 int worldRoots(lua_State* state) {
     pushEntities(state, checkContext(state).world.roots());
     return 1;
@@ -117,6 +203,16 @@ constexpr std::array kWorldFunctions = {
                    "Makes an entity, at once. With a parent it hangs under that, where the parent is; without, it "
                    "is a root.",
                    worldCreate},
+    ScriptFunction{"instantiate", "cordite.world.instantiate(prefab, options) -> Entity",
+                   "Places a prefab, at once: copies of its entities, with ids of their own, and their scripts "
+                   "start with the next frame. Returns the root of them, which a PrefabInstance component marks. "
+                   "The prefab is named by where its file is among the assets, \"prefabs/crate.prefab.json\", or "
+                   "by its id. The options are a table, each of them optional: `parent` - the entity the root "
+                   "hangs under, a root of the scene without -, `name` for the root, and `position` and "
+                   "`rotation`, which put and turn the root relative to its parent instead of where and how "
+                   "the prefab has it. An error for what is no prefab, for a prefab that cannot be read, and "
+                   "for an option there is none of.",
+                   worldInstantiate},
     ScriptFunction{"roots", "cordite.world.roots() -> {Entity}",
                    "The entities that hang under nothing, in their order.", worldRoots},
     ScriptFunction{"withComponent", "cordite.world.withComponent(component) -> {Entity}",
@@ -456,23 +552,8 @@ int assetsFind(lua_State* state) {
 // --- cordite.scene ------------------------------------------------------------------------
 
 int sceneLoad(lua_State* state) {
-    const std::string reference(checkText(state, 1));
-    const AssetDatabase& database = checkContext(state).assets.database();
-    // By where it is, or by its id, as cordite.assets.find() gives it.
-    const AssetInfo* asset = database.findByReference(reference);
-    if (const std::optional<Uuid> id = Uuid::parse(reference); asset == nullptr && id) {
-        asset = database.find(*id);
-    }
-    if (asset == nullptr) {
-        return luaL_argerror(state, 1, lua_pushfstring(state, "there is no asset '%s'", reference.c_str()));
-    }
-    if (asset->type != AssetType::Scene) {
-        const std::string kind(nameOf(asset->type));
-        return luaL_argerror(
-            state, 1,
-            lua_pushfstring(state, "'%s' is of the kind %s, not a scene", asset->reference().c_str(), kind.c_str()));
-    }
-    ScriptSystem::of(state).requestScene(asset->id);
+    const Uuid scene = checkAsset(state, 1, AssetType::Scene);
+    ScriptSystem::of(state).requestScene(scene);
     return 0;
 }
 

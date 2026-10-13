@@ -76,6 +76,7 @@ Status AssetManager::refresh() {
     m_animations.clear();
     m_scripts.clear();
     m_sounds.clear();
+    m_prefabs.clear();
     m_textures.clear();
     m_embeddedImages.clear();
     m_importedFiles.clear();
@@ -92,6 +93,21 @@ Result<const AssetInfo*> AssetManager::lookUp(const Uuid& id, AssetType type) co
                          withArticle(type));
     }
     return asset;
+}
+
+Result<std::filesystem::path> AssetManager::sourceFileWithin(const AssetInfo& asset, size_t maxBytes,
+                                                             std::string_view what) const {
+    std::filesystem::path file = m_database.sourceFile(asset);
+    std::error_code failed;
+    const std::uintmax_t size = std::filesystem::file_size(file, failed);
+    if (failed) {
+        return makeError(ErrorCode::IoError, "{} cannot be read: {}", asset.reference(), failed.message());
+    }
+    if (size > maxBytes) {
+        return makeError(ErrorCode::InvalidArgument, "{} has {} bytes; {} has {} at most", asset.reference(), size,
+                         what, maxBytes);
+    }
+    return file;
 }
 
 Status AssetManager::importModelFile(const AssetInfo& asset) {
@@ -354,17 +370,7 @@ Result<std::shared_ptr<const ScriptSource>> AssetManager::loadScript(const Uuid&
     }
     CORDITE_TRY_ASSIGN(const AssetInfo* asset, lookUp(id, AssetType::Script));
 
-    // Asked before the file is read: a file of any size can be called a script.
-    const std::filesystem::path file = m_database.sourceFile(*asset);
-    std::error_code failed;
-    const std::uintmax_t size = std::filesystem::file_size(file, failed);
-    if (failed) {
-        return makeError(ErrorCode::IoError, "{} cannot be read: {}", asset->reference(), failed.message());
-    }
-    if (size > kMaxScriptBytes) {
-        return makeError(ErrorCode::InvalidArgument, "{} has {} bytes; a script has {} at most", asset->reference(),
-                         size, kMaxScriptBytes);
-    }
+    CORDITE_TRY_ASSIGN(const std::filesystem::path file, sourceFileWithin(*asset, kMaxScriptBytes, "a script"));
     CORDITE_TRY_ASSIGN(std::string text, readTextFile(file));
 
     auto script = std::make_shared<const ScriptSource>(ScriptSource{.text = std::move(text)});
@@ -378,17 +384,7 @@ Result<std::shared_ptr<const SoundData>> AssetManager::loadSound(const Uuid& id)
     }
     CORDITE_TRY_ASSIGN(const AssetInfo* asset, lookUp(id, AssetType::Sound));
 
-    // Asked before the file is read: a file of any size can be called a sound.
-    const std::filesystem::path file = m_database.sourceFile(*asset);
-    std::error_code failed;
-    const std::uintmax_t size = std::filesystem::file_size(file, failed);
-    if (failed) {
-        return makeError(ErrorCode::IoError, "{} cannot be read: {}", asset->reference(), failed.message());
-    }
-    if (size > kMaxSoundFileBytes) {
-        return makeError(ErrorCode::InvalidArgument, "{} has {} bytes; a sound file has {} at most", asset->reference(),
-                         size, kMaxSoundFileBytes);
-    }
+    CORDITE_TRY_ASSIGN(const std::filesystem::path file, sourceFileWithin(*asset, kMaxSoundFileBytes, "a sound file"));
     CORDITE_TRY_ASSIGN(const std::vector<std::byte> encoded, readBinaryFile(file));
     Result<SoundData> decoded = decodeSound(encoded);
     if (!decoded) {
@@ -398,6 +394,28 @@ Result<std::shared_ptr<const SoundData>> AssetManager::loadSound(const Uuid& id)
     auto sound = std::make_shared<const SoundData>(std::move(*decoded));
     m_sounds[id] = sound;
     return sound;
+}
+
+Result<std::shared_ptr<const PrefabData>> AssetManager::loadPrefab(const Uuid& id) {
+    if (const auto cached = m_prefabs.find(id); cached != m_prefabs.end()) {
+        return cached->second;
+    }
+    CORDITE_TRY_ASSIGN(const AssetInfo* asset, lookUp(id, AssetType::Prefab));
+
+    CORDITE_TRY_ASSIGN(const std::filesystem::path file,
+                       sourceFileWithin(*asset, kMaxPrefabFileBytes, "a prefab file"));
+    CORDITE_TRY_ASSIGN(const Json document, readJsonFile(file));
+    Result<PrefabData> parsed = parsePrefab(document);
+    if (!parsed) {
+        return tl::unexpected(parsed.error().withContext(asset->reference()));
+    }
+    if (parsed->name.empty()) {
+        parsed->name = asset->name;
+    }
+
+    auto prefab = std::make_shared<const PrefabData>(std::move(*parsed));
+    m_prefabs[id] = prefab;
+    return prefab;
 }
 
 } // namespace cordite

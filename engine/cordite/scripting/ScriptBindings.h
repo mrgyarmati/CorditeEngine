@@ -27,7 +27,9 @@
 /// doubles: a float goes to Lua as the number that is written the shortest - 0.1, not
 /// 0.10000000149011612 - which is the same number the reflection writes into files.
 
+#include "cordite/assets/AssetDatabase.h"
 #include "cordite/core/Result.h"
+#include "cordite/core/Uuid.h"
 #include "cordite/math/Math.h"
 #include "cordite/scripting/ScriptRuntime.h"
 #include "cordite/scripting/ScriptSystem.h"
@@ -62,6 +64,12 @@ void pushEntity(lua_State* state, Entity entity);
 /// Pushes a vector, or a rotation, as a table with the metatable that goes with it.
 void pushVec3(lua_State* state, const Vec3& value);
 void pushQuat(lua_State* state, const Quat& value);
+
+/// The id of the asset of the type `type` that is named at `index`: by where its file
+/// is among the assets, "sounds/hop.wav", or by its id, as cordite.assets.find() gives
+/// it. Raises a Lua error, as a wrong argument, for what names no asset, and for an
+/// asset of another type.
+[[nodiscard]] Uuid checkAsset(lua_State* state, int index, AssetType type);
 
 /// The vector at `index`: a table with x, y and z - or with three numbers at the
 /// positions 1 to 3, as a script writes one in passing: {0, 1, 0}. Raises a Lua error,

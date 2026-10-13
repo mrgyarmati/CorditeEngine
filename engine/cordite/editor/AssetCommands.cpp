@@ -4,6 +4,7 @@
 #include "cordite/assets/AssetDatabase.h"
 #include "cordite/assets/Material.h"
 #include "cordite/assets/Mesh.h"
+#include "cordite/assets/Prefab.h"
 #include "cordite/assets/ScriptSource.h"
 #include "cordite/assets/Skeleton.h"
 #include "cordite/assets/Sound.h"
@@ -12,6 +13,11 @@
 #include "cordite/editor/EditorActions.h"
 #include "cordite/engine/SceneAssets.h"
 #include "cordite/math/MathJson.h"
+#include "cordite/world/ComponentRegistry.h"
+#include "cordite/world/Components.h"
+#include "cordite/world/Entity.h"
+#include "cordite/world/Prefab.h"
+#include "cordite/world/World.h"
 
 #include <fmt/format.h>
 
@@ -42,6 +48,60 @@ Json describeAsset(const AssetInfo& asset) {
     return description;
 }
 
+/// The assets the components of a world refer to: each once, in the order in which the
+/// world first uses it. What is referred to and is not there is left out here;
+/// findSceneProblems() is what names it.
+Json describeUsedAssets(const World& world, const ComponentRegistry& components, const AssetDatabase& database) {
+    Json used = Json::array();
+    std::vector<Uuid> seen;
+    for (const AssetReferenceUse& use : collectAssetReferences(world, components)) {
+        if (std::ranges::find(seen, use.asset) != seen.end()) {
+            continue;
+        }
+        seen.push_back(use.asset);
+        if (const AssetInfo* asset = database.find(use.asset)) {
+            used.push_back(describeAsset(*asset));
+        }
+    }
+    return used;
+}
+
+/// What is in a prefab, and what placing it anywhere would say: it is placed in a world
+/// of its own for that - whether its entities are right, which assets they use, and
+/// what they refer to that is not there or is of the wrong kind.
+Result<Json> describePrefab(AssetManager& assets, const ComponentRegistry& components, const AssetInfo& asset) {
+    CORDITE_TRY_ASSIGN(const std::shared_ptr<const PrefabData> prefab, assets.loadPrefab(asset.id));
+    Json content = Json::object();
+    content["name"] = prefab->name;
+    content["entityCount"] = prefab->entities.size();
+    Json names = Json::array();
+    for (const Json& entity : prefab->entities) {
+        names.push_back(jsonGetOr<std::string>(entity, "name", ""));
+    }
+    content["entities"] = std::move(names);
+
+    World scratch;
+    Json problems = Json::array();
+    const Result<Entity> placed = instantiatePrefab(scratch, components, prefab->entities, asset.id);
+    if (placed) {
+        // Without the mark of an instance: it names the prefab itself, which is no use of it.
+        scratch.remove<PrefabInstanceComponent>(*placed);
+        for (const SceneProblem& problem : findSceneProblems(scratch, components, assets.database())) {
+            Json entry = Json::object();
+            entry["entity"] = entityPathIn(scratch, problem.entity);
+            entry["problem"] = problem.message;
+            problems.push_back(std::move(entry));
+        }
+    } else {
+        Json entry = Json::object();
+        entry["problem"] = placed.error().message;
+        problems.push_back(std::move(entry));
+    }
+    content["assets"] = describeUsedAssets(scratch, components, assets.database());
+    content["problems"] = std::move(problems);
+    return content;
+}
+
 Json describeProblems(const AssetDatabase& database) {
     Json problems = Json::array();
     for (const std::string& problem : database.problems()) {
@@ -51,7 +111,7 @@ Json describeProblems(const AssetDatabase& database) {
 }
 
 /// What is inside an asset. Loads it, so a broken asset fails here with the reason.
-Result<Json> describeContent(AssetManager& assets, const AssetInfo& asset) {
+Result<Json> describeContent(AssetManager& assets, const ComponentRegistry& components, const AssetInfo& asset) {
     Json content = Json::object();
     switch (asset.type) {
         case AssetType::Mesh: {
@@ -139,6 +199,8 @@ Result<Json> describeContent(AssetManager& assets, const AssetInfo& asset) {
             content["seconds"] = sound->seconds();
             break;
         }
+        case AssetType::Prefab:
+            return describePrefab(assets, components, asset);
         case AssetType::Scene:
             // Opened with scene.open; nothing to say about it without doing that.
             break;
@@ -197,7 +259,8 @@ Status registerAssetCommands(CommandRegistry& commands, EditorContext& context) 
         .name = "asset.get",
         .description = "Describes one asset: the assets it depends on, what its importer left out, and what is in "
                        "it - the size of a mesh or a texture, the properties of a material, the nodes of a model, "
-                       "the text of a script, the length of a sound. "
+                       "the text of a script, the length of a sound, the entities of a prefab with the assets "
+                       "they use and what is wrong with them (\"problems\"). "
                        "Fails with the reason when the asset cannot be loaded.",
         .parameters = {{"asset", Type::String, kAssetReference}},
         .handler = [&context](const Json& parameters) -> Result<Json> {
@@ -219,7 +282,7 @@ Status registerAssetCommands(CommandRegistry& commands, EditorContext& context) 
             }
             result["dependencies"] = std::move(dependencies);
             result["warnings"] = asset->warnings;
-            CORDITE_TRY_ASSIGN(result["content"], describeContent(context.assets(), *asset));
+            CORDITE_TRY_ASSIGN(result["content"], describeContent(context.assets(), context.components(), *asset));
             return result;
         },
     }));
@@ -241,30 +304,42 @@ Status registerAssetCommands(CommandRegistry& commands, EditorContext& context) 
 
     CORDITE_TRY(commands.add({
         .name = "asset.instantiate",
-        .description = "Places a model in the scene: one entity per node of the model, with their meshes and "
-                       "materials, under a new root entity that is returned and selected. Move that root to "
-                       "place the model.",
+        .description = "Places a model or a prefab in the scene. A model becomes one entity per node, with "
+                       "their meshes and materials, under a new root entity. A prefab becomes copies of its "
+                       "entities, with ids of their own, the root of them marked as an instance of it by a "
+                       "PrefabInstance component. The root is returned and selected; move it to place what was "
+                       "placed.",
         .parameters = {{"asset", Type::String, kAssetReference},
                        {"parent", Type::String,
-                        "The entity to put the model under: its id, path or unique name. Without one it becomes a "
-                        "root.",
+                        "The entity to put the new entities under: its id, path or unique name. Without one "
+                        "their root becomes a root of the scene.",
                         false},
-                       {"name", Type::String, "The name of the new root entity. Defaults to the name of the model.",
+                       {"name", Type::String,
+                        "The name of the new root entity. Defaults to the name of the model, or to the name the "
+                        "prefab gives its root.",
                         false}},
         .handler = [&context](const Json& parameters) -> Result<Json> {
             CORDITE_TRY_ASSIGN(const AssetInfo* asset, context.resolveAsset(parameters.at("asset").get<std::string>()));
-            ModelInstanceOptions options;
-            options.name = jsonGetOr<std::string>(parameters, "name", "");
-            if (options.name.find('/') != std::string::npos) {
-                return makeError(ErrorCode::InvalidArgument, "an entity name must not contain '/', got '{}'",
-                                 options.name);
+            const auto name = jsonGetOr<std::string>(parameters, "name", "");
+            if (name.find('/') != std::string::npos) {
+                return makeError(ErrorCode::InvalidArgument, "an entity name must not contain '/', got '{}'", name);
             }
+            Entity under;
             if (const auto parent = jsonGetOr<std::string>(parameters, "parent", ""); !parent.empty()) {
-                CORDITE_TRY_ASSIGN(options.parent, context.resolveEntity(parent));
+                CORDITE_TRY_ASSIGN(under, context.resolveEntity(parent));
             }
 
             EditorActions actions(context);
-            CORDITE_TRY_ASSIGN(const Entity instance, actions.instantiateModel(asset->id, options));
+            Entity instance;
+            if (asset->type == AssetType::Model) {
+                CORDITE_TRY_ASSIGN(instance, actions.instantiateModel(asset->id, {.parent = under, .name = name}));
+            } else if (asset->type == AssetType::Prefab) {
+                CORDITE_TRY_ASSIGN(instance, actions.instantiatePrefab(asset->id, {.parent = under, .name = name}));
+            } else {
+                return makeError(ErrorCode::InvalidArgument,
+                                 "{} is {}; what is placed in a scene is a model or a prefab", asset->reference(),
+                                 withArticle(asset->type));
+            }
 
             const World& world = context.world();
             Json result = Json::object();
@@ -274,6 +349,43 @@ Status registerAssetCommands(CommandRegistry& commands, EditorContext& context) 
             uint32_t entityCount = 0;
             world.traverseSubtree(instance, [&entityCount](Entity /*entity*/, uint32_t /*depth*/) { ++entityCount; });
             result["entityCount"] = entityCount;
+            return result;
+        },
+    }));
+
+    CORDITE_TRY(commands.add({
+        .name = "prefab.create",
+        .description = "Makes a prefab of an entity and everything below it: writes them into a file among the "
+                       "assets, reads the assets again, and marks the entity as an instance of the new prefab "
+                       "with a PrefabInstance component. Returns the prefab. asset.instantiate places it, and "
+                       "so does a script, with cordite.world.instantiate. What was placed is a copy: changing "
+                       "the prefab later does not change it. Undoing takes the mark off the entity; the file "
+                       "stays.",
+        .parameters = {{"entity", Type::String,
+                        "The entity to make the prefab of: its id, its path of names from a root, or its name if "
+                        "that is unique."},
+                       {"path", Type::String,
+                        "Where the file goes, within the asset directory. Its name ends in \".prefab.json\": "
+                        "\"prefabs/cart.prefab.json\". Without one it is named after the entity, in \"prefabs\".",
+                        false},
+                       {"overwrite", Type::Boolean,
+                        "Whether a file that is there already is replaced. Without it, such a file is an error. "
+                        "A prefab that is replaced keeps its id.",
+                        false}},
+        .handler = [&context](const Json& parameters) -> Result<Json> {
+            CORDITE_TRY_ASSIGN(const Entity entity, context.resolveEntity(parameters.at("entity").get<std::string>()));
+            const auto path = jsonGetOr<std::string>(parameters, "path", "");
+            const bool overwrite = jsonGetOr<bool>(parameters, "overwrite", false);
+
+            EditorActions actions(context);
+            CORDITE_TRY_ASSIGN(const Uuid id, actions.createPrefab(entity, path, overwrite));
+            CORDITE_TRY_ASSIGN(const std::shared_ptr<const PrefabData> prefab, context.assets().loadPrefab(id));
+            const AssetInfo* asset = context.assets().database().find(id);
+            if (asset == nullptr) {
+                return makeError(ErrorCode::InvalidState, "the prefab {} is not among the assets", id.toString());
+            }
+            Json result = describeAsset(*asset);
+            result["entityCount"] = prefab->entities.size();
             return result;
         },
     }));
@@ -298,23 +410,11 @@ Status registerAssetCommands(CommandRegistry& commands, EditorContext& context) 
                 problems.push_back(std::move(entry));
             }
 
-            // Each asset once, in the order the scene first uses it.
-            Json used = Json::array();
-            std::vector<Uuid> seen;
-            for (const AssetReferenceUse& use : collectAssetReferences(world, context.components())) {
-                if (std::ranges::find(seen, use.asset) != seen.end()) {
-                    continue;
-                }
-                seen.push_back(use.asset);
-                if (const AssetInfo* asset = database.find(use.asset)) {
-                    used.push_back(describeAsset(*asset));
-                }
-            }
-
             Json result = Json::object();
             result["valid"] = problems.empty();
             result["problems"] = std::move(problems);
-            result["assets"] = std::move(used);
+            // Each asset once, in the order the scene first uses it.
+            result["assets"] = describeUsedAssets(world, context.components(), database);
             return result;
         },
     }));

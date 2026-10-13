@@ -1,9 +1,11 @@
 #include "cordite/editor/AssetCommands.h"
 
 #include "cordite/assets/GltfExporter.h"
+#include "cordite/assets/Prefab.h"
 #include "cordite/assets/Primitives.h"
 #include "cordite/assets/Sound.h"
 #include "cordite/core/FileSystem.h"
+#include "cordite/editor/EditorActions.h"
 #include "cordite/editor/EditorCommands.h"
 #include "cordite/engine/EngineComponents.h"
 #include "cordite/renderer/RenderComponents.h"
@@ -228,7 +230,7 @@ TEST_SUITE("AssetCommands") {
         const Error error = fixture.fail("asset.list", R"({"type": "font"})");
         CHECK(error.code == ErrorCode::InvalidArgument);
         CHECK(error.message == "asset.list: 'font' is not an asset type; use texture, mesh, material, model, scene, "
-                               "skeleton, animation, script or sound");
+                               "skeleton, animation, script, sound or prefab");
     }
 
     TEST_CASE("asset.list reports what is wrong with the asset directory") {
@@ -507,10 +509,12 @@ TEST_SUITE("AssetCommands") {
         const Json before = serializeScene(fixture.world, fixture.components);
         const uint64_t history = fixture.context->history().stateId();
 
-        SUBCASE("something that is not a model") {
+        SUBCASE("something that is neither a model nor a prefab") {
             const Error error = fixture.fail("asset.instantiate", R"({"asset": "textures/wall.png"})");
             CHECK(error.code == ErrorCode::InvalidArgument);
-            CHECK(error.message.find("textures/wall.png is a texture, not a model") != std::string::npos);
+            CHECK(
+                error.message ==
+                "asset.instantiate: textures/wall.png is a texture; what is placed in a scene is a model or a prefab");
         }
         SUBCASE("an asset that does not exist") {
             CHECK(fixture.fail("asset.instantiate", R"({"asset": "models/none.gltf"})").code == ErrorCode::NotFound);
@@ -535,6 +539,420 @@ TEST_SUITE("AssetCommands") {
 
         CHECK(serializeScene(fixture.world, fixture.components) == before);
         CHECK(fixture.context->history().stateId() == history);
+    }
+
+    TEST_CASE(
+        "prefab.create writes an entity and what is below it into a prefab, and marks the entity as its instance") {
+        AssetFixture fixture;
+        fixture.run("asset.instantiate", R"({"asset": "models/cart.gltf"})");
+        const World& world = fixture.world;
+        const Entity cart = world.findByName("cart");
+        const uint64_t placed = fixture.context->history().stateId();
+
+        const Json made = fixture.run("prefab.create", R"({"entity": "cart", "path": "prefabs/cart.prefab.json"})");
+        CHECK(made["type"] == "prefab");
+        CHECK(made["name"] == "cart");
+        CHECK(made["path"] == "prefabs/cart.prefab.json");
+        CHECK(made["entityCount"] == 4);
+        CHECK(made["id"] == fixture.id("prefabs/cart.prefab.json"));
+
+        // The file is a prefab as the assets read one: the entities as the scene has them.
+        const Json document = unwrap(readJsonFile(fixture.root / "prefabs" / "cart.prefab.json"));
+        CHECK(document["format"] == "cordite.prefab");
+        CHECK(document["version"] == 1);
+        CHECK(document["name"] == "cart");
+        REQUIRE(document["entities"].size() == 4);
+        CHECK(document["entities"][0]["name"] == "cart");
+        CHECK(document["entities"][0]["parent"].is_null());
+        CHECK(document["entities"][0]["id"] == world.id(cart).toString());
+        CHECK(document["entities"][1]["name"] == "Body");
+        CHECK(document["entities"][1]["parent"] == world.id(cart).toString());
+        CHECK(document["entities"][1]["components"]["MeshRenderer"]["mesh"] == fixture.id("models/cart.gltf#mesh/0"));
+        // The prefab is not an instance of itself: the mark is on the entity, not in the file.
+        CHECK_FALSE(document["entities"][0]["components"].contains("PrefabInstance"));
+
+        // It is an asset from then on, and says what is in it.
+        CHECK(pathsOf(fixture.run("asset.list", R"({"type": "prefab"})")["assets"]) ==
+              std::vector<std::string>{"prefabs/cart.prefab.json"});
+        const Json content = fixture.run("asset.get", R"({"asset": "prefabs/cart.prefab.json"})")["content"];
+        CHECK(content["name"] == "cart");
+        CHECK(content["entityCount"] == 4);
+        CHECK(content["entities"] == json(R"(["cart", "Body", "Wheel", "Mirror"])"));
+        // What its entities are made of, each once, and nothing wrong with any of it.
+        CHECK(pathsOf(content["assets"]) == std::vector<std::string>{"models/cart.gltf#mesh/0",
+                                                                     "models/cart.gltf#material/0",
+                                                                     "models/cart.gltf#mesh/1"});
+        CHECK(content["problems"].empty());
+
+        // The entity it was made of says so, and nothing else about the scene has changed.
+        REQUIRE(world.has<PrefabInstanceComponent>(cart));
+        CHECK(made["id"] == world.tryGet<PrefabInstanceComponent>(cart)->prefab.toString());
+        CHECK(fixture.outline() == std::vector<std::string>{"cart", ".Body", "..Wheel", "..Mirror"});
+        CHECK(fixture.run("scene.validate")["valid"] == true);
+
+        // That mark is the edit, and what undoing takes back; the file stays an asset.
+        CHECK(fixture.context->history().undoLabel() == "Add PrefabInstance to 'cart'");
+        fixture.run("editor.undo");
+        CHECK(fixture.context->history().stateId() == placed);
+        CHECK_FALSE(world.has<PrefabInstanceComponent>(cart));
+        CHECK(fileExists(fixture.root / "prefabs" / "cart.prefab.json"));
+        CHECK(made["id"] == fixture.id("prefabs/cart.prefab.json"));
+    }
+
+    TEST_CASE("a prefab is placed as copies of its entities, marked, in one step of the history") {
+        AssetFixture fixture;
+        fixture.run("asset.instantiate", R"({"asset": "models/cart.gltf"})");
+        fixture.run("prefab.create", R"({"entity": "cart", "path": "prefabs/cart.prefab.json"})");
+        fixture.run("entity.create", R"({"name": "Yard"})");
+        const World& world = fixture.world;
+        const Entity original = world.findByName("cart");
+        const std::string prefab = fixture.id("prefabs/cart.prefab.json");
+
+        const Json placed = fixture.run("asset.instantiate",
+                                        R"({"asset": "prefabs/cart.prefab.json", "parent": "Yard", "name": "Cart 2"})");
+        CHECK(placed["name"] == "Cart 2");
+        CHECK(placed["path"] == "Yard/Cart 2");
+        CHECK(placed["entityCount"] == 4);
+        CHECK(fixture.outline() == std::vector<std::string>{"cart", ".Body", "..Wheel", "..Mirror", "Yard", ".Cart 2",
+                                                            "..Body", "...Wheel", "...Mirror"});
+
+        const Entity copy = unwrap(fixture.context->resolveEntity("Yard/Cart 2"));
+        CHECK(placed["id"] == world.id(copy).toString());
+        CHECK(copy != original);
+        CHECK(world.id(copy) != world.id(original));
+        CHECK(fixture.context->selection() == std::vector<Entity>{copy});
+        // Marked as what it is, and made of what the original is made of.
+        REQUIRE(world.has<PrefabInstanceComponent>(copy));
+        CHECK(world.tryGet<PrefabInstanceComponent>(copy)->prefab.toString() == prefab);
+        const Entity body = unwrap(fixture.context->resolveEntity("Yard/Cart 2/Body"));
+        CHECK(world.transform(body).position == Vec3(0.0f, 1.0f, 0.0f));
+        REQUIRE(world.has<MeshRendererComponent>(body));
+        CHECK(world.tryGet<MeshRendererComponent>(body)->mesh.toString() == fixture.id("models/cart.gltf#mesh/0"));
+        CHECK(world.has<CameraComponent>(unwrap(fixture.context->resolveEntity("Yard/Cart 2/Body/Mirror"))));
+        CHECK(fixture.run("scene.validate")["valid"] == true);
+
+        // By its id as well, by the name its root has, as a root of the scene.
+        const Json again = fixture.run("asset.instantiate", fmt::format(R"({{"asset": "{}"}})", prefab));
+        CHECK(again["name"] == "cart");
+        CHECK(world.parent(unwrap(fixture.context->resolveEntity(again["id"].get<std::string>()))).isNull());
+        CHECK(again["id"] != placed["id"]);
+        CHECK(world.entityCount() == 13);
+        fixture.run("editor.undo");
+        CHECK(world.entityCount() == 9);
+
+        // One step: undone, it is gone; redone, it is the very same entities again.
+        const Json placedScene = serializeScene(world, fixture.components);
+        CHECK(fixture.context->history().undoLabel() == "Place 'Cart 2'");
+        fixture.run("editor.undo");
+        CHECK(fixture.outline() == std::vector<std::string>{"cart", ".Body", "..Wheel", "..Mirror", "Yard"});
+        fixture.run("editor.redo");
+        CHECK(serializeScene(world, fixture.components) == placedScene);
+    }
+
+    TEST_CASE("a prefab is named after its entity when it is not told, and written over only when it is told") {
+        AssetFixture fixture;
+        fixture.run("entity.create", R"({"name": "Front wheel"})");
+        fixture.run("entity.create", R"({"name": "Hub", "parent": "Front wheel"})");
+
+        const Json made = fixture.run("prefab.create", R"({"entity": "Front wheel"})");
+        CHECK(made["path"] == "prefabs/front-wheel.prefab.json");
+        CHECK(made["name"] == "front-wheel");
+        CHECK(made["entityCount"] == 2);
+        const std::filesystem::path file = fixture.root / "prefabs" / "front-wheel.prefab.json";
+        const std::string written = unwrap(readTextFile(file));
+        const Json marked = serializeScene(fixture.world, fixture.components);
+        const uint64_t history = fixture.context->history().stateId();
+
+        // What a file is named after an entity, as far as a file can be.
+        CHECK(defaultPrefabPath("Front wheel") == "prefabs/front-wheel.prefab.json");
+        CHECK(defaultPrefabPath("Crate #7 (old)") == "prefabs/crate-7-old.prefab.json");
+        CHECK(defaultPrefabPath("  --Lamp--  ") == "prefabs/lamp.prefab.json");
+        CHECK(defaultPrefabPath("a/../../b") == "prefabs/a-b.prefab.json");
+        CHECK(defaultPrefabPath("\xC3\x9Cn\xC3\xAF"
+                                "code \xE2\x9C\x93") == "prefabs/n-code.prefab.json");
+        CHECK(defaultPrefabPath("") == "prefabs/prefab.prefab.json");
+        CHECK(defaultPrefabPath("?!") == "prefabs/prefab.prefab.json");
+
+        // The file is there: making it again is refused, whatever case the name is asked in
+        // where the file system does not tell, and nothing is touched.
+        fixture.run("entity.rename", R"({"entity": "Front wheel/Hub", "name": "Axle"})");
+        const Error refused = fixture.fail("prefab.create", R"({"entity": "Front wheel"})");
+        CHECK(refused.code == ErrorCode::AlreadyExists);
+        CHECK(refused.message == "prefab.create: 'prefabs/front-wheel.prefab.json' exists already; it is replaced only "
+                                 "when that is asked for");
+        CHECK(fixture.fail("prefab.create", R"({"entity": "Front wheel", "overwrite": false})").code ==
+              ErrorCode::AlreadyExists);
+        CHECK(unwrap(readTextFile(file)) == written);
+
+        // Told to, it is written over: the same asset, with what the entity is now.
+        fixture.run("asset.instantiate", R"({"asset": "prefabs/front-wheel.prefab.json", "name": "Spare"})");
+        const Json replaced = fixture.run("prefab.create", R"({"entity": "Front wheel", "overwrite": true})");
+        CHECK(replaced["id"] == made["id"]);
+        CHECK(replaced["path"] == "prefabs/front-wheel.prefab.json");
+        CHECK(fixture.run("asset.get", R"({"asset": "prefabs/front-wheel.prefab.json"})")["content"]["entities"] ==
+              json(R"(["Front wheel", "Axle"])"));
+        // The entity was marked already, and names the same prefab: there was nothing to edit.
+        CHECK(fixture.context->history().undoLabel() == "Place 'Spare'");
+        // What was placed before is a copy, and stays what it was.
+        CHECK(fixture.outline() == std::vector<std::string>{"Front wheel", ".Axle", "Spare", ".Hub"});
+        // What is placed from now on is the new one.
+        fixture.run("asset.instantiate", R"({"asset": "prefabs/front-wheel.prefab.json", "name": "New"})");
+        CHECK(fixture.outline() == std::vector<std::string>{"Front wheel", ".Axle", "Spare", ".Hub", "New", ".Axle"});
+        CHECK(marked != serializeScene(fixture.world, fixture.components));
+        CHECK(history != fixture.context->history().stateId());
+    }
+
+    TEST_CASE("an entity that is an instance of one prefab is made into another, and undoing gives it back its mark") {
+        AssetFixture fixture;
+        fixture.run("entity.create", R"({"name": "Lamp"})");
+        const Json first = fixture.run("prefab.create", R"({"entity": "Lamp", "path": "prefabs/lamp.prefab.json"})");
+        const Json placed =
+            fixture.run("asset.instantiate", R"({"asset": "prefabs/lamp.prefab.json", "name": "Lantern"})");
+        const World& world = fixture.world;
+        const Entity lantern = world.findByName("Lantern");
+        CHECK(first["id"] == world.tryGet<PrefabInstanceComponent>(lantern)->prefab.toString());
+
+        const Json second =
+            fixture.run("prefab.create", R"({"entity": "Lantern", "path": "prefabs/deep/lantern.prefab.json"})");
+        CHECK(second["id"] != first["id"]);
+        CHECK(second["path"] == "prefabs/deep/lantern.prefab.json");
+        CHECK(second["id"] == world.tryGet<PrefabInstanceComponent>(lantern)->prefab.toString());
+        // What it was an instance of is no part of what it is now a prefab of.
+        const Json document = unwrap(readJsonFile(fixture.root / "prefabs" / "deep" / "lantern.prefab.json"));
+        CHECK_FALSE(document["entities"][0]["components"].contains("PrefabInstance"));
+
+        CHECK(fixture.context->history().undoLabel() == "Edit PrefabInstance of 'Lantern'");
+        fixture.run("editor.undo");
+        CHECK(first["id"] == world.tryGet<PrefabInstanceComponent>(lantern)->prefab.toString());
+        fixture.run("editor.redo");
+        CHECK(second["id"] == world.tryGet<PrefabInstanceComponent>(lantern)->prefab.toString());
+        CHECK(placed["id"] == world.id(lantern).toString());
+    }
+
+    TEST_CASE("prefab.create refuses what it cannot make a prefab of, and writes nothing") {
+        AssetFixture fixture;
+        fixture.run("entity.create", R"({"name": "Yard"})");
+        const Json before = serializeScene(fixture.world, fixture.components);
+        const uint64_t history = fixture.context->history().stateId();
+        const size_t assetCount = fixture.assets->database().assets().size();
+        // A directory next to the assets, where nothing of them belongs.
+        const std::filesystem::path outside = fixture.directory.path() / "outside.prefab.json";
+
+        SUBCASE("an entity that does not exist") {
+            CHECK(fixture.fail("prefab.create", R"({"entity": "Nowhere"})").code == ErrorCode::NotFound);
+        }
+        SUBCASE("no entity at all") {
+            CHECK(fixture.fail("prefab.create").code == ErrorCode::InvalidArgument);
+        }
+        SUBCASE("a path that leaves the asset directory") {
+            for (const std::string& path : {std::string("../outside.prefab.json"),
+                                            std::string("prefabs/../../outside.prefab.json"), pathToUtf8(outside)}) {
+                CAPTURE(path);
+                Json parameters = json(R"({"entity": "Yard"})");
+                parameters["path"] = path;
+                const Error error = fixture.fail("prefab.create", parameters.dump());
+                CHECK(error.code == ErrorCode::InvalidArgument);
+                CHECK(error.message.find("is outside") != std::string::npos);
+            }
+        }
+        SUBCASE("a file that would be no prefab") {
+            for (const char* file : {"prefabs/yard.json", "prefabs/yard.prefab", "prefabs/yard.scene.json",
+                                     "prefabs/.prefab.json", "prefabs"}) {
+                const std::string path(file);
+                CAPTURE(path);
+                const Error error =
+                    fixture.fail("prefab.create", fmt::format(R"({{"entity": "Yard", "path": "{}"}})", path));
+                CHECK(error.code == ErrorCode::InvalidArgument);
+                CHECK(error.message ==
+                      fmt::format("prefab.create: the name of a prefab file ends in \".prefab.json\"; got '{}'", path));
+            }
+        }
+        SUBCASE("a scene that is being played") {
+            REQUIRE(fixture.context->beginPlay().has_value());
+            const Error error = fixture.fail("prefab.create", R"({"entity": "Yard"})");
+            CHECK(error.code == ErrorCode::InvalidState);
+            CHECK(error.message.find("the scene is being played") != std::string::npos);
+            REQUIRE(fixture.context->endPlay().has_value());
+        }
+        SUBCASE("more entities than a prefab may have") {
+            // One too many - and, below, exactly as many as there may be.
+            World& world = fixture.world;
+            const Entity heap = world.createEntity("Heap");
+            for (size_t index = 1; index < kMaxPrefabEntities + 1; ++index) {
+                REQUIRE(world.setParent(world.createEntity("Grain"), heap).has_value());
+            }
+            const Json heaped = serializeScene(world, fixture.components);
+            const Error error = fixture.fail("prefab.create", R"({"entity": "Heap"})");
+            CHECK(error.code == ErrorCode::InvalidArgument);
+            CHECK(error.message ==
+                  "prefab.create: 'Heap' is 10001 entities with what is below it; a prefab may have 10000 at most");
+            CHECK(serializeScene(world, fixture.components) == heaped);
+            CHECK_FALSE(directoryExists(fixture.root / "prefabs"));
+
+            world.destroyEntity(world.children(heap).back());
+            CHECK(fixture.run("prefab.create", R"({"entity": "Heap"})")["entityCount"] == kMaxPrefabEntities);
+            return;
+        }
+
+        CHECK(serializeScene(fixture.world, fixture.components) == before);
+        CHECK(fixture.context->history().stateId() == history);
+        CHECK_FALSE(directoryExists(fixture.root / "prefabs"));
+        CHECK_FALSE(fileExists(outside));
+        REQUIRE(fixture.assets->refresh().has_value());
+        CHECK(fixture.assets->database().assets().size() == assetCount);
+    }
+
+    TEST_CASE("a prefab that cannot be placed says which file is wrong, and changes nothing") {
+        AssetFixture fixture;
+        const char* twoRoots = R"({"format": "cordite.prefab", "version": 1, "entities": [
+            {"id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "name": "One", "enabled": true, "parent": null,
+             "components": {}},
+            {"id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "name": "Two", "enabled": true, "parent": null,
+             "components": {}}]})";
+        const char* unknownComponent = R"({"format": "cordite.prefab", "version": 1, "entities": [
+            {"id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "name": "One", "enabled": true, "parent": null,
+             "components": {"Engine": {}}}]})";
+        fixture.writeText("prefabs/two.prefab.json", twoRoots);
+        fixture.writeText("prefabs/engine.prefab.json", unknownComponent);
+        fixture.writeText("prefabs/words.prefab.json", "these are words");
+        REQUIRE(fixture.assets->refresh().has_value());
+        fixture.run("entity.create", R"({"name": "Yard"})");
+        const Json before = serializeScene(fixture.world, fixture.components);
+        const uint64_t history = fixture.context->history().stateId();
+
+        Error error = fixture.fail("asset.instantiate", R"({"asset": "prefabs/two.prefab.json"})");
+        CHECK(error.code == ErrorCode::ParseError);
+        CHECK(error.message == "asset.instantiate: prefabs/two.prefab.json: the entities must have one root with all "
+                               "the others below it, but 2 of them have no parent among them");
+        error = fixture.fail("asset.instantiate", R"({"asset": "prefabs/engine.prefab.json", "parent": "Yard"})");
+        CHECK(error.message.starts_with("asset.instantiate: prefabs/engine.prefab.json: entity 'One' "));
+        CHECK(error.message.find("Engine") != std::string::npos);
+        error = fixture.fail("asset.instantiate", R"({"asset": "prefabs/words.prefab.json"})");
+        CHECK(error.code == ErrorCode::ParseError);
+        CHECK(error.message.find("words.prefab.json") != std::string::npos);
+        // The things asset.instantiate refuses for a model, it refuses for a prefab.
+        fixture.writeText("prefabs/one.prefab.json",
+                          R"({"format": "cordite.prefab", "version": 1, "entities": [
+            {"id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "name": "One", "enabled": true, "parent": null,
+             "components": {}}]})");
+        REQUIRE(fixture.assets->refresh().has_value());
+        CHECK(fixture.fail("asset.instantiate", R"({"asset": "prefabs/one.prefab.json", "parent": "Nowhere"})").code ==
+              ErrorCode::NotFound);
+        CHECK(fixture.fail("asset.instantiate", R"({"asset": "prefabs/one.prefab.json", "name": "a/b"})").code ==
+              ErrorCode::InvalidArgument);
+
+        CHECK(serializeScene(fixture.world, fixture.components) == before);
+        CHECK(fixture.context->history().stateId() == history);
+        // And the one that is right is placed, after all of that.
+        CHECK(fixture.run("asset.instantiate", R"({"asset": "prefabs/one.prefab.json"})")["entityCount"] == 1);
+    }
+
+    TEST_CASE("asset.get says what is wrong with a prefab, and what it uses, without placing it in the scene") {
+        AssetFixture fixture;
+        // A part whose mesh is no asset, and whose material is a texture; and a prefab
+        // that is none inside.
+        Json lost = json(R"({"format": "cordite.prefab", "version": 1, "name": "Lost", "entities": [
+            {"id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "name": "One", "enabled": true, "parent": null,
+             "components": {"MeshRenderer": {"mesh": null, "materials": []}}},
+            {"id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "name": "Part", "enabled": true,
+             "parent": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+             "components": {"MeshRenderer": {"mesh": "11111111-1111-4111-8111-111111111111", "materials": []}}}]})");
+        lost["entities"][0]["components"]["MeshRenderer"]["mesh"] = fixture.id("models/cart.gltf#mesh/1");
+        lost["entities"][0]["components"]["MeshRenderer"]["materials"] =
+            Json::array({fixture.id("models/cart.gltf#material/0")});
+        lost["entities"][1]["components"]["MeshRenderer"]["materials"] =
+            Json::array({fixture.id("textures/wall.png"), fixture.id("models/cart.gltf#material/0")});
+        fixture.writeText("prefabs/lost.prefab.json", dumpJson(lost));
+        fixture.writeText("prefabs/two.prefab.json", R"({"format": "cordite.prefab", "version": 1, "entities": [
+            {"id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "name": "One", "enabled": true, "parent": null,
+             "components": {}},
+            {"id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "name": "Two", "enabled": true, "parent": null,
+             "components": {}}]})");
+        REQUIRE(fixture.assets->refresh().has_value());
+        fixture.run("entity.create", R"({"name": "Yard"})");
+        const Json before = serializeScene(fixture.world, fixture.components);
+        const uint64_t history = fixture.context->history().stateId();
+
+        Json content = fixture.run("asset.get", R"({"asset": "prefabs/lost.prefab.json"})")["content"];
+        CHECK(content["name"] == "Lost");
+        CHECK(content["entities"] == json(R"(["One", "Part"])"));
+        // What it uses and is there, in the order in which its entities first use it, and
+        // each once: the paint is on both entities. The prefab itself is not among them.
+        CHECK(pathsOf(content["assets"]) ==
+              std::vector<std::string>{"models/cart.gltf#mesh/1", "models/cart.gltf#material/0", "textures/wall.png"});
+        // What is wrong is said for the entity it is wrong with, by where it is in the prefab.
+        REQUIRE(content["problems"].size() == 2);
+        CHECK(content["problems"][0]["entity"] == "One/Part");
+        CHECK(content["problems"][0]["problem"] ==
+              "MeshRenderer.mesh refers to the asset 11111111-1111-4111-8111-111111111111, which does not exist");
+        CHECK(content["problems"][1]["entity"] == "One/Part");
+        CHECK(content["problems"][1]["problem"] ==
+              "MeshRenderer.materials[0] refers to textures/wall.png, which is a texture, not a material");
+
+        // One that cannot be placed at all says why, and uses nothing.
+        content = fixture.run("asset.get", R"({"asset": "prefabs/two.prefab.json"})")["content"];
+        CHECK(content["entityCount"] == 2);
+        CHECK(content["assets"].empty());
+        REQUIRE(content["problems"].size() == 1);
+        CHECK_FALSE(content["problems"][0].contains("entity"));
+        CHECK(content["problems"][0]["problem"] == "the entities must have one root with all the others below it, but "
+                                                   "2 of them have no parent among them");
+
+        // Asking changes nothing: the scene has none of it, and its history no step more.
+        CHECK(serializeScene(fixture.world, fixture.components) == before);
+        CHECK(fixture.context->history().stateId() == history);
+    }
+
+    TEST_CASE("an editor without a project has nowhere to keep a prefab") {
+        World world;
+        ComponentRegistry components;
+        REQUIRE(registerEngineComponents(components).has_value());
+        const std::unique_ptr<AssetManager> assets = unwrap(AssetManager::create());
+        EditorContext context(world, components, *assets);
+        const Entity lamp = world.createEntity("Lamp");
+
+        const Result<Uuid> made = EditorActions(context).createPrefab(lamp);
+        REQUIRE_FALSE(made.has_value());
+        CHECK(made.error().code == ErrorCode::InvalidState);
+        CHECK(made.error().message == "there is no project open to keep a prefab in");
+        CHECK_FALSE(world.has<PrefabInstanceComponent>(lamp));
+        CHECK(context.history().undoCount() == 0);
+
+        // An entity that is none is no better anywhere.
+        world.destroyEntity(lamp);
+        CHECK(EditorActions(context).createPrefab(lamp).error().code == ErrorCode::InvalidArgument);
+        CHECK(EditorActions(context).instantiatePrefab(Uuid::fromName(Uuid(), "none")).error().code ==
+              ErrorCode::NotFound);
+    }
+
+    TEST_CASE("an editor that writes ids down writes the one of a new prefab down, and keeps it") {
+        AssetFixture fixture;
+        // An editor: its assets are told to write a .meta file for what has none.
+        fixture.assets = unwrap(AssetManager::create({.rootDirectory = fixture.root, .writeMetaFiles = true}));
+        fixture.context = std::make_unique<EditorContext>(fixture.world, fixture.components, *fixture.assets);
+        CommandRegistry commands;
+        REQUIRE(registerEditorCommands(commands, *fixture.context).has_value());
+        const auto run = [&](std::string_view name, std::string_view parameters) {
+            return unwrap(commands.execute(name, json(parameters)));
+        };
+
+        run("entity.create", R"({"name": "Lamp"})");
+        const Json made = run("prefab.create", R"({"entity": "Lamp", "path": "prefabs/lamp.prefab.json"})");
+        const std::filesystem::path meta = fixture.root / "prefabs" / "lamp.prefab.json.meta";
+        REQUIRE(fileExists(meta));
+        CHECK(unwrap(readJsonFile(meta))["id"] == made["id"]);
+
+        // Moved with its .meta, the prefab is the same asset somewhere else - and what was
+        // placed from it still names it.
+        REQUIRE(ensureDirectory(fixture.root / "props").has_value());
+        std::filesystem::rename(fixture.root / "prefabs" / "lamp.prefab.json",
+                                fixture.root / "props" / "lamp.prefab.json");
+        std::filesystem::rename(meta, fixture.root / "props" / "lamp.prefab.json.meta");
+        run("asset.refresh", "{}");
+        CHECK(made["id"] == fixture.id("props/lamp.prefab.json"));
+        CHECK(run("scene.validate", "{}")["valid"] == true);
+        CHECK(run("asset.instantiate", fmt::format(R"({{"asset": "{}"}})", made["id"].get<std::string>()))["name"] ==
+              "Lamp");
     }
 
     TEST_CASE("scene.validate finds references that lead nowhere or to the wrong kind of asset") {

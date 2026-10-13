@@ -42,10 +42,12 @@
 /// scene (PlayMode.h): `play.start`, `play.stop`, `play.pause`, `play.resume`, `play.step`
 /// and `play.status`.
 
+#include "cordite/assets/AssetDatabase.h"
 #include "cordite/assets/Image.h"
 #include "cordite/core/Base.h"
 #include "cordite/core/Json.h"
 #include "cordite/core/Result.h"
+#include "cordite/core/Uuid.h"
 #include "cordite/editor/CommandRegistry.h"
 #include "cordite/editor/ConsolePanel.h"
 #include "cordite/editor/EditorCamera.h"
@@ -148,6 +150,9 @@ private:
     void drawMainMenu();
     void drawEntityMenu();
     void drawAssetMenu();
+    /// A menu of the assets of one type, called `label`; `nothing` is said in it when
+    /// there are none. Returns the one that was chosen in this frame, or nil.
+    [[nodiscard]] Uuid drawAssetChoice(const char* label, AssetType type, const char* nothing) const;
     void drawPlayMenu();
     void drawViewMenu();
     void drawFileDialog();

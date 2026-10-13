@@ -1,10 +1,15 @@
+#include "cordite/assets/AssetDatabase.h"
+#include "cordite/assets/AssetManager.h"
+#include "cordite/core/Uuid.h"
 #include "cordite/scripting/Lua.h"
 #include "cordite/scripting/ScriptBindings.h"
 #include "cordite/world/Entt.h"
 #include "cordite/world/World.h"
 
 #include <array>
+#include <cstddef>
 #include <new>
+#include <optional>
 #include <string>
 
 namespace cordite {
@@ -123,6 +128,30 @@ const ScriptContext& checkContext(lua_State* state) {
         luaL_error(state, "there is no world to reach from here: no update of the scripts is under way");
     }
     return *context;
+}
+
+Uuid checkAsset(lua_State* state, int index, AssetType type) {
+    size_t length = 0;
+    const char* text = luaL_checklstring(state, index, &length);
+    const std::string reference(text, length);
+    const AssetDatabase& database = checkContext(state).assets.database();
+    // By where it is, or by its id, as cordite.assets.find() gives it.
+    const AssetInfo* asset = database.findByReference(reference);
+    if (const std::optional<Uuid> id = Uuid::parse(reference); asset == nullptr && id) {
+        asset = database.find(*id);
+    }
+    if (asset == nullptr) {
+        luaL_argerror(state, index, lua_pushfstring(state, "there is no asset '%s'", reference.c_str()));
+        return {};
+    }
+    if (asset->type != type) {
+        const std::string kind(nameOf(asset->type));
+        const std::string wanted(withArticle(type));
+        luaL_argerror(state, index,
+                      lua_pushfstring(state, "'%s' is of the kind %s, not %s", asset->reference().c_str(), kind.c_str(),
+                                      wanted.c_str()));
+    }
+    return asset->id;
 }
 
 void pushEntity(lua_State* state, Entity entity) {

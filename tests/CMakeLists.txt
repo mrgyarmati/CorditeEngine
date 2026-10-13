@@ -56,6 +56,7 @@ cordite_add_test_suite(math
 cordite_add_test_suite(world
     SOURCES
         unit/world/ComponentRegistryTests.cpp
+        unit/world/PrefabTests.cpp
         unit/world/SceneSerializerTests.cpp
         unit/world/WorldTests.cpp
     LIBRARIES
@@ -130,6 +131,7 @@ cordite_add_test_suite(assets
         unit/assets/MeshProcessingTests.cpp
         unit/assets/MeshTests.cpp
         unit/assets/MipmapsTests.cpp
+        unit/assets/PrefabTests.cpp
         unit/assets/PrimitivesTests.cpp
         unit/assets/SkeletonTests.cpp
         unit/assets/SkinnedMeshTests.cpp

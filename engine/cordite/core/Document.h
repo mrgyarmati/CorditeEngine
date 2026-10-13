@@ -3,10 +3,10 @@
 /// @file
 /// The header every JSON document of the engine starts with.
 ///
-/// Scenes, materials, projects and asset descriptions all begin with a "format" member
-/// that says what the file is and a "version" that says which revision of that format it
-/// was written in. Checking both first turns "this is some other JSON file" and "this
-/// was written by a newer engine" into clear messages instead of a list of unknown
+/// Scenes, prefabs, materials, projects and asset descriptions all begin with a "format"
+/// member that says what the file is and a "version" that says which revision of that
+/// format it was written in. Checking both first turns "this is some other JSON file" and
+/// "this was written by a newer engine" into clear messages instead of a list of unknown
 /// members.
 ///
 /// @code

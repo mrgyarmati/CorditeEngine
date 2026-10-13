@@ -195,6 +195,43 @@ function SelfTest:components()
     self:expect("a reference to an entity", bracket:get("Joint", "connectedTo") == cordite.world.find("Beam"))
 end
 
+-- Prefabs: a few entities that belong together, kept in a file and placed as often as
+-- they are wanted. What is placed is there at once; a script in it starts with the next
+-- frame, like any script that was only just added.
+function SelfTest:prefabs()
+    -- By where its file is among the assets, under the scratch entity, in a corner of the
+    -- floor. Every option may be left out; the table may be, too.
+    local bollard = cordite.world.instantiate("prefabs/bollard.prefab.json", {
+        parent = self.scratch,
+        name = "Spare bollard",
+        position = vec3(8, 0, 8),
+        rotation = cordite.euler(0, 45, 0),
+    })
+    self:expect("a prefab that was placed", bollard:isValid() and bollard:name() == "Spare bollard")
+    self:expect("what a prefab hangs under", bollard:parent() == self.scratch)
+    self:expect("where a prefab was put", near(bollard:position(), vec3(8, 0, 8)))
+    self:expect("how a prefab was turned", near(bollard:rotation(), cordite.euler(0, 45, 0)))
+    self:expect("the entities of a prefab", #bollard:children() == 2 and bollard:children()[1]:name() == "Post")
+    self:expect("what a prefab is made of", bollard:has("Collider") and bollard:children()[2]:has("MeshRenderer"))
+
+    -- The root says which prefab it was placed from; the scene has two more of it.
+    local prefab = cordite.assets.find("prefabs/bollard.prefab.json")
+    self:expect("where an entity came from", bollard:get("PrefabInstance", "prefab") == prefab)
+    self:expect("the other instances", cordite.world.find("Bollard 1"):get("PrefabInstance", "prefab") == prefab)
+    -- Placed again it is another one, with ids of its own.
+    local second = cordite.world.instantiate(prefab, { parent = self.scratch })
+    self:expect("a prefab placed twice", second ~= bollard and second:id() ~= bollard:id())
+    self:expect("a prefab as it was written", second:name() == "Bollard" and near(second:position(), vec3()))
+    -- Both are taken away in the frame they were made in: what is destroyed goes once
+    -- the scripts of the frame have run, before anything is simulated or drawn - the
+    -- game never has a bollard more than its scene has.
+    second:destroy()
+    bollard:destroy()
+    self:expect("a prefab that is to be destroyed", bollard:isValid() and second:isValid())
+    self:expect("what is no prefab", not pcall(cordite.world.instantiate, "scripts/clock.lua"))
+    self:expect("an option there is none of", not pcall(cordite.world.instantiate, prefab, { size = 2 }))
+end
+
 -- The time, the assets, and other scripts.
 function SelfTest:timeAndAssets()
     self:expect("a frame", cordite.time.frame() >= 1 and cordite.time.delta() >= 0)
@@ -351,6 +388,7 @@ function SelfTest:start()
     self:hierarchy()
     self:transforms()
     self:components()
+    self:prefabs()
     self:timeAndAssets()
     self:controls()
     self:sound()

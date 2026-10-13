@@ -1,4 +1,5 @@
 #include "cordite/assets/AssetDatabase.h"
+#include "cordite/core/Json.h"
 #include "cordite/core/Uuid.h"
 #include "cordite/math/Math.h"
 #include "cordite/math/Transform.h"
@@ -60,6 +61,27 @@ constexpr const char* kNear = R"(
     end
 )";
 
+/// A prefab of a cart at (1, 2, 3) with a wheel under it, whose script says that it runs
+/// and what it was given: "prefabs/cart.prefab.json". Returns its id.
+Uuid writeCart(ScriptStage& stage) {
+    const Uuid wheel = stage.write("scripts/wheel.lua", R"(
+        local Wheel = { properties = { spokes = 3 } }
+        function Wheel:start()
+            print("start " .. self.entity:name() .. " of " .. self.entity:parent():name() .. " with " ..
+                  self.properties.spokes)
+        end
+        return Wheel
+    )");
+    Json prefab = unwrap(parseJson(R"({"format": "cordite.prefab", "version": 1, "name": "Cart", "entities": [
+        {"id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "name": "Cart", "enabled": true, "parent": null,
+         "components": {"Transform": {"position": [1, 2, 3], "rotation": [0, 0, 0, 1], "scale": [1, 1, 1]}}},
+        {"id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "name": "Wheel", "enabled": true,
+         "parent": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+         "components": {"Script": {"script": null, "properties": {"spokes": 5}}}}]})"));
+    prefab["entities"][1]["components"]["Script"]["script"] = wheel.toString();
+    return stage.write("prefabs/cart.prefab.json", dumpJson(prefab));
+}
+
 } // namespace
 
 TEST_SUITE("ScriptWorldApi") {
@@ -97,7 +119,8 @@ TEST_SUITE("ScriptWorldApi") {
 
         // Every kind of component there is, by the name it is asked for with: here, those
         // of the world and the one of the scripts, in the order they were registered.
-        CHECK(stage.line("print(table.concat(cordite.world.componentTypes(), ' '))") == "Transform Camera Script");
+        CHECK(stage.line("print(table.concat(cordite.world.componentTypes(), ' '))") ==
+              "Transform Camera PrefabInstance Script");
     }
 
     TEST_CASE("a script makes entities, and they are there at once") {
@@ -333,6 +356,165 @@ TEST_SUITE("ScriptWorldApi") {
         CHECK(stage.refusal("cordite.assets.find({})") == "bad argument #1 to 'find' (string expected, got table)");
     }
 
+    TEST_CASE("a script places a prefab at once, and the scripts in it start with the next frame") {
+        ScriptStage stage;
+        const Uuid cart = writeCart(stage);
+        const Uuid spawner = stage.write("scripts/spawner.lua", R"(
+            local Spawner = {}
+            function Spawner:start()
+                local cart = cordite.world.instantiate("prefabs/cart.prefab.json")
+                local wheel = cart:children()[1]
+                print(cart, cart:parent(), #cart:children(), wheel, wheel:parent() == cart)
+                print(cart:position().x, cart:position().y, cart:position().z)
+                print(cart:has("PrefabInstance"),
+                      cart:get("PrefabInstance", "prefab") == cordite.assets.find("prefabs/cart.prefab.json"),
+                      wheel:has("PrefabInstance"))
+                print(cart:id() ~= "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", cordite.world.find("Cart") == cart)
+
+                -- By its id as well - and that is another cart, with a wheel of its own.
+                local second = cordite.world.instantiate(cordite.assets.find("prefabs/cart.prefab.json"))
+                print(second ~= cart, second:id() ~= cart:id(), second:children()[1] ~= wheel,
+                      #cordite.world.withComponent("PrefabInstance"))
+            end
+            return Spawner
+        )");
+        stage.add("Spawner", spawner);
+
+        // The frame the prefab is placed in: its entities are there before the call returns.
+        stage.update();
+        CHECK(stage.said() == Lines{"Entity(Cart)\tnil\t1\tEntity(Wheel)\ttrue", "1.0\t2.0\t3.0", "true\ttrue\tfalse",
+                                    "true\ttrue", "true\ttrue\ttrue\t2"});
+        CHECK(stage.problems().empty());
+        const World& world = stage.world;
+        CHECK(world.entityCount() == 5);
+        const Entity placed = world.findByName("Cart");
+        REQUIRE(world.has<PrefabInstanceComponent>(placed));
+        CHECK(world.tryGet<PrefabInstanceComponent>(placed)->prefab == cart);
+
+        // The frame after: what the wheels are told to do, they do from here on - with
+        // what the prefab gives them, not with what the script would have by itself.
+        stage.update();
+        CHECK(stage.said() == Lines{"start Wheel of Cart with 5", "start Wheel of Cart with 5"});
+        stage.update();
+        CHECK(stage.said().empty());
+        CHECK(stage.problems().empty());
+    }
+
+    TEST_CASE("a script says where a prefab goes: under what, by what name, where and turned how") {
+        Yard yard;
+        ScriptStage& stage = yard.stage;
+        writeCart(stage);
+
+        CHECK(stage.line(std::string(kNear) + R"(
+            local shed = cordite.world.find("Shed")
+            local cart = cordite.world.instantiate("prefabs/cart.prefab.json", {
+                parent = shed, name = "Wagon", position = cordite.vec3(0, 0, 4), rotation = cordite.euler(0, 90, 0)})
+            print(cart, cart:parent(), shed:children()[2] == cart, near(cart:position(), cordite.vec3(0, 0, 4)),
+                  near(cart:rotation(), cordite.euler(0, 90, 0)), cart:children()[1])
+        )") == "Entity(Wagon)\tEntity(Shed)\ttrue\ttrue\ttrue\tEntity(Wheel)");
+        // Relative to what it hangs under: the shed is at (10, 0, 0), turned a quarter to
+        // the left and twice as large - four along its Z is eight along the world's X.
+        const Entity wagon = stage.world.findByName("Wagon");
+        CHECK_NEAR(yard.worldPosition(wagon), Vec3(18.0f, 0.0f, 0.0f), 1.0e-4f);
+
+        // Each of them alone, and tables written in passing; what is not said is as the
+        // prefab has it.
+        CHECK(stage.lines(std::string(kNear) + R"(
+            local moved = cordite.world.instantiate("prefabs/cart.prefab.json", {position = {7, 8, 9}})
+            local turned = cordite.world.instantiate("prefabs/cart.prefab.json", {rotation = {0, 2, 0, 0}})
+            local named = cordite.world.instantiate("prefabs/cart.prefab.json", {name = "Barrow"})
+            local plain = cordite.world.instantiate("prefabs/cart.prefab.json", {})
+            print(moved:name(), near(moved:position(), cordite.vec3(7, 8, 9)),
+                  near(moved:rotation(), {x = 0, y = 0, z = 0, w = 1}))
+            -- A rotation need not be of length one; it is made so.
+            print(near(turned:rotation(), {x = 0, y = 1, z = 0, w = 0}), near(turned:position(), cordite.vec3(1, 2, 3)))
+            print(named, near(named:position(), cordite.vec3(1, 2, 3)), named:parent())
+            print(plain, cordite.world.instantiate("prefabs/cart.prefab.json", nil))
+        )") == Lines{"Cart\ttrue\ttrue", "true\ttrue", "Entity(Barrow)\ttrue\tnil", "Entity(Cart)\tEntity(Cart)"});
+    }
+
+    TEST_CASE("what is no prefab, and an option there is none of, is an error of the script that says which") {
+        Yard yard;
+        ScriptStage& stage = yard.stage;
+        writeCart(stage);
+        stage.write("scripts/other.lua", "return {}");
+        const char* twoRoots = R"({"format": "cordite.prefab", "version": 1, "entities": [
+            {"id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", "name": "Cart", "enabled": true, "parent": null,
+             "components": {}},
+            {"id": "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", "name": "Wheel", "enabled": true, "parent": null,
+             "components": {}}]})";
+        stage.write("prefabs/two.prefab.json", twoRoots);
+        stage.write("prefabs/words.prefab.json", "these are words");
+        const auto refusal = [&stage](const std::string& arguments) {
+            return stage.refusal("cordite.world.instantiate(" + arguments + ")");
+        };
+
+        // What names no prefab.
+        CHECK(refusal("") == "bad argument #1 to 'instantiate' (string expected, got no value)");
+        CHECK(refusal("'prefabs/none.prefab.json'") ==
+              "bad argument #1 to 'instantiate' (there is no asset 'prefabs/none.prefab.json')");
+        CHECK(refusal("'00000000-0000-4000-8000-000000000001'") ==
+              "bad argument #1 to 'instantiate' (there is no asset '00000000-0000-4000-8000-000000000001')");
+        CHECK(refusal("'scripts/other.lua'") ==
+              "bad argument #1 to 'instantiate' ('scripts/other.lua' is of the kind script, not a prefab)");
+        // Named by its id, what is no prefab is still called by where it is.
+        CHECK(refusal("cordite.assets.find('scripts/other.lua')") ==
+              "bad argument #1 to 'instantiate' ('scripts/other.lua' is of the kind script, not a prefab)");
+
+        // A prefab that is none inside: the message begins with the file.
+        CHECK(refusal("'prefabs/two.prefab.json'") ==
+              "prefabs/two.prefab.json: the entities must have one root with all the others below it, but 2 of them "
+              "have no parent among them");
+        CHECK(refusal("'prefabs/words.prefab.json'").find("words.prefab.json") != std::string::npos);
+
+        // Options that are none, and values that are none for the option.
+        const std::string cart = "'prefabs/cart.prefab.json', ";
+        CHECK(refusal(cart + "5") == "bad argument #2 to 'instantiate' (table expected, got number)");
+        CHECK(refusal(cart + "{scale = 2}") ==
+              "an instance has no option 'scale'; it has: parent, name, position, rotation");
+        CHECK(refusal(cart + "{'Shed'}") == "the options of an instance have names: parent, name, position, rotation");
+        CHECK(refusal(cart + "{parent = 'Shed'}") == "the option 'parent' is an entity, not a string");
+        CHECK(refusal(cart + "{name = 5}") == "the option 'name' is text, not a number");
+        CHECK(refusal(cart + "{position = 'here'}") == "the option 'position' is a vector: a table with x, y and z");
+        CHECK(refusal(cart + "{position = {1, 2}}") == "the option 'position' is a vector: a table with x, y and z");
+        CHECK(refusal(cart + "{rotation = {0, 0, 1}}") ==
+              "the option 'rotation' is a rotation: a table with x, y, z and w");
+        // A place that is none, which is for what places the prefab to say.
+        CHECK(refusal(cart + "{position = {0, 1e39, 0}}") ==
+              "prefabs/cart.prefab.json: the position of a prefab instance must be finite");
+        CHECK(refusal(cart + "{rotation = {0, 0, 0, 0}}") ==
+              "prefabs/cart.prefab.json: the rotation of a prefab instance must be finite and must not be zero");
+
+        // An entity that is gone is nothing to hang a cart under. It is gone once the
+        // frame it was destroyed in is over.
+        const Uuid late = stage.write("scripts/late.lua", R"(
+            local Late = {}
+            function Late:start()
+                self.gone = cordite.world.create("Gone")
+                self.gone:destroy()
+                self.frames = 0
+            end
+            function Late:update()
+                self.frames = self.frames + 1
+                if self.frames == 2 then
+                    cordite.world.instantiate("prefabs/cart.prefab.json", {parent = self.gone})
+                end
+            end
+            return Late
+        )");
+        stage.add("Late", late);
+        stage.update();
+        CHECK(stage.problems().empty());
+        stage.update();
+        REQUIRE(stage.problems().size() == 1);
+        CHECK(stage.problems().front().find("the option 'parent' is an entity that is gone: it was destroyed") !=
+              std::string::npos);
+
+        // Nothing of all that has left a cart behind.
+        CHECK(stage.world.findByName("Cart").isNull());
+        CHECK(stage.world.findByName("Wheel").isNull());
+    }
+
     TEST_CASE("a script asks for another scene, which whoever owns the world then loads") {
         ScriptStage stage;
         const char* empty = R"({"format": "cordite.scene", "version": 1, "name": "Cellar", "entities": []})";
@@ -429,9 +611,9 @@ TEST_SUITE("ScriptWorldApi") {
             }
         }
         CHECK(names == Lines{"cordite.world.find", "cordite.world.findById", "cordite.world.create",
-                             "cordite.world.roots", "cordite.world.withComponent", "cordite.world.componentTypes",
-                             "cordite.time.seconds", "cordite.time.delta", "cordite.time.frame", "cordite.time.after",
-                             "cordite.time.every", "cordite.time.cancel", "cordite.time.run", "cordite.time.wait",
-                             "cordite.scene.load", "cordite.assets.find"});
+                             "cordite.world.instantiate", "cordite.world.roots", "cordite.world.withComponent",
+                             "cordite.world.componentTypes", "cordite.time.seconds", "cordite.time.delta",
+                             "cordite.time.frame", "cordite.time.after", "cordite.time.every", "cordite.time.cancel",
+                             "cordite.time.run", "cordite.time.wait", "cordite.scene.load", "cordite.assets.find"});
     }
 }

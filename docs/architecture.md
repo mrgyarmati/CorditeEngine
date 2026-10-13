@@ -32,8 +32,8 @@ of slowly turning the code base into a ball of mud.
 | `core` | -         | Services every other module needs: logging, assertions, error handling, hashing, UUIDs, JSON and binary serialization, file I/O, configuration, the job system, memory allocators, timing, platform queries. |
 | `math` | `core`    | glm type aliases and conventions; `Transform`, bounding volumes, rays and intersection tests, frustum culling, projection matrices, color conversions, keyframed curves, deterministic random numbers, spherical harmonics, and where a direction is in an image of everything around. |
 | `platform` | `core`, `math` | The window system and windows (GLFW), and per-window keyboard, mouse and gamepad state with an injection API for tests and automation. |
-| `assets` | `core`, `math` | Assets as data, and where they come from: images and mipmaps; meshes, primitives and mesh processing; materials; the text of scripts; the samples of sounds; glTF import and export; the asset database, which knows what exists and under which id; the asset manager, which loads by id. Knows nothing of the GPU. |
-| `world` | `core`, `math` | The scene: entities, their components and their parent/child hierarchy, stored with EnTT; the registry of component types known by name; scene files. |
+| `assets` | `core`, `math` | Assets as data, and where they come from: images and mipmaps; meshes, primitives and mesh processing; materials; the text of scripts; the samples of sounds; prefabs, as far as their files go; glTF import and export; the asset database, which knows what exists and under which id; the asset manager, which loads by id. Knows nothing of the GPU. |
+| `world` | `core`, `math` | The scene: entities, their components and their parent/child hierarchy, stored with EnTT; the registry of component types known by name; scene files; prefabs - placing one in a world, and making one of what is there. |
 | `animation` | `core`, `math`, `assets`, `world` | Movement of skeletons: the functions that make a pose (sampling a clip, blending two poses, the matrices a mesh is skinned with, the bounds of a posed mesh), the `Animator` component, and `AnimationSystem`, which plays the animators of a world and gives each the pose it is in. |
 | `physics` | `core`, `math`, `assets`, `world` | The simulation of rigid bodies: `PhysicsWorld` holds bodies - shapes, a mass, where each is and how it moves - steps them on in time and answers what a ray hits. Jolt Physics is behind it and shows in none of its headers. The `Collider` and `RigidBody` components say what of a world is simulated, and `PhysicsSystem` keeps the two in step; it is also what makes the shapes of colliders out of mesh assets. |
 | `audio` | `core`, `math`, `assets`, `world` | Sound: the `AudioSource` and `AudioListener` components, and `AudioSystem`, which gives the sources of a world voices, places them around whoever listens, mixes them through five buses and plays the result on a device - or, for tests and tools, into memory. miniaudio does the mixing and is seen by nothing outside the module. |
@@ -100,7 +100,8 @@ in a `ComponentRegistry`, which is an ordinary object owned by the engine, not a
 ### Assets
 
 A project keeps its assets as ordinary files in an `assets` directory: models (glTF),
-textures, materials and scenes. Two classes stand between those files and the rest of
+textures, materials, scenes, prefabs, scripts and sounds. Two classes stand between
+those files and the rest of
 the engine. The `AssetDatabase` knows *what exists*: it lists every asset with its id,
 type, name and dependencies, without loading anything but the structure of model
 files. The `AssetManager` *loads*: given an id it returns the mesh, material, image or
@@ -434,6 +435,42 @@ naming the entity, because silently dropping a misspelled field loses work. And 
 do not churn: loading and saving again writes the same bytes. Floats are written in
 their shortest exact form (`0.1`, not `0.10000000149011612`) and read back to the
 identical value, and quaternions that are already unit length are not renormalized.
+
+### A prefab is copied where it is placed
+
+A prefab is a file with a few entities in it: one root and what hangs under it, written
+exactly as a scene writes entities. Placing it creates copies of them with ids of their
+own - what refers to an entity of the group refers to its copy - and marks the root
+with a `PrefabInstance` component that names the prefab. From then on the copies are
+entities like any others: the scene saves them in full, an edit changes them, and
+nothing ties them to the file they came from. A prefab that is changed later changes
+what is placed from then on.
+
+The other design, in which a scene keeps a reference to the prefab and a list of what
+was changed in the instance, is what makes a change to a prefab reach everything that
+was placed from it. It is also overrides to keep, to show and to undo, a scene that
+cannot be read without its prefabs, and rules for a prefab inside a prefab. None of
+that is needed to place a crate twenty times or to have a script spawn one, which is
+what prefabs are for here, and none of it can be had by degrees. So it is left out as
+a whole, and what is there is small: the format is the scene's, the code that checks
+and creates the entities is the scene's - `instantiateEntities`, told to give new ids
+and to insist on one root - and a scene file is still read without any other file.
+
+The mark exists so that a scene says what it was made of and an editor can show it.
+Nothing reads it to decide what an entity does.
+
+Two modules share the work. The assets module knows the file: its header, its name,
+that it holds entities (`PrefabData`, `AssetManager::loadPrefab`). What those entities
+mean - which components there are, and whether the values are right for them - is said
+when they are placed, by `instantiatePrefab` in the world module, which has the
+registry of components to ask. It is not in the `engine` module, where placing a model
+is, because scripts place prefabs too (`cordite.world.instantiate`) and the scripting
+module is below `engine`.
+
+Making a prefab writes a file, and writing a file is not an edit of the scene: undo
+does not take it back. What `prefab.create` changes in the scene is one component - the
+entity the prefab was made of is marked as its first instance - and that is what the
+history holds.
 
 ### The editor's user interface is Dear ImGui
 

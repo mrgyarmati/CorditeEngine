@@ -388,6 +388,17 @@ Result<std::vector<Entity>> instantiateEntities(World& world, const Json& entiti
     CORDITE_TRY_ASSIGN(
         const std::vector<EntityPlan> plans,
         planEntities(entities, components, {.generateNewIds = options.generateNewIds, .destination = &world}));
+    if (options.requireSingleRoot) {
+        // A parent is listed before its children, so a single root is always the first.
+        const auto topLevel =
+            std::ranges::count_if(plans, [](const EntityPlan& plan) { return !plan.parentIndex.has_value(); });
+        if (topLevel != 1) {
+            return makeError(ErrorCode::ParseError,
+                             "the entities must have one root with all the others below it, but {} of them "
+                             "have no parent among them",
+                             topLevel);
+        }
+    }
 
     return createPlanned(world, plans, [&](const EntityPlan& plan) {
         if (options.parent) {

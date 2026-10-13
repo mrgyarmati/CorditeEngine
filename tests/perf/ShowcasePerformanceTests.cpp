@@ -64,6 +64,9 @@ size_t loadEveryAsset(AssetManager& assets) {
             case AssetType::Sound:
                 REQUIRE(assets.loadSound(asset.id).has_value());
                 break;
+            case AssetType::Prefab:
+                REQUIRE(assets.loadPrefab(asset.id).has_value());
+                break;
             case AssetType::Scene:
                 continue;
         }

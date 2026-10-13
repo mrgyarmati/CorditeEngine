@@ -165,9 +165,13 @@ Result<Entity> EditorContext::resolveEntity(std::string_view reference) const {
 }
 
 std::string EditorContext::entityPath(Entity entity) const {
+    return entityPathIn(m_world, entity);
+}
+
+std::string entityPathIn(const World& world, Entity entity) {
     std::vector<std::string_view> names;
-    for (Entity current = entity; !current.isNull(); current = m_world.parent(current)) {
-        names.push_back(m_world.name(current));
+    for (Entity current = entity; !current.isNull(); current = world.parent(current)) {
+        names.push_back(world.name(current));
     }
 
     std::string path;

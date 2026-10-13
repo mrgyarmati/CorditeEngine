@@ -6,6 +6,8 @@ cordite_add_module(world
         Components.h
         Entity.h
         Entt.h
+        Prefab.cpp
+        Prefab.h
         SceneSerializer.cpp
         SceneSerializer.h
         World.cpp

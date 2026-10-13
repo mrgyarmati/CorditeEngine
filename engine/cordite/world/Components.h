@@ -76,6 +76,15 @@ struct CameraComponent {
     bool primary = true;
 };
 
+/// Says that an entity, with what hangs under it, was placed from a prefab, and which
+/// one (cordite/world/Prefab.h). Nothing follows from it for the entity - it is an
+/// ordinary one, and a prefab that is changed later does not change it - but a scene
+/// says with it which prefabs it was made of, and an editor where an entity came from.
+struct PrefabInstanceComponent {
+    /// The prefab asset the entity was placed from. Nil for none.
+    Uuid prefab;
+};
+
 /// Registers the components declared in this file. Other modules that add components
 /// provide a function like this one, and the engine calls them all at start-up. Fails
 /// with AlreadyExists when called twice on the same registry.

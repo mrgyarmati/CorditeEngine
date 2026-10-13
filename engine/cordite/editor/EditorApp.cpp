@@ -1025,7 +1025,42 @@ void EditorApp::drawEntityMenu() {
         }
         ImGui::EndMenu();
     }
+
+    ImGui::Separator();
+    // Writes a file and reads the assets again, which is for between two frames: it is
+    // asked for as a command, and done before the next one. The file is named after the
+    // entity; prefab.create in the console takes a path.
+    const Entity selected = m_context->primarySelection();
+    if (ImGui::MenuItem("Make prefab", nullptr, false, !selected.isNull() && !m_context->isPlaying())) {
+        Json parameters = Json::object();
+        parameters["entity"] = m_context->world().id(selected).toString();
+        m_submittedLines.push_back(fmt::format("prefab.create {}", parameters.dump()));
+    }
     ImGui::EndMenu();
+}
+
+Uuid EditorApp::drawAssetChoice(const char* label, AssetType type, const char* nothing) const {
+    Uuid chosen;
+    if (!ImGui::BeginMenu(label)) {
+        return chosen;
+    }
+    bool any = false;
+    for (const AssetInfo& asset : m_context->assets().database().assets()) {
+        if (asset.type != type) {
+            continue;
+        }
+        any = true;
+        ImGui::PushID(asset.path.c_str());
+        if (ImGui::MenuItem(asset.name.c_str(), asset.path.c_str())) {
+            chosen = asset.id;
+        }
+        ImGui::PopID();
+    }
+    if (!any) {
+        ImGui::TextDisabled("%s", nothing);
+    }
+    ImGui::EndMenu();
+    return chosen;
 }
 
 void EditorApp::drawPlayMenu() {
@@ -1056,29 +1091,15 @@ void EditorApp::drawAssetMenu() {
     if (ImGui::MenuItem("Refresh")) {
         reportIfFailed(m_context->assets().refresh());
     }
-    if (ImGui::BeginMenu("Place model")) {
-        // Collected first: placing a model must not happen while the list is walked.
-        Uuid chosen;
-        bool any = false;
-        for (const AssetInfo& asset : m_context->assets().database().assets()) {
-            if (asset.type != AssetType::Model) {
-                continue;
-            }
-            any = true;
-            ImGui::PushID(asset.path.c_str());
-            if (ImGui::MenuItem(asset.name.c_str(), asset.path.c_str())) {
-                chosen = asset.id;
-            }
-            ImGui::PopID();
-        }
-        if (!any) {
-            ImGui::TextDisabled("The project has no models.");
-        }
-        if (!chosen.isNil()) {
-            reportIfFailed(
-                EditorActions(*m_context).instantiateModel(chosen, {.parent = m_context->primarySelection()}));
-        }
-        ImGui::EndMenu();
+    // Placed once the menu has been drawn: the list of assets must not be walked while
+    // something is placed from it.
+    if (const Uuid model = drawAssetChoice("Place model", AssetType::Model, "The project has no models.");
+        !model.isNil()) {
+        reportIfFailed(EditorActions(*m_context).instantiateModel(model, {.parent = m_context->primarySelection()}));
+    }
+    if (const Uuid prefab = drawAssetChoice("Place prefab", AssetType::Prefab, "The project has no prefabs.");
+        !prefab.isNil()) {
+        reportIfFailed(EditorActions(*m_context).instantiatePrefab(prefab, {.parent = m_context->primarySelection()}));
     }
 
     // What is wrong with the asset directory, where it will be seen.

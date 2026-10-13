@@ -38,6 +38,15 @@ TypeInfo describeCamera() {
         .build();
 }
 
+TypeInfo describePrefabInstance() {
+    return TypeBuilder<PrefabInstanceComponent>("PrefabInstance")
+        .property("prefab", &PrefabInstanceComponent::prefab,
+                  {.description = "The prefab this entity, and what hangs under it, was placed from",
+                   .semantic = PropertySemantic::AssetReference,
+                   .referenceType = "Prefab"})
+        .build();
+}
+
 } // namespace
 
 Status registerWorldComponents(ComponentRegistry& registry) {
@@ -46,6 +55,10 @@ Status registerWorldComponents(ComponentRegistry& registry) {
         {.description = "Where the entity is, relative to its parent. Every entity has one.", .optional = false}));
     CORDITE_TRY(registry.add<CameraComponent>(
         describeCamera(), {.description = "A point of view the scene can be rendered from, looking along -Z."}));
+    CORDITE_TRY(registry.add<PrefabInstanceComponent>(
+        describePrefabInstance(),
+        {.description = "Says which prefab the entity was placed from. It is an ordinary "
+                        "entity all the same: changing the prefab later does not change it."}));
     return {};
 }
 

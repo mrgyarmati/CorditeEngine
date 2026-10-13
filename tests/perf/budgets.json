@@ -21,9 +21,12 @@
         // draw calls a pass that sees all of it. The rack by the wall is two balls and
         // four boxes more - the balls of 960 triangles each, in every pass and every
         // shadow map that sees them - and the sentry a capsule of 1024, which six of
-        // them see.
-        "drawCalls": 150,
-        "triangles": 37500,
+        // them see. The two bollards, placed from a prefab, are a post and a ball each:
+        // the posts are drawn with the pillar, which is of the same mesh and material,
+        // and the balls are a draw call of their own in each pass and shadow map that
+        // sees them - six draw calls and 11,000 triangles more, all passes together.
+        "drawCalls": 160,
+        "triangles": 48500,
         // Passes over the whole picture: the two of the ambient occlusion, the lighting,
         // and what finishes the picture as the scene says - five levels of bloom down
         // and up, the automatic exposure, the final pass and the smoothing of its edges.
@@ -48,10 +51,10 @@
         "meshBytes": 160000,
         // What is simulated: the bodies of the scene - of which three are awake at most
         // once the rest has settled, the two triggers and the body that stands for the
-        // character - the shapes that were made of meshes for their colliders, the
-        // joints that hold bodies together, the characters, and the joints its animators
-        // pose.
-        "bodies": 17,
+        // character; two of those that stand still are the bollards - the shapes that
+        // were made of meshes for their colliders, the joints that hold bodies together,
+        // the characters, and the joints its animators pose.
+        "bodies": 19,
         "geometries": 2,
         "physicsJoints": 5,
         "characters": 1,

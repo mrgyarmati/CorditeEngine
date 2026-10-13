@@ -73,7 +73,7 @@ inline constexpr uint32_t kSceneFormatVersion = 1;
 /// Serializes the given entities and everything below them into a JSON array in the
 /// same form as a scene's "entities". An entity that is listed twice, or that is below
 /// another listed entity, is written once; invalid handles are skipped. Used for copy
-/// and paste, prefabs and undo.
+/// and paste, prefabs (cordite/world/Prefab.h) and undo.
 [[nodiscard]] Json serializeEntities(const World& world, std::span<const Entity> roots,
                                      const ComponentRegistry& components);
 
@@ -91,6 +91,11 @@ struct InstantiateOptions {
     /// restoring entities that must keep their identity (undo), which then fails with
     /// AlreadyExists if one of the identifiers is in use.
     bool generateNewIds = false;
+
+    /// The array must have exactly one top-level entity, with all the others below it,
+    /// as the entities of a prefab do. With none or several the call fails with
+    /// ParseError. That entity is the first of the array, and of what is returned.
+    bool requireSingleRoot = false;
 };
 
 /// Creates entities from an array produced by serializeEntities, appending them to the

@@ -21,9 +21,11 @@
 
 #include "cordite/core/Json.h"
 #include "cordite/core/Result.h"
+#include "cordite/core/Uuid.h"
 #include "cordite/editor/EditorContext.h"
 #include "cordite/engine/ModelInstance.h"
 #include "cordite/world/Entity.h"
+#include "cordite/world/Prefab.h"
 
 #include <cstddef>
 #include <optional>
@@ -67,6 +69,31 @@ public:
     /// the model cannot be loaded.
     [[nodiscard]] Result<Entity> instantiateModel(const Uuid& model, const ModelInstanceOptions& options = {});
 
+    /// Places a prefab in the scene: copies of its entities, with ids of their own, the
+    /// root of them marked as an instance of it (see instantiatePrefab in
+    /// cordite/world/Prefab.h). Returns that root and selects it. Fails with NotFound
+    /// when `prefab` names no asset, with InvalidArgument when it names something other
+    /// than a prefab, and with the reader's error, which names the prefab, when it
+    /// cannot be loaded or its entities are wrong.
+    [[nodiscard]] Result<Entity> instantiatePrefab(const Uuid& prefab, const PrefabInstanceOptions& options = {});
+
+    /// Makes a prefab of an entity and everything below it: writes them into the file
+    /// `assetPath` of the asset directory, reads the assets again, and marks the entity
+    /// as an instance of the new prefab. Returns the id of the prefab. An empty path is
+    /// defaultPrefabPath() of the entity's name.
+    ///
+    /// Only the mark is an edit of the scene, and only that is undone: the file stays.
+    /// A prefab that is written over keeps its id, and what was placed from it before
+    /// stays as it is.
+    ///
+    /// Fails with InvalidState while the scene is played and in an editor without an
+    /// asset directory; with InvalidArgument for a path that leaves that directory or
+    /// does not end in ".prefab.json", and for more than kMaxPrefabEntities entities;
+    /// with AlreadyExists for a file that is there, unless `overwrite`; and as writing a
+    /// file and AssetManager::refresh() do. Nothing has been written before any of the
+    /// first four.
+    [[nodiscard]] Result<Uuid> createPrefab(Entity entity, std::string_view assetPath = {}, bool overwrite = false);
+
     /// Fails with InvalidArgument for an empty name or one containing '/', which
     /// separates the names in entity paths.
     [[nodiscard]] Status renameEntity(Entity entity, std::string_view name);
@@ -98,7 +125,17 @@ public:
     [[nodiscard]] Status recordComponentEdit(Entity entity, std::string_view component, const Json& before);
 
 private:
+    /// Records that `instance`, which was just created with everything below it, was
+    /// placed - so that it can be taken away and put back - and selects it.
+    void recordPlaced(Entity instance);
+
     EditorContext& m_context;
 };
+
+/// Where createPrefab() keeps the prefab of an entity called `entityName` when it is
+/// not told: in "prefabs", in a file named after the entity as far as a file can be -
+/// its letters and digits in lower case, what is between them a dash:
+/// "prefabs/front-wheel.prefab.json" for "Front wheel". A name without any is "prefab".
+[[nodiscard]] std::string defaultPrefabPath(std::string_view entityName);
 
 } // namespace cordite

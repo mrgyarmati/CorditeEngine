@@ -554,15 +554,15 @@ TEST_SUITE("EditorApp") {
         // The viewport is the one view; it draws the showcase, some of it instanced.
         const Json& scene = statistics["scene"];
         CHECK(scene["views"] == 1);
-        CHECK(scene["meshRenderers"] == 30);
+        CHECK(scene["meshRenderers"] == 34);
         // The cable of the hoist is posed by its animator: one skeleton of six joints.
         CHECK(statistics["animation"]["animators"] == 1);
         CHECK(statistics["animation"]["joints"] == 6);
-        // The bodies of the scene are there - seventeen of them, two with shapes made of
+        // The bodies of the scene are there - nineteen of them, two with shapes made of
         // meshes and one that stands for the sentry, a character - and none is
         // simulated: the editor shows a scene, it does not run it. Its joints hold
         // nothing while no time passes, and are not made.
-        CHECK(statistics["physics"]["bodies"] == 17);
+        CHECK(statistics["physics"]["bodies"] == 19);
         CHECK(statistics["physics"]["characters"] == 1);
         CHECK(statistics["physics"]["joints"] == 0);
         CHECK(statistics["physics"]["geometries"] == 2);
@@ -1520,7 +1520,7 @@ TEST_SUITE("EditorApp") {
         CHECK(clockName() == "Clock");
         statistics = run(*editor, "editor.statistics");
         CHECK(statistics["scripts"]["scripts"] == 0);
-        CHECK(statistics["physics"]["bodies"] == 17);
+        CHECK(statistics["physics"]["bodies"] == 19);
         CHECK(statistics["physics"]["joints"] == 0);
         CHECK(statistics["audio"]["voices"] == 0);
         for (const char* command : {"play.stop", "play.pause", "play.resume", "play.step"}) {

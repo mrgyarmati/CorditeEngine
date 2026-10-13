@@ -31,9 +31,10 @@ struct FileKind {
 };
 
 /// Longer extensions first: "x.material.json" is a material, not an unknown ".json".
-constexpr std::array<FileKind, 14> kFileKinds = {{
+constexpr std::array<FileKind, 15> kFileKinds = {{
     {".material.json", AssetType::Material},
     {".scene.json", AssetType::Scene},
+    {".prefab.json", AssetType::Prefab},
     {".lua", AssetType::Script},
     {".wav", AssetType::Sound},
     {".flac", AssetType::Sound},
@@ -49,7 +50,10 @@ constexpr std::array<FileKind, 14> kFileKinds = {{
 }};
 
 const FileKind* kindOfFile(std::string_view path) {
-    const std::string lowered = toLowerAscii(path);
+    // By what the file is called, not by where it is: a file called nothing but ".png"
+    // is no texture, in whatever directory.
+    const size_t slash = path.find_last_of('/');
+    const std::string lowered = toLowerAscii(slash == std::string_view::npos ? path : path.substr(slash + 1));
     for (const FileKind& kind : kFileKinds) {
         if (lowered.size() > kind.extension.size() && lowered.ends_with(kind.extension)) {
             return &kind;
@@ -111,6 +115,11 @@ std::string_view builtinMeshDisplayName(BuiltinMesh mesh) {
 
 } // namespace
 
+std::optional<AssetType> assetTypeOfFile(std::string_view path) {
+    const FileKind* kind = kindOfFile(path);
+    return kind != nullptr ? std::optional(kind->type) : std::nullopt;
+}
+
 std::string_view nameOf(AssetType type) {
     switch (type) {
         case AssetType::Texture:
@@ -131,6 +140,8 @@ std::string_view nameOf(AssetType type) {
             return "script";
         case AssetType::Sound:
             return "sound";
+        case AssetType::Prefab:
+            return "prefab";
     }
     return "unknown";
 }
@@ -155,6 +166,8 @@ std::string_view displayNameOf(AssetType type) {
             return "Script";
         case AssetType::Sound:
             return "Sound";
+        case AssetType::Prefab:
+            return "Prefab";
     }
     return "Unknown";
 }
@@ -179,6 +192,8 @@ std::string_view withArticle(AssetType type) {
             return "a script";
         case AssetType::Sound:
             return "a sound";
+        case AssetType::Prefab:
+            return "a prefab";
     }
     return "an unknown asset";
 }

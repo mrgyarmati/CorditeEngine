@@ -115,6 +115,33 @@ bool dependsOn(const AssetInfo& asset, const Uuid& id) {
 } // namespace
 
 TEST_SUITE("AssetDatabase") {
+    TEST_CASE("a file is an asset by how its name ends, whatever the case, and not by that alone") {
+        CHECK(assetTypeOfFile("prefabs/cart.prefab.json") == AssetType::Prefab);
+        CHECK(assetTypeOfFile("cart.PREFAB.Json") == AssetType::Prefab);
+        CHECK(assetTypeOfFile("levels/yard.scene.json") == AssetType::Scene);
+        CHECK(assetTypeOfFile("materials/paint.material.json") == AssetType::Material);
+        CHECK(assetTypeOfFile("models/crate.gltf") == AssetType::Model);
+        CHECK(assetTypeOfFile("models/crate.GLB") == AssetType::Model);
+        CHECK(assetTypeOfFile("a.png") == AssetType::Texture);
+        CHECK(assetTypeOfFile("scripts/door.lua") == AssetType::Script);
+        CHECK(assetTypeOfFile("sounds/hop.flac") == AssetType::Sound);
+
+        // No asset: another ending, none, some JSON, half an ending, what describes an asset.
+        for (const char* path :
+             {"notes.txt", "prefabs/cart", "settings.json", "prefabs/cart.prefab", "a.png.meta", ""}) {
+            CAPTURE(std::string(path));
+            CHECK_FALSE(assetTypeOfFile(path).has_value());
+        }
+        // Nor a file that is called nothing but such an ending, wherever it is.
+        for (const char* path : {".png", "textures/.png", "prefabs/.prefab.json", "a.b/.lua"}) {
+            CAPTURE(std::string(path));
+            CHECK_FALSE(assetTypeOfFile(path).has_value());
+        }
+        // A directory may be called anything.
+        CHECK(assetTypeOfFile("old.png/wall.tga") == AssetType::Texture);
+        CHECK_FALSE(assetTypeOfFile("old.png/notes").has_value());
+    }
+
     TEST_CASE("the names of asset types") {
         CHECK(nameOf(AssetType::Texture) == "texture");
         CHECK(nameOf(AssetType::Mesh) == "mesh");
@@ -125,12 +152,14 @@ TEST_SUITE("AssetDatabase") {
         CHECK(nameOf(AssetType::Animation) == "animation");
         CHECK(nameOf(AssetType::Script) == "script");
         CHECK(nameOf(AssetType::Sound) == "sound");
+        CHECK(nameOf(AssetType::Prefab) == "prefab");
         CHECK(displayNameOf(AssetType::Texture) == "Texture");
         CHECK(displayNameOf(AssetType::Mesh) == "Mesh");
         CHECK(displayNameOf(AssetType::Skeleton) == "Skeleton");
         CHECK(displayNameOf(AssetType::Animation) == "Animation");
         CHECK(displayNameOf(AssetType::Script) == "Script");
         CHECK(displayNameOf(AssetType::Sound) == "Sound");
+        CHECK(displayNameOf(AssetType::Prefab) == "Prefab");
         // In a sentence a type takes the article its name asks for.
         CHECK(withArticle(AssetType::Texture) == "a texture");
         CHECK(withArticle(AssetType::Mesh) == "a mesh");
@@ -141,8 +170,9 @@ TEST_SUITE("AssetDatabase") {
         CHECK(withArticle(AssetType::Animation) == "an animation");
         CHECK(withArticle(AssetType::Script) == "a script");
         CHECK(withArticle(AssetType::Sound) == "a sound");
+        CHECK(withArticle(AssetType::Prefab) == "a prefab");
         // Every type is found by its name, and has a name of its own.
-        CHECK(kAssetTypes.size() == 9);
+        CHECK(kAssetTypes.size() == 10);
         for (const AssetType type : kAssetTypes) {
             CHECK(assetTypeFromName(nameOf(type)) == type);
             CHECK(nameOf(type) != "unknown");
@@ -223,6 +253,8 @@ TEST_SUITE("AssetDatabase") {
         project.writeTexture("a.jpg");
         project.writeText("materials/paint.material.json", R"({"format": "cordite.material", "version": 1})");
         project.writeText("scenes/main.scene.json", "{}");
+        project.writeText("prefabs/cart.prefab.json", "{}");
+        project.writeText("prefabs/Old.Cart.PREFAB.JSON", "not even JSON, and nobody has asked yet");
         project.writeText("scripts/door.lua", "return {}");
         project.writeText("scripts/Open.Slowly.LUA", "this is not Lua, and nobody has asked yet");
         project.writeText("sounds/click.wav", "this is no sound either");
@@ -237,6 +269,12 @@ TEST_SUITE("AssetDatabase") {
         project.writeText("sounds/theme.ogg", "a kind of sound file that is not read");
         project.writeText("notes.txt", "remember the milk");
         project.writeText("settings.json", "{}");
+        project.writeText("prefabs/cart.prefab", "{}");
+        project.writeText("prefabs/prefab.json", "{}");
+        // A file that is called nothing but what makes an asset of others, here and at the top.
+        project.writeText("prefabs/.prefab.json", "{}");
+        project.writeText("textures/.png", "");
+        project.writeText(".lua", "");
         project.writeText("models/crate.blend", "");
         project.writeText(".png", "a file that is nothing but an extension");
         project.writeTexture(".cache/thumbnail.png");
@@ -251,6 +289,8 @@ TEST_SUITE("AssetDatabase") {
                                              "models/crate.gltf#material/0",
                                              "models/crate.gltf#material/1",
                                              "models/crate.gltf#image/1",
+                                             "prefabs/Old.Cart.PREFAB.JSON",
+                                             "prefabs/cart.prefab.json",
                                              "scenes/main.scene.json",
                                              "scripts/Open.Slowly.LUA",
                                              "scripts/door.lua",
@@ -268,6 +308,12 @@ TEST_SUITE("AssetDatabase") {
         CHECK(require(database, "materials/paint.material.json").name == "paint");
         CHECK(require(database, "scenes/main.scene.json").type == AssetType::Scene);
         CHECK(require(database, "scenes/main.scene.json").name == "main");
+        // A prefab is a file of its own kind, not some .json: its name is what is before both.
+        CHECK(require(database, "prefabs/cart.prefab.json").type == AssetType::Prefab);
+        CHECK(require(database, "prefabs/cart.prefab.json").name == "cart");
+        CHECK(require(database, "prefabs/cart.prefab.json").dependencies.empty());
+        CHECK(require(database, "prefabs/Old.Cart.PREFAB.JSON").type == AssetType::Prefab);
+        CHECK(require(database, "prefabs/Old.Cart.PREFAB.JSON").name == "Old.Cart");
         CHECK(require(database, "models/crate.gltf").type == AssetType::Model);
         CHECK(require(database, "models/crate.gltf").name == "crate");
         // A script is its text; whether that is Lua is for whoever runs it to find out.

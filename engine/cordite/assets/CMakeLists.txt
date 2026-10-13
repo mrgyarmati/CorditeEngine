@@ -25,6 +25,8 @@ cordite_add_module(assets
         Mipmaps.cpp
         Mipmaps.h
         Model.h
+        Prefab.cpp
+        Prefab.h
         Primitives.cpp
         Primitives.h
         ScriptSource.h

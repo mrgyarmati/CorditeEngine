@@ -563,21 +563,21 @@ TEST_SUITE("Engine") {
 
         // Everything in the scene that is enabled was found; none of it failed to load.
         const SceneRenderStatistics& statistics = engine->sceneRenderer().statistics();
-        CHECK(statistics.meshRenderers == 30);
+        CHECK(statistics.meshRenderers == 34);
         // The cable of the hoist is skinned to six joints, and it swings: a game lets
         // time pass, and the animator's clock has moved on by the two frames.
         CHECK(statistics.skinnedMeshes == 1);
         CHECK(statistics.jointMatrices == 6);
         CHECK(engine->statistics().animation == AnimationStatistics{.animators = 1, .joints = 6});
-        // Seventeen bodies: the floor, the pillar, the cone, the grating, the triggers
-        // over the walkway and at the sentry's post, the beam of the rack, what the
-        // simulation moves - the crate with its lid, the barrel, the ball, the gas
-        // cylinder and the five things that hang from the rack, each by a joint - and the
-        // body that stands for the sentry, which is a character. Two have shapes made of
-        // meshes: the hull around the barrel, the triangles of the grating. A frame of a
-        // sixtieth of a second is one step.
+        // Nineteen bodies: the floor, the pillar, the cone, the grating, the two bollards,
+        // the triggers over the walkway and at the sentry's post, the beam of the rack,
+        // what the simulation moves - the crate with its lid, the barrel, the ball, the
+        // gas cylinder and the five things that hang from the rack, each by a joint - and
+        // the body that stands for the sentry, which is a character. Two have shapes made
+        // of meshes: the hull around the barrel, the triangles of the grating. A frame of
+        // a sixtieth of a second is one step.
         CHECK(engine->statistics().physics.steps == 1);
-        CHECK(engine->statistics().physics.bodies == 17);
+        CHECK(engine->statistics().physics.bodies == 19);
         CHECK(engine->statistics().physics.joints == 5);
         CHECK(engine->statistics().physics.characters == 1);
         CHECK(engine->statistics().physics.geometries == 2);
@@ -745,8 +745,8 @@ TEST_SUITE("Engine") {
         CHECK(world.sceneName() == "Showcase");
         CHECK(world.findByName("Plinth").isNull());
         CHECK_FALSE(world.findByName("Clock").isNull());
-        CHECK(engine->statistics().physics.bodies == 17);
-        CHECK(engine->sceneRenderer().statistics().meshRenderers == 30);
+        CHECK(engine->statistics().physics.bodies == 19);
+        CHECK(engine->sceneRenderer().statistics().meshRenderers == 34);
         const Entity back = world.findByName("Sentry");
         REQUIRE_FALSE(back.isNull());
         CHECK_NEAR(world.transform(back).position, Vec3(-0.8f, 0.0f, -3.9f), 5.0e-2f);

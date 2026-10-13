@@ -124,8 +124,8 @@ by accident.
 | `core` | -         | Logging, assertions, `Result`, hashing, UUIDs, JSON, reflection, binary streams, file I/O, config, job system, allocators, timing |
 | `math` | `core`    | glm aliases, `Transform`, bounds, rays, frustum, projections, color, curves, random, spherical harmonics, directions in images of everything around, reflection of math types |
 | `platform` | `core`, `math` | Windows (GLFW), keyboard / mouse / gamepad input, and the controls a game has by name: `InputMap`, `InputActions` |
-| `assets` | `core`, `math` | Assets as data: images and mipmaps, meshes - rigid and skinned - and what prepares them, skeletons, animation clips, materials, the text of scripts, the samples of sounds, glTF import and export, the asset database (ids, `.meta` files) and the asset manager (loading by id) |
-| `world` | `core`, `math` | Entities, components and their hierarchy (EnTT), the component registry, scene files |
+| `assets` | `core`, `math` | Assets as data: images and mipmaps, meshes - rigid and skinned - and what prepares them, skeletons, animation clips, materials, the text of scripts, the samples of sounds, prefabs as their files have them, glTF import and export, the asset database (ids, `.meta` files) and the asset manager (loading by id) |
+| `world` | `core`, `math` | Entities, components and their hierarchy (EnTT), the component registry, scene files, prefabs: placing one in a world and making one of what is there |
 | `animation` | `core`, `math`, `assets`, `world` | Poses of skeletons and what makes them: sampling clips, blending, the matrices a mesh is skinned with and the bounds of a posed mesh; the `Animator` component; `AnimationSystem`, which plays the animators of a world |
 | `physics` | `core`, `math`, `assets`, `world` | `PhysicsWorld`: rigid bodies, their shapes - boxes, balls, capsules, the hulls around sets of points and surfaces of triangles - joints between them, the characters that walk among them, stepping, contact events and queries, over Jolt Physics; the `Collider`, `RigidBody`, `Joint` and `CharacterController` components; `PhysicsSystem`, which keeps the entities of a world and the bodies, joints and characters of a simulation in step and makes shapes of mesh assets |
 | `audio` | `core`, `math`, `assets`, `world` | What is heard: the `AudioSource` and `AudioListener` components, and `AudioSystem`, which plays the sources of a world from where they are - voices, five buses with volumes of their own, sound without an entity - over miniaudio, onto a device or into memory |
@@ -554,6 +554,19 @@ Step-by-step guide for adding a component: [add-component](.claude/skills/add-co
   Floats written to a file go through `jsonFromFloat`; nothing is "improved" on load.
 - **Scene loading is strict.** An unknown component, property or member is an error
   that names the entity, not something to skip.
+- **A prefab is entities in a file, and placing it copies them.** A `.prefab.json`
+  holds a group of entities with one root, written as a scene writes them. The assets
+  know it as what its file says (`assets/Prefab.h`); the world places it
+  (`world/Prefab.h`: `instantiatePrefab`, and `serializePrefabEntities` for making
+  one) - there and not in `engine`, because scripts place prefabs too and the
+  scripting module is below it. The copies get ids of their own, what refers to an
+  entity of the group refers to its copy, and the root gets a `PrefabInstance` that
+  names the prefab. That component is a mark and nothing more: what was placed is
+  ordinary entities, saved in full with their scene, and a prefab that is changed
+  later does not change them. Nothing may read the mark to decide what an entity
+  does. Keeping instances up to date with their prefab - overrides, prefabs inside
+  prefabs that stay tied - would be a design of its own, not an addition to this one
+  ([why](docs/architecture.md#a-prefab-is-copied-where-it-is-placed)).
 - **The showcase uses everything.** The scene of `samples/showcase` must contain every
   component type and every named option that a scene can hold - not those of
   `transient` properties, which only a running game has - and use every asset and
@@ -624,8 +637,11 @@ Step-by-step guide: [work-with-assets](.claude/skills/work-with-assets/SKILL.md)
   (`AssetDatabase::problems`), loading returns an error, and the renderer reports once
   and draws the rest. `scene.validate` and `findSceneProblems` find dangling references.
 - **The showcase's textures, models and sounds are generated**, by `tools/sample-assets`.
-  Change the generator, run it, look at the result, commit both. Its materials and its
-  scene are written by hand, with comments: they are the reference for the file formats.
+  Change the generator, run it, look at the result, commit both. Its materials, its
+  prefab and its scene are written by hand, with comments: they are the reference for
+  the file formats. What the scene has placed from the prefab is written out in the
+  scene, as every instance is, and a test keeps the two the same: change the prefab,
+  and change its instances in the scene with it.
   A new file gets its `.meta` file - its id - when the project is next opened in the
   editor (`cordite-editor --headless --project samples/showcase --frames 1`); the ids
   of what is inside it are listed by `asset.get`.
@@ -1249,6 +1265,12 @@ panels, EditorApp    the interface, built on the three layers above
   command and their tests first, and interface second. `editor.commands` returns the
   catalogue an agent reads, so every command and parameter needs a real description
   (a test rejects empty ones).
+- **Undo takes back what was changed in the scene, not a file that was written.**
+  `prefab.create` writes a prefab and reads the assets again, and neither is undone:
+  what undo takes back is the mark it put on the entity. A command that writes a file
+  among the assets says so in its description, keeps the path inside the asset
+  directory (`relativePathWithin`), refuses to write over a file unless it is told
+  to, and is refused while the scene is played.
 - **History entries hold ids and validated patches**, never `Entity` handles, component
   pointers or references into the world.
 - **Commands run between frames.** A command may render frames itself (screenshots);

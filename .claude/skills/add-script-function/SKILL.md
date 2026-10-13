@@ -40,9 +40,11 @@ of [AGENTS.md](../../../AGENTS.md)). Everything they can call is a C++ function 
    }
    ```
 
-   - Arguments are checked with `checkEntity`, `checkVec3`, `checkQuat`
+   - Arguments are checked with `checkEntity`, `checkVec3`, `checkQuat`, `checkAsset`
      (`ScriptBindings.h`) and Lua's own `luaL_check...`; their messages name the function
-     and the argument. Raise anything else with `luaL_error` or `luaL_argerror`.
+     and the argument. Raise anything else with `luaL_error` or `luaL_argerror`. An
+     asset is named by where its file is among the assets or by its id, and
+     `checkAsset` is what takes both.
    - Read the arguments first, then do the work: an error leaves the function at once.
    - A float goes to Lua through `scriptNumber`, `pushVec3` or `pushQuat`, so that a
      script sees 0.1 and not 0.10000000149011612.

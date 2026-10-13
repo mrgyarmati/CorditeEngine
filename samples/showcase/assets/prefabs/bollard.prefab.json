@@ -1,0 +1,73 @@
+// A bollard: a post to keep things out of the way, with a striped cap.
+//
+// A prefab is a few entities that belong together, written down once and placed as often
+// as they are wanted: by `asset.instantiate` in the editor, and by a script with
+// `cordite.world.instantiate`. `prefab.create` in the editor writes such a file for an
+// entity and everything below it. The showcase scene has two of this one, and its
+// self-test places a third for a few frames.
+//
+// What is placed is a copy: entities with ids of their own, which the scene saves like
+// any others. Changing this file changes what is placed from then on, not what was.
+{
+    "format": "cordite.prefab",
+    "version": 1,
+    // What the prefab is called. Without a name it is called what its file is.
+    "name": "Bollard",
+    // Entities as a scene has them. One of them - the first - hangs under none of the
+    // others: the root, which is what is named, moved and turned when the prefab is
+    // placed, and what a PrefabInstance component then marks. The ids only say which
+    // entity is which in this file; every copy gets new ones, and what refers to an entity
+    // in here - a parent, a joint - refers to the copy of it.
+    "entities": [
+        {
+            // The root stands on the ground, so that where a bollard is put is where its
+            // foot is. It is what stops things: a box as tall as the post, half of it above
+            // the middle of the entity.
+            "id": "30000000-0000-4000-8000-000000000001",
+            "name": "Bollard",
+            "enabled": true,
+            "parent": null,
+            "components": {
+                "Transform": { "position": [0.0, 0.0, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [1.0, 1.0, 1.0] },
+                "Collider": {
+                    "shape": "box",
+                    "size": [0.24, 0.9, 0.24],
+                    "radius": 0.5,
+                    "height": 2.0,
+                    "mesh": null,
+                    "trigger": false,
+                    "center": [0.0, 0.45, 0.0],
+                    "friction": 0.5,
+                    "restitution": 0.0
+                }
+            }
+        },
+        {
+            // The built-in cylinder is a metre tall and a metre across; scaled, it is the post.
+            "id": "30000000-0000-4000-8000-000000000002",
+            "name": "Post",
+            "enabled": true,
+            "parent": "30000000-0000-4000-8000-000000000001",
+            "components": {
+                "Transform": { "position": [0.0, 0.45, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [0.2, 0.9, 0.2] },
+                "MeshRenderer": {
+                    "mesh": "2c51a473-c570-8ef1-a45b-3b3ba054e8e5",
+                    "materials": ["8733a23e-9efb-81d0-8529-eb712ff4332a"]
+                }
+            }
+        },
+        {
+            "id": "30000000-0000-4000-8000-000000000003",
+            "name": "Cap",
+            "enabled": true,
+            "parent": "30000000-0000-4000-8000-000000000001",
+            "components": {
+                "Transform": { "position": [0.0, 0.9, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [0.26, 0.26, 0.26] },
+                "MeshRenderer": {
+                    "mesh": "aa35bb57-6b9a-8ecb-9eda-83a2a1be3014",
+                    "materials": ["c40ceb3a-92fb-8ca6-8c0c-a72bda94bf24"]
+                }
+            }
+        }
+    ]
+}

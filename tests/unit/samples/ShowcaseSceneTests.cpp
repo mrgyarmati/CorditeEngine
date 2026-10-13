@@ -8,6 +8,7 @@
 
 #include "cordite/assets/AssetManager.h"
 #include "cordite/assets/Image.h"
+#include "cordite/assets/Prefab.h"
 #include "cordite/audio/AudioComponents.h"
 #include "cordite/audio/AudioSystem.h"
 #include "cordite/core/Json.h"
@@ -30,6 +31,8 @@
 #include "cordite/scripting/ScriptRuntime.h"
 #include "cordite/scripting/ScriptSystem.h"
 #include "cordite/world/ComponentRegistry.h"
+#include "cordite/world/Components.h"
+#include "cordite/world/Prefab.h"
 #include "cordite/world/SceneSerializer.h"
 
 #include "support/TestSupport.h"
@@ -49,6 +52,23 @@
 using namespace cordite;
 
 namespace {
+
+/// The entities of a group, as files have them, without what tells one copy of the group
+/// from another: every id is replaced by the place of its entity in the group.
+Json withoutIdentity(Json entities) {
+    std::map<std::string, size_t> places;
+    for (size_t index = 0; index < entities.size(); ++index) {
+        places[entities[index].at("id").get<std::string>()] = index;
+    }
+    for (size_t index = 0; index < entities.size(); ++index) {
+        Json& entity = entities[index];
+        entity["id"] = index;
+        if (entity.at("parent").is_string()) {
+            entity["parent"] = places.at(entity.at("parent").get<std::string>());
+        }
+    }
+    return entities;
+}
 
 std::filesystem::path showcaseDirectory() {
     return test::sourceDirectory() / "samples" / "showcase";
@@ -247,6 +267,11 @@ TEST_SUITE("Showcase") {
                 case AssetType::Sound: {
                     const auto sound = showcase.assets->loadSound(asset.id);
                     CHECK_MESSAGE(sound.has_value(), test::errorOf(sound));
+                    break;
+                }
+                case AssetType::Prefab: {
+                    const auto prefab = showcase.assets->loadPrefab(asset.id);
+                    CHECK_MESSAGE(prefab.has_value(), test::errorOf(prefab));
                     break;
                 }
                 case AssetType::Scene:
@@ -686,6 +711,38 @@ TEST_SUITE("Showcase") {
             }
         }
         CHECK(functions > 70);
+    }
+
+    TEST_CASE("what the showcase has placed from a prefab is what that prefab places") {
+        const Showcase showcase;
+        const World& world = showcase.world;
+        std::vector<std::string> placed;
+        world.traverse([&](Entity entity, uint32_t /*depth*/) {
+            const auto* mark = world.tryGet<PrefabInstanceComponent>(entity);
+            if (mark == nullptr) {
+                return;
+            }
+            placed.push_back(world.name(entity));
+            CAPTURE(world.name(entity));
+            const auto prefab = showcase.assets->loadPrefab(mark->prefab);
+            REQUIRE_MESSAGE(prefab.has_value(), test::errorOf(prefab));
+
+            // Placed anew - named, put and turned as the one in the scene is - the prefab
+            // gives that very one: the scene has a copy written out, which is the prefab's
+            // still, entity for entity and number for number.
+            World scratch;
+            const Entity again =
+                test::unwrap(instantiatePrefab(scratch, showcase.components, (*prefab)->entities, mark->prefab,
+                                               {.name = world.name(entity),
+                                                .position = world.transform(entity).position,
+                                                .rotation = world.transform(entity).rotation}));
+            CHECK(withoutIdentity(serializePrefabEntities(scratch, showcase.components, again)) ==
+                  withoutIdentity(serializePrefabEntities(world, showcase.components, entity)));
+            // It has more than one entity, or it would not show that they stay together.
+            CHECK(world.children(entity).size() >= 2);
+        });
+        // Placed more than once: that is what a prefab is for.
+        CHECK(placed == std::vector<std::string>{"Bollard 1", "Bollard 2"});
     }
 
     TEST_CASE("every component type of the engine is used in the showcase") {
