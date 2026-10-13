@@ -75,6 +75,7 @@ Status AssetManager::refresh() {
     m_skeletons.clear();
     m_animations.clear();
     m_scripts.clear();
+    m_sounds.clear();
     m_textures.clear();
     m_embeddedImages.clear();
     m_importedFiles.clear();
@@ -369,6 +370,34 @@ Result<std::shared_ptr<const ScriptSource>> AssetManager::loadScript(const Uuid&
     auto script = std::make_shared<const ScriptSource>(ScriptSource{.text = std::move(text)});
     m_scripts[id] = script;
     return script;
+}
+
+Result<std::shared_ptr<const SoundData>> AssetManager::loadSound(const Uuid& id) {
+    if (const auto cached = m_sounds.find(id); cached != m_sounds.end()) {
+        return cached->second;
+    }
+    CORDITE_TRY_ASSIGN(const AssetInfo* asset, lookUp(id, AssetType::Sound));
+
+    // Asked before the file is read: a file of any size can be called a sound.
+    const std::filesystem::path file = m_database.sourceFile(*asset);
+    std::error_code failed;
+    const std::uintmax_t size = std::filesystem::file_size(file, failed);
+    if (failed) {
+        return makeError(ErrorCode::IoError, "{} cannot be read: {}", asset->reference(), failed.message());
+    }
+    if (size > kMaxSoundFileBytes) {
+        return makeError(ErrorCode::InvalidArgument, "{} has {} bytes; a sound file has {} at most", asset->reference(),
+                         size, kMaxSoundFileBytes);
+    }
+    CORDITE_TRY_ASSIGN(const std::vector<std::byte> encoded, readBinaryFile(file));
+    Result<SoundData> decoded = decodeSound(encoded);
+    if (!decoded) {
+        return tl::unexpected(decoded.error().withContext(asset->reference()));
+    }
+
+    auto sound = std::make_shared<const SoundData>(std::move(*decoded));
+    m_sounds[id] = sound;
+    return sound;
 }
 
 } // namespace cordite

@@ -125,6 +125,7 @@ cordite_add_test_suite(assets
         unit/assets/PrimitivesTests.cpp
         unit/assets/SkeletonTests.cpp
         unit/assets/SkinnedMeshTests.cpp
+        unit/assets/SoundTests.cpp
         support/SkinnedModelSupport.h
     LIBRARIES
         cordite::assets)

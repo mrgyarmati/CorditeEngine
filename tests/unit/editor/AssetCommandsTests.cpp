@@ -2,6 +2,7 @@
 
 #include "cordite/assets/GltfExporter.h"
 #include "cordite/assets/Primitives.h"
+#include "cordite/assets/Sound.h"
 #include "cordite/core/FileSystem.h"
 #include "cordite/editor/EditorCommands.h"
 #include "cordite/engine/EngineComponents.h"
@@ -52,6 +53,7 @@ struct AssetFixture {
         writeText("scenes/yard.scene.json",
                   R"({"format": "cordite.scene", "version": 1, "name": "Yard", "entities": []})");
         writeText("scripts/gate.lua", "-- Opens.\nlocal Gate = {}\nreturn Gate\n");
+        writeSound("sounds/creak.wav");
 
         REQUIRE(registerEngineComponents(components).has_value());
         assets = unwrap(AssetManager::create({.rootDirectory = root}));
@@ -61,6 +63,15 @@ struct AssetFixture {
 
     void writeText(std::string_view relativePath, std::string_view text) const {
         REQUIRE(writeTextFile(root / pathFromUtf8(relativePath), text).has_value());
+    }
+
+    /// Half a second of stereo at 8 kHz, growing louder.
+    void writeSound(std::string_view relativePath) const {
+        SoundData sound{.sampleRate = 8000, .channels = 2};
+        for (int sample = 0; sample < 8000; ++sample) {
+            sound.samples.push_back(static_cast<float>(sample) / 8000.0f);
+        }
+        REQUIRE(writeBinaryFile(root / pathFromUtf8(relativePath), unwrap(encodeWav(sound))).has_value());
     }
 
     void writeTexture(std::string_view relativePath) const {
@@ -189,6 +200,7 @@ TEST_SUITE("AssetCommands") {
                                                                               "models/cart.gltf#material/0",
                                                                               "scenes/yard.scene.json",
                                                                               "scripts/gate.lua",
+                                                                              "sounds/creak.wav",
                                                                               "textures/wall.png",
                                                                           });
 
@@ -209,9 +221,14 @@ TEST_SUITE("AssetCommands") {
         // Seven built-in meshes and the two of the model.
         CHECK(fixture.run("asset.list", R"({"type": "mesh"})")["assets"].size() == 9);
 
-        const Error error = fixture.fail("asset.list", R"({"type": "sound"})");
+        CHECK(pathsOf(fixture.run("asset.list", R"({"type": "sound"})")["assets"]) ==
+              std::vector<std::string>{"sounds/creak.wav"});
+
+        // What is no type is answered with the types there are - all of them.
+        const Error error = fixture.fail("asset.list", R"({"type": "font"})");
         CHECK(error.code == ErrorCode::InvalidArgument);
-        CHECK(error.message.find("'sound' is not an asset type") != std::string::npos);
+        CHECK(error.message == "asset.list: 'font' is not an asset type; use texture, mesh, material, model, scene, "
+                               "skeleton, animation, script or sound");
     }
 
     TEST_CASE("asset.list reports what is wrong with the asset directory") {
@@ -298,6 +315,29 @@ TEST_SUITE("AssetCommands") {
         const Json empty = fixture.run("asset.get", R"({"asset": "scripts/empty.lua"})");
         CHECK(empty["content"]["lines"] == 0);
         CHECK(empty["content"]["bytes"] == 0);
+    }
+
+    TEST_CASE("asset.get shows a sound: how long it is, and what it is made of") {
+        AssetFixture fixture;
+        const Json sound = fixture.run("asset.get", R"({"asset": "sounds/creak.wav"})");
+        CHECK(sound["type"] == "sound");
+        CHECK(sound["name"] == "creak");
+        CHECK(sound["dependencies"].empty());
+        CHECK(sound["content"]["sampleRate"] == 8000);
+        CHECK(sound["content"]["channels"] == 2);
+        CHECK(sound["content"]["frames"] == 4000);
+        CHECK(sound["content"]["seconds"] == 0.5);
+        // The samples themselves are not something to read.
+        CHECK(sound["content"].size() == 4);
+
+        // A file that is no sound says so when it is asked for, and not before.
+        fixture.writeText("sounds/words.mp3", "these are words");
+        static_cast<void>(fixture.run("asset.refresh"));
+        CHECK(pathsOf(fixture.run("asset.list", R"({"type": "sound"})")["assets"]).size() == 2);
+        const Error error = fixture.fail("asset.get", R"({"asset": "sounds/words.mp3"})");
+        CHECK(error.code == ErrorCode::ParseError);
+        CHECK(error.message.starts_with(
+            "asset.get: sounds/words.mp3: it is no WAV, FLAC or MP3 file that can be read: "));
     }
 
     TEST_CASE("asset.get describes a skinned mesh, its skeleton and the animations that move it") {

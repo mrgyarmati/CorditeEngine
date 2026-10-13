@@ -61,6 +61,9 @@ size_t loadEveryAsset(AssetManager& assets) {
             case AssetType::Script:
                 REQUIRE(assets.loadScript(asset.id).has_value());
                 break;
+            case AssetType::Sound:
+                REQUIRE(assets.loadSound(asset.id).has_value());
+                break;
             case AssetType::Scene:
                 continue;
         }

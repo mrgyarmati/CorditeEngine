@@ -124,11 +124,13 @@ TEST_SUITE("AssetDatabase") {
         CHECK(nameOf(AssetType::Skeleton) == "skeleton");
         CHECK(nameOf(AssetType::Animation) == "animation");
         CHECK(nameOf(AssetType::Script) == "script");
+        CHECK(nameOf(AssetType::Sound) == "sound");
         CHECK(displayNameOf(AssetType::Texture) == "Texture");
         CHECK(displayNameOf(AssetType::Mesh) == "Mesh");
         CHECK(displayNameOf(AssetType::Skeleton) == "Skeleton");
         CHECK(displayNameOf(AssetType::Animation) == "Animation");
         CHECK(displayNameOf(AssetType::Script) == "Script");
+        CHECK(displayNameOf(AssetType::Sound) == "Sound");
         // In a sentence a type takes the article its name asks for.
         CHECK(withArticle(AssetType::Texture) == "a texture");
         CHECK(withArticle(AssetType::Mesh) == "a mesh");
@@ -138,8 +140,9 @@ TEST_SUITE("AssetDatabase") {
         CHECK(withArticle(AssetType::Skeleton) == "a skeleton");
         CHECK(withArticle(AssetType::Animation) == "an animation");
         CHECK(withArticle(AssetType::Script) == "a script");
+        CHECK(withArticle(AssetType::Sound) == "a sound");
         // Every type is found by its name, and has a name of its own.
-        CHECK(kAssetTypes.size() == 8);
+        CHECK(kAssetTypes.size() == 9);
         for (const AssetType type : kAssetTypes) {
             CHECK(assetTypeFromName(nameOf(type)) == type);
             CHECK(nameOf(type) != "unknown");
@@ -152,7 +155,9 @@ TEST_SUITE("AssetDatabase") {
         CHECK(assetTypeFromName("mesh") == AssetType::Mesh);
         CHECK(assetTypeFromName("Material") == AssetType::Material);
         CHECK(assetTypeFromName("SCENE") == AssetType::Scene);
-        CHECK_FALSE(assetTypeFromName("sound").has_value());
+        CHECK(assetTypeFromName("Sound") == AssetType::Sound);
+        CHECK_FALSE(assetTypeFromName("font").has_value());
+        CHECK_FALSE(assetTypeFromName("sounds").has_value());
         CHECK_FALSE(assetTypeFromName("").has_value());
     }
 
@@ -220,10 +225,16 @@ TEST_SUITE("AssetDatabase") {
         project.writeText("scenes/main.scene.json", "{}");
         project.writeText("scripts/door.lua", "return {}");
         project.writeText("scripts/Open.Slowly.LUA", "this is not Lua, and nobody has asked yet");
+        project.writeText("sounds/click.wav", "this is no sound either");
+        project.writeText("sounds/Steps.FLAC", "");
+        project.writeText("sounds/theme.mp3", "");
         project.writeModel("models/crate.gltf");
         // None of these is an asset.
         project.writeText("scripts/door.lua.bak", "return {}");
         project.writeText("scripts/notes.luau", "");
+        project.writeText("sounds/click.wave", "");
+        project.writeText("sounds/click.wav.txt", "");
+        project.writeText("sounds/theme.ogg", "a kind of sound file that is not read");
         project.writeText("notes.txt", "remember the milk");
         project.writeText("settings.json", "{}");
         project.writeText("models/crate.blend", "");
@@ -243,6 +254,9 @@ TEST_SUITE("AssetDatabase") {
                                              "scenes/main.scene.json",
                                              "scripts/Open.Slowly.LUA",
                                              "scripts/door.lua",
+                                             "sounds/Steps.FLAC",
+                                             "sounds/click.wav",
+                                             "sounds/theme.mp3",
                                              "textures/Sky.HDR.PNG",
                                              "textures/wall.png",
                                          });
@@ -262,6 +276,13 @@ TEST_SUITE("AssetDatabase") {
         CHECK(require(database, "scripts/door.lua").dependencies.empty());
         CHECK(require(database, "scripts/Open.Slowly.LUA").type == AssetType::Script);
         CHECK(require(database, "scripts/Open.Slowly.LUA").name == "Open.Slowly");
+        // And a sound is what a file of three kinds holds; nothing is decoded to list it.
+        CHECK(require(database, "sounds/click.wav").type == AssetType::Sound);
+        CHECK(require(database, "sounds/click.wav").name == "click");
+        CHECK(require(database, "sounds/click.wav").dependencies.empty());
+        CHECK(require(database, "sounds/Steps.FLAC").type == AssetType::Sound);
+        CHECK(require(database, "sounds/Steps.FLAC").name == "Steps");
+        CHECK(require(database, "sounds/theme.mp3").type == AssetType::Sound);
         // Only the last extension is the type; what is before it is part of the name.
         CHECK(require(database, "textures/Sky.HDR.PNG").type == AssetType::Texture);
         CHECK(require(database, "textures/Sky.HDR.PNG").name == "Sky.HDR");

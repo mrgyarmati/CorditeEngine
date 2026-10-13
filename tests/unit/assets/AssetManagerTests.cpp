@@ -3,6 +3,7 @@
 #include "cordite/assets/GltfExporter.h"
 #include "cordite/assets/Primitives.h"
 #include "cordite/assets/ScriptSource.h"
+#include "cordite/assets/Sound.h"
 #include "cordite/core/Json.h"
 
 #include "AssetTestSupport.h"
@@ -42,6 +43,15 @@ public:
     void writeMaterial(std::string_view relativePath, std::string_view members) const {
         writeText(relativePath, fmt::format(R"({{"format": "cordite.material", "version": 1{}{}}})",
                                             members.empty() ? "" : ", ", members));
+    }
+
+    /// Writes a WAV file of `frames` frames, each sample a step louder than the last.
+    void writeSound(std::string_view relativePath, uint32_t sampleRate, uint32_t channels, size_t frames) const {
+        SoundData sound{.sampleRate = sampleRate, .channels = channels};
+        for (size_t sample = 0; sample < frames * channels; ++sample) {
+            sound.samples.push_back(static_cast<float>(sample) / static_cast<float>(frames * channels));
+        }
+        REQUIRE(writeBinaryFile(file(relativePath), unwrap(encodeWav(sound))).has_value());
     }
 
     void writeModel(std::string_view relativePath) const {
@@ -608,6 +618,79 @@ TEST_SUITE("AssetManager") {
         REQUIRE_FALSE(gone.has_value());
         CHECK(gone.error().code == ErrorCode::IoError);
         CHECK(gone.error().message.starts_with("scripts/door.lua cannot be read: "));
+    }
+
+    TEST_CASE("a sound is decoded from its file, once, and again after a refresh") {
+        const Project project;
+        project.writeSound("sounds/click.wav", 22050, 2, 300);
+        const std::unique_ptr<AssetManager> assets = project.open();
+        const Uuid click = idOf(*assets, "sounds/click.wav");
+
+        const std::shared_ptr<const SoundData> loaded = unwrap(assets->loadSound(click));
+        CHECK(loaded->sampleRate == 22050);
+        CHECK(loaded->channels == 2);
+        CHECK(loaded->frames() == 300);
+        // The samples of the file: nothing at first, half as loud as can be half-way.
+        CHECK(loaded->samples[0] == 0.0f);
+        CHECK(loaded->samples[300] == 16384.0f / 32768.0f);
+        CHECK(validateSound(*loaded).has_value());
+        CHECK(unwrap(assets->loadSound(click)) == loaded);
+
+        // It is kept, whether anybody holds on to it or not: what plays a sound again
+        // does not wait for a file to be decoded.
+        project.writeSound("sounds/click.wav", 8000, 1, 40);
+        CHECK(unwrap(assets->loadSound(click)) == loaded);
+        REQUIRE(assets->refresh().has_value());
+        const std::shared_ptr<const SoundData> again = unwrap(assets->loadSound(click));
+        CHECK(again->sampleRate == 8000);
+        CHECK(again->channels == 1);
+        CHECK(again->frames() == 40);
+        // What was handed out before is what it was.
+        CHECK(loaded->frames() == 300);
+    }
+
+    TEST_CASE("a sound that is none, too large or gone is an error that names it") {
+        const Project project;
+        project.writeSound("sounds/click.wav", 48000, 1, 10);
+        project.writeText("sounds/words.wav", "these are words, whatever the name says");
+        project.writeText("sounds/nothing.mp3", "");
+        // More than a sound file may hold. Nothing is written into it: it is refused
+        // for its size, before anything of it is read.
+        project.writeText("sounds/huge.flac", "fLaC");
+        std::filesystem::resize_file(project.file("sounds/huge.flac"), kMaxSoundFileBytes + 1);
+        const std::unique_ptr<AssetManager> assets = project.open();
+
+        const auto mesh = assets->loadSound(idOf(*assets, "models/crate.gltf#mesh/0"));
+        REQUIRE_FALSE(mesh.has_value());
+        CHECK(mesh.error().code == ErrorCode::InvalidArgument);
+        CHECK(mesh.error().message == "models/crate.gltf#mesh/0 is a mesh, not a sound");
+        CHECK(assets->loadMesh(idOf(*assets, "sounds/click.wav")).error().message ==
+              "sounds/click.wav is a sound, not a mesh");
+        CHECK(assets->loadSound(Uuid::fromName(Uuid(), "no such sound")).error().code == ErrorCode::NotFound);
+
+        const auto words = assets->loadSound(idOf(*assets, "sounds/words.wav"));
+        REQUIRE_FALSE(words.has_value());
+        CHECK(words.error().code == ErrorCode::ParseError);
+        CHECK(words.error().message.starts_with("sounds/words.wav: it is no WAV, FLAC or MP3 file that can be read: "));
+        const auto nothing = assets->loadSound(idOf(*assets, "sounds/nothing.mp3"));
+        REQUIRE_FALSE(nothing.has_value());
+        CHECK(nothing.error().code == ErrorCode::ParseError);
+        CHECK(nothing.error().message == "sounds/nothing.mp3: the file is empty");
+        // Asked again, it is read again, and is as wrong as before.
+        CHECK_FALSE(assets->loadSound(idOf(*assets, "sounds/words.wav")).has_value());
+
+        const auto huge = assets->loadSound(idOf(*assets, "sounds/huge.flac"));
+        REQUIRE_FALSE(huge.has_value());
+        CHECK(huge.error().code == ErrorCode::InvalidArgument);
+        CHECK(huge.error().message == "sounds/huge.flac has 268435457 bytes; a sound file has 268435456 at most");
+
+        // A file that was there when the directory was read, and is not any more.
+        const Uuid click = idOf(*assets, "sounds/click.wav");
+        REQUIRE(std::filesystem::remove(project.file("sounds/click.wav")));
+        const auto gone = assets->loadSound(click);
+        REQUIRE_FALSE(gone.has_value());
+        CHECK(gone.error().code == ErrorCode::IoError);
+        CHECK(gone.error().message.starts_with("sounds/click.wav cannot be read: "));
     }
 
     TEST_CASE("a scene is listed, but is not something the manager loads") {

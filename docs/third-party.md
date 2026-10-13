@@ -27,6 +27,7 @@ pinned in [cmake/CorditeDependencies.cmake](../cmake/CorditeDependencies.cmake) 
 | [Jolt Physics](https://github.com/jrouwe/JoltPhysics) | 5.6.0 | MIT | Rigid bodies, collision queries and character movement behind `PhysicsWorld` |
 | [Dear ImGui](https://github.com/ocornut/imgui) | 1.92.9b, docking branch | MIT | Immediate-mode user interface: the editor and in-game debug overlays |
 | [Lua](https://www.lua.org) | 5.4.8 | MIT | The language of gameplay scripts, behind `ScriptRuntime` |
+| [miniaudio](https://github.com/mackron/miniaudio) | 0.11.25 | Unlicense OR MIT-0 | Decoding sound files (WAV, FLAC, MP3) and writing WAV files |
 
 EnTT stays on the 3.x line: 4.0 needs C++20 syntax that the default MSVC toolset of
 many Visual Studio 2022 installations (19.38) does not accept. Dear ImGui comes with the
@@ -37,6 +38,11 @@ Lua is built from its sources as C++, so that an error in a script unwinds the e
 functions as an exception does, and without the libraries a script has no business
 with: files, the operating system, loading of code and the debug library are not
 compiled (see `cmake/CorditeDependencies.cmake` and `engine/cordite/scripting/LuaConfig.h`).
+
+miniaudio is built from its one source file by a target of Cordite's own, without its
+resource manager: the engine reads files itself. Its decoders are the copies it carries
+of dr_wav, dr_flac and dr_mp3 (public domain or MIT-0), the last of which is built on
+minimp3 (CC0-1.0).
 
 glTF files are written by the engine's own exporter, on top of the JSON library, not
 by cgltf's writer: a glTF file is a JSON document plus a buffer, and building cgltf's

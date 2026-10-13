@@ -27,9 +27,11 @@ cordite_add_module(assets
         Model.h
         Primitives.cpp
         Primitives.h
-        Skeleton.cpp
         ScriptSource.h
+        Skeleton.cpp
         Skeleton.h
+        Sound.cpp
+        Sound.h
     DEPENDS
         core
         math
@@ -37,4 +39,5 @@ cordite_add_module(assets
         cordite::stb
         cordite::cgltf
         cordite::mikktspace
+        cordite::miniaudio
         meshoptimizer)

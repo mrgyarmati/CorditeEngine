@@ -18,7 +18,8 @@
 /// and all of its meshes and materials are kept from then on. Decoded images are only
 /// kept while something else holds them: once a texture is on the GPU its pixels are of
 /// no further use. (Images stored inside a model file stay in memory in their encoded
-/// form, as part of the model.)
+/// form, as part of the model.) The samples of a sound are what is played, again and
+/// again, so they are kept like a mesh.
 ///
 /// Loading happens on the calling thread and is not thread-safe.
 
@@ -30,6 +31,7 @@
 #include "cordite/assets/Model.h"
 #include "cordite/assets/ScriptSource.h"
 #include "cordite/assets/Skeleton.h"
+#include "cordite/assets/Sound.h"
 #include "cordite/core/Base.h"
 #include "cordite/core/Result.h"
 
@@ -72,6 +74,10 @@ public:
     /// The text of a script file. Fails with InvalidArgument for a file of more than
     /// kMaxScriptBytes.
     [[nodiscard]] Result<std::shared_ptr<const ScriptSource>> loadScript(const Uuid& id);
+    /// The samples of a sound file, decoded: all of it, at the rate the file has. Fails
+    /// with InvalidArgument for a file of more than kMaxSoundFileBytes, and as
+    /// decodeSound() does.
+    [[nodiscard]] Result<std::shared_ptr<const SoundData>> loadSound(const Uuid& id);
 
 private:
     explicit AssetManager(AssetDatabaseDesc desc);
@@ -88,6 +94,7 @@ private:
     std::unordered_map<Uuid, std::shared_ptr<const SkeletonData>> m_skeletons;
     std::unordered_map<Uuid, std::shared_ptr<const AnimationData>> m_animations;
     std::unordered_map<Uuid, std::shared_ptr<const ScriptSource>> m_scripts;
+    std::unordered_map<Uuid, std::shared_ptr<const SoundData>> m_sounds;
     std::unordered_map<Uuid, std::weak_ptr<const Image>> m_textures;
     /// The encoded bytes of images that are stored inside model files.
     std::unordered_map<Uuid, std::shared_ptr<const std::vector<std::byte>>> m_embeddedImages;

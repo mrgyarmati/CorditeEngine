@@ -228,6 +228,11 @@ TEST_SUITE("Showcase") {
                     CHECK_MESSAGE(script.has_value(), test::errorOf(script));
                     break;
                 }
+                case AssetType::Sound: {
+                    const auto sound = showcase.assets->loadSound(asset.id);
+                    CHECK_MESSAGE(sound.has_value(), test::errorOf(sound));
+                    break;
+                }
                 case AssetType::Scene:
                     break;
             }

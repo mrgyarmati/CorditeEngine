@@ -57,11 +57,13 @@ enum class AssetType : uint8_t {
     Animation,
     /// The text of a script: what an entity does while the game runs.
     Script,
+    /// Something to hear: the samples of a WAV, FLAC or MP3 file.
+    Sound,
 };
 
-inline constexpr std::array<AssetType, 8> kAssetTypes = {
-    AssetType::Texture, AssetType::Mesh,     AssetType::Material,  AssetType::Model,
-    AssetType::Scene,   AssetType::Skeleton, AssetType::Animation, AssetType::Script,
+inline constexpr std::array<AssetType, 9> kAssetTypes = {
+    AssetType::Texture,  AssetType::Mesh,      AssetType::Material, AssetType::Model, AssetType::Scene,
+    AssetType::Skeleton, AssetType::Animation, AssetType::Script,   AssetType::Sound,
 };
 
 /// The lowercase name used in files and by tools: "texture", "mesh", ...

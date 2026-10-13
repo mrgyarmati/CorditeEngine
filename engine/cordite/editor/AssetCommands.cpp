@@ -1,17 +1,22 @@
 #include "cordite/editor/AssetCommands.h"
 
 #include "cordite/assets/Animation.h"
+#include "cordite/assets/AssetDatabase.h"
 #include "cordite/assets/Material.h"
 #include "cordite/assets/Mesh.h"
 #include "cordite/assets/ScriptSource.h"
 #include "cordite/assets/Skeleton.h"
+#include "cordite/assets/Sound.h"
 #include "cordite/core/FileSystem.h"
 #include "cordite/core/Json.h"
 #include "cordite/editor/EditorActions.h"
 #include "cordite/engine/SceneAssets.h"
 #include "cordite/math/MathJson.h"
 
+#include <fmt/format.h>
+
 #include <algorithm>
+#include <cstddef>
 #include <memory>
 #include <optional>
 #include <string>
@@ -126,11 +131,32 @@ Result<Json> describeContent(AssetManager& assets, const AssetInfo& asset) {
             content["text"] = script->text;
             break;
         }
+        case AssetType::Sound: {
+            CORDITE_TRY_ASSIGN(const std::shared_ptr<const SoundData> sound, assets.loadSound(asset.id));
+            content["sampleRate"] = sound->sampleRate;
+            content["channels"] = sound->channels;
+            content["frames"] = sound->frames();
+            content["seconds"] = sound->seconds();
+            break;
+        }
         case AssetType::Scene:
             // Opened with scene.open; nothing to say about it without doing that.
             break;
     }
     return content;
+}
+
+/// The names of the asset types the way a sentence lists them: "texture, mesh, ... or
+/// sound". From the list of types, so that a new one is named without being added here.
+std::string assetTypeNames() {
+    std::string names;
+    for (size_t index = 0; index < kAssetTypes.size(); ++index) {
+        if (index > 0) {
+            names += index + 1 == kAssetTypes.size() ? " or " : ", ";
+        }
+        names += nameOf(kAssetTypes[index]);
+    }
+    return names;
 }
 
 } // namespace
@@ -140,17 +166,14 @@ Status registerAssetCommands(CommandRegistry& commands, EditorContext& context) 
         .name = "asset.list",
         .description = "Lists the assets the scene can use, each with its id, type, name and path, and what is "
                        "wrong with the asset directory, if anything. Built-in assets have the path \"builtin\".",
-        .parameters = {{"type", Type::String,
-                        "Only assets of this type: texture, mesh, material, model, scene, skeleton, animation or "
-                        "script.",
-                        false}},
+        .parameters = {{"type", Type::String, fmt::format("Only assets of this type: {}.", assetTypeNames()), false}},
         .handler = [&context](const Json& parameters) -> Result<Json> {
             std::optional<AssetType> type;
             if (const auto name = jsonGetOr<std::string>(parameters, "type", ""); !name.empty()) {
                 type = assetTypeFromName(name);
                 if (!type) {
-                    return makeError(ErrorCode::InvalidArgument,
-                                     "'{}' is not an asset type; use texture, mesh, material, model or scene", name);
+                    return makeError(ErrorCode::InvalidArgument, "'{}' is not an asset type; use {}", name,
+                                     assetTypeNames());
                 }
             }
 
@@ -174,7 +197,7 @@ Status registerAssetCommands(CommandRegistry& commands, EditorContext& context) 
         .name = "asset.get",
         .description = "Describes one asset: the assets it depends on, what its importer left out, and what is in "
                        "it - the size of a mesh or a texture, the properties of a material, the nodes of a model, "
-                       "the text of a script. "
+                       "the text of a script, the length of a sound. "
                        "Fails with the reason when the asset cannot be loaded.",
         .parameters = {{"asset", Type::String, kAssetReference}},
         .handler = [&context](const Json& parameters) -> Result<Json> {

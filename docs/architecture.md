@@ -32,7 +32,7 @@ of slowly turning the code base into a ball of mud.
 | `core` | -         | Services every other module needs: logging, assertions, error handling, hashing, UUIDs, JSON and binary serialization, file I/O, configuration, the job system, memory allocators, timing, platform queries. |
 | `math` | `core`    | glm type aliases and conventions; `Transform`, bounding volumes, rays and intersection tests, frustum culling, projection matrices, color conversions, keyframed curves, deterministic random numbers, spherical harmonics, and where a direction is in an image of everything around. |
 | `platform` | `core`, `math` | The window system and windows (GLFW), and per-window keyboard, mouse and gamepad state with an injection API for tests and automation. |
-| `assets` | `core`, `math` | Assets as data, and where they come from: images and mipmaps; meshes, primitives and mesh processing; materials; the text of scripts; glTF import and export; the asset database, which knows what exists and under which id; the asset manager, which loads by id. Knows nothing of the GPU. |
+| `assets` | `core`, `math` | Assets as data, and where they come from: images and mipmaps; meshes, primitives and mesh processing; materials; the text of scripts; the samples of sounds; glTF import and export; the asset database, which knows what exists and under which id; the asset manager, which loads by id. Knows nothing of the GPU. |
 | `world` | `core`, `math` | The scene: entities, their components and their parent/child hierarchy, stored with EnTT; the registry of component types known by name; scene files. |
 | `animation` | `core`, `math`, `assets`, `world` | Movement of skeletons: the functions that make a pose (sampling a clip, blending two poses, the matrices a mesh is skinned with, the bounds of a posed mesh), the `Animator` component, and `AnimationSystem`, which plays the animators of a world and gives each the pose it is in. |
 | `physics` | `core`, `math`, `assets`, `world` | The simulation of rigid bodies: `PhysicsWorld` holds bodies - shapes, a mass, where each is and how it moves - steps them on in time and answers what a ray hits. Jolt Physics is behind it and shows in none of its headers. The `Collider` and `RigidBody` components say what of a world is simulated, and `PhysicsSystem` keeps the two in step; it is also what makes the shapes of colliders out of mesh assets. |
@@ -1709,6 +1709,33 @@ after the last whole step: nothing is moved between two steps, so on a display t
 does not run at the step's rate bodies move a little unevenly. Showing a state
 between the last two steps would smooth that, at the price of showing everything one
 step late; it is not done yet.
+
+### Sound files are read by miniaudio, and a sound is decoded whole
+
+miniaudio is what reads sound files: one C file that decodes WAV, FLAC and MP3, mixes,
+places sound in space and plays it on all three platforms, with nothing to install -
+what a machine has to play sound with is looked for when the program runs. Its own
+CMake file is not used: it searches the machine for codecs and libraries to build
+against, and a build of Cordite must be the same wherever it runs. Its resource
+manager is compiled out, because it reads files by name on a thread of its own; here
+the asset manager reads files, and what plays a sound is handed samples.
+
+A sound asset is its samples (`SoundData`): decoded once, all of it, when it is
+loaded, and kept. That suits effects, which are short and played again and again,
+and it makes playing a sound a matter of reading memory. It costs memory for music -
+a minute of stereo at 48 kHz is 23 MB - which is why there is a limit
+(`kMaxSoundFrames`), and why decoding as a sound plays is the thing to add when a
+game needs long music.
+
+Ogg Vorbis is not read. miniaudio reads it through stb_vorbis, whose record with
+files that are broken on purpose is poor, and files are untrusted here; the
+reference decoder would be two more libraries. FLAC and MP3 cover what Vorbis is
+used for.
+
+What a file says of its own length decides nothing. The decoder is asked for a few
+thousand frames at a time and what it hands over is counted, so a file of fifty
+bytes that claims four thousand million is a sound of a few frames, and one that
+really is too long is refused, not cut.
 
 ### Enum names use `nameOf`, not `toString`
 

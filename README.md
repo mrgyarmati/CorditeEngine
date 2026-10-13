@@ -92,7 +92,8 @@ E; hold the middle button to slide; turn the wheel to move forwards and backward
 A game is a project: a directory with a `cordite.project.json` and an `assets`
 directory holding models (glTF 2.0: `.gltf`, `.glb` - with their skeletons and
 animations, when they are skinned), textures (PNG, JPEG, TGA, BMP,
-HDR), materials (`.material.json`), scenes (`.scene.json`) and scripts (`.lua`). Every asset has an id
+HDR), materials (`.material.json`), scenes (`.scene.json`), scripts (`.lua`) and sounds (WAV, FLAC, MP3).
+Every asset has an id
 that survives renaming and moving - it is kept in a `.meta` file next to the asset -
 and scenes refer to assets by id only. Meshes for blocking out a scene (cube, sphere,
 plane, cylinder, cone, capsule, torus) are built in.

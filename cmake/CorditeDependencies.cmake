@@ -227,10 +227,17 @@ cordite_declare_dependency(lua
     SHA256 4f18ddae154e793e46eeab727c59ef1c0c0c2b744e7b94219710d76f530629ae
     SOURCES_ONLY)
 
+# --- miniaudio: sound - decoding, mixing, placing in space, and the devices that play it --
+# One header and one source; the cordite_miniaudio target below compiles the source.
+cordite_declare_dependency(miniaudio
+    URL https://github.com/mackron/miniaudio/archive/refs/tags/0.11.25.tar.gz
+    SHA256 b900edcffe979816e2560a0580b9b1216d674b4f17fbadeca8f777a7f8ab0274
+    SOURCES_ONLY)
+
 FetchContent_MakeAvailable(
     fmt spdlog nlohmann_json tl_expected enkits xxhash glm
     glfw vulkan_headers nvrhi stb cli11 entt imgui
-    cgltf meshoptimizer mikktspace joltphysics lua)
+    cgltf meshoptimizer mikktspace joltphysics lua miniaudio)
 
 # Jolt checks itself where the engine does: in the configurations with assertions. They
 # are reported through the engine's (see cordite/physics/PhysicsWorld.cpp).
@@ -253,6 +260,28 @@ add_library(cordite_mikktspace STATIC "${mikktspace_SOURCE_DIR}/mikktspace.c")
 add_library(cordite::mikktspace ALIAS cordite_mikktspace)
 target_include_directories(cordite_mikktspace SYSTEM PUBLIC "${mikktspace_SOURCE_DIR}")
 set_target_properties(cordite_mikktspace PROPERTIES FOLDER "ThirdParty")
+
+# miniaudio with its decoders for WAV, FLAC and MP3 and every way of playing sound the
+# platform has - each looked for when the program runs, so that building needs none of
+# them, and neither does a machine that has no sound. Its own CMake file is not used:
+# it searches the machine for codecs and for other libraries to build against, and a
+# build of Cordite is the same wherever it runs.
+#
+# Its resource manager is left out. It reads files by name on a thread of its own; here
+# the asset manager reads files, and what plays a sound is handed samples. Whoever
+# includes miniaudio.h has to see the definitions its source was compiled with, because
+# they change what is in its structures: that is why they are PUBLIC.
+add_library(cordite_miniaudio STATIC "${miniaudio_SOURCE_DIR}/miniaudio.c")
+add_library(cordite::miniaudio ALIAS cordite_miniaudio)
+target_include_directories(cordite_miniaudio SYSTEM PUBLIC "${miniaudio_SOURCE_DIR}")
+target_compile_definitions(cordite_miniaudio PUBLIC MA_NO_RESOURCE_MANAGER)
+if(UNIX)
+    # What miniaudio says it needs: threads and the mathematics library, and on Linux
+    # what loads a library while the program runs. Nothing more on macOS either.
+    find_package(Threads REQUIRED)
+    target_link_libraries(cordite_miniaudio PUBLIC Threads::Threads ${CMAKE_DL_LIBS} m)
+endif()
+set_target_properties(cordite_miniaudio PROPERTIES FOLDER "ThirdParty")
 
 # Lua, without what reaches the machine a script runs on: the libraries for files, for
 # the operating system, for loading code and for looking into the interpreter are not

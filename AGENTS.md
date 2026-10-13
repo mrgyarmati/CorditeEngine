@@ -124,7 +124,7 @@ by accident.
 | `core` | -         | Logging, assertions, `Result`, hashing, UUIDs, JSON, reflection, binary streams, file I/O, config, job system, allocators, timing |
 | `math` | `core`    | glm aliases, `Transform`, bounds, rays, frustum, projections, color, curves, random, spherical harmonics, directions in images of everything around, reflection of math types |
 | `platform` | `core`, `math` | Windows (GLFW), keyboard / mouse / gamepad input, and the controls a game has by name: `InputMap`, `InputActions` |
-| `assets` | `core`, `math` | Assets as data: images and mipmaps, meshes - rigid and skinned - and what prepares them, skeletons, animation clips, materials, the text of scripts, glTF import and export, the asset database (ids, `.meta` files) and the asset manager (loading by id) |
+| `assets` | `core`, `math` | Assets as data: images and mipmaps, meshes - rigid and skinned - and what prepares them, skeletons, animation clips, materials, the text of scripts, the samples of sounds, glTF import and export, the asset database (ids, `.meta` files) and the asset manager (loading by id) |
 | `world` | `core`, `math` | Entities, components and their hierarchy (EnTT), the component registry, scene files |
 | `animation` | `core`, `math`, `assets`, `world` | Poses of skeletons and what makes them: sampling clips, blending, the matrices a mesh is skinned with and the bounds of a posed mesh; the `Animator` component; `AnimationSystem`, which plays the animators of a world |
 | `physics` | `core`, `math`, `assets`, `world` | `PhysicsWorld`: rigid bodies, their shapes - boxes, balls, capsules, the hulls around sets of points and surfaces of triangles - joints between them, the characters that walk among them, stepping, contact events and queries, over Jolt Physics; the `Collider`, `RigidBody`, `Joint` and `CharacterController` components; `PhysicsSystem`, which keeps the entities of a world and the bodies, joints and characters of a simulation in step and makes shapes of mesh assets |
@@ -609,6 +609,14 @@ Step-by-step guide: [work-with-assets](.claude/skills/work-with-assets/SKILL.md)
   meshes and images may point at the same few bytes, so every use is counted, before
   it is read. Numbers are made finite on the way in (`1e999` is valid JSON). Files a
   glTF refers to are read only from inside the asset directory.
+- **A sound is its samples** (`SoundData`): floats in one or two channels, at the rate
+  of its file, decoded whole when it is loaded - by miniaudio, from WAV, FLAC or MP3 -
+  and kept. What a file says of its own length decides nothing: `decodeSound` counts
+  what the decoder hands over and refuses what is longer than `kMaxSoundFrames`.
+  Whatever is given a `SoundData` that code made checks it with `validateSound`.
+  miniaudio is included in `.cpp` files only, and compiled with the definitions in
+  `cmake/CorditeDependencies.cmake` - which every includer has to see, so a new one
+  is added there, never with a `#define` before the include.
 - **A broken asset never stops a scene.** The database lists problems
   (`AssetDatabase::problems`), loading returns an error, and the renderer reports once
   and draws the rest. `scene.validate` and `findSceneProblems` find dangling references.
@@ -1218,7 +1226,9 @@ with CTest under the module name. See the skills
   `tests/render/SceneTestSupport.h`. Reference images are for what only an eye can
   judge.
 - glTF files for tests are built in the test (`GltfTestSupport.h`) or written by the
-  exporter, never checked in as binaries.
+  exporter, never checked in as binaries. Sound files likewise: `encodeWav` writes
+  them, and the kinds nothing here can write - FLAC, MP3 - are put together byte by
+  byte (`SoundTests.cpp`).
 - Test case names are sentences describing behavior: `"an exhausted arena returns
   nullptr and stays usable"`.
 - Cover the normal path, the boundaries, and each documented failure. For parsers and
@@ -1477,3 +1487,7 @@ body explaining what changed and why. One logical change per commit.
   of the physics went unchecked: it had the name of another. Text that is put
   together of pieces - a material of a test with one member replaced - has to
   replace the member, not write it a second time.
+- MSVC 19.38 stops with an internal compiler error (C1001) at a range-for over
+  `std::initializer_list<T>{{.member = ...}, {...}}` when `T` holds a vector:
+  designated initializers without the name of their type, inside a braced list. Make
+  it a `const std::vector<T>` of `T{.member = ...}` first, and loop over that.
