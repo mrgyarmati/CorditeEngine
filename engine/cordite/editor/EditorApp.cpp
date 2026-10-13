@@ -8,6 +8,7 @@
 #include "cordite/editor/EditorFeedback.h"
 #include "cordite/editor/InputCommands.h"
 #include "cordite/editor/PhysicsCommands.h"
+#include "cordite/editor/ScriptCommands.h"
 #include "cordite/math/MathJson.h"
 #include "cordite/rhi/TextureReadback.h"
 
@@ -149,6 +150,7 @@ Result<std::unique_ptr<EditorApp>> EditorApp::create(const EditorAppDesc& desc) 
         app->m_engine->actions().setMap(std::move(map));
     }
     CORDITE_TRY(registerInputCommands(app->m_commands, app->m_engine->input(), app->m_engine->actions(), inputMap));
+    CORDITE_TRY(registerScriptCommands(app->m_commands, app->m_engine->scripts()));
     CORDITE_TRY(app->registerApplicationCommands());
     CORDITE_TRY_ASSIGN(app->m_viewport, ViewportPanel::create(*app->m_engine));
 

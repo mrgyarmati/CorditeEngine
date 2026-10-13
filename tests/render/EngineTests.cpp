@@ -994,6 +994,9 @@ TEST_SUITE("Engine") {
         CHECK(running.stopped == 0);
         CHECK(running.calls == 1);
         CHECK(running.memoryBytes > 0);
+        // What they took of the frame is measured: some time, and far less than a frame.
+        CHECK(engine->statistics().scriptMilliseconds > 0.0);
+        CHECK(engine->statistics().scriptMilliseconds < engine->statistics().cpuMilliseconds);
         CHECK(engine->scripts().problems().empty());
 
         // A program that drives its frames itself says whether time passes for the
@@ -1004,6 +1007,7 @@ TEST_SUITE("Engine") {
         CHECK(world.name(entity) == "3 frames of 0.0167 s");
         REQUIRE(engine->endFrame().has_value());
         CHECK(engine->statistics().scripts == ScriptStatistics());
+        CHECK(engine->statistics().scriptMilliseconds == 0.0);
         REQUIRE(test::unwrap(engine->beginFrame()));
         engine->updateWorld();
         CHECK(world.name(entity) == "4 frames of 0.0167 s");

@@ -169,6 +169,7 @@ cordite_add_test_suite(editor
         unit/editor/EditorCommandsTests.cpp
         unit/editor/EditorContextTests.cpp
         unit/editor/InputCommandsTests.cpp
+        unit/editor/ScriptCommandsTests.cpp
         unit/editor/PhysicsCommandsTests.cpp
         unit/editor/PosedMeshTests.cpp
         unit/editor/EditorTestSupport.h

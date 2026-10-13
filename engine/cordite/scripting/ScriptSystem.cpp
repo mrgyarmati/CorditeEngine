@@ -47,10 +47,38 @@ enum class Callback : uint8_t {
 
 constexpr size_t kCallbackCount = static_cast<size_t>(Callback::Count);
 
-/// What a script calls them.
-constexpr std::array<const char*, kCallbackCount> kCallbackNames = {
-    "start", "input", "update", "collisionBegan", "collisionEnded", "triggerEntered", "triggerLeft", "destroy",
+/// What a script calls one of them, how it is written, and what it is for: this is what
+/// whoever writes a script is told (ScriptSystem::callbacks()).
+struct CallbackWords {
+    const char* name = "";
+    const char* signature = "";
+    const char* description = "";
 };
+
+constexpr std::array<CallbackWords, kCallbackCount> kCallbacks = {{
+    {"start", "function Script:start()",
+     "Called once, before the first update: for parents before what hangs under them. What it sets up - "
+     "`self.count = 0` - is the script's to keep in `self`."},
+    {"input", "function Script:input(action, pressed)",
+     "Called for every action of the input map that was pressed or released in the frame, with its name and "
+     "true for pressed: after the starts of the frame, before its timers and updates."},
+    {"update", "function Script:update(deltaSeconds)",
+     "Called every frame, with the seconds that have passed since the frame before."},
+    {"collisionBegan", "function Script:collisionBegan(other, contact)",
+     "Called when the body of the entity has begun to touch that of another, right after the step of the "
+     "simulation in which it did. `contact` holds `position`, where the two touch in the world; `normal`, "
+     "which way the other lies from there; and `speed`, how fast they were closing in, in metres per second."},
+    {"collisionEnded", "function Script:collisionEnded(other)",
+     "Called when the two bodies have parted, or one of them is gone: `other` may no longer be valid."},
+    {"triggerEntered", "function Script:triggerEntered(other, contact)",
+     "Called when a body has moved into a trigger: for the entity that has the trigger, and for the one that "
+     "moved into it."},
+    {"triggerLeft", "function Script:triggerLeft(other)",
+     "Called for both when the body has left the trigger again, or one of the two is gone."},
+    {"destroy", "function Script:destroy()",
+     "Called when the script ends while its entity is still there: its Script was taken off or changed, a "
+     "script destroyed the entity, or another scene is loaded."},
+}};
 
 /// A script that was loaded - or that could not be.
 struct LoadedScript {
@@ -418,7 +446,7 @@ ScriptSystem::Impl::Loaded ScriptSystem::Impl::load(LoadedScript& script) const 
         }
         lua_pop(state, 1);
         for (size_t callback = 0; callback < kCallbackCount; ++callback) {
-            loaded.has[callback] = hasFunction(state, kCallbackNames[callback]);
+            loaded.has[callback] = hasFunction(state, kCallbacks[callback].name);
         }
 
         lua_pushvalue(state, -1);
@@ -583,7 +611,7 @@ void ScriptSystem::Impl::call(Entity entity, Instance& instance, Callback callba
         lua_rawgeti(state, LUA_REGISTRYINDEX, instance.self);
         // Found through the instance, so that one which has a function of its own for
         // this is called with that.
-        if (lua_getfield(state, -1, kCallbackNames[static_cast<size_t>(callback)]) != LUA_TFUNCTION) {
+        if (lua_getfield(state, -1, kCallbacks[static_cast<size_t>(callback)].name) != LUA_TFUNCTION) {
             return;
         }
         lua_insert(state, -2);
@@ -1122,7 +1150,10 @@ std::vector<ScriptCallbackInfo> ScriptSystem::callbacks() const {
     std::vector<ScriptCallbackInfo> result;
     result.reserve(kCallbackCount);
     for (size_t callback = 0; callback < kCallbackCount; ++callback) {
-        result.push_back({.name = kCallbackNames[callback], .calls = m_impl->callbackCalls[callback]});
+        result.push_back({.name = kCallbacks[callback].name,
+                          .signature = kCallbacks[callback].signature,
+                          .description = kCallbacks[callback].description,
+                          .calls = m_impl->callbackCalls[callback]});
     }
     return result;
 }

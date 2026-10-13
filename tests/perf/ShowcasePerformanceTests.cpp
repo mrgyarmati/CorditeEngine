@@ -200,7 +200,12 @@ TEST_SUITE("Performance") {
         for (const char* name : {"assetIndex", "assetLoad", "coldStart", "warmStart", "sceneLoad", "firstFrame"}) {
             checkBudget(timeBudgets, name, milliseconds[name].get<double>());
         }
+        // What the scripts of the showcase take of a frame, at its middle and at its worst.
+        checkBudget(timeBudgets, "scriptsMedian", times.scripts.median);
+        checkBudget(timeBudgets, "scriptsMaximum", times.scripts.maximum);
 #endif
+        // Whatever the build, they ran, and it took some time.
+        CHECK(times.scripts.median > 0.0);
         test::checkFrameTimeBudgets(timeBudgets, times);
     }
 }

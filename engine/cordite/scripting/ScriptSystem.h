@@ -170,6 +170,10 @@ struct ScriptStatistics {
 struct ScriptCallbackInfo {
     /// What a script calls it: "start", "update", "collisionBegan".
     std::string_view name;
+    /// How a script writes it: "function Script:update(deltaSeconds)".
+    std::string_view signature;
+    /// When it is called and with what, in a sentence or two.
+    std::string_view description;
     /// Calls since the system was made, of all instances together.
     uint64_t calls = 0;
 
@@ -210,8 +214,8 @@ public:
     /// update() returned: `calls` counts both.
     ScriptStatistics tellContacts(const ScriptContext& context, std::span<const CollisionEvent> events);
 
-    /// Every function the engine calls in scripts, in the order a frame calls them, with
-    /// how often each has been called.
+    /// Every function the engine calls in scripts, in the order a frame calls them: how
+    /// each is written, what it is for, and how often it has been called.
     [[nodiscard]] std::vector<ScriptCallbackInfo> callbacks() const;
 
     /// Ends every instance - with `destroy`, where its entity is still there - and

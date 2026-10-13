@@ -85,6 +85,9 @@ struct FrameStatistics {
     /// The scripts that ran in the frame: what the last updateWorld() of the frame did.
     /// All zero for a frame without one, and for one whose clock was stopped.
     ScriptStatistics scripts;
+    /// How long the scripts took in the frame, in milliseconds: their update, and what
+    /// they were told of the simulation after it. Wall time, as cpuMilliseconds is.
+    double scriptMilliseconds = 0.0;
     /// What the scene renderer drew during the frame, all views together.
     SceneRenderStatistics scene;
     /// What the scene renderer holds on the GPU.

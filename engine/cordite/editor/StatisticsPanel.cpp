@@ -98,6 +98,7 @@ Json describeFrameStatistics(const FrameStatistics& statistics) {
     scripts["calls"] = statistics.scripts.calls;
     scripts["timers"] = statistics.scripts.timers;
     scripts["memoryBytes"] = statistics.scripts.memoryBytes;
+    scripts["milliseconds"] = statistics.scriptMilliseconds;
 
     Json description = Json::object();
     description["frame"] = statistics.frameIndex;
@@ -128,9 +129,10 @@ void StatisticsPanel::draw(const FrameStatistics& statistics, bool& open) {
                         statistics.physics.geometries, statistics.physics.joints, statistics.physics.characters));
         row("Animators", fmt::format("{} ({} joints)", statistics.animation.animators, statistics.animation.joints));
         row("Scripts",
-            fmt::format("{} ({} running, {} stopped, {} calls, {} timers, {:.1f} MiB)", statistics.scripts.scripts,
-                        statistics.scripts.instances - statistics.scripts.stopped, statistics.scripts.stopped,
-                        statistics.scripts.calls, statistics.scripts.timers,
+            fmt::format("{} ({} running, {} stopped, {} calls in {:.2f} ms, {} timers, {:.1f} MiB)",
+                        statistics.scripts.scripts, statistics.scripts.instances - statistics.scripts.stopped,
+                        statistics.scripts.stopped, statistics.scripts.calls, statistics.scriptMilliseconds,
+                        statistics.scripts.timers,
                         static_cast<double>(statistics.scripts.memoryBytes) / kBytesPerMebibyte));
 
         const SceneRenderStatistics& scene = statistics.scene;

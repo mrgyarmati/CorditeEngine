@@ -97,10 +97,12 @@ of [AGENTS.md](../../../AGENTS.md)). Everything they can call is a C++ function 
 ## A function the engine calls in a script
 
 `start`, `update`, `input`, `collisionBegan` and the like go the other way: the engine
-calls them. They are one list - `Callback` and `kCallbackNames` in `ScriptSystem.cpp` -
+calls them. They are one list - `Callback` and `kCallbacks` in `ScriptSystem.cpp` -
 and a new one is:
 
-1. an entry in both, in the order a frame calls them;
+1. an entry in both, in the order a frame calls them - in `kCallbacks` with how a
+   script writes it and a sentence or two on when it is called and with what, which
+   is what `script.api` hands to whoever writes a script;
 2. the place that calls it, with `Impl::call(entity, instance, Callback::..., arguments)`
    for an instance that `Impl::running()` returns and that has started;
 3. its lines in the comment at the top of `ScriptSystem.h`, which is where a script

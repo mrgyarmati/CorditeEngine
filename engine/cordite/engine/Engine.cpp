@@ -114,6 +114,7 @@ struct Engine::Impl {
     std::unique_ptr<ScriptSystem> scripts;
     /// What the last updateWorld() since the frame began did.
     ScriptStatistics scriptStatistics;
+    double scriptMilliseconds = 0.0;
 
     Stopwatch frameClock;
     /// Runs from beginFrame() to the moment the frame is handed to the GPU.
@@ -277,6 +278,7 @@ Result<bool> Engine::beginFrame() {
     impl.physicsStatistics = {};
     impl.animationStatistics = {};
     impl.scriptStatistics = {};
+    impl.scriptMilliseconds = 0.0;
     impl.frameOpen = true;
     return true;
 }
@@ -306,6 +308,7 @@ Status Engine::endFrame() {
     impl.statistics.physics = impl.physicsStatistics;
     impl.statistics.animation = impl.animationStatistics;
     impl.statistics.scripts = impl.scriptStatistics;
+    impl.statistics.scriptMilliseconds = impl.scriptMilliseconds;
     impl.statistics.scene = impl.sceneRenderer->takeFrameStatistics();
     impl.statistics.resources = impl.sceneRenderer->resources().statistics();
 
@@ -393,9 +396,14 @@ void Engine::updateWorld(WorldClock clock) {
                                         .deltaSeconds = impl.deltaSeconds,
                                         .controls = &impl.actions,
                                         .physics = impl.physics.get()};
+        Stopwatch scriptClock;
         impl.scriptStatistics = impl.scripts->update(scripted);
+        double scriptSeconds = scriptClock.elapsedSeconds();
         impl.physicsStatistics = impl.physics->update(impl.world, *impl.assets, deltaSeconds);
+        scriptClock.restart();
         impl.scriptStatistics = impl.scripts->tellContacts(scripted, impl.physics->events());
+        scriptSeconds += scriptClock.elapsedSeconds();
+        impl.scriptMilliseconds = scriptSeconds * 1000.0;
         if (const std::optional<Uuid> scene = impl.scripts->takeRequestedScene()) {
             impl.pendingScene = scene;
         }

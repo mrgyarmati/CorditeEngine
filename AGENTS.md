@@ -989,12 +989,22 @@ Step-by-step guide for giving scripts a function:
   `normal` of the contact points the other way: it is always the way from the one
   that is told to the other. What parts has no contact to tell of.
 - **The functions the engine calls in a script are one list** (`Callback` and
-  `kCallbackNames` in `ScriptSystem.cpp`). Being on it is what makes a function
-  found when a script is loaded - which is also what refuses `input = 5` - and
-  counted (`ScriptSystem::callbacks()`). A new one is an entry there, the place that
-  calls it, its lines in `ScriptSystem.h`, and a script of the showcase that has it:
-  the `samples` test runs the showcase with its simulation and names every function
-  on the list that was never called.
+  `kCallbacks` in `ScriptSystem.cpp`), each with how a script writes it and what it
+  is for. Being on it is what makes a function found when a script is loaded -
+  which is also what refuses `input = 5` - counted, and said to whoever asks
+  (`ScriptSystem::callbacks()`). A new one is an entry there, the place that calls
+  it, its lines in `ScriptSystem.h`, and a script of the showcase that has it: the
+  `samples` test runs the showcase with its simulation and names every function on
+  the list that was never called.
+- **What scripts are written against can be asked for**: the editor command
+  `script.api` returns the functions with their signatures and descriptions and the
+  callbacks with theirs - the catalogue itself, so it cannot be out of date. That is
+  why the words in a `ScriptFunction` and in `kCallbacks` are written for someone
+  who has not read the engine.
+- **What the scripts take of a frame is measured** (`FrameStatistics::
+  scriptMilliseconds`: their update, and what they are told after the simulation),
+  shown under View > Statistics, returned by `editor.statistics`, and budgeted in
+  the performance suite at its middle and at its worst.
 - **Scripts ask about controls by the names of the input map**, and a name the map
   does not have is an error that lists the ones it has - where `InputActions`
   itself answers "never pressed". A typing mistake in a script, or a control that

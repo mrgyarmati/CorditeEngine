@@ -551,7 +551,7 @@ TEST_SUITE("EditorApp") {
         // Nor does it run the scripts of the scene: the clock of the showcase is not
         // even loaded, and stands at the name it has in the file.
         CHECK(dumpJson(statistics["scripts"], -1) ==
-              R"({"scripts":0,"instances":0,"stopped":0,"calls":0,"timers":0,"memoryBytes":0})");
+              R"({"scripts":0,"instances":0,"stopped":0,"calls":0,"timers":0,"memoryBytes":0,"milliseconds":0.0})");
         CHECK(run(*editor, "entity.get", R"({"entity": "Stage/Clock"})")["name"] == "Clock");
         CHECK(scene["skinned"]["meshes"] == 1);
         CHECK(scene["skinned"]["jointMatrices"] == 6);

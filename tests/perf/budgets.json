@@ -83,7 +83,12 @@
             "sceneLoad": 100,
             "firstFrame": 5000,
             "cpuFrameMedian": 5,
-            "gpuFrameMedian": 5
+            "gpuFrameMedian": 5,
+            // What the seven scripts take of a frame: a few hundredths of a millisecond,
+            // of which counting their instructions is four tenths. The worst frame is
+            // one in which Lua collects what the others left behind.
+            "scriptsMedian": 0.5,
+            "scriptsMaximum": 5
         }
     },
 

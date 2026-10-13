@@ -112,6 +112,8 @@ inline std::unique_ptr<Engine> startEngine(const EngineDesc& desc) {
 /// What a run of frames cost.
 struct FrameTimes {
     Distribution cpu;
+    /// The part of `cpu` that the scripts of the world took: nothing where none run.
+    Distribution scripts;
     /// All zero when `gpuMeasurements` is: the GPU cannot time its work everywhere.
     Distribution gpu;
     uint64_t gpuMeasurements = 0;
@@ -120,16 +122,19 @@ struct FrameTimes {
 /// Runs `frames` frames and collects what the engine says each cost.
 inline FrameTimes measureFrames(Engine& engine, uint32_t frames) {
     std::vector<double> cpuSamples;
+    std::vector<double> scriptSamples;
     std::vector<double> gpuSamples;
     for (uint32_t frame = 0; frame < frames; ++frame) {
         REQUIRE(unwrap(engine.runFrame()));
         const FrameStatistics& statistics = engine.statistics();
         cpuSamples.push_back(statistics.cpuMilliseconds);
+        scriptSamples.push_back(statistics.scriptMilliseconds);
         if (statistics.gpuMilliseconds) {
             gpuSamples.push_back(*statistics.gpuMilliseconds);
         }
     }
     return {.cpu = distributionOf(cpuSamples),
+            .scripts = distributionOf(scriptSamples),
             .gpu = distributionOf(gpuSamples),
             .gpuMeasurements = static_cast<uint64_t>(gpuSamples.size())};
 }
@@ -137,6 +142,7 @@ inline FrameTimes measureFrames(Engine& engine, uint32_t frames) {
 /// The "milliseconds" members every scenario reports: the frame times.
 inline void describeFrameTimes(Json& milliseconds, const FrameTimes& times) {
     milliseconds["cpuFrame"] = toJson(times.cpu);
+    milliseconds["scripts"] = toJson(times.scripts);
     milliseconds["gpuFrame"] = times.gpuMeasurements > 0 ? toJson(times.gpu) : Json(nullptr);
 }
 

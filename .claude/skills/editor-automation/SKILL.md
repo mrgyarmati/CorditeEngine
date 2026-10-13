@@ -80,6 +80,7 @@ Do not guess command or property names; ask the editor.
 | `editor.statistics` | What the last frame cost: CPU and GPU time, draw calls, triangles, lights, shadow maps, memory on the GPU |
 | `physics.raycast` | What a ray hits first - or, with a `radius`, a ball moved along it: the entity, the distance, the point and the normal |
 | `physics.overlap` | The entities whose bodies reach into a ball (`radius`) or a box (`size`, `rotation`) |
+| `script.api` | What gameplay scripts are written against: every function a script can call and every function the engine calls in one, each with its signature and what it does; `prefix` narrows the functions to a library (`"cordite.physics."`) |
 
 ## Refer to entities
 
