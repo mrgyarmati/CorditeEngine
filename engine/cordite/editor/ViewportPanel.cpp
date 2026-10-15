@@ -2,6 +2,7 @@
 
 #include "cordite/animation/AnimationComponents.h"
 #include "cordite/assets/Skeleton.h"
+#include "cordite/editor/EditorActions.h"
 #include "cordite/editor/EditorFeedback.h"
 #include "cordite/editor/PosedMesh.h"
 #include "cordite/math/Color.h"
@@ -41,6 +42,24 @@ constexpr Vec4 kColliderColor(0.40f, 0.95f, 0.50f, 1.0f);
 constexpr Vec4 kTriggerColor(1.00f, 0.55f, 0.20f, 1.0f);
 /// A joint between two bodies: where it is, about or along which axis, and to what.
 constexpr Vec4 kPhysicsJointColor(0.45f, 0.75f, 1.00f, 1.0f);
+
+/// What a gizmo moves: the selection, without what hangs under something else that is
+/// selected - which its parent carries along already.
+std::vector<Entity> movedTogether(const EditorContext& context) {
+    const World& world = context.world();
+    std::vector<Entity> moved;
+    for (const Entity entity : context.selection()) {
+        bool carried = false;
+        for (Entity above = world.parent(entity); !above.isNull() && !carried; above = world.parent(above)) {
+            carried = context.isSelected(above);
+        }
+        if (!carried) {
+            moved.push_back(entity);
+        }
+    }
+    return moved;
+}
+
 constexpr float kPhysicsJointMarkerSize = 0.12f;
 constexpr float kPhysicsJointAxisLength = 0.35f;
 /// The capsule that a character is.
@@ -446,6 +465,16 @@ Status ViewportPanel::render(nvrhi::IDevice* device, nvrhi::ICommandList* comman
     // What is selected shows through everything.
     m_linePass.draw(commandList, m_targets.overlayFramebuffer(), m_selectionLines.vertices(),
                     {.viewProjection = m_view.viewProjection, .depthTest = false});
+
+    // The gizmo of the selection, over all of it: on the entity that was selected last.
+    m_gizmoLines.clear();
+    if (const Entity primary = context.primarySelection(); !m_showsGame && !primary.isNull()) {
+        const GizmoFrame frame =
+            gizmoFrame(world.worldMatrix(primary), m_gizmoSpace, m_gizmoMode, m_view, Vec2(size), gizmoPixelScale());
+        drawGizmo(m_gizmoLines, m_gizmoMode, frame, m_held ? m_held->drag.handle : m_hoveredHandle);
+        m_linePass.draw(commandList, m_targets.overlayFramebuffer(), m_gizmoLines.vertices(),
+                        {.viewProjection = m_view.viewProjection, .depthTest = false});
+    }
     return {};
 }
 
@@ -531,15 +560,19 @@ void ViewportPanel::draw(Engine& engine, EditorContext& context) {
             const ImVec2 origin = ImGui::GetCursorScreenPos();
             ImGui::Image(UiSystem::textureId(m_targets.display()), available);
             hovered = ImGui::IsItemHovered();
+            m_imageOrigin = Vec2(origin.x, origin.y);
+            const ImVec2 pointer = ImGui::GetMousePos();
+            const Vec2 pixel((pointer.x - origin.x) * scale.x, (pointer.y - origin.y) * scale.y);
+
+            // The gizmo has the pointer first: a click on one of its handles selects nothing.
+            const bool gizmoHasPointer = !m_showsGame && updateGizmo(context, pixel, hovered);
 
             // A click that was not the end of a drag selects what is under the pointer -
             // in the editor's view. In the game's, a click is the game's.
             const ImVec2 dragged = ImGui::GetMouseDragDelta(ImGuiMouseButton_Left, 0.0f);
-            if (hovered && !m_showsGame && ImGui::IsMouseReleased(ImGuiMouseButton_Left) &&
+            if (hovered && !m_showsGame && !gizmoHasPointer && ImGui::IsMouseReleased(ImGuiMouseButton_Left) &&
                 std::abs(dragged.x) + std::abs(dragged.y) <= kClickTolerance) {
-                const ImVec2 pointer = ImGui::GetMousePos();
-                const Entity picked =
-                    pick(context, Vec2((pointer.x - origin.x) * scale.x, (pointer.y - origin.y) * scale.y));
+                const Entity picked = pick(context, pixel);
                 if (picked.isNull()) {
                     context.clearSelection();
                 } else if (ImGui::GetIO().KeyCtrl) {
@@ -568,6 +601,107 @@ void ViewportPanel::draw(Engine& engine, EditorContext& context) {
         m_pointerCaptured = m_camera.isNavigating();
         window->setCursorMode(m_pointerCaptured ? CursorMode::Captured : CursorMode::Normal);
     }
+}
+
+float ViewportPanel::gizmoPixelScale() {
+    return ImGui::GetStyle().FontScaleDpi * ImGui::GetIO().DisplayFramebufferScale.y;
+}
+
+bool ViewportPanel::updateGizmo(EditorContext& context, Vec2 pixel, bool hovered) {
+    if (m_held) {
+        if (ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+            dragHeld(context.world(), pixel);
+        } else {
+            releaseGizmo(context);
+        }
+        return true;
+    }
+
+    m_hoveredHandle = GizmoHandle::None;
+    World& world = context.world();
+    const Entity primary = context.primarySelection();
+    if (primary.isNull() || !hovered || m_camera.isNavigating()) {
+        return false;
+    }
+    const Vec2 viewport(m_targets.size());
+    const GizmoFrame frame =
+        gizmoFrame(world.worldMatrix(primary), m_gizmoSpace, m_gizmoMode, m_view, viewport, gizmoPixelScale());
+    m_hoveredHandle = pickHandle(m_gizmoMode, frame, m_view, viewport, pixel, gizmoPixelScale());
+    if (m_hoveredHandle == GizmoHandle::None) {
+        return false;
+    }
+    if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+        HeldGizmo held{.drag = beginDrag(m_gizmoMode, m_hoveredHandle, frame, m_view, viewport, pixel)};
+        const ComponentDescriptor* transform = context.components().find("Transform");
+        for (const Entity entity : movedTogether(context)) {
+            const Entity parent = world.parent(entity);
+            held.entities.push_back({
+                .id = world.id(entity),
+                .start = world.transform(entity),
+                .startWorld = world.worldMatrix(entity),
+                .parentWorld = parent.isNull() ? Mat4(1.0f) : world.worldMatrix(parent),
+                .before = transform->type.toJson(transform->getConst(world.registry(), entity.handle)),
+            });
+        }
+        m_held = std::move(held);
+    }
+    return true;
+}
+
+void ViewportPanel::dragHeld(World& world, Vec2 pixel) {
+    if (!m_held) {
+        return;
+    }
+    const GizmoDrag& drag = m_held->drag;
+    const Vec2 viewport(m_targets.size());
+    for (const HeldEntity& held : m_held->entities) {
+        // Something else may have taken an entity away in the middle of the drag.
+        const Entity entity = world.findById(held.id);
+        if (entity.isNull()) {
+            continue;
+        }
+        Transform& transform = world.transform(entity);
+        // Where it was taken hold of, nothing has moved: the transform it started with, to the
+        // last digit, which going through the matrix of its parent would not leave it.
+        if (pixel == drag.grabbedPixel) {
+            transform = held.start;
+            continue;
+        }
+        switch (drag.mode) {
+            case GizmoMode::Translate: {
+                const Vec3 to = Vec3(held.startWorld[3]) + dragTranslation(drag, m_view, viewport, pixel);
+                transform.position = Vec3(glm::inverse(held.parentWorld) * Vec4(to, 1.0f));
+                break;
+            }
+            case GizmoMode::Rotate: {
+                // Turned in the world about its own centre: the turn, seen from what it hangs under.
+                const Quat parent = Transform::fromMatrix(held.parentWorld).rotation;
+                const Quat turn = dragRotation(drag, m_view, viewport, pixel);
+                transform.rotation = normalizeRotation(glm::conjugate(parent) * turn * parent * held.start.rotation);
+                break;
+            }
+            case GizmoMode::Scale:
+                transform.scale = held.start.scale * dragScale(drag, m_view, viewport, pixel);
+                break;
+        }
+    }
+}
+
+void ViewportPanel::releaseGizmo(EditorContext& context) {
+    if (!m_held) {
+        return;
+    }
+    const HeldGizmo held = std::move(*m_held);
+    m_held.reset();
+    std::vector<Entity> entities;
+    std::vector<Json> before;
+    for (const HeldEntity& entity : held.entities) {
+        if (const Entity found = context.world().findById(entity.id); !found.isNull()) {
+            entities.push_back(found);
+            before.push_back(entity.before);
+        }
+    }
+    reportIfFailed(EditorActions(context).recordComponentEdits(entities, "Transform", before));
 }
 
 } // namespace cordite

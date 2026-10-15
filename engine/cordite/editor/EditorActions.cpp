@@ -178,6 +178,40 @@ void pushComponentEdit(EditorContext& context, Entity entity, const ComponentDes
     });
 }
 
+/// What one entity's component was and is, for an edit of several.
+struct EntityPatches {
+    Uuid id;
+    PropertyPatch before;
+    PropertyPatch after;
+};
+
+void pushComponentEdits(EditorContext& context, const ComponentDescriptor& descriptor,
+                        std::vector<EntityPatches> patches) {
+    EditorContext* target = &context;
+    const ComponentDescriptor* type = &descriptor;
+    // Shared by undo and redo, which are copied about with the history.
+    const auto shared = std::make_shared<const std::vector<EntityPatches>>(std::move(patches));
+    const auto apply = [target, type, shared](bool undo) -> Status {
+        // Every component is found before any is changed: an edit is applied whole or not at all.
+        std::vector<void*> instances;
+        instances.reserve(shared->size());
+        for (const EntityPatches& entity : *shared) {
+            CORDITE_TRY_ASSIGN(void* instance, findInstance(*target, entity.id, *type));
+            instances.push_back(instance);
+        }
+        for (size_t index = 0; index < shared->size(); ++index) {
+            const EntityPatches& entity = (*shared)[index];
+            (undo ? entity.before : entity.after).applyTo(instances[index]);
+        }
+        return {};
+    };
+    context.history().push({
+        .label = fmt::format("Edit {} of {} entities", descriptor.type.name(), shared->size()),
+        .undo = [apply] { return apply(true); },
+        .redo = [apply] { return apply(false); },
+    });
+}
+
 } // namespace
 
 Result<Entity> EditorActions::createEntity(const CreateEntityOptions& options) {
@@ -608,6 +642,42 @@ Status EditorActions::recordComponentEdit(Entity entity, std::string_view compon
     CORDITE_TRY_ASSIGN(PropertyPatch restore, descriptor->type.parse(before));
     CORDITE_TRY_ASSIGN(PropertyPatch redo, descriptor->type.parse(after));
     pushComponentEdit(m_context, entity, *descriptor, std::move(restore), std::move(redo));
+    return {};
+}
+
+Status EditorActions::recordComponentEdits(std::span<const Entity> entities, std::string_view component,
+                                           std::span<const Json> before) {
+    if (entities.size() != before.size()) {
+        return makeError(ErrorCode::InvalidArgument, "{} entities were given with {} components as they were",
+                         entities.size(), before.size());
+    }
+    CORDITE_TRY_ASSIGN(const ComponentDescriptor* descriptor, findComponent(m_context, component));
+    World& world = m_context.world();
+    std::vector<EntityPatches> changed;
+    Entity last;
+    for (size_t index = 0; index < entities.size(); ++index) {
+        const Entity entity = entities[index];
+        CORDITE_TRY(requireValid(m_context, entity));
+        const void* instance = descriptor->getConst(world.registry(), entity.handle);
+        if (instance == nullptr) {
+            return makeError(ErrorCode::NotFound, "'{}' has no {} component", world.name(entity), component);
+        }
+        const Json after = descriptor->type.toJson(instance);
+        if (after == before[index]) {
+            continue;
+        }
+        CORDITE_TRY_ASSIGN(PropertyPatch restore, descriptor->type.parse(before[index]));
+        CORDITE_TRY_ASSIGN(PropertyPatch redo, descriptor->type.parse(after));
+        changed.push_back({world.id(entity), std::move(restore), std::move(redo)});
+        last = entity;
+    }
+    if (changed.size() == 1) {
+        // Named by the entity, as an edit of one is.
+        pushComponentEdit(m_context, last, *descriptor, std::move(changed.front().before),
+                          std::move(changed.front().after));
+    } else if (!changed.empty()) {
+        pushComponentEdits(m_context, *descriptor, std::move(changed));
+    }
     return {};
 }
 

@@ -7,7 +7,7 @@
 /// the scene.
 ///
 /// @code
-/// drawToolbar(documentButtons(context), playButtons(play.state()), submittedLines);
+/// drawToolbar(documentButtons(context), gizmoButtons(mode, space), playButtons(play.state()), submittedLines);
 /// const StatusBarState status{.message = console.newestMessage(LogLevel::Info), ...};
 /// if (drawStatusBar(status)) {
 ///     focusConsole();
@@ -20,6 +20,7 @@
 
 #include "cordite/core/Log.h"
 #include "cordite/editor/EditorContext.h"
+#include "cordite/editor/Gizmo.h"
 #include "cordite/editor/PlayMode.h"
 #include "cordite/ui/UiIcons.h"
 
@@ -47,16 +48,21 @@ struct ToolbarButton {
 /// is played - with what would be undone or redone in its tooltip.
 [[nodiscard]] std::vector<ToolbarButton> documentButtons(const EditorContext& context);
 
+/// What the gizmo does - translate, rotate or scale, the one in use on - and the axes it
+/// uses, the world's or the entity's own, which a click switches.
+[[nodiscard]] std::vector<ToolbarButton> gizmoButtons(GizmoMode mode, GizmoSpace space);
+
 /// Play, pause and step. Play starts the scene, and stops it while it plays; pause holds
 /// a scene that plays and resumes one that is held; step runs one frame of a held scene.
 [[nodiscard]] std::vector<ToolbarButton> playButtons(PlayState state);
 
 /// Draws the toolbar along the top of the main viewport, under the menu, where it takes
-/// its room from what is docked: `document` at the left, `playing` in the middle. The
+/// its room from what is docked: `document` and then `tools` at the left, `playing` in the
+/// middle. The
 /// command of a button that is clicked is appended to `submittedLines`. Call it after the
 /// main menu and before the dock space, during a frame.
-void drawToolbar(std::span<const ToolbarButton> document, std::span<const ToolbarButton> playing,
-                 std::vector<std::string>& submittedLines);
+void drawToolbar(std::span<const ToolbarButton> document, std::span<const ToolbarButton> tools,
+                 std::span<const ToolbarButton> playing, std::vector<std::string>& submittedLines);
 
 /// What the status bar says.
 struct StatusBarState {

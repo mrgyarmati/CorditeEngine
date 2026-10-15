@@ -1321,6 +1321,16 @@ panels, EditorApp    the interface, built on the three layers above
   scene that is being played is not saved, opened over or made anew. A new piece
   of state that belongs to a played world - something a system holds for it - is
   ended in `endScene`, or it outlives the game.
+- **The gizmo moves what is selected** (`Gizmo.h`, `ViewportPanel`): translate, rotate or
+  scale (W, E, R, or the toolbar), along the axes of the world or of the entity (X;
+  scale always along the entity's own), drawn on the entity selected last, moving every
+  selected entity that does not hang under another selected one. Where its handles are,
+  which one the pointer is over and what a drag does is arithmetic in `Gizmo.h`, tested
+  without an interface; the viewport writes the transforms directly while a handle is
+  held and makes one step of the history of it when it is let go
+  (`EditorActions::recordComponentEdits`). A handle that is let go of where it was taken
+  hold of has changed nothing - not a last digit - and is no step. A drag is an edit of
+  `Transform`, which `component.set` makes as well; `viewport.gizmo` says and sets the mode.
 - **The viewport looks through the editor's camera or the game's**
   (`ViewportCamera`, `viewport.show {"camera": "game"}`). The game's is the first
   enabled primary camera of the scene, drawn as `Engine::drawWorld` draws it - the
@@ -1503,6 +1513,12 @@ body explaining what changed and why. One logical change per commit.
   (`ImGuiCol_Header`). The themes give them the accent, for what is selected; a section
   is begun with `sectionHeader` (`UiWidgets.h`), which draws it in the shades of a
   field. An `ImGui::CollapsingHeader` of its own looks selected.
+- With perspective, the point of an axis nearest to the pointer's ray is not under the
+  pointer once the pointer moves across the axis as well as along it: a handle dragged
+  that way lags behind, by four percent in the first test of the gizmo. The pointer is
+  slid onto the axis as it is seen first (`pointOnAxis` in `Gizmo.cpp`). And a plane seen
+  edge on is a line on the screen, whose "inside" is everything on it - a test of a point
+  in a quadrilateral asks for its area first.
 - Typefaces have glyphs of their own where the icons are: JetBrains Mono has the
   symbols of Powerline in the private use area, one of them on Lucide's icon for
   copying. `addInterfaceFonts` keeps that area for the icons

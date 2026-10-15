@@ -516,6 +516,48 @@ TEST_SUITE("EditorActions") {
         CHECK(fixture.context.history().undoCount() == 1);
     }
 
+    TEST_CASE("changes made directly to several entities are recorded as one edit afterwards") {
+        EditorFixture fixture;
+        EditorActions actions(fixture.context);
+        const Json before = fixture.scene();
+        const ComponentDescriptor* transform = fixture.components.find("Transform");
+        const auto component = [&](Entity entity) {
+            return transform->type.toJson(transform->getConst(fixture.world.registry(), entity.handle));
+        };
+        const std::vector<Entity> moved = {fixture.table, fixture.chair, fixture.eye};
+        const std::vector<Json> was = {component(fixture.table), component(fixture.chair), component(fixture.eye)};
+
+        // What a drag of the gizmo of a selection does: two of the three move, the eye stays.
+        fixture.world.transform(fixture.table).position.y = 2.0f;
+        fixture.world.transform(fixture.chair).scale = Vec3(2.0f);
+        REQUIRE(actions.recordComponentEdits(moved, "Transform", was).has_value());
+        CHECK(fixture.context.history().undoCount() == 1);
+        CHECK(fixture.context.history().undoLabel() == "Edit Transform of 2 entities");
+        checkUndoRedo(fixture, before);
+        CHECK(fixture.world.transform(fixture.table).position.y == 2.0f);
+        CHECK(fixture.world.transform(fixture.chair).scale.x == 2.0f);
+
+        // One that changed is an edit of that one, by its name; none is no edit.
+        const std::vector<Json> now = {component(fixture.table), component(fixture.chair), component(fixture.eye)};
+        fixture.world.transform(fixture.eye).position.z = -1.0f;
+        REQUIRE(actions.recordComponentEdits(moved, "Transform", now).has_value());
+        CHECK(fixture.context.history().undoLabel() == "Edit Transform of 'Eye'");
+        const std::vector<Json> after = {component(fixture.table), component(fixture.chair), component(fixture.eye)};
+        REQUIRE(actions.recordComponentEdits(moved, "Transform", after).has_value());
+        CHECK(fixture.context.history().undoCount() == 2);
+
+        // What cannot be recorded records nothing.
+        const Status shorter = actions.recordComponentEdits(moved, "Transform", std::span(after).first(2));
+        REQUIRE_FALSE(shorter.has_value());
+        CHECK(shorter.error().code == ErrorCode::InvalidArgument);
+        CHECK_FALSE(actions.recordComponentEdits(moved, "Jetpack", after).has_value());
+        const std::vector<Json> wrong = {after[0], json(R"({"position": "bad"})"), after[2]};
+        fixture.world.transform(fixture.table).position.y = 3.0f;
+        fixture.world.transform(fixture.chair).position.y = 3.0f;
+        CHECK_FALSE(actions.recordComponentEdits(moved, "Transform", wrong).has_value());
+        CHECK(fixture.context.history().undoCount() == 2);
+    }
+
     TEST_CASE("a whole session can be undone to the start and redone to the end") {
         EditorFixture fixture;
         EditorActions actions(fixture.context);

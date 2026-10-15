@@ -132,6 +132,15 @@ public:
     /// control is released. Records nothing when the component is unchanged.
     [[nodiscard]] Status recordComponentEdit(Entity entity, std::string_view component, const Json& before);
 
+    /// Records changes that have already been made to one component of several entities as
+    /// one edit - what dragging the gizmo of a selection does. `before` holds what the
+    /// component of each looked like, in the same order. Entities whose component did not
+    /// change are left out, and nothing is recorded when none did. Fails, recording
+    /// nothing, as recordComponentEdit does for any of them, and with InvalidArgument when
+    /// the two lists are not as long as each other.
+    [[nodiscard]] Status recordComponentEdits(std::span<const Entity> entities, std::string_view component,
+                                              std::span<const Json> before);
+
 private:
     /// Records that `instance`, which was just created with everything below it, was
     /// placed - so that it can be taken away and put back - and selects it.

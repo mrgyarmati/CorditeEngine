@@ -33,6 +33,8 @@ cordite_add_module(editor
         EditorToolbar.h
         FileAssociation.cpp
         FileAssociation.h
+        Gizmo.cpp
+        Gizmo.h
         HierarchyPanel.cpp
         HierarchyPanel.h
         InspectorPanel.cpp

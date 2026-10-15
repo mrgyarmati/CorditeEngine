@@ -687,6 +687,46 @@ Status EditorApp::registerApplicationCommands() {
         },
     }));
 
+    CORDITE_TRY(m_commands.add({
+        .name = "viewport.gizmo",
+        .description = "Says what the gizmo of the selection does - translate, rotate or scale it - and along "
+                       "whose axes, the world's or the entity's own (scale is always along the entity's own); "
+                       "given either, changes it. The gizmo is drawn on the entity selected last and moves "
+                       "every selected entity that does not hang under another selected one. Dragging it is "
+                       "an edit of their Transform, one step to undo, which component.set makes as well.",
+        .parameters = {{"mode", Type::String, "\"translate\", \"rotate\" or \"scale\".", false},
+                       {"space", Type::String, "\"world\" or \"local\".", false}},
+        .handler = [this](const Json& parameters) -> Result<Json> {
+            // Both are checked before either is changed.
+            std::optional<GizmoMode> mode;
+            if (const auto name = jsonGetOr<std::string>(parameters, "mode", ""); !name.empty()) {
+                mode = gizmoModeFromName(name);
+                if (!mode) {
+                    return makeError(ErrorCode::InvalidArgument,
+                                     "'{}' is no mode of the gizmo; use \"translate\", \"rotate\" or \"scale\"", name);
+                }
+            }
+            std::optional<GizmoSpace> space;
+            if (const auto name = jsonGetOr<std::string>(parameters, "space", ""); !name.empty()) {
+                space = gizmoSpaceFromName(name);
+                if (!space) {
+                    return makeError(ErrorCode::InvalidArgument,
+                                     "'{}' is no space of the gizmo; use \"world\" or \"local\"", name);
+                }
+            }
+            if (mode) {
+                m_viewport->setGizmoMode(*mode);
+            }
+            if (space) {
+                m_viewport->setGizmoSpace(*space);
+            }
+            Json result = Json::object();
+            result["mode"] = std::string(nameOf(m_viewport->gizmoMode()));
+            result["space"] = std::string(nameOf(m_viewport->gizmoSpace()));
+            return result;
+        },
+    }));
+
     return m_commands.add({
         .name = "viewport.camera",
         .description = "Returns where the viewport camera is and which way it looks.",
@@ -817,7 +857,8 @@ void EditorApp::drawInterface() {
     handleShortcuts();
     drawMainMenu();
     // The bars come before the dock space, which has the room they leave.
-    drawToolbar(documentButtons(*m_context), playButtons(m_play->state()), m_submittedLines);
+    drawToolbar(documentButtons(*m_context), gizmoButtons(m_viewport->gizmoMode(), m_viewport->gizmoSpace()),
+                playButtons(m_play->state()), m_submittedLines);
     const StatusBarState status{
         .message = m_console.newestMessage(LogLevel::Info),
         .play = m_play->state(),
@@ -911,6 +952,24 @@ void EditorApp::handleShortcuts() {
     }
     if (ImGui::Shortcut(ImGuiKey_F10, route) && playing == PlayState::Paused) {
         m_submittedLines.emplace_back("play.step");
+    }
+
+    // What the gizmo does, as in the editors people know - unless the camera is being flown,
+    // which takes the same keys.
+    if (!m_viewport->camera().isNavigating() && !m_viewport->isDraggingGizmo()) {
+        if (ImGui::Shortcut(ImGuiKey_W, route)) {
+            m_viewport->setGizmoMode(GizmoMode::Translate);
+        }
+        if (ImGui::Shortcut(ImGuiKey_E, route)) {
+            m_viewport->setGizmoMode(GizmoMode::Rotate);
+        }
+        if (ImGui::Shortcut(ImGuiKey_R, route)) {
+            m_viewport->setGizmoMode(GizmoMode::Scale);
+        }
+        if (ImGui::Shortcut(ImGuiKey_X, route)) {
+            m_viewport->setGizmoSpace(m_viewport->gizmoSpace() == GizmoSpace::World ? GizmoSpace::Local
+                                                                                    : GizmoSpace::World);
+        }
     }
 
     const std::vector<Entity> selection = m_context->selection();

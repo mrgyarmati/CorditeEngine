@@ -307,6 +307,10 @@ its simulation, its sounds - play it:
   next frame on, `"dark"` in the default one; `editor.theme` alone says which is in
   use. A batch run starts in the dark theme whatever a person chose, and remembers
   nothing.
+- `viewport.gizmo {"mode": "rotate", "space": "local"}` chooses what the gizmo on the
+  selection shows - `translate`, `rotate`, `scale`; `world`, `local` - for a picture of
+  it. To move something, set its `Transform` with `component.set`: that is what dragging
+  the gizmo does, one step to undo.
 - `viewport.lookAt {"position": [x,y,z], "target": [x,y,z]}` and
   `viewport.frame {"entity": ...}` place the viewport camera first.
 - `viewport.show {"camera": "game"}` looks through the camera the game renders from

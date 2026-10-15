@@ -28,6 +28,7 @@
 #include "cordite/editor/ColliderOutlines.h"
 #include "cordite/editor/EditorCamera.h"
 #include "cordite/editor/EditorContext.h"
+#include "cordite/editor/Gizmo.h"
 #include "cordite/engine/Engine.h"
 #include "cordite/physics/PhysicsSystem.h"
 #include "cordite/renderer/DebugDraw.h"
@@ -41,7 +42,9 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string_view>
+#include <vector>
 
 namespace cordite {
 
@@ -128,6 +131,26 @@ public:
 
     void setShowColliders(bool show) { m_showColliders = show; }
 
+    /// What the gizmo of the selection does - move, turn or scale it - and along whose
+    /// axes. It is drawn on the entity that was selected last, and moves every selected
+    /// entity that does not hang under another selected one.
+    [[nodiscard]] GizmoMode gizmoMode() const { return m_gizmoMode; }
+
+    void setGizmoMode(GizmoMode mode) { m_gizmoMode = mode; }
+
+    [[nodiscard]] GizmoSpace gizmoSpace() const { return m_gizmoSpace; }
+
+    void setGizmoSpace(GizmoSpace space) { m_gizmoSpace = space; }
+
+    /// Whether a handle of the gizmo is held: a drag is under way.
+    [[nodiscard]] bool isDraggingGizmo() const { return m_held.has_value(); }
+
+    /// The view the scene was last drawn from, and where the top-left corner of its picture
+    /// was on the screen, in interface pixels: for what has to point at something in it.
+    [[nodiscard]] const CameraView& view() const { return m_view; }
+
+    [[nodiscard]] Vec2 imageOrigin() const { return m_imageOrigin; }
+
     [[nodiscard]] EditorCamera& camera() { return m_camera; }
 
     [[nodiscard]] const EditorCamera& camera() const { return m_camera; }
@@ -142,6 +165,34 @@ private:
                   DebugLinePass linePass);
 
     void collectLines(EditorContext& context, const CameraView& view);
+
+    /// Finds the handle of the gizmo under the pointer, takes hold of one that is pressed,
+    /// and moves, turns or scales what is selected while it is held. Returns whether the
+    /// pointer is the gizmo's in this frame - over a handle, holding one or letting one go -
+    /// so that a click does not select what is under it. `pixel` is in pixels of the picture.
+    bool updateGizmo(EditorContext& context, Vec2 pixel, bool hovered);
+    /// Moves, turns or scales what is held to where the pointer is now.
+    void dragHeld(World& world, Vec2 pixel);
+    /// Ends a drag: what it changed becomes one step of the history.
+    void releaseGizmo(EditorContext& context);
+    /// How large the gizmo is drawn: the scale of the interface, in pixels of the picture.
+    [[nodiscard]] static float gizmoPixelScale();
+
+    /// An entity that a held gizmo moves, as it was when the handle was taken hold of.
+    struct HeldEntity {
+        Uuid id;
+        Transform start;
+        Mat4 startWorld{1.0f};
+        /// Where what it hangs under is, which a drag does not move.
+        Mat4 parentWorld{1.0f};
+        /// Its transform component, for the history.
+        Json before;
+    };
+
+    struct HeldGizmo {
+        GizmoDrag drag;
+        std::vector<HeldEntity> entities;
+    };
 
     SceneRenderer* m_sceneRenderer;
     /// What the colliders that are made of meshes are made of.
@@ -170,6 +221,15 @@ private:
     DebugDraw m_selectionLines;
     /// True while the pointer is locked to the window for steering the camera.
     bool m_pointerCaptured = false;
+    GizmoMode m_gizmoMode = GizmoMode::Translate;
+    GizmoSpace m_gizmoSpace = GizmoSpace::World;
+    /// The handle under the pointer in the last frame, which is drawn in the color of what
+    /// is selected; and the one that is held.
+    GizmoHandle m_hoveredHandle = GizmoHandle::None;
+    std::optional<HeldGizmo> m_held;
+    /// Drawn over everything, after what is selected.
+    DebugDraw m_gizmoLines;
+    Vec2 m_imageOrigin{0.0f};
 };
 
 } // namespace cordite

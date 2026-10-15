@@ -68,6 +68,33 @@ TEST_SUITE("EditorToolbar") {
         CHECK(buttons[2].tooltip == "Step a frame (F10)");
     }
 
+    TEST_CASE("the tools say what the gizmo does, and switch it") {
+        const std::vector<ToolbarButton> moving = gizmoButtons(GizmoMode::Translate, GizmoSpace::World);
+        REQUIRE(moving.size() == 4);
+        CHECK(sameIcon(moving[0].icon, icons::kMove));
+        CHECK(moving[0].command == R"(viewport.gizmo {"mode": "translate"})");
+        CHECK(moving[0].active);
+        CHECK(moving[0].tooltip == "Move (W)");
+        CHECK(sameIcon(moving[1].icon, icons::kRotate));
+        CHECK(moving[1].command == R"(viewport.gizmo {"mode": "rotate"})");
+        CHECK_FALSE(moving[1].active);
+        CHECK(moving[2].command == R"(viewport.gizmo {"mode": "scale"})");
+        CHECK(moving[2].tooltip == "Scale (R)");
+        // The space shows what it is, and a click makes it the other.
+        CHECK(sameIcon(moving[3].icon, icons::kEnvironment));
+        CHECK(moving[3].command == R"(viewport.gizmo {"space": "local"})");
+        CHECK_FALSE(moving[3].active);
+
+        const std::vector<ToolbarButton> scaling = gizmoButtons(GizmoMode::Scale, GizmoSpace::Local);
+        CHECK_FALSE(scaling[0].active);
+        CHECK(scaling[2].active);
+        CHECK(sameIcon(scaling[3].icon, icons::kEntity));
+        CHECK(scaling[3].command == R"(viewport.gizmo {"space": "world"})");
+        for (const ToolbarButton& button : scaling) {
+            CHECK(button.enabled);
+        }
+    }
+
     TEST_CASE("the document's buttons can be clicked when what they do can be done") {
         EditorFixture fixture;
         EditorContext& context = fixture.context;

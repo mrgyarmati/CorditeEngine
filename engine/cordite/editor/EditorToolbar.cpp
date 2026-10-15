@@ -109,6 +109,30 @@ std::vector<ToolbarButton> documentButtons(const EditorContext& context) {
     return buttons;
 }
 
+std::vector<ToolbarButton> gizmoButtons(GizmoMode mode, GizmoSpace space) {
+    const auto modeButton = [mode](GizmoMode button, UiIcon icon, std::string_view tooltip) {
+        return ToolbarButton{
+            .icon = icon,
+            .tooltip = std::string(tooltip),
+            .command = fmt::format(R"(viewport.gizmo {{"mode": "{}"}})", nameOf(button)),
+            .active = mode == button,
+        };
+    };
+    const bool world = space == GizmoSpace::World;
+    return {
+        modeButton(GizmoMode::Translate, icons::kMove, "Move (W)"),
+        modeButton(GizmoMode::Rotate, icons::kRotate, "Rotate (E)"),
+        modeButton(GizmoMode::Scale, icons::kScale, "Scale (R)"),
+        ToolbarButton{
+            .icon = world ? icons::kEnvironment : icons::kEntity,
+            .tooltip = world ? "Along the axes of the world - click for the entity's own (X)"
+                             : "Along the axes of the entity - click for the world's (X)",
+            .command = fmt::format(R"(viewport.gizmo {{"space": "{}"}})",
+                                   nameOf(world ? GizmoSpace::Local : GizmoSpace::World)),
+        },
+    };
+}
+
 std::vector<ToolbarButton> playButtons(PlayState state) {
     const bool stopped = state == PlayState::Stopped;
     const bool paused = state == PlayState::Paused;
@@ -135,14 +159,21 @@ std::vector<ToolbarButton> playButtons(PlayState state) {
     return buttons;
 }
 
-void drawToolbar(std::span<const ToolbarButton> document, std::span<const ToolbarButton> playing,
-                 std::vector<std::string>& submittedLines) {
+void drawToolbar(std::span<const ToolbarButton> document, std::span<const ToolbarButton> tools,
+                 std::span<const ToolbarButton> playing, std::vector<std::string>& submittedLines) {
     if (beginBar("##Toolbar", ImGuiDir_Up)) {
         drawButtons(document, submittedLines);
+        // A gap between the groups, as wide as a button.
+        ImGui::SameLine(0.0f, ImGui::GetFrameHeight());
+        ImGui::PushID("tools");
+        drawButtons(tools, submittedLines);
+        ImGui::PopID();
         // Playing is in the middle of the bar, whatever is at its ends.
         const float middle = (ImGui::GetWindowWidth() - rowWidth(playing)) * 0.5f;
         ImGui::SameLine(std::max(middle, ImGui::GetCursorPosX()));
+        ImGui::PushID("playing");
         drawButtons(playing, submittedLines);
+        ImGui::PopID();
     }
     ImGui::End();
 }

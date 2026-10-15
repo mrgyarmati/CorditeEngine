@@ -9,6 +9,7 @@
 #include "cordite/core/Uuid.h"
 #include "cordite/editor/AssetBrowser.h"
 #include "cordite/editor/EditorPreferences.h"
+#include "cordite/editor/Gizmo.h"
 #include "cordite/engine/Project.h"
 #include "cordite/platform/InputMap.h"
 #include "cordite/world/SceneSerializer.h"
@@ -1858,13 +1859,158 @@ TEST_SUITE("EditorApp") {
         checkNoValidationIssues(editor->engine().graphics());
     }
 
+    TEST_CASE("what the gizmo does is chosen by command") {
+        const std::unique_ptr<EditorApp> editor = createEditor(headlessDesc(UVec2(640, 360)));
+        const Json first = run(*editor, "viewport.gizmo");
+        CHECK(first["mode"] == "translate");
+        CHECK(first["space"] == "world");
+        const Json turned = run(*editor, "viewport.gizmo", R"({"mode": "Rotate", "space": "local"})");
+        CHECK(turned["mode"] == "rotate");
+        CHECK(turned["space"] == "local");
+        CHECK(editor->viewport().gizmoMode() == GizmoMode::Rotate);
+        CHECK(editor->viewport().gizmoSpace() == GizmoSpace::Local);
+
+        // What is wrong changes nothing, not even what was right beside it.
+        const Error wrongSpace = refusal(*editor, "viewport.gizmo", R"({"mode": "scale", "space": "parent"})");
+        CHECK(wrongSpace.code == ErrorCode::InvalidArgument);
+        CHECK(wrongSpace.message.find("'parent'") != std::string::npos);
+        CHECK(refusal(*editor, "viewport.gizmo", R"({"mode": "move"})").code == ErrorCode::InvalidArgument);
+        CHECK(editor->viewport().gizmoMode() == GizmoMode::Rotate);
+        CHECK(editor->viewport().gizmoSpace() == GizmoSpace::Local);
+    }
+
+    TEST_CASE("a handle of the gizmo is dragged with the pointer, and moves what is selected") {
+        const std::unique_ptr<EditorApp> editor = createEditor(headlessDesc(UVec2(640, 360)));
+        run(*editor, "entity.create", R"({"name": "Box", "components": {"Transform": {"position": [0, 0, 0]}}})");
+        run(*editor, "entity.create", R"({"name": "Lid", "parent": "Box",
+                                          "components": {"Transform": {"position": [0, 1, 0]}}})");
+        run(*editor, "viewport.lookAt", R"({"position": [0, 0, 10], "target": [0, 0, 0]})");
+        const World& world = editor->context().world();
+        const Entity box = world.findByName("Box");
+        const Entity lid = world.findByName("Lid");
+        REQUIRE_FALSE(lid.isNull());
+
+        const auto pointerTo = [&](Vec2 at) {
+            run(*editor, "input.inject", fmt::format(R"({{"mouseMove": [{}, {}]}})", at.x, at.y));
+            REQUIRE(editor->runFrames(2).has_value());
+        };
+        const auto button = [&](bool down) {
+            run(*editor, "input.inject", fmt::format(R"({{"mouseButton": "Left", "down": {}}})", down));
+            REQUIRE(editor->runFrames(2).has_value());
+        };
+        // Where a point of the world is on the screen, in the pixels of the interface: the
+        // picture is drawn at its origin, a pixel of it for a pixel of the interface.
+        const auto onScreen = [&](const Vec3& point) {
+            const ViewportPanel& viewport = editor->viewport();
+            return viewport.imageOrigin() +
+                   worldToScreen(viewport.view(), point, Vec2(viewport.targets().size())).value();
+        };
+        const auto frameOf = [&](Entity entity, GizmoMode mode) {
+            const ViewportPanel& viewport = editor->viewport();
+            return gizmoFrame(world.worldMatrix(entity), GizmoSpace::World, mode, viewport.view(),
+                              Vec2(viewport.targets().size()));
+        };
+
+        // The box and the lid on it are both selected, the lid last: the gizmo is the lid's,
+        // and moving it moves the box, which carries the lid.
+        run(*editor, "selection.set", R"({"entities": ["Box", "Box/Lid"]})");
+        REQUIRE(editor->runFrames(3).has_value());
+        const GizmoFrame frame = frameOf(lid, GizmoMode::Translate);
+        const Vec2 grab = onScreen(frame.origin + frame.x * frame.size * 0.7f);
+        pointerTo(grab);
+        button(true);
+        // To the right and down: along X alone counts.
+        pointerTo(grab + Vec2(60.0f, 25.0f));
+        CHECK(editor->viewport().isDraggingGizmo());
+        button(false);
+        CHECK_FALSE(editor->viewport().isDraggingGizmo());
+
+        const float moved = 60.0f * frame.size / kGizmoScreenSize;
+        CHECK(world.transform(box).position.x == doctest::Approx(moved).epsilon(0.02));
+        CHECK(world.transform(box).position.y == doctest::Approx(0.0f));
+        CHECK(world.transform(box).position.z == doctest::Approx(0.0f));
+        CHECK(world.transform(lid).position == Vec3(0.0f, 1.0f, 0.0f));
+        // Letting go on the gizmo chose nothing, and the drag is one step to undo.
+        CHECK(run(*editor, "selection.get").size() == 2);
+        CHECK(editor->context().history().undoLabel() == "Edit Transform of 'Box'");
+        run(*editor, "editor.undo");
+        CHECK(world.transform(box).position == Vec3(0.0f));
+
+        // The ring about Z faces the camera: from the right of the box to above it is a
+        // quarter turn about Z.
+        run(*editor, "selection.set", R"({"entities": ["Box"]})");
+        run(*editor, "viewport.gizmo", R"({"mode": "rotate"})");
+        REQUIRE(editor->runFrames(2).has_value());
+        const GizmoFrame rings = frameOf(box, GizmoMode::Rotate);
+        // Taken hold of a little below its right end, away from the other two rings, which are
+        // seen edge on; let go of above it: a quarter turn the other way to the clock.
+        const auto onRing = [](const GizmoFrame& of, float degrees) {
+            const float angle = glm::radians(degrees);
+            return of.origin + Vec3(std::cos(angle), std::sin(angle), 0.0f) * of.size;
+        };
+        pointerTo(onScreen(onRing(rings, -30.0f)));
+        button(true);
+        pointerTo(onScreen(onRing(rings, 60.0f)));
+        button(false);
+        CHECK_NEAR(world.transform(box).rotation * Vec3(1.0f, 0.0f, 0.0f), Vec3(0.0f, 1.0f, 0.0f), 0.02f);
+        CHECK(editor->context().history().undoLabel() == "Edit Transform of 'Box'");
+
+        // What hangs under something turned turns in the world as its ring says: the lid of a
+        // box tipped over about X, given a quarter turn about Z, has its X along the world's Y.
+        run(*editor, "component.set", R"({"entity": "Box", "component": "Transform",
+                                           "properties": {"rotation": [0.70710678, 0, 0, 0.70710678]}})");
+        run(*editor, "selection.set", R"({"entities": ["Box/Lid"]})");
+        REQUIRE(editor->runFrames(2).has_value());
+        const GizmoFrame lidRings = frameOf(lid, GizmoMode::Rotate);
+        pointerTo(onScreen(onRing(lidRings, -30.0f)));
+        button(true);
+        pointerTo(onScreen(onRing(lidRings, 60.0f)));
+        button(false);
+        CHECK_NEAR(glm::normalize(Vec3(world.worldMatrix(lid)[0])), Vec3(0.0f, 1.0f, 0.0f), 0.03f);
+        CHECK(editor->context().history().undoLabel() == "Edit Transform of 'Lid'");
+
+        // And it moves along the world's axes as the gizmo shows them, whatever its parent's turn.
+        run(*editor, "viewport.gizmo", R"({"mode": "translate"})");
+        REQUIRE(editor->runFrames(2).has_value());
+        const Vec3 lidWas = Vec3(world.worldMatrix(lid)[3]);
+        const GizmoFrame lidArrows = frameOf(lid, GizmoMode::Translate);
+        const Vec2 lidGrab = onScreen(lidArrows.origin + lidArrows.x * lidArrows.size * 0.7f);
+        pointerTo(lidGrab);
+        button(true);
+        pointerTo(lidGrab + Vec2(40.0f, 0.0f));
+        button(false);
+        const Vec3 lidIs = Vec3(world.worldMatrix(lid)[3]);
+        CHECK(lidIs.x - lidWas.x == doctest::Approx(40.0f * lidArrows.size / kGizmoScreenSize).epsilon(0.02));
+        CHECK(lidIs.y == doctest::Approx(lidWas.y).epsilon(0.001));
+        CHECK(lidIs.z == doctest::Approx(lidWas.z).epsilon(0.001));
+
+        // A click on a handle that moves nothing is the gizmo's too: it does not choose what is
+        // behind it, and is no step of the history.
+        const size_t steps = editor->context().history().undoCount();
+        const Vec2 handle = onScreen(Vec3(world.worldMatrix(lid)[3]) + lidArrows.x * lidArrows.size * 0.7f);
+        pointerTo(handle);
+        button(true);
+        button(false);
+        CHECK(run(*editor, "selection.get").size() == 1);
+        CHECK(editor->context().history().undoCount() == steps);
+
+        // Pressed beside every handle, in a corner of the picture, the pointer selects as it
+        // always did: nothing is there.
+        pointerTo(editor->viewport().imageOrigin() + Vec2(6.0f, Vec2(editor->viewport().targets().size()).y - 6.0f));
+        button(true);
+        button(false);
+        CHECK(run(*editor, "selection.get").empty());
+        checkNoValidationIssues(editor->engine().graphics());
+    }
+
     TEST_CASE("the application adds its commands to the catalogue") {
         const std::unique_ptr<EditorApp> editor = createEditor(headlessDesc(UVec2(640, 360)));
         for (const char* name :
              {"editor.runFrames",  "editor.screenshot",  "editor.statistics", "editor.showPanel", "editor.exit",
               "editor.focusPanel", "editor.theme",       "assets.browse",     "viewport.lookAt",  "viewport.frame",
-              "viewport.camera",   "viewport.debugView", "entity.create",     "scene.save",       "play.start",
-              "play.stop",         "play.pause",         "play.resume",       "play.step",        "play.status"}) {
+              "viewport.camera",   "viewport.debugView", "viewport.gizmo",    "entity.create",    "scene.save",
+              "play.start",        "play.stop",          "play.pause",        "play.resume",      "play.step",
+              "play.status"}) {
             CAPTURE(name);
             const CommandDesc* command = editor->commands().find(name);
             REQUIRE(command != nullptr);
