@@ -76,6 +76,7 @@ Do not guess command or property names; ask the editor.
 | `editor.state` | Scene file, unsaved changes, what undo and redo would do, the selection |
 | `asset.list` | Every asset with its id, type, name and path; optionally of one type |
 | `asset.get` | One asset: dependencies, import warnings, and its content (size, properties, nodes) |
+| `assets.browse` | What the Assets panel lists, as rows with their depth: directories, files, what is inside files. With `type`, `search`, `select`, `open` or `close` it sets that first |
 | `scene.validate` | References to assets that are missing or of the wrong kind, and colliders that no shape or body can be made of |
 | `editor.statistics` | What the last frame cost: CPU and GPU time, draw calls, triangles, lights, shadow maps, memory on the GPU |
 | `physics.raycast` | What a ray hits first - or, with a `radius`, a ball moved along it: the entity, the distance, the point and the normal |
@@ -296,6 +297,11 @@ its simulation, its sounds - play it:
   layout settle.
 - `editor.screenshot {"path": ..., "viewportOnly": true, "width": W, "height": H}`
   saves the scene alone, at any size.
+- `editor.focusPanel {"panel": "assets"}` brings a panel to the front of those it
+  shares its place with - the assets are behind the console until then - and
+  `assets.browse {"type": "prefab"}` or `{"select": "models/crate.gltf#mesh/0"}` sets
+  what the Assets panel shows before the picture is taken. A command that fails
+  brings the console back to the front.
 - `viewport.lookAt {"position": [x,y,z], "target": [x,y,z]}` and
   `viewport.frame {"entity": ...}` place the viewport camera first.
 - `viewport.show {"camera": "game"}` looks through the camera the game renders from

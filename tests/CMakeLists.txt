@@ -172,9 +172,11 @@ cordite_add_test_suite(renderer
 # The editor without its user interface: commands, undo, the document and the camera.
 cordite_add_test_suite(editor
     SOURCES
+        unit/editor/AssetBrowserTests.cpp
         unit/editor/AssetCommandsTests.cpp
         unit/editor/ColliderOutlinesTests.cpp
         unit/editor/CommandRegistryTests.cpp
+        unit/editor/ConsolePanelTests.cpp
         unit/editor/EditorActionsTests.cpp
         unit/editor/EditorCameraTests.cpp
         unit/editor/EditorCommandsTests.cpp

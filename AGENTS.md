@@ -1273,6 +1273,18 @@ panels, EditorApp    the interface, built on the three layers above
   to, and is refused while the scene is played.
 - **History entries hold ids and validated patches**, never `Entity` handles, component
   pointers or references into the world.
+- **A panel that shows more than what is there is a model and a window.** What the
+  Assets panel lists - its rows, its filter, what is open, what is chosen - is
+  `AssetBrowser`: no ImGui in it, tested without a window, and asked by the command
+  `assets.browse`, so that what a person sees is what a script is told.
+  `AssetBrowserPanel` draws it and turns clicks into command lines
+  (`placeAssetCommand`), which it hands on as the console does. Build the next panel
+  the same way: what it decides is tested where no pixel is involved.
+- **What the user asked for and did not get is said in the console, and the console
+  comes to the front for it.** A failed edit is logged with `reportIfFailed`, a
+  failed line by the console - under the two categories `reportsFailedAction` knows -
+  and `EditorApp` then brings the console in front of the panels it shares its place
+  with. An error of the game that runs does not: a game may log one in every frame.
 - **Commands run between frames.** A command may render frames itself (screenshots);
   lines typed in the console are queued and run before the next frame for that reason.
   A menu item or a shortcut that must not happen in the middle of a frame - starting
@@ -1437,7 +1449,13 @@ body explaining what changed and why. One logical change per commit.
   the default layout that shows machine-specific text. The console panel shows the
   log's history, which outlives a test: a test that takes a picture of the whole
   window empties it first (`createEditorForPicture`), or passes alone and fails in
-  the suite.
+  the suite. A reference image may differ in a fifth of a percent of its pixels, and
+  a new tab or a line of text is less than that: such a test still passes when the
+  interface has changed, and when the panel that was asked for is not the one in
+  front. Make the image anew after every change to the interface, and look at it for
+  what the test is about. And two pictures of an editor with a project in it are not
+  the same a few frames apart - the exposure of the scene settles - so compare two
+  captures for equality only in an editor without one.
 - Agent tools that run shell commands can mangle a here-document that contains an odd
   number of apostrophes. Write files with the file-writing tool instead of `cat <<EOF`.
 - NVRHI's validation layer rejects a second *immediate* command list opened while

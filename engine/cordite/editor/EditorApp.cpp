@@ -3,6 +3,7 @@
 #include "cordite/core/FileSystem.h"
 #include "cordite/core/Log.h"
 #include "cordite/core/StringUtils.h"
+#include "cordite/editor/AssetCommands.h"
 #include "cordite/editor/EditorActions.h"
 #include "cordite/editor/EditorCommands.h"
 #include "cordite/editor/EditorFeedback.h"
@@ -17,6 +18,7 @@
 #include <misc/cpp/imgui_stdlib.h>
 
 #include <algorithm>
+#include <array>
 #include <limits>
 #include <span>
 #include <utility>
@@ -31,6 +33,15 @@ constexpr const char* kFileDialogId = "Scene file";
 /// The windows that are closed until someone asks for them, as editor.showPanel names them.
 constexpr const char* kStatisticsPanelName = "statistics";
 constexpr const char* kInterfaceDemoPanelName = "interfaceDemo";
+/// The panels that are always there, as editor.focusPanel names them, with the names
+/// their windows have.
+constexpr std::array<std::pair<const char*, const char*>, 5> kDockedPanels = {{
+    {"hierarchy", "Hierarchy"},
+    {"inspector", "Inspector"},
+    {"viewport", "Viewport"},
+    {"console", ConsolePanel::kWindowName},
+    {"assets", AssetBrowserPanel::kWindowName},
+}};
 /// Where the arrangement of the windows is remembered, inside a .cordite directory.
 constexpr const char* kLayoutFileName = "editor-layout.ini";
 
@@ -100,7 +111,10 @@ void buildDefaultLayout(ImGuiID dockSpaceId) {
 
     ImGui::DockBuilderDockWindow("Hierarchy", left);
     ImGui::DockBuilderDockWindow("Inspector", right);
-    ImGui::DockBuilderDockWindow("Console", bottom);
+    // The assets share the place of the console. They are put there when their window
+    // first appears (drawInterface), which is also what places them in a layout that was
+    // remembered from before there was an Assets panel: one way for both.
+    ImGui::DockBuilderDockWindow(ConsolePanel::kWindowName, bottom);
     ImGui::DockBuilderDockWindow("Viewport", center);
     ImGui::DockBuilderFinish(dockSpaceId);
 }
@@ -152,6 +166,7 @@ Result<std::unique_ptr<EditorApp>> EditorApp::create(const EditorAppDesc& desc) 
     }
     CORDITE_TRY(registerInputCommands(app->m_commands, app->m_engine->input(), app->m_engine->actions(), inputMap));
     CORDITE_TRY(registerScriptCommands(app->m_commands, app->m_engine->scripts()));
+    CORDITE_TRY(registerAssetBrowserCommands(app->m_commands, *app->m_context, app->m_assets.browser()));
     CORDITE_TRY(app->registerApplicationCommands());
     CORDITE_TRY(app->registerPlayCommands());
     CORDITE_TRY_ASSIGN(app->m_viewport, ViewportPanel::create(*app->m_engine));
@@ -247,7 +262,8 @@ void EditorApp::runCommandLine(std::string_view line) {
     if (!rest.empty()) {
         Result<Json> parsed = parseJson(rest, "parameters");
         if (!parsed) {
-            CORDITE_LOG_ERROR("Console", "{}: the parameters are not valid JSON ({})", name, parsed.error().message);
+            CORDITE_LOG_ERROR(kConsoleLogCategory, "{}: the parameters are not valid JSON ({})", name,
+                              parsed.error().message);
             return;
         }
         parameters = std::move(*parsed);
@@ -255,11 +271,11 @@ void EditorApp::runCommandLine(std::string_view line) {
 
     const Result<Json> result = m_commands.execute(name, parameters);
     if (!result) {
-        CORDITE_LOG_ERROR("Console", "{}", result.error().message);
+        CORDITE_LOG_ERROR(kConsoleLogCategory, "{}", result.error().message);
     } else if (result->is_null()) {
-        CORDITE_LOG_INFO("Console", "{}: done", name);
+        CORDITE_LOG_INFO(kConsoleLogCategory, "{}: done", name);
     } else {
-        CORDITE_LOG_INFO("Console", "{}:\n{}", name, dumpJson(*result, 2));
+        CORDITE_LOG_INFO(kConsoleLogCategory, "{}:\n{}", name, dumpJson(*result, 2));
     }
 }
 
@@ -381,6 +397,30 @@ Status EditorApp::registerApplicationCommands() {
             Json result = Json::object();
             result[kStatisticsPanelName] = m_showStatistics;
             result[kInterfaceDemoPanelName] = m_showInterfaceDemo;
+            return result;
+        },
+    }));
+
+    CORDITE_TRY(m_commands.add({
+        .name = "editor.focusPanel",
+        .description = "Brings one of the editor's panels to the front of those it shares its place with, as a "
+                       "click on its tab does, so that it is what a screenshot shows. It is in front once a "
+                       "frame has been drawn.",
+        .parameters = {{"panel", Type::String,
+                        "The panel: \"hierarchy\", \"inspector\", \"viewport\", \"console\" or \"assets\"."}},
+        .handler = [this](const Json& parameters) -> Result<Json> {
+            const std::string panel = parameters.at("panel").get<std::string>();
+            const auto found =
+                std::ranges::find(kDockedPanels, std::string_view(panel), &std::pair<const char*, const char*>::first);
+            if (found == kDockedPanels.end()) {
+                return makeError(ErrorCode::InvalidArgument,
+                                 "there is no panel '{}'; use \"hierarchy\", \"inspector\", \"viewport\", \"console\" "
+                                 "or \"assets\"",
+                                 panel);
+            }
+            m_panelToFocus = found->second;
+            Json result = Json::object();
+            result["panel"] = panel;
             return result;
         },
     }));
@@ -724,6 +764,12 @@ void EditorApp::drawInterface() {
     const ImGuiID dockSpaceId = ImGui::GetID("EditorDockSpace");
     if (ImGui::DockBuilderGetNode(dockSpaceId) == nullptr) {
         buildDefaultLayout(dockSpaceId);
+        // Of the panels that share a place, the one that is drawn last would be in front:
+        // it is the console that is, where what goes wrong is said - unless another was
+        // asked for before there was a frame to show it in.
+        if (m_panelToFocus.empty()) {
+            m_panelToFocus = ConsolePanel::kWindowName;
+        }
     }
     ImGui::DockSpaceOverViewport(dockSpaceId, ImGui::GetMainViewport());
 
@@ -731,7 +777,23 @@ void EditorApp::drawInterface() {
     m_hierarchy.draw(*m_context);
     m_inspector.draw(*m_context);
     m_console.draw(m_submittedLines);
+    // In a layout that was remembered before there was an Assets panel it has no place
+    // of its own: there it goes where the console is, the first time it is seen.
+    if (const ImGuiWindow* console = ImGui::FindWindowByName(ConsolePanel::kWindowName);
+        console != nullptr && console->DockId != 0) {
+        ImGui::SetNextWindowDockID(console->DockId, ImGuiCond_FirstUseEver);
+    }
+    m_assets.draw(*m_context, m_submittedLines);
     drawFileDialog();
+    // What the user asked for and did not get is said in the console, which may be behind
+    // the assets: it comes to the front for it.
+    if (m_console.takeFailedAction()) {
+        m_panelToFocus = ConsolePanel::kWindowName;
+    }
+    if (!m_panelToFocus.empty()) {
+        ImGui::SetWindowFocus(m_panelToFocus.c_str());
+        m_panelToFocus.clear();
+    }
 
     if (m_showStatistics) {
         m_statistics.draw(m_engine->statistics(), m_showStatistics);

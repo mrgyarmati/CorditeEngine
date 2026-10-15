@@ -6,6 +6,8 @@
 #include "cordite/assets/Primitives.h"
 #include "cordite/core/FileSystem.h"
 #include "cordite/core/Log.h"
+#include "cordite/core/Uuid.h"
+#include "cordite/editor/AssetBrowser.h"
 #include "cordite/engine/Project.h"
 #include "cordite/platform/InputMap.h"
 #include "cordite/world/SceneSerializer.h"
@@ -112,6 +114,103 @@ TEST_SUITE("EditorApp") {
 
         REQUIRE(editor->runFrames(4).has_value());
         checkAgainstReference(unwrap(editor->engine().captureFrame()), "editor-light-1280x720");
+        checkNoValidationIssues(editor->engine().graphics());
+    }
+
+    TEST_CASE("the editor showing the assets of the showcase matches the reference image") {
+        EditorAppDesc desc = headlessDesc();
+        desc.project = showcaseProject();
+        const std::unique_ptr<EditorApp> editor = createEditorForPicture(desc);
+
+        // The panel shares its place with the console, and is in front once it is asked
+        // for. What it lists is set by command: a mesh inside a model is chosen - which
+        // opens the model, and is far down the list, where the list scrolls to.
+        CHECK(run(*editor, "editor.focusPanel", R"({"panel": "assets"})")["panel"] == "assets");
+        const Json listed = run(*editor, "assets.browse", R"({"select": "models/hoist.gltf#mesh/1"})");
+        CHECK(listed["selected"]["name"] == "Cable");
+        REQUIRE(editor->runFrames(4).has_value());
+        checkAgainstReference(unwrap(editor->engine().captureFrame()), "editor-assets-1280x720");
+
+        // What the panel asks for when its "Place" is clicked is a line the console runs:
+        // the hoist, under nothing since nothing is selected - and one step to take back.
+        const size_t before = editor->context().world().entityCount();
+        const Uuid hoist =
+            *Uuid::parse(run(*editor, "asset.get", R"({"asset": "models/hoist.gltf"})")["id"].get<std::string>());
+        editor->runCommandLine(placeAssetCommand(editor->context(), hoist));
+        CHECK(editor->context().world().entityCount() > before);
+        CHECK(editor->context().world().name(editor->context().primarySelection()) == "hoist");
+        run(*editor, "editor.undo");
+        CHECK(editor->context().world().entityCount() == before);
+        REQUIRE(editor->runFrames(2).has_value());
+        checkNoValidationIssues(editor->engine().graphics());
+    }
+
+    TEST_CASE("the console is in front of the assets until they are asked for, and again when something fails") {
+        // An editor without a project: nothing in its picture changes from frame to frame
+        // but what is asked for here.
+        std::unique_ptr<EditorApp> editor = createEditorForPicture(headlessDesc(UVec2(640, 360)));
+        REQUIRE(editor->runFrames(4).has_value());
+        const Image withConsole = unwrap(editor->engine().captureFrame());
+        const auto pictureDiffers = [&editor](const Image& from) {
+            REQUIRE(editor->runFrames(3).has_value());
+            return unwrap(compareImages(from, unwrap(editor->engine().captureFrame()))).differingPixels;
+        };
+        CHECK(pictureDiffers(withConsole) == 0);
+
+        // The assets, in front once a frame has been drawn; what they list is what the
+        // engine has built in.
+        CHECK(run(*editor, "editor.focusPanel", R"({"panel": "assets"})")["panel"] == "assets");
+        REQUIRE(editor->runFrames(3).has_value());
+        const Image withAssets = unwrap(editor->engine().captureFrame());
+        const uint64_t between = unwrap(compareImages(withConsole, withAssets)).differingPixels;
+        CHECK(between > 1000);
+        // What the panel lists shows in it: with a filter that leaves nothing, less.
+        run(*editor, "assets.browse", R"({"type": "scene"})");
+        CHECK(pictureDiffers(withAssets) > 200);
+        run(*editor, "assets.browse", R"({"type": "all"})");
+        CHECK(pictureDiffers(withAssets) == 0);
+
+        // The console again, as it was: nothing of the assets is to be seen.
+        run(*editor, "editor.focusPanel", R"({"panel": "console"})");
+        CHECK(pictureDiffers(withConsole) == 0);
+
+        // What could not be done is said in the console, which comes to the front for it:
+        // the picture is the one with the console but for the line it has now, and far
+        // from the one with the assets.
+        run(*editor, "editor.focusPanel", R"({"panel": "assets"})");
+        CHECK(pictureDiffers(withAssets) == 0);
+        editor->runCommandLine(R"(asset.instantiate {"asset": "textures/none.png"})");
+        const uint64_t fromConsole = pictureDiffers(withConsole);
+        CHECK(fromConsole > 0);
+        CHECK(fromConsole < between);
+        CHECK(pictureDiffers(withAssets) > between / 2);
+        // What a command did, and what the game that runs says, does not: the assets stay.
+        run(*editor, "editor.focusPanel", R"({"panel": "assets"})");
+        static_cast<void>(pictureDiffers(withAssets));
+        editor->runCommandLine("selection.get");
+        CORDITE_LOG_ERROR("Script", "a script of the game has stopped");
+        CHECK(pictureDiffers(withAssets) == 0);
+
+        // Every panel that is always there has a name; what is none is told which there are.
+        for (const char* panel : {"hierarchy", "inspector", "viewport", "console", "assets"}) {
+            CAPTURE(std::string(panel));
+            CHECK(run(*editor, "editor.focusPanel", fmt::format(R"({{"panel": "{}"}})", panel))["panel"] == panel);
+        }
+        REQUIRE(editor->runFrames(2).has_value());
+        const Result<Json> unknown =
+            editor->commands().execute("editor.focusPanel", json(R"({"panel": "statistics"})"));
+        REQUIRE_FALSE(unknown.has_value());
+        CHECK(unknown.error().code == ErrorCode::InvalidArgument);
+        CHECK(unknown.error().message.find("\"assets\"") != std::string::npos);
+        checkNoValidationIssues(editor->engine().graphics());
+
+        // A panel that is asked for before the first frame is in front from the first:
+        // another editor, asked at once, shows what this one did with its assets in front.
+        editor.reset();
+        editor = createEditorForPicture(headlessDesc(UVec2(640, 360)));
+        run(*editor, "editor.focusPanel", R"({"panel": "assets"})");
+        REQUIRE(editor->runFrames(4).has_value());
+        CHECK(unwrap(compareImages(withAssets, unwrap(editor->engine().captureFrame()))).differingPixels == 0);
         checkNoValidationIssues(editor->engine().graphics());
     }
 
@@ -400,6 +499,45 @@ TEST_SUITE("EditorApp") {
         CHECK(editor->context().world().sceneName() == "Other");
         // The project's assets are there all the same.
         CHECK(run(*editor, "asset.get", R"({"asset": "models/crate.gltf#mesh/0"})")["name"] == "Crate");
+    }
+
+    TEST_CASE("a layout remembered before there was an Assets panel gets the panel where the console is") {
+        const TempDirectory directory;
+        const Project project = unwrap(createProject(directory.path() / "game", "Game"));
+        const std::filesystem::path layout = project.cacheDirectory() / "editor-layout.ini";
+        // The editor with its assets in front: as it comes, or with a layout it remembers.
+        const auto pictureWithAssets = [&project](bool rememberLayout) {
+            EditorAppDesc desc = headlessDesc(UVec2(640, 360));
+            desc.project = project.directory;
+            desc.rememberLayout = rememberLayout;
+            const std::unique_ptr<EditorApp> editor = createEditorForPicture(desc);
+            REQUIRE(editor->runFrames(3).has_value());
+            run(*editor, "editor.focusPanel", R"({"panel": "assets"})");
+            REQUIRE(editor->runFrames(3).has_value());
+            Image picture = unwrap(editor->engine().captureFrame());
+            checkNoValidationIssues(editor->engine().graphics());
+            return picture;
+        };
+        const Image fresh = pictureWithAssets(false);
+
+        // A layout is remembered - and made one of an editor that had no Assets panel: the
+        // file says nothing of such a window.
+        static_cast<void>(pictureWithAssets(true));
+        std::string remembered = unwrap(readTextFile(layout));
+        const size_t entry = remembered.find("[Window][Assets]");
+        REQUIRE(entry != std::string::npos);
+        const size_t next = remembered.find("\n[", entry);
+        REQUIRE(next != std::string::npos);
+        remembered.erase(entry, next + 1 - entry);
+        REQUIRE(remembered.find("Assets") == std::string::npos);
+        REQUIRE(remembered.find("[Window][Console]") != std::string::npos);
+        REQUIRE(writeTextFile(layout, remembered).has_value());
+
+        // The panel is where it is in a fresh layout: with the console, and not afloat
+        // over the viewport, where a window that nothing places would be.
+        CHECK(unwrap(compareImages(fresh, pictureWithAssets(true))).differingPixels == 0);
+        // And from then on the layout remembers it.
+        CHECK(unwrap(readTextFile(layout)).find("[Window][Assets]") != std::string::npos);
     }
 
     TEST_CASE("an editor asked to remember its layout keeps it in the project") {
@@ -1602,8 +1740,9 @@ TEST_SUITE("EditorApp") {
         const std::unique_ptr<EditorApp> editor = createEditor(headlessDesc(UVec2(640, 360)));
         for (const char* name :
              {"editor.runFrames", "editor.screenshot", "editor.statistics", "editor.showPanel", "editor.exit",
-              "viewport.lookAt", "viewport.frame", "viewport.camera", "viewport.debugView", "entity.create",
-              "scene.save", "play.start", "play.stop", "play.pause", "play.resume", "play.step", "play.status"}) {
+              "editor.focusPanel", "assets.browse", "viewport.lookAt", "viewport.frame", "viewport.camera",
+              "viewport.debugView", "entity.create", "scene.save", "play.start", "play.stop", "play.pause",
+              "play.resume", "play.step", "play.status"}) {
             CAPTURE(name);
             const CommandDesc* command = editor->commands().find(name);
             REQUIRE(command != nullptr);

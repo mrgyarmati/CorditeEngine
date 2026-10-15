@@ -48,6 +48,7 @@
 #include "cordite/core/Json.h"
 #include "cordite/core/Result.h"
 #include "cordite/core/Uuid.h"
+#include "cordite/editor/AssetBrowserPanel.h"
 #include "cordite/editor/CommandRegistry.h"
 #include "cordite/editor/ConsolePanel.h"
 #include "cordite/editor/EditorCamera.h"
@@ -179,6 +180,7 @@ private:
     HierarchyPanel m_hierarchy;
     InspectorPanel m_inspector;
     ConsolePanel m_console;
+    AssetBrowserPanel m_assets;
     StatisticsPanel m_statistics;
 
     /// Lines entered in the console during a frame; they run before the next one, when
@@ -189,6 +191,10 @@ private:
     std::string m_fileDialogPath;
     bool m_showInterfaceDemo = false;
     bool m_showStatistics = false;
+    /// The window that is brought to the front with the next frame: the one
+    /// editor.focusPanel asked for, or the console when it has something to say. Empty
+    /// for none.
+    std::string m_panelToFocus;
     /// What the window title was last set from, to change it only when needed.
     std::string m_shownTitle;
 };

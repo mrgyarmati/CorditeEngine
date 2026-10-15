@@ -27,6 +27,9 @@ namespace cordite {
 
 class ConsolePanel {
 public:
+    /// The name of the window, which is what its place in a layout is remembered by.
+    static constexpr const char* kWindowName = "Console";
+
     /// Starts collecting log messages, beginning with those already in the log's history.
     ConsolePanel();
     ~ConsolePanel();
@@ -38,6 +41,12 @@ public:
 
     /// Number of messages currently kept.
     [[nodiscard]] size_t messageCount() const { return m_messages.size(); }
+
+    /// Whether something the user asked for has failed since this was last asked
+    /// (reportsFailedAction() in EditorFeedback.h) - true once, for any number of
+    /// failures. The console is where that is said, and whoever shows the console only
+    /// some of the time shows it then.
+    [[nodiscard]] bool takeFailedAction();
 
 private:
     void collectIncoming();
@@ -57,6 +66,8 @@ private:
     /// Set when messages arrived, to scroll down after they have been laid out.
     bool m_scrollToNewest = false;
     std::string m_input;
+    /// Whether a failed action has arrived that takeFailedAction() has not told of.
+    bool m_failedAction = false;
 };
 
 } // namespace cordite

@@ -490,7 +490,25 @@ bool PropertyEditor::drawAssetReference(const PropertyInfo& property, const std:
         text = m_assetName ? m_assetName(*id) : id->toString();
     }
     if (!ImGui::BeginCombo("##value", text.c_str(), ImGuiComboFlags_HeightLarge)) {
-        return false;
+        // Closed, the field takes an asset that is dragged onto it from the browser - one
+        // of the kind it lists, or the drop is not for it.
+        bool dropped = false;
+        if (m_assetChoices && ImGui::BeginDragDropTarget()) {
+            const ImGuiPayload* dragged = ImGui::GetDragDropPayload();
+            if (dragged != nullptr && dragged->IsDataType(kAssetPayload) &&
+                dragged->DataSize == static_cast<int>(sizeof(Uuid))) {
+                Uuid asset;
+                std::memcpy(&asset, dragged->Data, sizeof(Uuid));
+                const std::vector<AssetChoice> choices = m_assetChoices(property.attributes().referenceType);
+                const bool fits = std::ranges::find(choices, asset, &AssetChoice::id) != choices.end();
+                if (fits && ImGui::AcceptDragDropPayload(kAssetPayload) != nullptr) {
+                    value = asset.toString();
+                    dropped = true;
+                }
+            }
+            ImGui::EndDragDropTarget();
+        }
+        return dropped;
     }
 
     // The list is only asked for while it is open.

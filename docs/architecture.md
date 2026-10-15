@@ -197,7 +197,7 @@ The editor is four layers, each usable without the ones above it:
 EditorContext    the document: a world, the selection, the undo history, the scene file
 EditorActions    every edit: validated, applied, recorded for undo
 EditorCommands   the same edits by name, taking and returning JSON
-panels, EditorApp    hierarchy, inspector, viewport, console; the frame loop
+panels, EditorApp    hierarchy, inspector, viewport, console, assets; the frame loop
 ```
 
 A person clicking in a panel, a script passed with `--exec` and a line typed in the
@@ -471,6 +471,30 @@ Making a prefab writes a file, and writing a file is not an edit of the scene: u
 does not take it back. What `prefab.create` changes in the scene is one component - the
 entity the prefab was made of is marked as its first instance - and that is what the
 history holds.
+
+### The asset browser is a list that is worked out, and a window that draws it
+
+The Assets panel shows the assets of a project as a tree: directories, the files in
+them, and - for a model - what is inside the file. Which rows there are, in which
+order, which of them are open, what a filter leaves of them and which asset is chosen
+is decided by `AssetBrowser`, a class without a line of interface code in it. It makes
+the rows anew from the asset database whenever it is asked, and keeps no pointer into
+it, so the rows are right after the assets were read again. `AssetBrowserPanel` asks
+for them when the database or the browser has changed, draws what fits in its window,
+and turns a double click into the line `asset.instantiate {...}` for the console to
+run.
+
+The split is there for two reasons. What a panel decides can be tested without a
+window and without a pixel: the tests of the browser compare lists of rows. And the
+command `assets.browse` asks the same object the panel draws, so an agent that wants to
+know what a person is looking at is told exactly that, and one that sets a filter sees
+it in the next screenshot.
+
+The panel shares its place with the console. The console is in front when the editor
+starts, because it is where the editor says what went wrong; and when something the
+user asked for fails while the assets are in front, it comes forward again. Errors of
+the game that is played do not bring it forward: a game can log one in every frame,
+and the panel behind would be out of reach.
 
 ### The editor's user interface is Dear ImGui
 

@@ -25,6 +25,24 @@ Entity acceptEntityDrop(const World& world) {
     return world.findById(id);
 }
 
+/// The asset carried by a drag in progress that is something to place in a scene - a
+/// model or a prefab. Nil for any other, which is then not taken: no entity is a place
+/// to drop a texture.
+Uuid acceptPlaceableDrop(const AssetDatabase& database) {
+    const ImGuiPayload* dragged = ImGui::GetDragDropPayload();
+    if (dragged == nullptr || !dragged->IsDataType(PropertyEditor::kAssetPayload) ||
+        dragged->DataSize != static_cast<int>(sizeof(Uuid))) {
+        return {};
+    }
+    Uuid id;
+    std::memcpy(&id, dragged->Data, sizeof(Uuid));
+    const AssetInfo* asset = database.find(id);
+    if (asset == nullptr || !canBePlaced(asset->type)) {
+        return {};
+    }
+    return ImGui::AcceptDragDropPayload(PropertyEditor::kAssetPayload) != nullptr ? id : Uuid();
+}
+
 } // namespace
 
 void HierarchyPanel::draw(EditorContext& context) {
@@ -57,6 +75,11 @@ void HierarchyPanel::draw(EditorContext& context) {
                 if (const Entity dropped = acceptEntityDrop(world); !dropped.isNull()) {
                     m_deferredEdit = [&context, dropped] {
                         reportIfFailed(EditorActions(context).setParent(dropped, Entity{}));
+                    };
+                } else if (const Uuid asset = acceptPlaceableDrop(context.assets().database()); !asset.isNil()) {
+                    // A model or a prefab from the asset browser, placed as a root.
+                    m_deferredEdit = [&context, asset] {
+                        reportIfFailed(EditorActions(context).instantiateAsset(asset));
                     };
                 }
                 ImGui::EndDragDropTarget();
@@ -141,6 +164,11 @@ void HierarchyPanel::drawEntity(EditorContext& context, Entity entity) {
         if (const Entity dropped = acceptEntityDrop(world); !dropped.isNull() && dropped != entity) {
             m_deferredEdit = [&context, child = dropped, newParent = entity] {
                 reportIfFailed(EditorActions(context).setParent(child, newParent));
+            };
+        } else if (const Uuid asset = acceptPlaceableDrop(context.assets().database()); !asset.isNil()) {
+            // A model or a prefab from the asset browser, placed under this entity.
+            m_deferredEdit = [&context, asset, parent = entity] {
+                reportIfFailed(EditorActions(context).instantiateAsset(asset, parent));
             };
         }
         ImGui::EndDragDropTarget();

@@ -1,5 +1,9 @@
 cordite_add_module(editor
     SOURCES
+        AssetBrowser.cpp
+        AssetBrowser.h
+        AssetBrowserPanel.cpp
+        AssetBrowserPanel.h
         AssetCommands.cpp
         AssetCommands.h
         ColliderOutlines.cpp

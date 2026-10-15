@@ -10,6 +10,7 @@
 #include "cordite/assets/Sound.h"
 #include "cordite/core/FileSystem.h"
 #include "cordite/core/Json.h"
+#include "cordite/core/StringUtils.h"
 #include "cordite/editor/EditorActions.h"
 #include "cordite/engine/SceneAssets.h"
 #include "cordite/math/MathJson.h"
@@ -33,6 +34,9 @@ namespace cordite {
 namespace {
 
 using Type = CommandParameterType;
+
+/// What `assets.browse` calls the assets of every type.
+constexpr const char* kEveryType = "all";
 
 constexpr const char* kAssetReference =
     "An asset: its id, or its path within the asset directory, followed by '#' and its place in the file for an "
@@ -221,7 +225,123 @@ std::string assetTypeNames() {
     return names;
 }
 
+/// What the browser lists, as `assets.browse` returns it.
+Json describeBrowser(const AssetBrowser& browser, const AssetDatabase& database) {
+    Json result = Json::object();
+    const AssetBrowserFilter& filter = browser.filter();
+    result["type"] = filter.type ? Json(std::string(nameOf(*filter.type))) : Json(nullptr);
+    result["search"] = filter.search;
+    const AssetInfo* selected = database.find(browser.selection());
+    result["selected"] = selected != nullptr ? describeAsset(*selected) : Json(nullptr);
+
+    Json rows = Json::array();
+    for (const AssetBrowserRow& row : browser.rows(database)) {
+        const bool isAsset = row.kind == AssetBrowserRow::Kind::Asset;
+        Json entry = Json::object();
+        entry["kind"] = isAsset ? "asset" : "directory";
+        entry["depth"] = row.depth;
+        entry["name"] = row.label;
+        entry["path"] = row.path;
+        if (isAsset) {
+            entry["id"] = row.asset.toString();
+            entry["type"] = std::string(nameOf(row.type));
+            entry["matches"] = row.matches;
+        }
+        if (row.hasChildren) {
+            entry["open"] = row.open;
+        }
+        if (row.selected) {
+            entry["selected"] = true;
+        }
+        rows.push_back(std::move(entry));
+    }
+    result["rows"] = std::move(rows);
+    return result;
+}
+
+/// Does what `assets.browse` was asked to, to a browser of its own: the one of the panel
+/// is changed only when all of it could be done.
+Status applyBrowse(AssetBrowser& browser, const EditorContext& context, const Json& parameters) {
+    const AssetDatabase& database = context.assets().database();
+    AssetBrowserFilter filter = browser.filter();
+    if (parameters.contains("type")) {
+        const std::string name = parameters.at("type").get<std::string>();
+        filter.type = assetTypeFromName(name);
+        if (!filter.type && name != kEveryType) {
+            return makeError(ErrorCode::InvalidArgument, "'{}' is not an asset type; use \"{}\", {}", name, kEveryType,
+                             assetTypeNames());
+        }
+    }
+    if (parameters.contains("search")) {
+        filter.search = parameters.at("search").get<std::string>();
+    }
+    browser.setFilter(std::move(filter));
+
+    if (parameters.contains("select")) {
+        const std::string reference = parameters.at("select").get<std::string>();
+        if (trim(reference).empty()) {
+            browser.select(Uuid());
+        } else {
+            CORDITE_TRY_ASSIGN(const AssetInfo* asset, context.resolveAsset(reference));
+            browser.select(asset->id);
+            // Shown, where the filter lists it: what it is in is opened.
+            browser.reveal(database, asset->id);
+        }
+    }
+
+    for (const bool open : {true, false}) {
+        const char* parameter = open ? "open" : "close";
+        if (!parameters.contains(parameter)) {
+            continue;
+        }
+        const std::string path = parameters.at(parameter).get<std::string>();
+        const std::optional<AssetBrowserRow> row = browser.find(database, path);
+        if (!row || !row->hasChildren) {
+            return makeError(ErrorCode::NotFound,
+                             "the assets that are listed have no directory and no file '{}' with something in it",
+                             path);
+        }
+        browser.setOpen(*row, open);
+    }
+    return {};
+}
+
 } // namespace
+
+Status registerAssetBrowserCommands(CommandRegistry& commands, EditorContext& context, AssetBrowser& browser) {
+    return commands.add({
+        .name = "assets.browse",
+        .description = "Says what the Assets panel lists, and sets what it lists: the assets of the project as a "
+                       "tree of directories, files and what is inside files, narrowed down to one type, to a text, "
+                       "or to both. It can choose an asset in the panel, and open or close a directory or a file. "
+                       "Returns the rows from top to bottom, each with how far in it is (\"depth\"); what is below "
+                       "a row that is closed is not among them, and while something is left out every row is "
+                       "open. Without parameters it changes nothing.",
+        .parameters =
+            {{"type", Type::String,
+              fmt::format("Only assets of this type: {} - or \"{}\" for those of every type.", assetTypeNames(),
+                          kEveryType),
+              false},
+             {"search", Type::String,
+              R"(Only assets with this text in their name or in their path, whatever the case. "" for all of them.)",
+              false},
+             {"select", Type::String,
+              R"(The asset to choose: its id, or its path as a row has it. "" for none. What it is in - its )"
+              "directories, the file it is inside - is opened, so that it is among the rows; an asset the "
+              "filter leaves out is chosen all the same, and shows once it is listed.",
+              false},
+             {"open", Type::String,
+              R"(The path of a directory or of a file whose rows are to be shown: "models", "models/crate.gltf".)",
+              false},
+             {"close", Type::String, "The path of a directory or of a file whose rows are to be hidden.", false}},
+        .handler = [&context, &browser](const Json& parameters) -> Result<Json> {
+            AssetBrowser changed = browser;
+            CORDITE_TRY(applyBrowse(changed, context, parameters));
+            browser = std::move(changed);
+            return describeBrowser(browser, context.assets().database());
+        },
+    });
+}
 
 Status registerAssetCommands(CommandRegistry& commands, EditorContext& context) {
     CORDITE_TRY(commands.add({
@@ -330,16 +450,7 @@ Status registerAssetCommands(CommandRegistry& commands, EditorContext& context) 
             }
 
             EditorActions actions(context);
-            Entity instance;
-            if (asset->type == AssetType::Model) {
-                CORDITE_TRY_ASSIGN(instance, actions.instantiateModel(asset->id, {.parent = under, .name = name}));
-            } else if (asset->type == AssetType::Prefab) {
-                CORDITE_TRY_ASSIGN(instance, actions.instantiatePrefab(asset->id, {.parent = under, .name = name}));
-            } else {
-                return makeError(ErrorCode::InvalidArgument,
-                                 "{} is {}; what is placed in a scene is a model or a prefab", asset->reference(),
-                                 withArticle(asset->type));
-            }
+            CORDITE_TRY_ASSIGN(const Entity instance, actions.instantiateAsset(asset->id, under, name));
 
             const World& world = context.world();
             Json result = Json::object();

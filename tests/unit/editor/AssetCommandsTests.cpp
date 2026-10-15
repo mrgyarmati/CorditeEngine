@@ -45,6 +45,8 @@ struct AssetFixture {
     World world;
     std::unique_ptr<AssetManager> assets;
     std::unique_ptr<EditorContext> context;
+    /// What an Assets panel would list, for the command that asks it.
+    AssetBrowser browser;
     CommandRegistry commands;
 
     AssetFixture() {
@@ -61,6 +63,7 @@ struct AssetFixture {
         assets = unwrap(AssetManager::create({.rootDirectory = root}));
         context = std::make_unique<EditorContext>(world, components, *assets);
         REQUIRE(registerEditorCommands(commands, *context).has_value());
+        REQUIRE(registerAssetBrowserCommands(commands, *context, browser).has_value());
     }
 
     void writeText(std::string_view relativePath, std::string_view text) const {
@@ -148,6 +151,33 @@ struct AssetFixture {
         return lines;
     }
 };
+
+/// The rows `assets.browse` returns, one line each: indented by depth, a directory with a
+/// slash, an asset with its type; "..." for a row that is closed over what is below it,
+/// "-" for a file that is listed only for what is inside it, "*" for the chosen asset.
+std::vector<std::string> browserLines(const Json& rows) {
+    std::vector<std::string> lines;
+    for (const Json& row : rows) {
+        std::string line(row["depth"].get<size_t>() * 2, ' ');
+        line += row["name"].get<std::string>();
+        if (row["kind"] == "directory") {
+            line += "/";
+        } else {
+            line += fmt::format(" ({})", row["type"].get<std::string>());
+        }
+        if (row.contains("open") && row["open"] == false) {
+            line += " ...";
+        }
+        if (row.contains("matches") && row["matches"] == false) {
+            line += " -";
+        }
+        if (row.contains("selected")) {
+            line += " *";
+        }
+        lines.push_back(std::move(line));
+    }
+    return lines;
+}
 
 std::vector<std::string> pathsOf(const Json& assets) {
     std::vector<std::string> paths;
@@ -953,6 +983,197 @@ TEST_SUITE("AssetCommands") {
         CHECK(run("scene.validate", "{}")["valid"] == true);
         CHECK(run("asset.instantiate", fmt::format(R"({{"asset": "{}"}})", made["id"].get<std::string>()))["name"] ==
               "Lamp");
+    }
+
+    TEST_CASE("assets.browse says what the Assets panel lists, and asking changes nothing") {
+        AssetFixture fixture;
+        const uint64_t revision = fixture.browser.revision();
+        const Json listed = fixture.run("assets.browse");
+
+        CHECK(listed["type"].is_null());
+        CHECK(listed["search"] == "");
+        CHECK(listed["selected"].is_null());
+        // Directories open, the model closed over what is inside it, and what is built in last.
+        CHECK(browserLines(listed["rows"]) == std::vector<std::string>{"materials/",
+                                                                       "  paint.material.json (material)",
+                                                                       "models/",
+                                                                       "  cart.gltf (model) ...",
+                                                                       "scenes/",
+                                                                       "  yard.scene.json (scene)",
+                                                                       "scripts/",
+                                                                       "  gate.lua (script)",
+                                                                       "sounds/",
+                                                                       "  creak.wav (sound)",
+                                                                       "textures/",
+                                                                       "  wall.png (texture)",
+                                                                       "builtin/",
+                                                                       "  Cube (mesh)",
+                                                                       "  Sphere (mesh)",
+                                                                       "  Plane (mesh)",
+                                                                       "  Cylinder (mesh)",
+                                                                       "  Cone (mesh)",
+                                                                       "  Capsule (mesh)",
+                                                                       "  Torus (mesh)",
+                                                                       "  Default (material)"});
+        // A row says what the other commands need to hear.
+        const Json& cart = listed["rows"][3];
+        CHECK(cart["kind"] == "asset");
+        CHECK(cart["depth"] == 1);
+        CHECK(cart["name"] == "cart.gltf");
+        CHECK(cart["path"] == "models/cart.gltf");
+        CHECK(cart["id"] == fixture.id("models/cart.gltf"));
+        CHECK(cart["type"] == "model");
+        CHECK(cart["matches"] == true);
+        CHECK(cart["open"] == false);
+        CHECK_FALSE(cart.contains("selected"));
+        const Json& models = listed["rows"][2];
+        CHECK(models["kind"] == "directory");
+        CHECK(models["path"] == "models");
+        CHECK(models["open"] == true);
+        CHECK_FALSE(models.contains("id"));
+        // What has nothing below it is neither open nor closed.
+        CHECK_FALSE(listed["rows"][1].contains("open"));
+
+        CHECK(fixture.browser.revision() == revision);
+    }
+
+    TEST_CASE("assets.browse narrows what is listed, chooses an asset and opens what it is in") {
+        AssetFixture fixture;
+
+        // Of one type, with a text: the model is there for the wheel inside it.
+        Json listed = fixture.run("assets.browse", R"({"type": "mesh", "search": " WH "})");
+        CHECK(listed["type"] == "mesh");
+        CHECK(listed["search"] == "WH");
+        CHECK(browserLines(listed["rows"]) ==
+              std::vector<std::string>{"models/", "  cart.gltf (model) -", "    Wheel (mesh)"});
+        CHECK(fixture.browser.filter() == AssetBrowserFilter{.type = AssetType::Mesh, .search = "WH"});
+        // What is not said stays: the text goes, the type does not.
+        listed = fixture.run("assets.browse", R"({"search": ""})");
+        CHECK(listed["type"] == "mesh");
+        CHECK(listed["rows"].size() == 12);
+        // And every type again.
+        listed = fixture.run("assets.browse", R"({"type": "all"})");
+        CHECK(listed["type"].is_null());
+        CHECK(listed["rows"].size() == 21);
+
+        // An asset is chosen by where it is or by its id, and what it is in is opened for
+        // it: the file shows what is inside it - three rows more - and which is chosen.
+        listed = fixture.run("assets.browse", R"({"select": "models/cart.gltf#mesh/1"})");
+        CHECK(listed["selected"]["path"] == "models/cart.gltf#mesh/1");
+        CHECK(listed["selected"]["id"] == fixture.id("models/cart.gltf#mesh/1"));
+        const std::vector<std::string> opened = browserLines(listed["rows"]);
+        REQUIRE(opened.size() == 24);
+        CHECK(std::vector<std::string>(opened.begin() + 2, opened.begin() + 8) ==
+              std::vector<std::string>{"models/", "  cart.gltf (model)", "    Body (mesh)", "    Wheel (mesh) *",
+                                       "    Paint (material)", "scenes/"});
+        // Closed again by hand, the file hides it, and it is chosen still; opened, there it is.
+        listed = fixture.run("assets.browse", R"({"close": "models/cart.gltf"})");
+        CHECK(browserLines(listed["rows"])[3] == "  cart.gltf (model) ...");
+        CHECK(listed["selected"]["path"] == "models/cart.gltf#mesh/1");
+        listed = fixture.run("assets.browse", R"({"open": "models/cart.gltf"})");
+        CHECK(browserLines(listed["rows"])[5] == "    Wheel (mesh) *");
+        // An asset the filter leaves out is chosen all the same, and nothing is opened for it.
+        fixture.run("assets.browse", R"({"close": "models/cart.gltf"})");
+        listed = fixture.run("assets.browse", R"({"type": "texture", "select": "models/cart.gltf#mesh/0"})");
+        CHECK(listed["selected"]["path"] == "models/cart.gltf#mesh/0");
+        CHECK(browserLines(listed["rows"]) == std::vector<std::string>{"textures/", "  wall.png (texture)"});
+        listed = fixture.run("assets.browse", R"({"type": "all"})");
+        CHECK(browserLines(listed["rows"])[3] == "  cart.gltf (model) ...");
+        fixture.run("assets.browse", R"({"open": "models/cart.gltf"})");
+        listed = fixture.run("assets.browse",
+                             fmt::format(R"({{"select": "{}", "close": "models"}})", fixture.id("textures/wall.png")));
+        CHECK(listed["selected"]["path"] == "textures/wall.png");
+        CHECK(browserLines(listed["rows"])[2] == "models/ ...");
+        CHECK(browserLines(listed["rows"])[10] == "  wall.png (texture) *");
+        // What is built in is a directory to close like the others; and none is chosen.
+        listed = fixture.run("assets.browse", R"({"close": "builtin", "select": ""})");
+        CHECK(listed["selected"].is_null());
+        CHECK(browserLines(listed["rows"]).back() == "builtin/ ...");
+        listed = fixture.run("assets.browse", R"({"open": "models"})");
+        // The file in the directory is as it was left: open.
+        CHECK(browserLines(listed["rows"])[4] == "    Body (mesh)");
+    }
+
+    TEST_CASE("assets.browse that asks for what is not there changes nothing of what the panel lists") {
+        AssetFixture fixture;
+        fixture.run("assets.browse", R"({"search": "cart", "select": "textures/wall.png"})");
+        const AssetBrowserFilter filter = fixture.browser.filter();
+        const Uuid selection = fixture.browser.selection();
+        const uint64_t revision = fixture.browser.revision();
+
+        Error error = fixture.fail("assets.browse", R"({"type": "font"})");
+        CHECK(error.code == ErrorCode::InvalidArgument);
+        CHECK(error.message ==
+              "assets.browse: 'font' is not an asset type; use \"all\", texture, mesh, material, model, "
+              "scene, skeleton, animation, script, sound or prefab");
+        error = fixture.fail("assets.browse", R"({"select": "models/none.gltf"})");
+        CHECK(error.code == ErrorCode::NotFound);
+        // What can be opened is what has something below it, among what is listed.
+        for (const char* path : {"nowhere", "textures/wall.png", "models/cart.gltf#mesh/0", "textures", ""}) {
+            CAPTURE(std::string(path));
+            for (const char* which : {"open", "close"}) {
+                error = fixture.fail("assets.browse", fmt::format(R"({{"{}": "{}"}})", which, path));
+                CHECK(error.code == ErrorCode::NotFound);
+                CHECK(error.message == fmt::format("assets.browse: the assets that are listed have no directory and no "
+                                                   "file '{}' with something in it",
+                                                   path));
+            }
+        }
+        CHECK(fixture.fail("assets.browse", R"({"type": 5})").code == ErrorCode::InvalidArgument);
+        CHECK(fixture.fail("assets.browse", R"({"sort": "name"})").code == ErrorCode::InvalidArgument);
+
+        // The first half of a request is not done when the second cannot be.
+        error = fixture.fail("assets.browse", R"({"type": "mesh", "search": "", "select": "", "open": "nowhere"})");
+        CHECK(error.code == ErrorCode::NotFound);
+        CHECK(fixture.browser.filter() == filter);
+        CHECK(fixture.browser.selection() == selection);
+        CHECK(fixture.browser.revision() == revision);
+    }
+
+    TEST_CASE("what the Assets panel asks for is said as commands that do it") {
+        AssetFixture fixture;
+        // A line as the console takes it: a name, and its parameters as JSON.
+        const auto runLine = [&fixture](const std::string& line) {
+            const size_t blank = line.find(' ');
+            REQUIRE(blank != std::string::npos);
+            return fixture.run(line.substr(0, blank), line.substr(blank + 1));
+        };
+        const Uuid cart = *Uuid::parse(fixture.id("models/cart.gltf"));
+        fixture.run("entity.create", R"({"name": "Yard"})");
+        const std::string yard = fixture.world.id(fixture.world.findByName("Yard")).toString();
+
+        // Nothing is selected: what is placed is a root.
+        fixture.run("selection.set", R"({"entities": []})");
+        std::string line = placeAssetCommand(*fixture.context, cart);
+        CHECK(line == fmt::format(R"(asset.instantiate {{"asset":"{}"}})", cart.toString()));
+        runLine(line);
+        CHECK(fixture.outline() == std::vector<std::string>{"Yard", "cart", ".Body", "..Wheel", "..Mirror"});
+
+        // Something is selected: new things go under it, as a new entity does.
+        fixture.run("selection.set", R"({"entities": ["Yard"]})");
+        line = placeAssetCommand(*fixture.context, cart);
+        CHECK(line == fmt::format(R"(asset.instantiate {{"asset":"{}","parent":"{}"}})", cart.toString(), yard));
+        const Json placed = runLine(line);
+        CHECK(placed["path"] == "Yard/cart");
+        CHECK(fixture.world.entityCount() == 9);
+
+        // A scene is opened by where it is among the assets - which is no path on the disk,
+        // and needs no escaping whatever the name of the directory of the project is.
+        const AssetInfo* scene = fixture.assets->database().findByReference("scenes/yard.scene.json");
+        REQUIRE(scene != nullptr);
+        line = openSceneCommand(*scene);
+        CHECK(line == R"(scene.open {"path":"scenes/yard.scene.json"})");
+        runLine(line);
+        CHECK(fixture.world.sceneName() == "Yard");
+        CHECK(fixture.world.entityCount() == 0);
+
+        // What can be placed, and so has a line to place it by.
+        CHECK(canBePlaced(AssetType::Model));
+        CHECK(canBePlaced(AssetType::Prefab));
+        for (const AssetType type : {AssetType::Texture, AssetType::Mesh, AssetType::Material, AssetType::Scene,
+                                     AssetType::Skeleton, AssetType::Animation, AssetType::Script, AssetType::Sound}) {
+            CHECK_FALSE(canBePlaced(type));
+        }
     }
 
     TEST_CASE("scene.validate finds references that lead nowhere or to the wrong kind of asset") {

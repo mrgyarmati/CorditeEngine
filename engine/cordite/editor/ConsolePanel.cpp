@@ -1,10 +1,12 @@
 #include "cordite/editor/ConsolePanel.h"
 
 #include "cordite/core/StringUtils.h"
+#include "cordite/editor/EditorFeedback.h"
 
 #include <imgui.h>
 #include <misc/cpp/imgui_stdlib.h>
 
+#include <algorithm>
 #include <array>
 #include <iterator>
 #include <limits>
@@ -61,6 +63,7 @@ void ConsolePanel::collectIncoming() {
     if (incoming.empty()) {
         return;
     }
+    m_failedAction = m_failedAction || std::ranges::any_of(incoming, reportsFailedAction);
 
     m_messages.insert(m_messages.end(), std::make_move_iterator(incoming.begin()),
                       std::make_move_iterator(incoming.end()));
@@ -71,10 +74,15 @@ void ConsolePanel::collectIncoming() {
     m_scrollToNewest = m_followNewest;
 }
 
+bool ConsolePanel::takeFailedAction() {
+    collectIncoming();
+    return std::exchange(m_failedAction, false);
+}
+
 void ConsolePanel::draw(std::vector<std::string>& submittedLines) {
     collectIncoming();
 
-    if (ImGui::Begin("Console")) {
+    if (ImGui::Begin(kWindowName)) {
         if (ImGui::Button("Clear")) {
             m_messages.clear();
         }

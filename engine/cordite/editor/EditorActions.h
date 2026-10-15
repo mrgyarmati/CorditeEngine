@@ -19,6 +19,7 @@
 /// Entities are remembered in the history by id, never by handle, so an edit can be
 /// undone and redone across the entity being destroyed and restored in between.
 
+#include "cordite/assets/AssetDatabase.h"
 #include "cordite/core/Json.h"
 #include "cordite/core/Result.h"
 #include "cordite/core/Uuid.h"
@@ -77,6 +78,13 @@ public:
     /// cannot be loaded or its entities are wrong.
     [[nodiscard]] Result<Entity> instantiatePrefab(const Uuid& prefab, const PrefabInstanceOptions& options = {});
 
+    /// Places an asset in the scene, whichever it is of the kinds that can be placed
+    /// (canBePlaced()): a model as instantiateModel() does, a prefab as
+    /// instantiatePrefab() does. Without a name the root is called what the model or
+    /// the prefab calls it. Fails with NotFound when `asset` names none, with
+    /// InvalidArgument for an asset of another kind, and as those two do.
+    [[nodiscard]] Result<Entity> instantiateAsset(const Uuid& asset, Entity parent = {}, std::string_view name = {});
+
     /// Makes a prefab of an entity and everything below it: writes them into the file
     /// `assetPath` of the asset directory, reads the assets again, and marks the entity
     /// as an instance of the new prefab. Returns the id of the prefab. An empty path is
@@ -131,6 +139,11 @@ private:
 
     EditorContext& m_context;
 };
+
+/// Whether an asset of this type is something to place in a scene: a model, a prefab.
+[[nodiscard]] constexpr bool canBePlaced(AssetType type) {
+    return type == AssetType::Model || type == AssetType::Prefab;
+}
 
 /// Where createPrefab() keeps the prefab of an entity called `entityName` when it is
 /// not told: in "prefabs", in a file named after the entity as far as a file can be -

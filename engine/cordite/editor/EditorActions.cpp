@@ -313,6 +313,22 @@ Result<Entity> EditorActions::instantiatePrefab(const Uuid& prefab, const Prefab
     return *instance;
 }
 
+Result<Entity> EditorActions::instantiateAsset(const Uuid& asset, Entity parent, std::string_view name) {
+    const AssetInfo* info = m_context.assets().database().find(asset);
+    if (info == nullptr) {
+        return makeError(ErrorCode::NotFound, "there is no asset with the id {}", asset.toString());
+    }
+    switch (info->type) {
+        case AssetType::Model:
+            return instantiateModel(asset, {.parent = parent, .name = std::string(name)});
+        case AssetType::Prefab:
+            return instantiatePrefab(asset, {.parent = parent, .name = std::string(name)});
+        default:
+            return makeError(ErrorCode::InvalidArgument, "{} is {}; what is placed in a scene is a model or a prefab",
+                             info->reference(), withArticle(info->type));
+    }
+}
+
 void EditorActions::recordPlaced(Entity instance) {
     const World& world = m_context.world();
 

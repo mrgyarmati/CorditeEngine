@@ -73,6 +73,11 @@ public:
     /// hierarchy panel is its source; entity reference fields accept it.
     static constexpr const char* kEntityPayload = "CORDITE_ENTITY";
 
+    /// The name of the drag-and-drop payload that carries an asset: a Uuid. The asset
+    /// browser is its source; a field for an asset accepts it when the asset is one of
+    /// those it lists, and the hierarchy when it is something to place in a scene.
+    static constexpr const char* kAssetPayload = "CORDITE_ASSET";
+
 private:
     bool drawValue(PropertyType type, const PropertyInfo& property, Json& value);
     bool drawRotation(Json& value);
