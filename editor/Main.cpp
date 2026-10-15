@@ -8,6 +8,11 @@
 ///
 ///     cordite-editor --headless --project samples/showcase --exec edits.json --frames 3 --screenshot out.png
 ///
+/// A project file given by itself - which is what a double click on one does - is opened
+/// like --project:
+///
+///     cordite-editor samples/showcase/project.cordite
+///
 /// The outcome of a script is written to standard output as JSON (or to the file given
 /// with --exec-output); everything else the editor has to say goes to standard error.
 
@@ -19,6 +24,7 @@
 #include "cordite/core/Version.h"
 #include "cordite/editor/EditorApp.h"
 #include "cordite/editor/EditorPreferences.h"
+#include "cordite/editor/FileAssociation.h"
 
 #include <CLI/CLI.hpp>
 
@@ -47,6 +53,8 @@ struct Options {
     uint64_t frames = 0;
     double fixedTimeStep = 0.0;
     std::string project;
+    /// A project given by itself, without --project: what a double click on one passes.
+    std::string projectFile;
     std::string scene;
     std::string script;
     std::string scriptOutput;
@@ -92,6 +100,32 @@ bool runScriptFile(cordite::EditorApp& editor, const Options& options) {
     return succeeded;
 }
 
+/// Makes project files open with this editor when they are double-clicked, unless they do
+/// already: they open with the editor that was started last. Says what it did, or why it
+/// could not; neither keeps the editor from starting. Where the system learns of types
+/// of files from an installation instead, it does nothing.
+void associateProjectFiles() {
+    using namespace cordite;
+
+    const FileAssociation projects = projectFileAssociation(executablePath());
+    const Result<bool> associated = isAssociated(projects);
+    if (!associated) {
+        if (associated.error().code != ErrorCode::Unsupported) {
+            CORDITE_LOG_WARN("Editor", "cannot tell what opens project files: {}", associated.error().message);
+        }
+        return;
+    }
+    if (*associated) {
+        return;
+    }
+    if (const Status done = associate(projects); !done) {
+        CORDITE_LOG_WARN("Editor", "project files cannot be made to open with this editor: {}", done.error().message);
+        return;
+    }
+    CORDITE_LOG_INFO("Editor", "project files ({}) open with {} from now on", projects.extension,
+                     pathToUtf8(projects.program));
+}
+
 int run(const Options& options) {
     using namespace cordite;
 
@@ -122,8 +156,13 @@ int run(const Options& options) {
     if (!options.headless) {
         desc.preferencesFile = editorPreferencesFile();
     }
-    desc.project = pathFromUtf8(options.project);
+    desc.project = pathFromUtf8(options.project.empty() ? options.projectFile : options.project);
     desc.scene = pathFromUtf8(options.scene);
+
+    // A person at the editor double-clicks project files; a batch run leaves the system alone.
+    if (!options.headless) {
+        associateProjectFiles();
+    }
 
     Result<std::unique_ptr<EditorApp>> editor = EditorApp::create(desc);
     if (!editor) {
@@ -184,8 +223,12 @@ int parseAndRun(int argc, char** argv) {
     argv = app.ensure_utf8(argv);
     app.set_version_flag("--version", cordite::kEngineVersion);
 
-    app.add_option("--project", options.project,
-                   "Project directory to work on (the one holding cordite.project.json); its start scene is opened");
+    CLI::Option* project =
+        app.add_option("--project", options.project,
+                       "Project to work on - its directory, or its project.cordite; its start scene is opened");
+    app.add_option("project-file", options.projectFile,
+                   "A project to open, as --project does - what a double click on a project.cordite passes")
+        ->excludes(project);
     app.add_option("--scene", options.scene, "Scene file to open at start, instead of the project's start scene");
     app.add_option("--exec", options.script,
                    "Run the editor commands in this JSON script before rendering; exits with status 3 if a step "

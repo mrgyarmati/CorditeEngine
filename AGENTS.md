@@ -982,7 +982,7 @@ Step-by-step guide: [work-with-assets](.claude/skills/work-with-assets/SKILL.md)
   never `Input` for a key. `Input` is for what has no name in a game: the editor's
   own interface.
 - **The controls of a project are one file**, named by `inputMap` in
-  `cordite.project.json` and read as strictly as a scene: a member that is not
+  `project.cordite` and read as strictly as a scene: a member that is not
   known, a key that has no such name or a binding that names two controls is an
   error that says which action, and which binding. A file is written with
   everything in it, so that reading and writing it changes nothing.
@@ -1298,6 +1298,14 @@ panels, EditorApp    the interface, built on the three layers above
   `###`: the id is also the name the window had before it had an icon, and a layout
   remembered then still places it. A window given another title gets another id, and
   no place in the layouts people have.
+- **A project opens with a double click on its file**, `project.cordite` (JSON, like
+  every file of the engine). The editor takes a project file by itself on its command
+  line, and, started with a window, makes files of `.cordite` open with itself for the
+  person who runs it (`FileAssociation.h`; on Windows HKEY_CURRENT_USER\Software\Classes)
+  - the build that was started last is the one they open with. A batch run leaves the
+  system alone, and tests register types only under keys of their own, which they
+  delete. Linux and macOS learn of types from what an installation puts in place;
+  packaging is to do that.
 - **Commands run between frames.** A command may render frames itself (screenshots);
   lines typed in the console are queued and run before the next frame for that reason.
   A menu item or a shortcut that must not happen in the middle of a frame - starting

@@ -79,7 +79,8 @@ struct EditorAppDesc {
     /// the editor's when left at the engine's defaults.
     EngineDesc engine;
 
-    /// The project to work on: a directory with a cordite.project.json (see Project.h).
+    /// The project to work on: a directory with a project.cordite, or that file (see
+    /// Project.h).
     /// Its asset directory becomes the engine's. Empty works without a project, with
     /// the built-in assets only.
     std::filesystem::path project;

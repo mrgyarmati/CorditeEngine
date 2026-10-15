@@ -525,7 +525,7 @@ TEST_SUITE("EditorApp") {
             const Result<std::unique_ptr<EditorApp>> editor = EditorApp::create(missing);
             REQUIRE_FALSE(editor.has_value());
             CHECK(editor.error().code == ErrorCode::NotFound);
-            CHECK(editor.error().message.find("cordite.project.json") != std::string::npos);
+            CHECK(editor.error().message.find("project.cordite") != std::string::npos);
         }
 
         const TempDirectory directory;

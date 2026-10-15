@@ -14,6 +14,8 @@ namespace {
 
 constexpr DocumentFormat kProjectFormat{.name = "cordite.project", .version = 1, .kind = "project"};
 constexpr std::array<std::string_view, 2> kHeaderMembers = {"format", "version"};
+/// What the project file was called before it opened with a double click.
+constexpr std::string_view kEarlierProjectFileName = "cordite.project.json";
 
 TypeInfo describeProjectSettings() {
     return TypeBuilder<ProjectSettings>("Project")
@@ -83,9 +85,16 @@ std::filesystem::path Project::inputMapPath() const {
 
 Result<Project> loadProject(const std::filesystem::path& path) {
     Project project;
-    // Either the directory or the file in it.
-    project.directory = pathToUtf8(path.filename()) == kProjectFileName ? path.parent_path() : path;
+    // Either the directory or the file in it - also the file of before, to be told about.
+    const std::string fileName = pathToUtf8(path.filename());
+    project.directory = fileName == kProjectFileName || fileName == kEarlierProjectFileName ? path.parent_path() : path;
     if (!fileExists(project.file())) {
+        if (fileExists(project.directory / pathFromUtf8(kEarlierProjectFileName))) {
+            return makeError(ErrorCode::NotFound,
+                             "{} is a project of an earlier version of Cordite: rename its {} to {}, which is "
+                             "what a project file is called now",
+                             pathToUtf8(project.directory), kEarlierProjectFileName, kProjectFileName);
+        }
         return makeError(ErrorCode::NotFound, "{} is not a project: it has no {}", pathToUtf8(project.directory),
                          kProjectFileName);
     }

@@ -15,7 +15,7 @@ namespace {
 
 /// Writes a project file with the given text and returns what loading it reports.
 Error loadFailure(const TempDirectory& directory, std::string_view text) {
-    REQUIRE(writeTextFile(directory.path() / "cordite.project.json", text).has_value());
+    REQUIRE(writeTextFile(directory.path() / "project.cordite", text).has_value());
     const Result<Project> project = loadProject(directory.path());
     REQUIRE_FALSE(project.has_value());
     return project.error();
@@ -34,7 +34,7 @@ TEST_SUITE("Project") {
         CHECK(project.settings.startScene.empty());
         CHECK(project.settings.inputMap.empty());
         CHECK(project.inputMapPath().empty());
-        CHECK(project.file() == root / "cordite.project.json");
+        CHECK(project.file() == root / "project.cordite");
         CHECK(project.assetDirectory() == root / "assets");
         CHECK(project.cacheDirectory() == root / ".cordite");
         CHECK(project.startScenePath().empty());
@@ -52,7 +52,7 @@ TEST_SUITE("Project") {
         created.settings.inputMap = "input/controls.input.json";
         REQUIRE(saveProject(created).has_value());
 
-        for (const std::filesystem::path& path : {directory.path(), directory.path() / "cordite.project.json"}) {
+        for (const std::filesystem::path& path : {directory.path(), directory.path() / "project.cordite"}) {
             const Project project = unwrap(loadProject(path));
             CHECK(project.directory == directory.path());
             CHECK(project.settings == created.settings);
@@ -62,12 +62,12 @@ TEST_SUITE("Project") {
     }
 
     TEST_CASE("the kProjectFileName constant is the name that is looked for") {
-        CHECK(kProjectFileName == "cordite.project.json");
+        CHECK(kProjectFileName == "project.cordite");
     }
 
     TEST_CASE("a project file may have comments and leave settings out") {
         const TempDirectory directory;
-        REQUIRE(writeTextFile(directory.path() / "cordite.project.json", R"({
+        REQUIRE(writeTextFile(directory.path() / "project.cordite", R"({
             // Only what differs from the defaults.
             "format": "cordite.project",
             "version": 1
@@ -87,19 +87,38 @@ TEST_SUITE("Project") {
         CHECK(unwrap(loadProject(directory.path())).settings.name == "First");
     }
 
+    TEST_CASE("a project of an earlier version is told what its file is to be called now") {
+        const TempDirectory directory;
+        REQUIRE(writeTextFile(directory.path() / "cordite.project.json",
+                              R"({"format": "cordite.project", "version": 1, "name": "Old"})")
+                    .has_value());
+        // Named by its directory or by that file.
+        for (const std::filesystem::path& path : {directory.path(), directory.path() / "cordite.project.json"}) {
+            const Result<Project> project = loadProject(path);
+            REQUIRE_FALSE(project.has_value());
+            CHECK(project.error().code == ErrorCode::NotFound);
+            CHECK(test::errorOf(project).find("earlier version") != std::string::npos);
+            CHECK(test::errorOf(project).find("rename its cordite.project.json to project.cordite") !=
+                  std::string::npos);
+        }
+        // Renamed, it is the project it was.
+        std::filesystem::rename(directory.path() / "cordite.project.json", directory.path() / "project.cordite");
+        CHECK(unwrap(loadProject(directory.path())).settings.name == "Old");
+    }
+
     TEST_CASE("a directory without a project file is not a project") {
         const TempDirectory directory;
         const Result<Project> project = loadProject(directory.path());
         REQUIRE_FALSE(project.has_value());
         CHECK(project.error().code == ErrorCode::NotFound);
-        CHECK(project.error().message.find("it has no cordite.project.json") != std::string::npos);
+        CHECK(project.error().message.find("it has no project.cordite") != std::string::npos);
 
         CHECK(loadProject(directory.path() / "nowhere").error().code == ErrorCode::NotFound);
     }
 
     TEST_CASE("project files that are wrong are refused, naming the file") {
         const TempDirectory directory;
-        const std::string file = pathToUtf8(directory.path() / "cordite.project.json");
+        const std::string file = pathToUtf8(directory.path() / "project.cordite");
 
         SUBCASE("not JSON") {
             CHECK(loadFailure(directory, "name = Showcase").code == ErrorCode::ParseError);

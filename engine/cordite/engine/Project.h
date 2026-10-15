@@ -5,7 +5,7 @@
 ///
 /// ```
 /// my-game/
-///     cordite.project.json     what the project is called and where it starts
+///     project.cordite          what the project is called and where it starts
 ///     assets/                  everything the game is made of (see AssetDatabase)
 ///     .cordite/                what the engine derives and remembers; not for version control
 /// ```
@@ -20,7 +20,8 @@
 /// CORDITE_TRY(loadScene(project.startScenePath(), engine->world(), engine->components()));
 /// @endcode
 ///
-/// The project file:
+/// The project file, which opens the project in the editor when it is double-clicked
+/// (FileAssociation.h) - JSON, whatever its extension says:
 ///
 /// @code{.json}
 /// {
@@ -42,9 +43,9 @@
 namespace cordite {
 
 /// The name of the file that makes a directory a project.
-inline constexpr std::string_view kProjectFileName = "cordite.project.json";
+inline constexpr std::string_view kProjectFileName = "project.cordite";
 
-/// What cordite.project.json holds.
+/// What the project file holds.
 struct ProjectSettings {
     /// Shown in window titles and used to name exported games.
     std::string name = "Untitled";
@@ -62,7 +63,7 @@ struct ProjectSettings {
 [[nodiscard]] const TypeInfo& projectSettingsTypeInfo();
 
 struct Project {
-    /// The directory that holds cordite.project.json.
+    /// The directory that holds the project file.
     std::filesystem::path directory;
     ProjectSettings settings;
 
@@ -76,13 +77,15 @@ struct Project {
     [[nodiscard]] std::filesystem::path inputMapPath() const;
 };
 
-/// Reads a project. `path` is the project directory or its cordite.project.json. Fails
-/// with NotFound when there is no project file, and with ParseError when the file is
+/// Reads a project. `path` is the project directory or its project file. Fails with
+/// NotFound when there is no project file - one of an earlier version of Cordite, named
+/// cordite.project.json, is named in the message, with what to rename it to - and with
+/// ParseError when the file is
 /// not a valid one - including a start scene or an input map that would lie outside
 /// the asset directory. The files that a project names are not read here.
 [[nodiscard]] Result<Project> loadProject(const std::filesystem::path& path);
 
-/// Writes cordite.project.json, creating the project and asset directories if needed.
+/// Writes the project file, creating the project and asset directories if needed.
 [[nodiscard]] Status saveProject(const Project& project);
 
 /// Makes a new, empty project in `directory`. Fails with AlreadyExists when the

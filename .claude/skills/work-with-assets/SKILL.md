@@ -26,7 +26,7 @@ On the GPU side, `renderer/RenderResources` turns loaded assets into buffers and
 
 ```
 my-game/
-    cordite.project.json          name, start scene
+    project.cordite               name, start scene
     assets/
         models/crate.gltf         + crate.bin, + crate.gltf.meta
         textures/planks.png       + planks.png.meta

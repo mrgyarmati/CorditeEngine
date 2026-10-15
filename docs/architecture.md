@@ -497,6 +497,23 @@ at the bottom of the window says the newest message whatever is in front. Errors
 the game that is played do not bring the console forward: a game can log one in every
 frame, and the panel behind would be out of reach.
 
+### A project opens with a double click on its file
+
+A project is a directory with one file in it that says so, `project.cordite`, as a
+Godot project has its `project.godot`: always the same name, so that the editor finds
+it in a directory without a choice to make, and with an extension of its own, which
+is what a system knows what opens a file by. Its content is JSON, like every file of
+the engine; a project of an earlier version, whose file was `cordite.project.json`,
+is refused with what to rename it to.
+
+On Windows the editor registers the type itself, for the person who runs it, when it
+is started with a window: there is no installer yet to do it, and a registration in
+HKEY_CURRENT_USER asks for no administrator and changes nobody else's files. It
+registers only when files of the type do not already open with that very executable,
+so the build that was started last is the one a double click starts. Linux and macOS
+have no such registry: a .desktop file and a MIME type, or the Info.plist of an
+application, are put in place by an installation, which is what packaging is for.
+
 ### The editor is laid out after Unity and Unreal Engine
 
 People who come to Cordite know one of the two, and both put the same things in the

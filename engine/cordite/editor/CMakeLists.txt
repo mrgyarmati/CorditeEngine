@@ -31,6 +31,8 @@ cordite_add_module(editor
         EditorPreferences.h
         EditorToolbar.cpp
         EditorToolbar.h
+        FileAssociation.cpp
+        FileAssociation.h
         HierarchyPanel.cpp
         HierarchyPanel.h
         InspectorPanel.cpp
@@ -61,3 +63,8 @@ cordite_add_module(editor
         renderer
         ui
         engine)
+
+# Associating project files with the editor writes the registry, and tells the shell.
+if(WIN32)
+    target_link_libraries(cordite_editor PRIVATE advapi32 shell32)
+endif()

@@ -193,6 +193,7 @@ cordite_add_test_suite(editor
         unit/editor/EditorIconsTests.cpp
         unit/editor/EditorPreferencesTests.cpp
         unit/editor/EditorToolbarTests.cpp
+        unit/editor/FileAssociationTests.cpp
         unit/editor/InputCommandsTests.cpp
         unit/editor/ScriptCommandsTests.cpp
         unit/editor/PhysicsCommandsTests.cpp
