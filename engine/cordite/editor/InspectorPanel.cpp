@@ -39,7 +39,8 @@ std::string assetLabel(const AssetInfo& asset) {
 } // namespace
 
 void InspectorPanel::draw(EditorContext& context) {
-    if (ImGui::Begin("Inspector")) {
+    static const std::string kName = windowName(icons::kInspector, "Inspector");
+    if (ImGui::Begin(kName.c_str())) {
         m_properties.setEntityNameLookup([&context](const Uuid& id) {
             const Entity entity = context.world().findById(id);
             return entity.isNull() ? fmt::format("(missing {})", id.toString()) : context.entityPath(entity);

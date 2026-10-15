@@ -8,6 +8,7 @@
 #include "cordite/editor/EditorCommands.h"
 #include "cordite/editor/EditorFeedback.h"
 #include "cordite/editor/EditorPreferences.h"
+#include "cordite/editor/EditorToolbar.h"
 #include "cordite/editor/InputCommands.h"
 #include "cordite/editor/PhysicsCommands.h"
 #include "cordite/editor/ScriptCommands.h"
@@ -34,14 +35,14 @@ constexpr const char* kFileDialogId = "Scene file";
 /// The windows that are closed until someone asks for them, as editor.showPanel names them.
 constexpr const char* kStatisticsPanelName = "statistics";
 constexpr const char* kInterfaceDemoPanelName = "interfaceDemo";
-/// The panels that are always there, as editor.focusPanel names them, with the names
-/// their windows have.
+/// The panels that are always there, as editor.focusPanel names them, with what their
+/// windows are known by.
 constexpr std::array<std::pair<const char*, const char*>, 5> kDockedPanels = {{
-    {"hierarchy", "Hierarchy"},
-    {"inspector", "Inspector"},
-    {"viewport", "Viewport"},
-    {"console", ConsolePanel::kWindowName},
-    {"assets", AssetBrowserPanel::kWindowName},
+    {"hierarchy", HierarchyPanel::kWindowId},
+    {"inspector", InspectorPanel::kWindowId},
+    {"viewport", ViewportPanel::kWindowId},
+    {"console", ConsolePanel::kWindowId},
+    {"assets", AssetBrowserPanel::kWindowId},
 }};
 /// Where the arrangement of the windows is remembered, inside a .cordite directory.
 constexpr const char* kLayoutFileName = "editor-layout.ini";
@@ -110,13 +111,13 @@ void buildDefaultLayout(ImGuiID dockSpaceId) {
     const ImGuiID right = ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, kInspectorWidthShare, nullptr, &center);
     const ImGuiID bottom = ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, kConsoleHeightShare, nullptr, &center);
 
-    ImGui::DockBuilderDockWindow("Hierarchy", left);
-    ImGui::DockBuilderDockWindow("Inspector", right);
+    ImGui::DockBuilderDockWindow(HierarchyPanel::kWindowId, left);
+    ImGui::DockBuilderDockWindow(InspectorPanel::kWindowId, right);
     // The assets share the place of the console. They are put there when their window
     // first appears (drawInterface), which is also what places them in a layout that was
     // remembered from before there was an Assets panel: one way for both.
-    ImGui::DockBuilderDockWindow(ConsolePanel::kWindowName, bottom);
-    ImGui::DockBuilderDockWindow("Viewport", center);
+    ImGui::DockBuilderDockWindow(ConsolePanel::kWindowId, bottom);
+    ImGui::DockBuilderDockWindow(ViewportPanel::kWindowId, center);
     ImGui::DockBuilderFinish(dockSpaceId);
 }
 
@@ -815,16 +816,27 @@ Status EditorApp::registerPlayCommands() {
 void EditorApp::drawInterface() {
     handleShortcuts();
     drawMainMenu();
+    // The bars come before the dock space, which has the room they leave.
+    drawToolbar(documentButtons(*m_context), playButtons(m_play->state()), m_submittedLines);
+    const StatusBarState status{
+        .message = m_console.newestMessage(LogLevel::Info),
+        .play = m_play->state(),
+        .entityCount = m_context->world().entityCount(),
+        .selectionCount = m_context->selection().size(),
+    };
+    if (drawStatusBar(status)) {
+        m_panelToFocus = ConsolePanel::kWindowId;
+    }
 
     // A layout remembered from an earlier session wins; otherwise the default is built.
     const ImGuiID dockSpaceId = ImGui::GetID("EditorDockSpace");
     if (ImGui::DockBuilderGetNode(dockSpaceId) == nullptr) {
         buildDefaultLayout(dockSpaceId);
-        // Of the panels that share a place, the one that is drawn last would be in front:
-        // it is the console that is, where what goes wrong is said - unless another was
-        // asked for before there was a frame to show it in.
+        // Of the panels that share a place, the assets are in front - unless another was
+        // asked for before there was a frame to show it in. What goes wrong is in the
+        // status bar, and brings the console forward.
         if (m_panelToFocus.empty()) {
-            m_panelToFocus = ConsolePanel::kWindowName;
+            m_panelToFocus = AssetBrowserPanel::kWindowId;
         }
     }
     ImGui::DockSpaceOverViewport(dockSpaceId, ImGui::GetMainViewport());
@@ -835,7 +847,7 @@ void EditorApp::drawInterface() {
     m_console.draw(m_submittedLines);
     // In a layout that was remembered before there was an Assets panel it has no place
     // of its own: there it goes where the console is, the first time it is seen.
-    if (const ImGuiWindow* console = ImGui::FindWindowByName(ConsolePanel::kWindowName);
+    if (const ImGuiWindow* console = ImGui::FindWindowByName(ConsolePanel::kWindowId);
         console != nullptr && console->DockId != 0) {
         ImGui::SetNextWindowDockID(console->DockId, ImGuiCond_FirstUseEver);
     }
@@ -844,7 +856,7 @@ void EditorApp::drawInterface() {
     // What the user asked for and did not get is said in the console, which may be behind
     // the assets: it comes to the front for it.
     if (m_console.takeFailedAction()) {
-        m_panelToFocus = ConsolePanel::kWindowName;
+        m_panelToFocus = ConsolePanel::kWindowId;
     }
     if (!m_panelToFocus.empty()) {
         ImGui::SetWindowFocus(m_panelToFocus.c_str());

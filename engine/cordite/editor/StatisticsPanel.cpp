@@ -1,5 +1,7 @@
 #include "cordite/editor/StatisticsPanel.h"
 
+#include "cordite/ui/UiWidgets.h"
+
 #include <fmt/format.h>
 #include <imgui.h>
 
@@ -128,7 +130,8 @@ void StatisticsPanel::draw(const FrameStatistics& statistics, bool& open) {
     }
 
     ImGui::SetNextWindowSize(ImVec2(300.0f, 0.0f), ImGuiCond_FirstUseEver);
-    if (ImGui::Begin("Statistics", &open) && ImGui::BeginTable("##statistics", 2, ImGuiTableFlags_SizingStretchProp)) {
+    static const std::string kName = windowName(icons::kStatistics, "Statistics");
+    if (ImGui::Begin(kName.c_str(), &open) && ImGui::BeginTable("##statistics", 2, ImGuiTableFlags_SizingStretchProp)) {
         row("CPU", fmt::format("{:.2f} ms", m_cpuMilliseconds));
         row("GPU", m_gpuMilliseconds ? fmt::format("{:.2f} ms", *m_gpuMilliseconds) : std::string("not measured"));
 

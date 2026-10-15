@@ -20,6 +20,10 @@ namespace cordite {
 
 class HierarchyPanel {
 public:
+    /// What the window is known by: its place in a layout is remembered by it, whatever its
+    /// tab shows (windowName() in UiWidgets.h).
+    static constexpr const char* kWindowId = "###Hierarchy";
+
     /// Draws the panel as its own window.
     void draw(EditorContext& context);
 

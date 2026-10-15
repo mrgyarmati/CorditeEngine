@@ -21,6 +21,7 @@
 #include <cstddef>
 #include <limits>
 #include <optional>
+#include <string>
 #include <utility>
 
 namespace cordite {
@@ -512,7 +513,8 @@ Entity ViewportPanel::pick(EditorContext& context, Vec2 pixel) const {
 
 void ViewportPanel::draw(Engine& engine, EditorContext& context) {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-    const bool visible = ImGui::Begin("Viewport");
+    static const std::string kName = windowName(icons::kViewport, "Viewport");
+    const bool visible = ImGui::Begin(kName.c_str());
     ImGui::PopStyleVar();
 
     bool hovered = false;

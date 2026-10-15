@@ -1283,8 +1283,21 @@ panels, EditorApp    the interface, built on the three layers above
 - **What the user asked for and did not get is said in the console, and the console
   comes to the front for it.** A failed edit is logged with `reportIfFailed`, a
   failed line by the console - under the two categories `reportsFailedAction` knows -
-  and `EditorApp` then brings the console in front of the panels it shares its place
-  with. An error of the game that runs does not: a game may log one in every frame.
+  and `EditorApp` then brings the console in front of the assets, with which it shares
+  its place. An error of the game that runs does not: a game may log one in every
+  frame. The newest message of any kind is in the status bar, whatever is in front.
+- **The editor is laid out after Unity and Unreal Engine** (`EditorToolbar.h`): a
+  toolbar under the menu - save, undo and redo at the left, play, pause and step in
+  the middle - and a status bar - the newest message, whether the scene plays, how
+  many entities it has and how many are selected. A button is described first
+  (`ToolbarButton`: its icon, what it says, the command it queues, whether it can be
+  clicked), which is what the tests hold, and then drawn. Panels have icons on their
+  tabs, and rows of the hierarchy and of the assets what they are (`EditorIcons.h`).
+- **A window is known by what follows `###` in its name** (`windowName`, `kWindowId`
+  of each panel), so that its tab can show an icon. ImGui hashes only what follows the
+  `###`: the id is also the name the window had before it had an icon, and a layout
+  remembered then still places it. A window given another title gets another id, and
+  no place in the layouts people have.
 - **Commands run between frames.** A command may render frames itself (screenshots);
   lines typed in the console are queued and run before the next frame for that reason.
   A menu item or a shortcut that must not happen in the middle of a frame - starting

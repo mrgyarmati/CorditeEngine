@@ -34,8 +34,9 @@ namespace cordite {
 
 class AssetBrowserPanel {
 public:
-    /// The name of the window, which is what its place in a layout is remembered by.
-    static constexpr const char* kWindowName = "Assets";
+    /// What the window is known by: its place in a layout is remembered by it, whatever its
+    /// tab shows (windowName() in UiWidgets.h).
+    static constexpr const char* kWindowId = "###Assets";
 
     /// Draws the panel as its own window. Commands that the user asked for are appended
     /// to `submittedLines`; running them is up to the caller.

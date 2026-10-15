@@ -66,6 +66,8 @@ struct UiPalette {
     ImVec4 accent;
     /// The accent where it is pressed or dragged: a little stronger.
     ImVec4 accentStrong;
+    /// What is drawn on the accent: the icon of a button that is on.
+    ImVec4 onAccent;
     /// How much of the accent a selected row is, over the panel.
     float selectionAlpha = 0.3f;
     /// The colors of a warning and of an error, as text on a panel.

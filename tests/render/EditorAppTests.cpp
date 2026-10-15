@@ -16,9 +16,13 @@
 #include "render/RenderTestSupport.h"
 #include "support/MathTestSupport.h"
 
+#include <imgui_internal.h>
+
 #include <algorithm>
+#include <cstddef>
 #include <filesystem>
 #include <memory>
+#include <span>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -78,6 +82,14 @@ Error refusal(EditorApp& editor, std::string_view command, std::string_view para
 std::unique_ptr<EditorApp> createEditorForPicture(const EditorAppDesc& desc) {
     Log::clearHistory();
     return createEditor(desc);
+}
+
+/// The rows of a picture from `first` up to `last`, as a picture of their own.
+Image rowsOf(const Image& picture, uint32_t first, uint32_t last) {
+    const std::span<const std::byte> pixels = picture.pixels();
+    const auto rowBytes = static_cast<std::ptrdiff_t>(picture.rowBytes());
+    std::vector<std::byte> rows(pixels.begin() + first * rowBytes, pixels.begin() + last * rowBytes);
+    return unwrap(Image::fromPixels(picture.width(), last - first, picture.format(), std::move(rows)));
 }
 
 /// A JSON string literal holding a path, quoted and escaped.
@@ -146,51 +158,79 @@ TEST_SUITE("EditorApp") {
         checkNoValidationIssues(editor->engine().graphics());
     }
 
-    TEST_CASE("the console is in front of the assets until they are asked for, and again when something fails") {
+    TEST_CASE("the assets are in front of the console until something fails, which the status bar says too") {
         // An editor without a project: nothing in its picture changes from frame to frame
         // but what is asked for here.
         std::unique_ptr<EditorApp> editor = createEditorForPicture(headlessDesc(UVec2(640, 360)));
-        REQUIRE(editor->runFrames(4).has_value());
-        const Image withConsole = unwrap(editor->engine().captureFrame());
-        const auto pictureDiffers = [&editor](const Image& from) {
-            REQUIRE(editor->runFrames(3).has_value());
-            return unwrap(compareImages(from, unwrap(editor->engine().captureFrame()))).differingPixels;
+        // The panels, and the status bar under them, which says what was logged last.
+        const auto statusBarHeight = [] {
+            const ImGuiWindow* bar = ImGui::FindWindowByName("##StatusBar");
+            REQUIRE(bar != nullptr);
+            return static_cast<uint32_t>(bar->Size.y);
         };
-        CHECK(pictureDiffers(withConsole) == 0);
+        const auto capture = [&editor](uint32_t frames = 3) {
+            REQUIRE(editor->runFrames(frames).has_value());
+            return unwrap(editor->engine().captureFrame());
+        };
+        const auto panels = [&statusBarHeight](const Image& picture) {
+            return rowsOf(picture, 0, picture.height() - statusBarHeight());
+        };
+        const auto statusBar = [&statusBarHeight](const Image& picture) {
+            return rowsOf(picture, picture.height() - statusBarHeight(), picture.height());
+        };
+        const auto differ = [](const Image& first, const Image& second) {
+            return unwrap(compareImages(first, second)).differingPixels;
+        };
 
-        // The assets, in front once a frame has been drawn; what they list is what the
-        // engine has built in.
-        CHECK(run(*editor, "editor.focusPanel", R"({"panel": "assets"})")["panel"] == "assets");
-        REQUIRE(editor->runFrames(3).has_value());
-        const Image withAssets = unwrap(editor->engine().captureFrame());
-        const uint64_t between = unwrap(compareImages(withConsole, withAssets)).differingPixels;
+        const Image first = capture(4);
+        const Image withAssets = panels(first);
+        const Image quietBar = statusBar(first);
+        CHECK(differ(withAssets, panels(capture())) == 0);
+
+        // The console, once a frame has been drawn.
+        CHECK(run(*editor, "editor.focusPanel", R"({"panel": "console"})")["panel"] == "console");
+        const Image withConsole = panels(capture());
+        const uint64_t between = differ(withAssets, withConsole);
         CHECK(between > 1000);
-        // What the panel lists shows in it: with a filter that leaves nothing, less.
-        run(*editor, "assets.browse", R"({"type": "scene"})");
-        CHECK(pictureDiffers(withAssets) > 200);
-        run(*editor, "assets.browse", R"({"type": "all"})");
-        CHECK(pictureDiffers(withAssets) == 0);
 
-        // The console again, as it was: nothing of the assets is to be seen.
-        run(*editor, "editor.focusPanel", R"({"panel": "console"})");
-        CHECK(pictureDiffers(withConsole) == 0);
-
-        // What could not be done is said in the console, which comes to the front for it:
-        // the picture is the one with the console but for the line it has now, and far
-        // from the one with the assets.
+        // What the assets list shows in them: with a filter that leaves nothing, less.
         run(*editor, "editor.focusPanel", R"({"panel": "assets"})");
-        CHECK(pictureDiffers(withAssets) == 0);
+        CHECK(differ(withAssets, panels(capture())) == 0);
+        run(*editor, "assets.browse", R"({"type": "scene"})");
+        CHECK(differ(withAssets, panels(capture())) > 200);
+        run(*editor, "assets.browse", R"({"type": "all"})");
+        CHECK(differ(withAssets, panels(capture())) == 0);
+
+        // What could not be done is said in the console, which comes to the front for it -
+        // the picture is the one with the console but for the line it has now - and in the
+        // status bar.
         editor->runCommandLine(R"(asset.instantiate {"asset": "textures/none.png"})");
-        const uint64_t fromConsole = pictureDiffers(withConsole);
+        const Image failed = capture();
+        const uint64_t fromConsole = differ(withConsole, panels(failed));
         CHECK(fromConsole > 0);
         CHECK(fromConsole < between);
-        CHECK(pictureDiffers(withAssets) > between / 2);
-        // What a command did, and what the game that runs says, does not: the assets stay.
+        CHECK(differ(withAssets, panels(failed)) > between / 2);
+        const Image failureBar = statusBar(failed);
+        CHECK(differ(quietBar, failureBar) > 100);
+
+        // What a command did, and what the game that runs says, does not bring the console
+        // forward; the status bar says the newest of it.
         run(*editor, "editor.focusPanel", R"({"panel": "assets"})");
-        static_cast<void>(pictureDiffers(withAssets));
+        static_cast<void>(capture());
         editor->runCommandLine("selection.get");
         CORDITE_LOG_ERROR("Script", "a script of the game has stopped");
-        CHECK(pictureDiffers(withAssets) == 0);
+        const Image scriptError = capture();
+        CHECK(differ(withAssets, panels(scriptError)) == 0);
+        CHECK(differ(failureBar, statusBar(scriptError)) > 100);
+
+        // The entities of the scene, and those that are selected, are counted at the right
+        // end of the bar.
+        run(*editor, "entity.create", R"({"name": "Marker"})");
+        run(*editor, "selection.set", R"({"entities": []})");
+        const Image oneEntity = statusBar(capture());
+        CHECK(differ(statusBar(scriptError), oneEntity) > 20);
+        run(*editor, "selection.set", R"({"entities": ["Marker"]})");
+        CHECK(differ(oneEntity, statusBar(capture())) > 50);
 
         // Every panel that is always there has a name; what is none is told which there are.
         for (const char* panel : {"hierarchy", "inspector", "viewport", "console", "assets"}) {
@@ -206,12 +246,11 @@ TEST_SUITE("EditorApp") {
         checkNoValidationIssues(editor->engine().graphics());
 
         // A panel that is asked for before the first frame is in front from the first:
-        // another editor, asked at once, shows what this one did with its assets in front.
+        // another editor, asked at once, shows what this one did with its console in front.
         editor.reset();
         editor = createEditorForPicture(headlessDesc(UVec2(640, 360)));
-        run(*editor, "editor.focusPanel", R"({"panel": "assets"})");
-        REQUIRE(editor->runFrames(4).has_value());
-        CHECK(unwrap(compareImages(withAssets, unwrap(editor->engine().captureFrame()))).differingPixels == 0);
+        run(*editor, "editor.focusPanel", R"({"panel": "console"})");
+        CHECK(differ(withConsole, panels(capture(4))) == 0);
         checkNoValidationIssues(editor->engine().graphics());
     }
 

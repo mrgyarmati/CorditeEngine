@@ -25,8 +25,12 @@ cordite_add_module(editor
         EditorContext.cpp
         EditorContext.h
         EditorFeedback.h
+        EditorIcons.cpp
+        EditorIcons.h
         EditorPreferences.cpp
         EditorPreferences.h
+        EditorToolbar.cpp
+        EditorToolbar.h
         HierarchyPanel.cpp
         HierarchyPanel.h
         InspectorPanel.cpp

@@ -8,10 +8,18 @@
 ///     drawTransform();
 /// }
 /// overlayText(*ImGui::GetWindowDrawList(), corner, "6.0, 4.0, 8.0");
+///
+/// if (ImGui::Begin(windowName(icons::kConsole, "Console").c_str())) {   // focused as "###Console"
+///     drawMessages();
+/// }
+/// ImGui::End();
 /// @endcode
+
+#include "cordite/ui/UiIcons.h"
 
 #include <imgui.h>
 
+#include <string>
 #include <string_view>
 
 namespace cordite {
@@ -28,5 +36,11 @@ bool sectionHeader(const char* label, bool* visible = nullptr, ImGuiTreeNodeFlag
 /// kOverlayBackdrop). `position` is the top-left corner on the screen. Returns the size of
 /// what was drawn, backdrop and all. Only during a frame.
 ImVec2 overlayText(ImDrawList& drawList, ImVec2 position, std::string_view text);
+
+/// The name of a window whose tab shows an icon before its title: "<icon> Assets###Assets".
+/// ImGui knows a window by what follows "###" alone, so `"###" + title` finds it - in
+/// ImGui::SetWindowFocus, DockBuilderDockWindow - whatever icon it shows; and so does the
+/// title by itself, which is how a layout remembered before the icon still places it.
+[[nodiscard]] std::string windowName(const UiIcon& icon, std::string_view title);
 
 } // namespace cordite

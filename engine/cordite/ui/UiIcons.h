@@ -55,6 +55,7 @@ inline constexpr UiIcon kHierarchy = uiIcon<0xE40C>();
 inline constexpr UiIcon kInspector = uiIcon<0xE299>();
 inline constexpr UiIcon kConsole = uiIcon<0xE184>();
 inline constexpr UiIcon kViewport = uiIcon<0xE2FD>();
+inline constexpr UiIcon kStatistics = uiIcon<0xE038>();
 
 // Assets, and what they are in.
 inline constexpr UiIcon kFolder = uiIcon<0xE0DC>();
@@ -91,6 +92,13 @@ inline constexpr UiIcon kCamera = uiIcon<0xE068>();
 inline constexpr UiIcon kLight = uiIcon<0xE1C1>();
 inline constexpr UiIcon kSun = uiIcon<0xE17B>();
 inline constexpr UiIcon kEye = uiIcon<0xE0BE>();
+inline constexpr UiIcon kEnvironment = uiIcon<0xE0EB>();
+inline constexpr UiIcon kFog = uiIcon<0xE213>();
+inline constexpr UiIcon kPostProcess = uiIcon<0xE416>();
+inline constexpr UiIcon kCharacter = uiIcon<0xE21D>();
+inline constexpr UiIcon kCollider = uiIcon<0xE4B7>();
+inline constexpr UiIcon kJoint = uiIcon<0xE107>();
+inline constexpr UiIcon kListener = uiIcon<0xE385>();
 
 // What the log says.
 inline constexpr UiIcon kInfo = uiIcon<0xE0FE>();

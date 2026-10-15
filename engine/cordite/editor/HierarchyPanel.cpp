@@ -2,12 +2,15 @@
 
 #include "cordite/editor/EditorActions.h"
 #include "cordite/editor/EditorFeedback.h"
+#include "cordite/editor/EditorIcons.h"
 #include "cordite/editor/PropertyEditor.h"
+#include "cordite/ui/UiWidgets.h"
 
 #include <imgui.h>
 
 #include <algorithm>
 #include <cstring>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -46,7 +49,8 @@ Uuid acceptPlaceableDrop(const AssetDatabase& database) {
 } // namespace
 
 void HierarchyPanel::draw(EditorContext& context) {
-    if (ImGui::Begin("Hierarchy")) {
+    static const std::string kName = windowName(icons::kHierarchy, "Hierarchy");
+    if (ImGui::Begin(kName.c_str())) {
         const World& world = context.world();
 
         if (ImGui::Button("Create entity")) {
@@ -116,7 +120,8 @@ void HierarchyPanel::drawEntity(EditorContext& context, Entity entity) {
     if (dimmed) {
         ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
     }
-    const bool open = ImGui::TreeNodeEx("##entity", flags, "%s", world.name(entity).c_str());
+    const bool open =
+        ImGui::TreeNodeEx("##entity", flags, "%s  %s", entityIcon(world, entity).text(), world.name(entity).c_str());
     if (dimmed) {
         ImGui::PopStyleColor();
     }

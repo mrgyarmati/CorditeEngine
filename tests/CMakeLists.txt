@@ -174,6 +174,7 @@ cordite_add_test_suite(ui
     SOURCES
         unit/ui/UiIconsTests.cpp
         unit/ui/UiThemeTests.cpp
+        unit/ui/UiWidgetsTests.cpp
     LIBRARIES
         cordite::ui)
 
@@ -189,7 +190,9 @@ cordite_add_test_suite(editor
         unit/editor/EditorCameraTests.cpp
         unit/editor/EditorCommandsTests.cpp
         unit/editor/EditorContextTests.cpp
+        unit/editor/EditorIconsTests.cpp
         unit/editor/EditorPreferencesTests.cpp
+        unit/editor/EditorToolbarTests.cpp
         unit/editor/InputCommandsTests.cpp
         unit/editor/ScriptCommandsTests.cpp
         unit/editor/PhysicsCommandsTests.cpp

@@ -119,6 +119,9 @@ TEST_SUITE("UiTheme") {
                 CHECK(contrastRatio(palette.accent, surface) >= kControl);
                 CHECK(contrastRatio(palette.accentStrong, surface) >= kControl);
             }
+            // The icon of a button that is on, on the accent, and on it pressed.
+            CHECK(contrastRatio(palette.onAccent, palette.accent) >= kControl);
+            CHECK(contrastRatio(palette.onAccent, palette.accentStrong) >= kControl);
             // Surfaces differ by a shade, which is what a flat look tells them apart by;
             // a shade, not a contrast that draws the eye.
             CHECK(contrastRatio(palette.panel, palette.base) > 1.05f);

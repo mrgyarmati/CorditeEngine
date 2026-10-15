@@ -21,6 +21,7 @@
 
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -32,8 +33,9 @@ namespace cordite {
 
 class ConsolePanel {
 public:
-    /// The name of the window, which is what its place in a layout is remembered by.
-    static constexpr const char* kWindowName = "Console";
+    /// What the window is known by: its place in a layout is remembered by it, whatever its
+    /// tab shows (windowName() in UiWidgets.h).
+    static constexpr const char* kWindowId = "###Console";
 
     /// Starts collecting log messages, beginning with those already in the log's history.
     ConsolePanel();
@@ -43,6 +45,10 @@ public:
     /// Draws the panel as its own window. Lines the user entered are appended to
     /// `submittedLines`; running them is up to the caller.
     void draw(std::vector<std::string>& submittedLines);
+
+    /// The newest message that is at least as severe as `minimum`, if there is one: what the
+    /// status bar says.
+    [[nodiscard]] std::optional<LogMessage> newestMessage(LogLevel minimum);
 
     /// Number of messages currently kept.
     [[nodiscard]] size_t messageCount() const { return m_messages.size(); }

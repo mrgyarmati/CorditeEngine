@@ -2,7 +2,9 @@
 
 #include "cordite/core/StringUtils.h"
 #include "cordite/editor/EditorActions.h"
+#include "cordite/editor/EditorIcons.h"
 #include "cordite/editor/PropertyEditor.h"
+#include "cordite/ui/UiWidgets.h"
 
 #include <imgui.h>
 #include <misc/cpp/imgui_stdlib.h>
@@ -80,7 +82,8 @@ RowClick drawRow(const EditorContext& context, const AssetBrowserRow& row, bool 
         ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
     }
     ImGui::SetNextItemOpen(row.open, ImGuiCond_Always);
-    ImGui::TreeNodeEx("##row", flags, "%s", row.label.c_str());
+    const UiIcon icon = isAsset ? iconOf(row.type) : directoryIcon(row.open);
+    ImGui::TreeNodeEx("##row", flags, "%s  %s", icon.text(), row.label.c_str());
     if (dimmed) {
         ImGui::PopStyleColor();
     }
@@ -118,7 +121,8 @@ RowClick drawRow(const EditorContext& context, const AssetBrowserRow& row, bool 
 
 void AssetBrowserPanel::draw(EditorContext& context, std::vector<std::string>& submittedLines) {
     // The rows scroll, in a region of their own; the window around them does not.
-    if (ImGui::Begin(kWindowName, nullptr, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
+    static const std::string kName = windowName(icons::kFolder, "Assets");
+    if (ImGui::Begin(kName.c_str(), nullptr, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
         const AssetDatabase& database = context.assets().database();
         drawToolbar(database, submittedLines);
         ImGui::Separator();

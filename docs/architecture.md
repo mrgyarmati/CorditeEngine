@@ -490,11 +490,24 @@ command `assets.browse` asks the same object the panel draws, so an agent that w
 know what a person is looking at is told exactly that, and one that sets a filter sees
 it in the next screenshot.
 
-The panel shares its place with the console. The console is in front when the editor
-starts, because it is where the editor says what went wrong; and when something the
-user asked for fails while the assets are in front, it comes forward again. Errors of
-the game that is played do not bring it forward: a game can log one in every frame,
-and the panel behind would be out of reach.
+The panel shares its place with the console, and is in front when the editor starts,
+as the project browser of Unity is. The console is where the editor says what went
+wrong: when something the user asked for fails, it comes forward, and the status bar
+at the bottom of the window says the newest message whatever is in front. Errors of
+the game that is played do not bring the console forward: a game can log one in every
+frame, and the panel behind would be out of reach.
+
+### The editor is laid out after Unity and Unreal Engine
+
+People who come to Cordite know one of the two, and both put the same things in the
+same places: the scene's entities at the left, what is selected at the right, the
+assets under the view of the scene, play in the middle of a bar at the top, messages
+along the bottom. Cordite does the same. The toolbar and the status bar are bars of
+ImGui's main viewport (`BeginViewportSideBar`), which take their room from the dock
+space, so the panels never cover them. Every button of the toolbar runs a command,
+queued like a line of the console, so that what a click does is what a script can
+do; what each button does in each state is a list (`documentButtons`, `playButtons`)
+that tests hold without drawing it.
 
 ### The editor's user interface is Dear ImGui
 

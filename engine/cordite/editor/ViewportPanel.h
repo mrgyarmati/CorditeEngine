@@ -62,6 +62,10 @@ std::string_view nameOf(ViewportCamera camera);
 
 class ViewportPanel {
 public:
+    /// What the window is known by: its place in a layout is remembered by it, whatever its
+    /// tab shows (windowName() in UiWidgets.h).
+    static constexpr const char* kWindowId = "###Viewport";
+
     /// The engine, whose scene renderer the panel draws with, must outlive the panel.
     [[nodiscard]] static Result<std::unique_ptr<ViewportPanel>> create(Engine& engine);
 

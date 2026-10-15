@@ -297,8 +297,9 @@ its simulation, its sounds - play it:
   layout settle.
 - `editor.screenshot {"path": ..., "viewportOnly": true, "width": W, "height": H}`
   saves the scene alone, at any size.
-- `editor.focusPanel {"panel": "assets"}` brings a panel to the front of those it
-  shares its place with - the assets are behind the console until then - and
+- `editor.focusPanel {"panel": "console"}` brings a panel to the front of those it
+  shares its place with - the console is behind the assets until then, or until a
+  command fails - and
   `assets.browse {"type": "prefab"}` or `{"select": "models/crate.gltf#mesh/0"}` sets
   what the Assets panel shows before the picture is taken. A command that fails
   brings the console back to the front.

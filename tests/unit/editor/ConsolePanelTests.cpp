@@ -6,6 +6,7 @@
 
 #include "support/TestSupport.h"
 
+#include <optional>
 #include <string>
 
 using namespace cordite;
@@ -50,6 +51,26 @@ TEST_SUITE("ConsolePanel") {
         CHECK_FALSE(reportsFailedAction(message(LogLevel::Error, "editor")));
         CHECK(kInterfaceLogCategory == "Editor");
         CHECK(kConsoleLogCategory == "Console");
+    }
+
+    TEST_CASE("the newest message that is severe enough is what the status bar says") {
+        const test::LogCapture capture(LogLevel::Trace);
+        ConsolePanel console;
+        CORDITE_LOG_WARN("Editor", "an older warning");
+        CORDITE_LOG_INFO("Console", "scene.save: done");
+        CORDITE_LOG_DEBUG("Engine", "a detail");
+
+        const std::optional<LogMessage> info = console.newestMessage(LogLevel::Info);
+        REQUIRE(info.has_value());
+        CHECK(info->text == "scene.save: done");
+        CHECK(info->level == LogLevel::Info);
+        // The newest of all, and the newest of what is worse than information.
+        CHECK(console.newestMessage(LogLevel::Trace)->text == "a detail");
+        CHECK(console.newestMessage(LogLevel::Warn)->text == "an older warning");
+        // None that bad, none at all.
+        CORDITE_LOG_ERROR("Script", "a script has stopped");
+        CHECK(console.newestMessage(LogLevel::Critical) == std::nullopt);
+        CHECK(console.newestMessage(LogLevel::Error)->text == "a script has stopped");
     }
 
     TEST_CASE("the console says once that an action has failed, for any number of them") {

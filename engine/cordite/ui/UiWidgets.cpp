@@ -3,6 +3,8 @@
 #include "cordite/ui/UiSystem.h"
 #include "cordite/ui/UiTheme.h"
 
+#include <fmt/format.h>
+
 namespace cordite {
 
 bool sectionHeader(const char* label, bool* visible, ImGuiTreeNodeFlags flags) {
@@ -29,6 +31,10 @@ ImVec2 overlayText(ImDrawList& drawList, ImVec2 position, std::string_view text)
     drawList.AddText(ImVec2(position.x + padding.x, position.y + padding.y), ImGui::GetColorU32(kOverlayText), begin,
                      end);
     return size;
+}
+
+std::string windowName(const UiIcon& icon, std::string_view title) {
+    return fmt::format("{} {}###{}", icon.text(), title, title);
 }
 
 } // namespace cordite

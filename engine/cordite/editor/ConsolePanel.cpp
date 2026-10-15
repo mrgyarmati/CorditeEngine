@@ -3,6 +3,7 @@
 #include "cordite/core/StringUtils.h"
 #include "cordite/editor/EditorFeedback.h"
 #include "cordite/ui/UiSystem.h"
+#include "cordite/ui/UiWidgets.h"
 
 #include <imgui.h>
 #include <misc/cpp/imgui_stdlib.h>
@@ -11,6 +12,7 @@
 #include <array>
 #include <iterator>
 #include <limits>
+#include <ranges>
 #include <utility>
 
 namespace cordite {
@@ -75,6 +77,14 @@ void ConsolePanel::collectIncoming() {
     m_scrollToNewest = m_followNewest;
 }
 
+std::optional<LogMessage> ConsolePanel::newestMessage(LogLevel minimum) {
+    collectIncoming();
+    const auto newestFirst = std::views::reverse(m_messages);
+    const auto found =
+        std::ranges::find_if(newestFirst, [minimum](const LogMessage& message) { return message.level >= minimum; });
+    return found == newestFirst.end() ? std::nullopt : std::optional<LogMessage>(*found);
+}
+
 bool ConsolePanel::takeFailedAction() {
     collectIncoming();
     return std::exchange(m_failedAction, false);
@@ -83,7 +93,8 @@ bool ConsolePanel::takeFailedAction() {
 void ConsolePanel::draw(std::vector<std::string>& submittedLines) {
     collectIncoming();
 
-    if (ImGui::Begin(kWindowName)) {
+    static const std::string kName = windowName(icons::kConsole, "Console");
+    if (ImGui::Begin(kName.c_str())) {
         if (ImGui::Button("Clear")) {
             m_messages.clear();
         }
