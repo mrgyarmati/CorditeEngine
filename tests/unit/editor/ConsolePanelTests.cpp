@@ -6,9 +6,32 @@
 
 #include "support/TestSupport.h"
 
+#include <string>
+
 using namespace cordite;
 
+namespace {
+
+bool sameColor(const ImVec4& first, const ImVec4& second) {
+    return first.x == second.x && first.y == second.y && first.z == second.z && first.w == second.w;
+}
+
+} // namespace
+
 TEST_SUITE("ConsolePanel") {
+    TEST_CASE("messages are shown in the colors of the theme for their severity") {
+        for (const UiTheme theme : kUiThemes) {
+            CAPTURE(std::string(nameOf(theme)));
+            const UiPalette& palette = paletteOf(theme);
+            CHECK(sameColor(messageColor(LogLevel::Trace, palette), palette.textDisabled));
+            CHECK(sameColor(messageColor(LogLevel::Debug, palette), palette.textDisabled));
+            CHECK(sameColor(messageColor(LogLevel::Info, palette), palette.text));
+            CHECK(sameColor(messageColor(LogLevel::Warn, palette), palette.warning));
+            CHECK(sameColor(messageColor(LogLevel::Error, palette), palette.error));
+            CHECK(sameColor(messageColor(LogLevel::Critical, palette), palette.error));
+        }
+    }
+
     TEST_CASE("what the user asked for and did not get is a failed action, and nothing else is") {
         const auto message = [](LogLevel level, const char* category) {
             return LogMessage{.level = level, .category = category, .text = "something"};

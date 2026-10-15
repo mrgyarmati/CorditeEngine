@@ -227,6 +227,30 @@ cordite_declare_dependency(lua
     SHA256 4f18ddae154e793e46eeab727c59ef1c0c0c2b744e7b94219710d76f530629ae
     SOURCES_ONLY)
 
+# --- Inter: the typeface of the interface (SIL Open Font License 1.1) ------------------
+# Two of its files are compiled into the ui module: extras/ttf/Inter-Regular.ttf and
+# Inter-SemiBold.ttf (see engine/cordite/ui/CMakeLists.txt).
+cordite_declare_dependency(inter
+    URL https://github.com/rsms/inter/releases/download/v4.1/Inter-4.1.zip
+    SHA256 9883fdd4a49d4fb66bd8177ba6625ef9a64aa45899767dde3d36aa425756b11e
+    SOURCES_ONLY)
+
+# --- JetBrains Mono: the typeface of what is typed and logged (SIL Open Font License 1.1)
+# One file is compiled into the ui module: fonts/ttf/JetBrainsMonoNL-Regular.ttf, the
+# version without ligatures - what is typed is shown as it was typed.
+cordite_declare_dependency(jetbrains_mono
+    URL https://github.com/JetBrains/JetBrainsMono/releases/download/v2.304/JetBrainsMono-2.304.zip
+    SHA256 6f6376c6ed2960ea8a963cd7387ec9d76e3f629125bc33d1fdcd7eb7012f7bbf
+    SOURCES_ONLY)
+
+# --- Lucide: the icons of the interface, as a font (ISC) ----------------------------
+# The package lucide-static as the npm registry has it; font/lucide.ttf is compiled into
+# the ui module, and font/lucide.css says which code point each icon has.
+cordite_declare_dependency(lucide
+    URL https://registry.npmjs.org/lucide-static/-/lucide-static-0.469.0.tgz
+    SHA256 c4d7d11a4c5ebd5e6dcb21c50f7fb65aeda9a48e97827d1eb4d7638fd1ec694b
+    SOURCES_ONLY)
+
 # --- miniaudio: sound - decoding, mixing, placing in space, and the devices that play it --
 # One header and one source; the cordite_miniaudio target below compiles the source.
 cordite_declare_dependency(miniaudio
@@ -237,7 +261,8 @@ cordite_declare_dependency(miniaudio
 FetchContent_MakeAvailable(
     fmt spdlog nlohmann_json tl_expected enkits xxhash glm
     glfw vulkan_headers nvrhi stb cli11 entt imgui
-    cgltf meshoptimizer mikktspace joltphysics lua miniaudio)
+    cgltf meshoptimizer mikktspace joltphysics lua miniaudio
+    inter jetbrains_mono lucide)
 
 # Jolt checks itself where the engine does: in the configurations with assertions. They
 # are reported through the engine's (see cordite/physics/PhysicsWorld.cpp).

@@ -134,7 +134,7 @@ by accident.
 | `shaders` | `core` | Shader requests and permutation keys, disk cache, `ShaderLibrary` |
 | `shader_compiler` | `core`, `shaders` | Slang to SPIR-V compiler (not linked into exported games) |
 | `renderer` | `core`, `math`, `assets`, `world`, `animation`, `rhi`, `shaders` | The scene renderer and what it is made of: GPU copies of assets, the mesh passes, the G-buffer and its lighting, the lights of a world and the clusters they are sorted into, their shadow maps and the atlas those share, what finishes the picture (exposure, bloom, tone mapping, grading), the environment (the sky and what it lights), ambient occlusion from the screen, fog, the debug views, scene targets, the `MeshRenderer`, `Light`, `AmbientLight`, `Environment`, `Fog` and `PostProcess` components; camera views, debug lines, GPU timing, GPU shader management |
-| `ui` | `core`, `math`, `platform`, `rhi`, `shaders`, `renderer` | The immediate-mode interface: the Dear ImGui context and its NVRHI renderer |
+| `ui` | `core`, `math`, `platform`, `rhi`, `shaders`, `renderer` | The immediate-mode interface: the Dear ImGui context and its NVRHI renderer; its typefaces and icons, compiled in; its themes, and the widgets it draws the same way everywhere |
 | `engine` | all of the above | `Engine`: owns the subsystems, the assets, the world and the interface, and runs the frame loop; projects; placing models; checking the assets a scene uses |
 | `editor` | `engine` and below | The editor: the scene document, undoable actions, scene and asset commands, panels, `EditorApp` (not linked into exported games) |
 
@@ -1317,6 +1317,26 @@ panels, EditorApp    the interface, built on the three layers above
 - **The interface is Dear ImGui**, reached through the `ui` module. It runs without a
   window too, with the pointer fed from `Engine::input()`, so interface code is covered
   by headless tests.
+- **The interface has a look of its own** (`ui/UiTheme.h`, `UiFonts.h`, `UiIcons.h`):
+  Inter for what is read, JetBrains Mono for what is typed and logged, the icons of
+  Lucide merged into both, and a flat theme, dark or light. The fonts are compiled into
+  the module (`cordite_embed_file`), so nothing is looked for on the disk. A color is
+  the theme's, never a number in a panel: `UiSystem::palette()` has those ImGui has no
+  name for - warnings, errors - and what is drawn over the picture of a scene is in the
+  overlay colors, the same in every theme (`overlayText`, `UiWidgets.h`). `UiThemeTests`
+  holds every color to the contrast it needs against what it is drawn on, and the
+  theme names every color ImGui has: one that a new version of ImGui adds is an
+  assertion until it is given a value. An icon is a code point of the pinned Lucide,
+  held to it by `UiIconsTests`: look them up again when Lucide is upgraded.
+- **A theme changes between frames** (`UiSystem::setTheme`, which waits for the next
+  frame when it is called during one). ImGui pops what was pushed onto its style back
+  to what it was, and a style replaced in the middle of a frame would keep colors of
+  the old theme. The View menu queues `editor.theme` for that reason.
+- **What a person chose about the editor is theirs, not a project's**: the theme is
+  kept in `editor-preferences.json` in their configuration directory
+  (`EditorPreferences`, `userConfigurationDirectory`). A batch run reads and writes
+  none, and is drawn in the default theme, so its pictures do not depend on who runs
+  it.
 
 ## Testing
 
@@ -1458,6 +1478,15 @@ body explaining what changed and why. One logical change per commit.
   captures for equality only in an editor without one.
 - Agent tools that run shell commands can mangle a here-document that contains an odd
   number of apostrophes. Write files with the file-writing tool instead of `cat <<EOF`.
+- ImGui draws a selected row and the header of a collapsing section in the same colors
+  (`ImGuiCol_Header`). The themes give them the accent, for what is selected; a section
+  is begun with `sectionHeader` (`UiWidgets.h`), which draws it in the shades of a
+  field. An `ImGui::CollapsingHeader` of its own looks selected.
+- Typefaces have glyphs of their own where the icons are: JetBrains Mono has the
+  symbols of Powerline in the private use area, one of them on Lucide's icon for
+  copying. `addInterfaceFonts` keeps that area for the icons
+  (`ImFontConfig::GlyphExcludeRanges`); a typeface merged without it shows a padlock
+  where a button says "copy".
 - NVRHI's validation layer rejects a second *immediate* command list opened while
   another is open. Anything that records while a frame is being recorded needs
   `CommandListParameters().setEnableImmediateExecution(false)`.

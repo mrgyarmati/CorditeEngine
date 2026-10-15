@@ -42,7 +42,7 @@ of slowly turning the code base into a ball of mud.
 | `shaders` | `core` | What a shader *is* to the engine: requests and their permutation keys, compiled binaries, the on-disk cache, and the `ShaderLibrary` that resolves a request from memory, disk or a compiler. |
 | `shader_compiler` | `core`, `shaders` | The Slang-based implementation of `IShaderCompiler`. Kept separate so exported games do not link a compiler. |
 | `renderer` | `core`, `math`, `assets`, `world`, `animation`, `rhi`, `shaders` | Drawing: the scene renderer and its passes (depth, G-buffer, deferred lighting, forward, debug views), the GPU copies of assets it draws with, the targets of a view, the components that make an entity visible or make it a light, the lights of a world sorted into the clusters of a view, the environment that surrounds a world made ready to light it, ambient occlusion worked out from the screen; the view a camera gives, debug line drawing, and the `ShaderManager` that turns shader binaries into GPU shader objects. |
-| `ui` | `core`, `math`, `platform`, `rhi`, `shaders`, `renderer` | The immediate-mode user interface: the Dear ImGui context, its input, and the renderer that draws it with NVRHI. |
+| `ui` | `core`, `math`, `platform`, `rhi`, `shaders`, `renderer` | The immediate-mode user interface: the Dear ImGui context, its input, and the renderer that draws it with NVRHI; its typefaces and icons, compiled in, and its themes. |
 | `engine` | all of the above | `Engine`: creates and owns the subsystems, the assets, the world and the interface, and runs the frame loop. Also what needs several of the modules below at once: projects, placing a model in a world, checking the assets a scene refers to. |
 | `editor` | `engine` and below | The editor: the scene document, undoable actions, the command registry, the panels, and `EditorApp`. Not part of exported games. |
 
@@ -507,6 +507,36 @@ written against NVRHI like every other pass, because ImGui ships none for it.
 Without a window the interface still runs, with the pointer fed from the engine's
 input. Reference images of the whole editor and scripted interaction tests depend on
 that.
+
+### The interface brings its typefaces, its icons and its themes
+
+The editor is meant to look like a tool of today, flat, after Unity and Unreal Engine.
+ImGui's own font, Proggy, is a face for code at small sizes; the interface uses Inter
+instead, a typeface drawn for screens, in two weights - the stronger for the names of
+sections - and JetBrains Mono, without ligatures, for what is typed and logged, where
+ids and numbers have to line up and be shown as they were typed. The icons are
+Lucide's, as a font: merged into each typeface, an icon is a character, and goes
+wherever text does, with no images to load and no second way of drawing. All three are
+pinned like any other dependency and compiled into the `ui` module
+(`cmake/CorditeEmbed.cmake`): a program has them wherever it is started from, and a
+test cannot pass on one machine and fail on another for a font that was not found. The
+four files take under two seconds each to compile, so they are compiled as they are,
+with no tool to compress them first. ImGui's own fonts are left out of the build
+(`IMGUI_DISABLE_DEFAULT_FONT`).
+
+A theme is a palette of colors named for what they are for - the surface of a panel, a
+field, text in passing, the accent - and the sizes that go with them. Both themes are
+flat: surfaces differ by a shade, and one warm accent marks what is selected, on or
+held. Each color was chosen against the contrast that the guidelines for the web
+(WCAG 2) ask of it, and the tests hold it there, so a color can be changed without
+anyone checking it by eye against every surface. ImGui's own dark and light styles
+are not the start: what a theme does not name would change with every version of
+ImGui, and so a theme names all of ImGui's colors, and asserts that it did.
+
+Which theme a person works in is a preference of theirs, kept beside no project, in
+the directory their system keeps such things in (`%APPDATA%`, `~/.config`,
+`~/Library/Application Support`). A project's layout of panels is kept in the project,
+since it is about that project's work; a theme is about the person.
 
 ### Third-party assertions report through the engine
 

@@ -30,9 +30,9 @@ pinned in [cmake/CorditeDependencies.cmake](../cmake/CorditeDependencies.cmake) 
 | [miniaudio](https://github.com/mackron/miniaudio) | 0.11.25 | Unlicense OR MIT-0 | Sound: decoding files (WAV, FLAC, MP3), writing WAV files, and behind `AudioSystem` mixing, placing sound in space and playing it on the machine's device |
 
 EnTT stays on the 3.x line: 4.0 needs C++20 syntax that the default MSVC toolset of
-many Visual Studio 2022 installations (19.38) does not accept. Dear ImGui comes with the
-fonts it embeds (ProggyClean and ProggyForever, MIT) and uses its bundled
-copies of stb_rect_pack, stb_textedit and stb_truetype (public domain / MIT).
+many Visual Studio 2022 installations (19.38) does not accept. Dear ImGui uses its
+bundled copies of stb_rect_pack, stb_textedit and stb_truetype (public domain / MIT);
+the fonts it would embed are left out of the build (`IMGUI_DISABLE_DEFAULT_FONT`).
 
 Lua is built from its sources as C++, so that an error in a script unwinds the engine's
 functions as an exception does, and without the libraries a script has no business
@@ -48,6 +48,21 @@ glTF files are written by the engine's own exporter, on top of the JSON library,
 by cgltf's writer: a glTF file is a JSON document plus a buffer, and building cgltf's
 pointer-linked structures only to have them turned back into JSON would be more code
 than writing the JSON.
+
+## Compiled into the engine: typefaces and icons
+
+| Font | Version | License | Used for |
+|------|---------|---------|----------|
+| [Inter](https://github.com/rsms/inter) | 4.1 | SIL Open Font License 1.1 | The typeface of the interface, regular and semibold |
+| [JetBrains Mono](https://github.com/JetBrains/JetBrainsMono) | 2.304 | SIL Open Font License 1.1 | What is typed and logged in the interface (the version without ligatures) |
+| [Lucide](https://lucide.dev) | 0.469.0 (`lucide-static`) | ISC; parts from Feather, MIT | The icons of the interface, as a font |
+
+The font files are compiled into the `ui` module byte for byte, with the names and the
+licenses they carry inside them. The Open Font License allows fonts to be bundled with
+software of any license, as long as they are not sold by themselves and the license
+goes with them: a package of the editor or of a game has to carry the license texts
+of these three (`LICENSE.txt` of Inter, `OFL.txt` of JetBrains Mono, `LICENSE` of
+Lucide), which packaging (milestone 12) is to put in.
 
 ## Linked into the editor and tools, not into exported games
 

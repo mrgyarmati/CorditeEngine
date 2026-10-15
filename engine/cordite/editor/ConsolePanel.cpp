@@ -2,6 +2,7 @@
 
 #include "cordite/core/StringUtils.h"
 #include "cordite/editor/EditorFeedback.h"
+#include "cordite/ui/UiSystem.h"
 
 #include <imgui.h>
 #include <misc/cpp/imgui_stdlib.h>
@@ -21,24 +22,24 @@ constexpr size_t kMaxMessages = 4000;
 constexpr std::array<LogLevel, 5> kFilterLevels = {LogLevel::Trace, LogLevel::Debug, LogLevel::Info, LogLevel::Warn,
                                                    LogLevel::Error};
 
-ImVec4 colorOf(LogLevel level) {
+} // namespace
+
+ImVec4 messageColor(LogLevel level, const UiPalette& palette) {
     switch (level) {
         case LogLevel::Trace:
         case LogLevel::Debug:
-            return {0.55f, 0.57f, 0.62f, 1.0f};
+            return palette.textDisabled;
         case LogLevel::Warn:
-            return {0.95f, 0.78f, 0.30f, 1.0f};
+            return palette.warning;
         case LogLevel::Error:
         case LogLevel::Critical:
-            return {0.95f, 0.38f, 0.33f, 1.0f};
+            return palette.error;
         case LogLevel::Info:
         case LogLevel::Off:
             break;
     }
-    return ImGui::GetStyleColorVec4(ImGuiCol_Text);
+    return palette.text;
 }
-
-} // namespace
 
 ConsolePanel::ConsolePanel() : m_inbox(std::make_shared<Inbox>()), m_messages(Log::history()) {
     // The listener shares the inbox instead of pointing at the panel: a message that is
@@ -102,6 +103,9 @@ void ConsolePanel::draw(std::vector<std::string>& submittedLines) {
         ImGui::SetItemTooltip("Keep the newest message in view.");
         ImGui::Separator();
 
+        // What is logged and typed is in the typeface for it, in which ids and numbers line
+        // up.
+        ImGui::PushFont(UiSystem::font(UiFont::Monospace), 0.0f);
         // Everything above the input line scrolls.
         const float inputHeight = ImGui::GetFrameHeightWithSpacing();
         if (ImGui::BeginChild("messages", ImVec2(0.0f, -inputHeight), ImGuiChildFlags_None,
@@ -110,7 +114,7 @@ void ConsolePanel::draw(std::vector<std::string>& submittedLines) {
                 if (message.level < m_minimumLevel) {
                     continue;
                 }
-                ImGui::PushStyleColor(ImGuiCol_Text, colorOf(message.level));
+                ImGui::PushStyleColor(ImGuiCol_Text, messageColor(message.level, UiSystem::palette()));
                 ImGui::Text("[%s] %s", message.category.c_str(), message.text.c_str());
                 ImGui::PopStyleColor();
             }
@@ -131,6 +135,7 @@ void ConsolePanel::draw(std::vector<std::string>& submittedLines) {
             // Enter takes the focus away; give it back for the next command.
             ImGui::SetKeyboardFocusHere(-1);
         }
+        ImGui::PopFont();
     }
     ImGui::End();
 }

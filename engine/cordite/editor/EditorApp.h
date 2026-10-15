@@ -53,6 +53,7 @@
 #include "cordite/editor/ConsolePanel.h"
 #include "cordite/editor/EditorCamera.h"
 #include "cordite/editor/EditorContext.h"
+#include "cordite/editor/EditorPreferences.h"
 #include "cordite/editor/HierarchyPanel.h"
 #include "cordite/editor/InspectorPanel.h"
 #include "cordite/editor/PlayMode.h"
@@ -92,6 +93,12 @@ struct EditorAppDesc {
     /// no project. Left off, every session starts from the default layout, which is
     /// what automation wants. Ignored when `engine.uiSettingsFile` already names a file.
     bool rememberLayout = false;
+
+    /// The file in which the editor keeps what the person at it chose about it - the
+    /// theme - from one session to the next, in every project (editorPreferencesFile()).
+    /// Empty keeps nothing, and every session starts with the defaults, which is what
+    /// automation wants. A file that cannot be read is said in the log, and not used.
+    std::filesystem::path preferencesFile;
 };
 
 class EditorApp {
@@ -145,6 +152,11 @@ private:
 
     [[nodiscard]] Status registerApplicationCommands();
     [[nodiscard]] Status registerPlayCommands();
+    /// Draws the interface in a theme from the next frame on, and remembers it in the
+    /// preferences, if there is a file for them.
+    void chooseTheme(UiTheme theme);
+    /// What editor.theme returns: the theme in use, and the names of all.
+    [[nodiscard]] Json describeTheme() const;
     /// What play.status returns: whether the scene is being played, and how it goes.
     [[nodiscard]] Json describePlay() const;
     void drawInterface();
@@ -168,6 +180,9 @@ private:
     };
 
     std::optional<Project> m_project;
+    /// What the person at the editor chose about it, and where it is kept (empty: nowhere).
+    EditorPreferences m_preferences;
+    std::filesystem::path m_preferencesFile;
     // The engine comes first: everything else refers to it and goes before it.
     std::unique_ptr<Engine> m_engine;
     std::unique_ptr<EditorContext> m_context;

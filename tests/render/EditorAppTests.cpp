@@ -8,6 +8,7 @@
 #include "cordite/core/Log.h"
 #include "cordite/core/Uuid.h"
 #include "cordite/editor/AssetBrowser.h"
+#include "cordite/editor/EditorPreferences.h"
 #include "cordite/engine/Project.h"
 #include "cordite/platform/InputMap.h"
 #include "cordite/world/SceneSerializer.h"
@@ -1736,13 +1737,95 @@ TEST_SUITE("EditorApp") {
         checkNoValidationIssues(engine.graphics());
     }
 
+    TEST_CASE("the theme of the interface is chosen by command, and a person's choice is remembered") {
+        const TempDirectory directory;
+        const std::filesystem::path preferences = directory.path() / "Cordite" / "editor-preferences.json";
+        {
+            EditorAppDesc desc = headlessDesc(UVec2(640, 360));
+            desc.preferencesFile = preferences;
+            const std::unique_ptr<EditorApp> editor = createEditor(desc);
+            // Nothing was chosen yet: the default, and no file.
+            const Json described = run(*editor, "editor.theme");
+            CHECK(described["theme"] == "dark");
+            CHECK(described["themes"] == json(R"(["dark", "light"])"));
+            CHECK_FALSE(fileExists(preferences));
+
+            // A name is a name whatever its case; what is said back is the theme's own.
+            CHECK(run(*editor, "editor.theme", R"({"theme": "Light"})")["theme"] == "light");
+            CHECK(editor->engine().ui().theme() == UiTheme::Light);
+            REQUIRE(editor->runFrames(1).has_value());
+            const ImVec4 panel = ImGui::GetStyle().Colors[ImGuiCol_WindowBg];
+            CHECK(panel.x == paletteOf(UiTheme::Light).panel.x);
+            CHECK(panel.z == paletteOf(UiTheme::Light).panel.z);
+            CHECK(unwrap(loadEditorPreferences(preferences)).theme == UiTheme::Light);
+
+            // A theme that does not exist changes nothing.
+            const Error unknown = refusal(*editor, "editor.theme", R"({"theme": "blue"})");
+            CHECK(unknown.code == ErrorCode::InvalidArgument);
+            CHECK(unknown.message.find("'blue'") != std::string::npos);
+            CHECK(editor->engine().ui().theme() == UiTheme::Light);
+            CHECK(unwrap(loadEditorPreferences(preferences)).theme == UiTheme::Light);
+        }
+        // The next session starts in it.
+        {
+            EditorAppDesc desc = headlessDesc(UVec2(640, 360));
+            desc.preferencesFile = preferences;
+            const std::unique_ptr<EditorApp> editor = createEditor(desc);
+            CHECK(run(*editor, "editor.theme")["theme"] == "light");
+            CHECK(editor->engine().ui().theme() == UiTheme::Light);
+        }
+        // Without a file for them, an editor starts with the defaults, whatever was chosen
+        // elsewhere, and what is chosen in it goes nowhere.
+        {
+            const std::unique_ptr<EditorApp> editor = createEditor(headlessDesc(UVec2(640, 360)));
+            CHECK(run(*editor, "editor.theme")["theme"] == "dark");
+            CHECK(run(*editor, "editor.theme", R"({"theme": "light"})")["theme"] == "light");
+        }
+        CHECK(unwrap(loadEditorPreferences(preferences)).theme == UiTheme::Light);
+    }
+
+    TEST_CASE("preferences that cannot be read are said, and the editor opens with the defaults") {
+        const TempDirectory directory;
+        const std::filesystem::path preferences = directory.path() / "editor-preferences.json";
+        REQUIRE(writeTextFile(preferences, R"({"format": "cordite.preferences", "version": 1, "theme": "blue"})")
+                    .has_value());
+
+        const test::LogCapture log(LogLevel::Warn);
+        EditorAppDesc desc = headlessDesc(UVec2(640, 360));
+        desc.preferencesFile = preferences;
+        const std::unique_ptr<EditorApp> editor = createEditor(desc);
+        CHECK(run(*editor, "editor.theme")["theme"] == "dark");
+        CHECK(log.contains("preferences are not used"));
+        CHECK(log.contains("'blue'"));
+
+        // Choosing a theme puts a file there that can be read.
+        run(*editor, "editor.theme", R"({"theme": "light"})");
+        CHECK(unwrap(loadEditorPreferences(preferences)).theme == UiTheme::Light);
+    }
+
+    TEST_CASE("the editor in the light theme matches the reference image") {
+        EditorAppDesc desc = headlessDesc();
+        desc.project = showcaseProject();
+        const std::unique_ptr<EditorApp> editor = createEditorForPicture(desc);
+        run(*editor, "editor.theme", R"({"theme": "light"})");
+        // A light, for an inspector with a list, a color, numbers with units and a row of
+        // switches; and the assets in front, for rows of a tree with one of them chosen.
+        run(*editor, "selection.set", R"({"entities": ["Stage/Lamp post/Arm/Head/Lamp"]})");
+        run(*editor, "editor.focusPanel", R"({"panel": "assets"})");
+        run(*editor, "assets.browse", R"({"select": "models/hoist.gltf#mesh/1"})");
+
+        REQUIRE(editor->runFrames(4).has_value());
+        checkAgainstReference(unwrap(editor->engine().captureFrame()), "editor-theme-light-1280x720");
+        checkNoValidationIssues(editor->engine().graphics());
+    }
+
     TEST_CASE("the application adds its commands to the catalogue") {
         const std::unique_ptr<EditorApp> editor = createEditor(headlessDesc(UVec2(640, 360)));
         for (const char* name :
-             {"editor.runFrames", "editor.screenshot", "editor.statistics", "editor.showPanel", "editor.exit",
-              "editor.focusPanel", "assets.browse", "viewport.lookAt", "viewport.frame", "viewport.camera",
-              "viewport.debugView", "entity.create", "scene.save", "play.start", "play.stop", "play.pause",
-              "play.resume", "play.step", "play.status"}) {
+             {"editor.runFrames",  "editor.screenshot",  "editor.statistics", "editor.showPanel", "editor.exit",
+              "editor.focusPanel", "editor.theme",       "assets.browse",     "viewport.lookAt",  "viewport.frame",
+              "viewport.camera",   "viewport.debugView", "entity.create",     "scene.save",       "play.start",
+              "play.stop",         "play.pause",         "play.resume",       "play.step",        "play.status"}) {
             CAPTURE(name);
             const CommandDesc* command = editor->commands().find(name);
             REQUIRE(command != nullptr);

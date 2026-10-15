@@ -169,6 +169,14 @@ cordite_add_test_suite(renderer
     LIBRARIES
         cordite::renderer)
 
+# The parts of the interface that need no GPU: its themes, its typefaces and its icons.
+cordite_add_test_suite(ui
+    SOURCES
+        unit/ui/UiIconsTests.cpp
+        unit/ui/UiThemeTests.cpp
+    LIBRARIES
+        cordite::ui)
+
 # The editor without its user interface: commands, undo, the document and the camera.
 cordite_add_test_suite(editor
     SOURCES
@@ -181,6 +189,7 @@ cordite_add_test_suite(editor
         unit/editor/EditorCameraTests.cpp
         unit/editor/EditorCommandsTests.cpp
         unit/editor/EditorContextTests.cpp
+        unit/editor/EditorPreferencesTests.cpp
         unit/editor/InputCommandsTests.cpp
         unit/editor/ScriptCommandsTests.cpp
         unit/editor/PhysicsCommandsTests.cpp

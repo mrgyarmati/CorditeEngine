@@ -19,3 +19,6 @@
 
 // Keeps names that ImGui has already renamed out of new code.
 #define IMGUI_DISABLE_OBSOLETE_FUNCTIONS
+
+// The interface brings typefaces of its own (UiFonts.h); ImGui's are not compiled in.
+#define IMGUI_DISABLE_DEFAULT_FONT

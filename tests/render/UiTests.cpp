@@ -2,6 +2,7 @@
 #include "cordite/renderer/RenderTarget.h"
 #include "cordite/renderer/TestPatternPass.h"
 #include "cordite/ui/UiSystem.h"
+#include "cordite/ui/UiWidgets.h"
 
 #include "render/RenderTestSupport.h"
 
@@ -42,7 +43,7 @@ void renderFrame(RenderContext& context, UiSystem& ui, const RenderTarget& targe
 /// A window at a fixed place with one of each common widget.
 void buildWidgets(bool& checked, float& amount) {
     ImGui::SetNextWindowPos(ImVec2(20.0f, 20.0f), ImGuiCond_Always);
-    ImGui::SetNextWindowSize(ImVec2(360.0f, 260.0f), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(360.0f, 270.0f), ImGuiCond_Always);
     if (ImGui::Begin("Widgets", nullptr, ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoCollapse)) {
         ImGui::TextUnformatted("The quick brown fox jumps over the lazy dog");
         ImGui::Separator();
@@ -56,9 +57,28 @@ void buildWidgets(bool& checked, float& amount) {
         ImGui::SameLine();
         ImGui::ColorButton("Blue", ImVec4(0.3f, 0.5f, 0.95f, 1.0f), ImGuiColorEditFlags_NoTooltip,
                            ImVec2(40.0f, 20.0f));
-        if (ImGui::CollapsingHeader("Section", ImGuiTreeNodeFlags_DefaultOpen)) {
+        // Text over a picture: a field as bright as a sky can be.
+        ImGui::SameLine();
+        const ImVec2 corner = ImGui::GetCursorScreenPos();
+        ImDrawList& drawList = *ImGui::GetWindowDrawList();
+        drawList.AddRectFilled(corner, ImVec2(corner.x + 150.0f, corner.y + 22.0f), IM_COL32(250, 240, 200, 255));
+        overlayText(drawList, ImVec2(corner.x + 4.0f, corner.y + 1.0f), "6.0, 4.0, 8.0");
+        ImGui::Dummy(ImVec2(150.0f, 22.0f));
+        if (sectionHeader("Section", nullptr, ImGuiTreeNodeFlags_DefaultOpen)) {
             ImGui::BulletText("0123456789 +-*/=()[]{}");
         }
+        // The icons, in a button and in text, and the two other typefaces.
+        ImGui::Button(icons::kPlay.text());
+        ImGui::SameLine();
+        ImGui::Text("%s %s %s", icons::kFolder.text(), icons::kTexture.text(), icons::kWarning.text());
+        ImGui::SameLine();
+        ImGui::PushFont(UiSystem::font(UiFont::Strong), 0.0f);
+        ImGui::TextUnformatted("Strong");
+        ImGui::PopFont();
+        ImGui::SameLine();
+        ImGui::PushFont(UiSystem::font(UiFont::Monospace), 0.0f);
+        ImGui::TextUnformatted("monospace 0O1lI");
+        ImGui::PopFont();
     }
     ImGui::End();
 }
@@ -135,6 +155,84 @@ TEST_SUITE("UiSystem") {
 
         checkAgainstReference(readToImage(*context.graphics, target.color()), "ui-widgets-400x300");
         checkNoValidationIssues(*context.graphics);
+    }
+
+    TEST_CASE("widgets in the light theme match the reference image") {
+        RenderContext context;
+        const std::unique_ptr<UiSystem> ui =
+            unwrap(UiSystem::create(context.device(), *context.shaders, {.theme = UiTheme::Light}));
+        const RenderTarget target = makeTarget(context);
+
+        bool checked = true;
+        float amount = 0.25f;
+        for (int frame = 0; frame < 3; ++frame) {
+            renderFrame(context, *ui, target, [&] { buildWidgets(checked, amount); });
+        }
+
+        checkAgainstReference(readToImage(*context.graphics, target.color()), "ui-widgets-light-400x300");
+        checkNoValidationIssues(*context.graphics);
+    }
+
+    TEST_CASE("the theme changes between frames, and one chosen during a frame waits for the next") {
+        RenderContext context;
+        const std::unique_ptr<UiSystem> ui = unwrap(UiSystem::create(context.device(), *context.shaders));
+        const RenderTarget target = makeTarget(context);
+        const auto panelIs = [](UiTheme theme) {
+            const ImVec4 panel = ImGui::GetStyle().Colors[ImGuiCol_WindowBg];
+            const ImVec4 expected = paletteOf(theme).panel;
+            return panel.x == expected.x && panel.y == expected.y && panel.z == expected.z;
+        };
+        CHECK(ui->theme() == UiTheme::Dark);
+        CHECK(panelIs(UiTheme::Dark));
+        CHECK(&UiSystem::palette() == &paletteOf(UiTheme::Dark));
+
+        // Between frames: at once.
+        ui->setTheme(UiTheme::Light);
+        CHECK(ui->theme() == UiTheme::Light);
+        CHECK(panelIs(UiTheme::Light));
+        CHECK(&UiSystem::palette() == &paletteOf(UiTheme::Light));
+
+        // During a frame: what was pushed is popped back as it was, and the theme comes with
+        // the next frame.
+        bool checked = false;
+        float amount = 0.5f;
+        renderFrame(context, *ui, target, [&] {
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.0f, 0.0f, 1.0f));
+            ui->setTheme(UiTheme::Dark);
+            CHECK(ui->theme() == UiTheme::Dark);
+            CHECK(panelIs(UiTheme::Light));
+            CHECK(&UiSystem::palette() == &paletteOf(UiTheme::Light));
+            buildWidgets(checked, amount);
+            ImGui::PopStyleColor();
+        });
+        CHECK(panelIs(UiTheme::Light));
+        renderFrame(context, *ui, target, [&] {
+            CHECK(panelIs(UiTheme::Dark));
+            CHECK(ImGui::GetStyle().Colors[ImGuiCol_Text].x == paletteOf(UiTheme::Dark).text.x);
+            buildWidgets(checked, amount);
+        });
+        CHECK(&UiSystem::palette() == &paletteOf(UiTheme::Dark));
+        checkNoValidationIssues(*context.graphics);
+    }
+
+    TEST_CASE("the typefaces of the interface are there while it is") {
+        CHECK(UiSystem::font(UiFont::Regular) == nullptr);
+        // Without an interface the colors are the default theme's, for whoever asks.
+        CHECK(&UiSystem::palette() == &paletteOf(UiTheme::Dark));
+        {
+            RenderContext context;
+            const std::unique_ptr<UiSystem> ui = unwrap(UiSystem::create(context.device(), *context.shaders));
+            for (const UiFont font : kUiFonts) {
+                CAPTURE(std::string(nameOf(font)));
+                REQUIRE(UiSystem::font(font) != nullptr);
+                CHECK(UiSystem::font(font)->IsGlyphInFont(static_cast<ImWchar>(icons::kPlay.codepoint)));
+                CHECK(UiSystem::font(font)->IsGlyphInFont(static_cast<ImWchar>('A')));
+            }
+            CHECK(UiSystem::font(UiFont::Regular) != UiSystem::font(UiFont::Monospace));
+            // The first is the one ImGui uses unless told otherwise.
+            CHECK(ImGui::GetIO().Fonts->Fonts[0] == UiSystem::font(UiFont::Regular));
+        }
+        CHECK(UiSystem::font(UiFont::Regular) == nullptr);
     }
 
     TEST_CASE("the interface is drawn the same way every time") {

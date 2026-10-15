@@ -3,6 +3,7 @@
 #include "cordite/core/StringUtils.h"
 #include "cordite/editor/EditorActions.h"
 #include "cordite/editor/EditorFeedback.h"
+#include "cordite/ui/UiWidgets.h"
 
 #include <imgui.h>
 #include <misc/cpp/imgui_stdlib.h>
@@ -122,8 +123,8 @@ void InspectorPanel::drawComponent(EditorContext& context, Entity entity, const 
 
     // Components every entity must have get no close button.
     bool keep = true;
-    const bool open = ImGui::CollapsingHeader(
-        descriptor.type.name().c_str(), descriptor.traits.optional ? &keep : nullptr, ImGuiTreeNodeFlags_DefaultOpen);
+    const bool open = sectionHeader(descriptor.type.name().c_str(), descriptor.traits.optional ? &keep : nullptr,
+                                    ImGuiTreeNodeFlags_DefaultOpen);
     if (!descriptor.traits.description.empty()) {
         ImGui::SetItemTooltip("%s", descriptor.traits.description.c_str());
     }

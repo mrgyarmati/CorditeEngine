@@ -50,3 +50,9 @@ cordite_add_module(core
         spdlog::spdlog
         enkiTS
         cordite::xxhash)
+
+# userConfigurationDirectory() asks the shell for a known folder, which it frees with COM's
+# allocator.
+if(WIN32)
+    target_link_libraries(cordite_core PRIVATE shell32 ole32)
+endif()

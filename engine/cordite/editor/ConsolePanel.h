@@ -17,6 +17,7 @@
 
 #include "cordite/core/Base.h"
 #include "cordite/core/Log.h"
+#include "cordite/ui/UiTheme.h"
 
 #include <memory>
 #include <mutex>
@@ -24,6 +25,10 @@
 #include <vector>
 
 namespace cordite {
+
+/// The color a message of the log is shown in, of a theme: warnings and errors in its
+/// colors for them, trace and debug in that of what is said in passing, the rest as text.
+[[nodiscard]] ImVec4 messageColor(LogLevel level, const UiPalette& palette);
 
 class ConsolePanel {
 public:

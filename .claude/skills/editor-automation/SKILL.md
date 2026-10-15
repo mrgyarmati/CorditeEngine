@@ -302,6 +302,10 @@ its simulation, its sounds - play it:
   `assets.browse {"type": "prefab"}` or `{"select": "models/crate.gltf#mesh/0"}` sets
   what the Assets panel shows before the picture is taken. A command that fails
   brings the console back to the front.
+- `editor.theme {"theme": "light"}` draws the interface in the light theme from the
+  next frame on, `"dark"` in the default one; `editor.theme` alone says which is in
+  use. A batch run starts in the dark theme whatever a person chose, and remembers
+  nothing.
 - `viewport.lookAt {"position": [x,y,z], "target": [x,y,z]}` and
   `viewport.frame {"entity": ...}` place the viewport camera first.
 - `viewport.show {"camera": "game"}` looks through the camera the game renders from

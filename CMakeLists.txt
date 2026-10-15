@@ -41,6 +41,7 @@ set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
 include(CorditeCompilerOptions)
 include(CorditeDependencies)
+include(CorditeEmbed)
 include(CorditeModule)
 
 # Must run before any add_subdirectory() so that tests registered below are generated.

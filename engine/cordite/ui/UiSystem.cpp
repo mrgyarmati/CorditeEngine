@@ -12,74 +12,8 @@
 namespace cordite {
 namespace {
 
-/// The look of the editor: ImGui's dark theme with flatter, slightly rounded widgets and
-/// a warm accent color.
-void applyStyle(float scale) {
-    ImGui::StyleColorsDark();
-
-    ImGuiStyle& style = ImGui::GetStyle();
-    style.WindowRounding = 4.0f;
-    style.ChildRounding = 4.0f;
-    style.FrameRounding = 3.0f;
-    style.PopupRounding = 4.0f;
-    style.GrabRounding = 3.0f;
-    style.TabRounding = 3.0f;
-    style.WindowBorderSize = 1.0f;
-    style.FrameBorderSize = 0.0f;
-    style.WindowPadding = ImVec2(8.0f, 8.0f);
-    style.FramePadding = ImVec2(6.0f, 4.0f);
-    style.ItemSpacing = ImVec2(8.0f, 5.0f);
-    style.IndentSpacing = 16.0f;
-
-    const ImVec4 background(0.105f, 0.110f, 0.125f, 1.0f);
-    const ImVec4 panel(0.145f, 0.150f, 0.170f, 1.0f);
-    const ImVec4 widget(0.200f, 0.210f, 0.235f, 1.0f);
-    const ImVec4 widgetHovered(0.270f, 0.280f, 0.315f, 1.0f);
-    const ImVec4 accent(0.900f, 0.480f, 0.160f, 1.0f);
-    const ImVec4 accentDim(0.650f, 0.340f, 0.120f, 1.0f);
-
-    ImVec4* colors = style.Colors;
-    colors[ImGuiCol_WindowBg] = panel;
-    colors[ImGuiCol_ChildBg] = panel;
-    colors[ImGuiCol_PopupBg] = ImVec4(0.125f, 0.130f, 0.150f, 0.98f);
-    colors[ImGuiCol_MenuBarBg] = background;
-    colors[ImGuiCol_TitleBg] = background;
-    colors[ImGuiCol_TitleBgActive] = background;
-    colors[ImGuiCol_TitleBgCollapsed] = background;
-    colors[ImGuiCol_DockingEmptyBg] = background;
-    colors[ImGuiCol_FrameBg] = widget;
-    colors[ImGuiCol_FrameBgHovered] = widgetHovered;
-    colors[ImGuiCol_FrameBgActive] = widgetHovered;
-    colors[ImGuiCol_Button] = widget;
-    colors[ImGuiCol_ButtonHovered] = widgetHovered;
-    colors[ImGuiCol_ButtonActive] = accentDim;
-    colors[ImGuiCol_Header] = widget;
-    colors[ImGuiCol_HeaderHovered] = widgetHovered;
-    colors[ImGuiCol_HeaderActive] = accentDim;
-    colors[ImGuiCol_Tab] = background;
-    colors[ImGuiCol_TabHovered] = widgetHovered;
-    colors[ImGuiCol_TabSelected] = panel;
-    colors[ImGuiCol_TabSelectedOverline] = accent;
-    colors[ImGuiCol_TabDimmed] = background;
-    colors[ImGuiCol_TabDimmedSelected] = panel;
-    colors[ImGuiCol_CheckMark] = accent;
-    colors[ImGuiCol_PlotHistogram] = accentDim;
-    colors[ImGuiCol_PlotHistogramHovered] = accent;
-    colors[ImGuiCol_SliderGrab] = accentDim;
-    colors[ImGuiCol_SliderGrabActive] = accent;
-    colors[ImGuiCol_SeparatorHovered] = accentDim;
-    colors[ImGuiCol_SeparatorActive] = accent;
-    colors[ImGuiCol_ResizeGripHovered] = accentDim;
-    colors[ImGuiCol_ResizeGripActive] = accent;
-    colors[ImGuiCol_DockingPreview] = ImVec4(accent.x, accent.y, accent.z, 0.5f);
-    colors[ImGuiCol_TextSelectedBg] = ImVec4(accent.x, accent.y, accent.z, 0.35f);
-    colors[ImGuiCol_NavCursor] = accent;
-
-    // Sizes above are for 100% scaling; a high-DPI display gets them enlarged, and the
-    // font with them.
-    style.ScaleAllSizes(scale);
-    style.FontScaleDpi = scale;
-}
+/// The one UiSystem there is (ImGui's context is the process's), for palette() and font().
+UiSystem* g_currentSystem = nullptr;
 
 } // namespace
 
@@ -112,6 +46,7 @@ Result<std::unique_ptr<UiSystem>> UiSystem::create(nvrhi::IDevice* device, Shade
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     system->m_contextCreated = true;
+    g_currentSystem = system.get();
 
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_DockingEnable;
@@ -128,11 +63,17 @@ Result<std::unique_ptr<UiSystem>> UiSystem::create(nvrhi::IDevice* device, Shade
         io.IniFilename = system->m_settingsFile.c_str();
     }
 
-    applyStyle(desc.window != nullptr ? interfaceScale(desc.window->contentScale(), desc.window->logicalSize(),
-                                                       desc.window->framebufferSize())
-                                      : 1.0f);
-    ImGui::GetStyle().FontSizeBase = desc.fontSize;
-    io.Fonts->AddFontDefaultVector();
+    // Sizes are for 100% scaling; a high-DPI display gets them enlarged, and the text with
+    // them.
+    system->m_scale = desc.window != nullptr ? interfaceScale(desc.window->contentScale(), desc.window->logicalSize(),
+                                                              desc.window->framebufferSize())
+                                             : 1.0f;
+    ImGuiStyle& style = ImGui::GetStyle();
+    style.FontSizeBase = desc.fontSize;
+    style.FontScaleDpi = system->m_scale;
+    system->m_theme = desc.theme;
+    applyTheme(style, desc.theme, system->m_scale);
+    system->m_fonts = addInterfaceFonts(*io.Fonts, desc.fontSize);
 
     if (desc.window != nullptr) {
         // ImGui's GLFW backend handles the keyboard, the pointer and its shapes, the
@@ -152,6 +93,9 @@ Result<std::unique_ptr<UiSystem>> UiSystem::create(nvrhi::IDevice* device, Shade
 }
 
 UiSystem::~UiSystem() {
+    if (g_currentSystem == this) {
+        g_currentSystem = nullptr;
+    }
     if (!m_contextCreated) {
         return;
     }
@@ -186,6 +130,13 @@ void UiSystem::beginFrame(UVec2 displaySize, float deltaSeconds) {
     // interface deterministic. ImGui requires a positive value.
     constexpr float kMinimumDelta = 1.0e-5f;
     io.DeltaTime = std::max(deltaSeconds, kMinimumDelta);
+
+    // A theme chosen during the last frame is put in before anything of this one is pushed.
+    if (m_pendingTheme) {
+        m_theme = *m_pendingTheme;
+        m_pendingTheme.reset();
+        applyTheme(ImGui::GetStyle(), m_theme, m_scale);
+    }
 
     ImGui::NewFrame();
     m_frameOpen = true;
@@ -242,6 +193,26 @@ bool UiSystem::wantsKeyboard() const {
 
 ImTextureID UiSystem::textureId(nvrhi::ITexture* texture) {
     return UiRenderer::textureId(texture);
+}
+
+void UiSystem::setTheme(UiTheme theme) {
+    if (m_frameOpen) {
+        m_pendingTheme = theme;
+        return;
+    }
+    m_pendingTheme.reset();
+    m_theme = theme;
+    applyTheme(ImGui::GetStyle(), theme, m_scale);
+}
+
+const UiPalette& UiSystem::palette() {
+    return paletteOf(g_currentSystem != nullptr ? g_currentSystem->m_theme : UiTheme::Dark);
+}
+
+ImFont* UiSystem::font(UiFont font) {
+    const auto index = static_cast<size_t>(font);
+    CORDITE_ASSERT(index < kUiFonts.size(), "there is no typeface {}", index);
+    return g_currentSystem != nullptr && index < kUiFonts.size() ? g_currentSystem->m_fonts[index] : nullptr;
 }
 
 } // namespace cordite

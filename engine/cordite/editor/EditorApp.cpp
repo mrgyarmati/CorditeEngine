@@ -7,6 +7,7 @@
 #include "cordite/editor/EditorActions.h"
 #include "cordite/editor/EditorCommands.h"
 #include "cordite/editor/EditorFeedback.h"
+#include "cordite/editor/EditorPreferences.h"
 #include "cordite/editor/InputCommands.h"
 #include "cordite/editor/PhysicsCommands.h"
 #include "cordite/editor/ScriptCommands.h"
@@ -153,6 +154,18 @@ Result<std::unique_ptr<EditorApp>> EditorApp::create(const EditorAppDesc& desc) 
         engineDesc.window.title = kEditorName;
     }
     CORDITE_TRY_ASSIGN(app->m_engine, Engine::create(engineDesc));
+
+    // What the person at the editor chose about it. Preferences that cannot be read are no
+    // reason not to open a project: they are said, and the defaults are used.
+    if (!desc.preferencesFile.empty()) {
+        app->m_preferencesFile = desc.preferencesFile;
+        if (Result<EditorPreferences> preferences = loadEditorPreferences(desc.preferencesFile)) {
+            app->m_preferences = *preferences;
+        } else {
+            CORDITE_LOG_WARN("Editor", "the editor's preferences are not used: {}", preferences.error().message);
+        }
+    }
+    app->m_engine->ui().setTheme(app->m_preferences.theme);
 
     app->m_context =
         std::make_unique<EditorContext>(app->m_engine->world(), app->m_engine->components(), app->m_engine->assets());
@@ -398,6 +411,26 @@ Status EditorApp::registerApplicationCommands() {
             result[kStatisticsPanelName] = m_showStatistics;
             result[kInterfaceDemoPanelName] = m_showInterfaceDemo;
             return result;
+        },
+    }));
+
+    CORDITE_TRY(m_commands.add({
+        .name = "editor.theme",
+        .description = "Says which theme the interface is drawn in - its colors - and, given one, draws it in that "
+                       "one from the next frame on. A person's choice is remembered for every project they open; "
+                       "a batch run remembers nothing. Returns the theme and the names of all of them.",
+        .parameters = {{"theme", Type::String, "The theme to change to: \"dark\" or \"light\".", false}},
+        .handler = [this](const Json& parameters) -> Result<Json> {
+            if (const auto name = parameters.find("theme"); name != parameters.end()) {
+                const std::string text = name->get<std::string>();
+                const std::optional<UiTheme> theme = uiThemeFromName(text);
+                if (!theme) {
+                    return makeError(ErrorCode::InvalidArgument, "there is no theme '{}'; use \"dark\" or \"light\"",
+                                     text);
+                }
+                chooseTheme(*theme);
+            }
+            return describeTheme();
         },
     }));
 
@@ -666,6 +699,29 @@ Status EditorApp::registerApplicationCommands() {
             return result;
         },
     });
+}
+
+void EditorApp::chooseTheme(UiTheme theme) {
+    m_engine->ui().setTheme(theme);
+    m_preferences.theme = theme;
+    if (m_preferencesFile.empty()) {
+        return;
+    }
+    // The interface is in the theme either way; only the next session would not know.
+    if (const Status saved = saveEditorPreferences(m_preferencesFile, m_preferences); !saved) {
+        CORDITE_LOG_WARN("Editor", "the theme is used, but not remembered: {}", saved.error().message);
+    }
+}
+
+Json EditorApp::describeTheme() const {
+    Json result = Json::object();
+    result["theme"] = std::string(nameOf(m_engine->ui().theme()));
+    Json names = Json::array();
+    for (const UiTheme theme : kUiThemes) {
+        names.push_back(std::string(nameOf(theme)));
+    }
+    result["themes"] = std::move(names);
+    return result;
 }
 
 Json EditorApp::describePlay() const {
@@ -1003,6 +1059,12 @@ void EditorApp::drawViewMenu() {
         ImGui::EndMenu();
     }
     ImGui::MenuItem("Statistics", nullptr, &m_showStatistics);
+    ImGui::Separator();
+    // The style changes between frames, where commands run: changed in the middle of one,
+    // what is pushed onto it would be popped back to the old theme.
+    if (const auto theme = chooseFromMenu("Theme", kUiThemes, m_engine->ui().theme())) {
+        m_submittedLines.push_back(fmt::format(R"(editor.theme {{"theme": "{}"}})", nameOf(*theme)));
+    }
     ImGui::EndMenu();
 }
 

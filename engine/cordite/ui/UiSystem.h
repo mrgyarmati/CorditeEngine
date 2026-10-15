@@ -23,6 +23,17 @@
 /// with pointer input supplied through setPointerState(). Tests and the editor's
 /// automation mode use that.
 ///
+/// It draws in the typefaces of UiFonts.h, with the icons of UiIcons.h in them, and in a
+/// theme of UiTheme.h, which setTheme() changes:
+///
+/// @code
+/// ui->setTheme(UiTheme::Light);
+/// ImGui::PushFont(UiSystem::font(UiFont::Strong), 0.0f);
+/// ImGui::Text("%s Play", icons::kPlay.text());
+/// ImGui::PopFont();
+/// ImGui::TextColored(UiSystem::palette().warning, "%s", warning.c_str());
+/// @endcode
+///
 /// Only one UiSystem can exist at a time, because ImGui's context is process-wide.
 
 #include "cordite/core/Base.h"
@@ -30,12 +41,17 @@
 #include "cordite/math/Math.h"
 #include "cordite/platform/Window.h"
 #include "cordite/renderer/ShaderManager.h"
+#include "cordite/ui/UiFonts.h"
+#include "cordite/ui/UiIcons.h"
+#include "cordite/ui/UiTheme.h"
 
 #include <imgui.h>
 #include <nvrhi/nvrhi.h>
 
+#include <array>
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <string>
 
 namespace cordite {
@@ -52,6 +68,9 @@ struct UiSystemDesc {
 
     /// Text height in pixels at 100% display scaling.
     float fontSize = 15.0f;
+
+    /// The colors and the sizes the interface is drawn in until setTheme() says otherwise.
+    UiTheme theme = UiTheme::Dark;
 };
 
 /// Where the pointer is and which of its buttons are held, for a headless UiSystem.
@@ -108,12 +127,35 @@ public:
     /// The texture must hold display-ready (sRGB-encoded) colors.
     [[nodiscard]] static ImTextureID textureId(nvrhi::ITexture* texture);
 
+    /// Changes the theme: the colors and the sizes of everything, at the scale of the
+    /// display. Between frames it is put in at once; during a frame, at the start of the
+    /// next one - ImGui puts back what was pushed onto its style when it is popped, and a
+    /// theme put in the middle of a frame would leave colors of the old one behind.
+    void setTheme(UiTheme theme);
+
+    /// The theme that was chosen last, whether it is drawn in yet or not.
+    [[nodiscard]] UiTheme theme() const { return m_pendingTheme.value_or(m_theme); }
+
+    /// The colors of the theme that the one UiSystem draws in - of the dark theme while
+    /// there is none - for what ImGui has no color of its own for: warnings, errors.
+    [[nodiscard]] static const UiPalette& palette();
+
+    /// A typeface of the one UiSystem, for `ImGui::PushFont(font, 0.0f)`. Null while there
+    /// is none, which ImGui::PushFont takes for the typeface in use.
+    [[nodiscard]] static ImFont* font(UiFont font);
+
 private:
     UiSystem() = default;
 
     std::unique_ptr<UiRenderer> m_renderer;
     /// ImGui keeps a pointer to this text for as long as the context lives.
     std::string m_settingsFile;
+    /// How much larger than at 100% everything is drawn (interfaceScale).
+    float m_scale = 1.0f;
+    /// The theme the interface is drawn in, and one that waits for the next frame.
+    UiTheme m_theme = UiTheme::Dark;
+    std::optional<UiTheme> m_pendingTheme;
+    std::array<ImFont*, kUiFonts.size()> m_fonts{};
     bool m_contextCreated = false;
     bool m_platformBackend = false;
     bool m_frameOpen = false;

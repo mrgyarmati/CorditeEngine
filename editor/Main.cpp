@@ -18,6 +18,7 @@
 #include "cordite/core/Platform.h"
 #include "cordite/core/Version.h"
 #include "cordite/editor/EditorApp.h"
+#include "cordite/editor/EditorPreferences.h"
 
 #include <CLI/CLI.hpp>
 
@@ -116,6 +117,11 @@ int run(const Options& options) {
     // A batch run starts from the default layout every time, so that its output does not
     // depend on what a person did to the windows earlier.
     desc.rememberLayout = !options.headless;
+    // So does its theme: a batch run is drawn in the default one, and leaves the choice of
+    // the person who runs it as it was.
+    if (!options.headless) {
+        desc.preferencesFile = editorPreferencesFile();
+    }
     desc.project = pathFromUtf8(options.project);
     desc.scene = pathFromUtf8(options.scene);
 

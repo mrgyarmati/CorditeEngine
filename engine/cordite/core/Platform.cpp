@@ -1,6 +1,7 @@
 #include "cordite/core/Platform.h"
 
 #include "cordite/core/Base.h"
+#include "cordite/core/FileSystem.h"
 
 #include <algorithm>
 #include <cstdlib>
@@ -11,11 +12,25 @@
 #if CORDITE_PLATFORM_WINDOWS
 #include <crtdbg.h>
 #include <windows.h>
+// After windows.h, which it needs.
+#include <shlobj.h>
 #elif CORDITE_PLATFORM_MACOS
 #include <mach-o/dyld.h>
 #endif
 
 namespace cordite {
+namespace {
+
+/// A directory that the environment names, if it names one from the root - the rule of
+/// POSIX, whatever system asks.
+std::optional<std::filesystem::path> rootedPathOf(const std::optional<std::string>& value) {
+    if (!value || !value->starts_with('/')) {
+        return std::nullopt;
+    }
+    return pathFromUtf8(*value);
+}
+
+} // namespace
 
 std::filesystem::path executablePath() {
 #if CORDITE_PLATFORM_WINDOWS
@@ -88,6 +103,36 @@ std::optional<std::string> environmentVariable(std::string_view name) {
 
 uint32_t hardwareThreadCount() {
     return std::max(1u, std::thread::hardware_concurrency());
+}
+
+std::filesystem::path xdgConfigurationDirectory(const std::optional<std::string>& configHome,
+                                                const std::optional<std::string>& home) {
+    if (const std::optional<std::filesystem::path> directory = rootedPathOf(configHome)) {
+        return *directory;
+    }
+    if (const std::optional<std::filesystem::path> directory = rootedPathOf(home)) {
+        return *directory / ".config";
+    }
+    return {};
+}
+
+std::filesystem::path userConfigurationDirectory() {
+#if CORDITE_PLATFORM_WINDOWS
+    PWSTR path = nullptr;
+    const HRESULT found = SHGetKnownFolderPath(FOLDERID_RoamingAppData, KF_FLAG_DEFAULT, nullptr, &path);
+    std::filesystem::path directory;
+    if (SUCCEEDED(found) && path != nullptr) {
+        directory = std::filesystem::path(path);
+    }
+    // Freed whether the call succeeded or not, as the function asks.
+    CoTaskMemFree(path);
+    return directory;
+#elif CORDITE_PLATFORM_MACOS
+    const std::optional<std::filesystem::path> home = rootedPathOf(environmentVariable("HOME"));
+    return home ? *home / "Library" / "Application Support" : std::filesystem::path();
+#else
+    return xdgConfigurationDirectory(environmentVariable("XDG_CONFIG_HOME"), environmentVariable("HOME"));
+#endif
 }
 
 } // namespace cordite

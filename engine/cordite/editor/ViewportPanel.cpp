@@ -10,8 +10,10 @@
 #include "cordite/renderer/CameraView.h"
 #include "cordite/renderer/RenderComponents.h"
 #include "cordite/renderer/SceneLights.h"
+#include "cordite/ui/UiWidgets.h"
 #include "cordite/world/Components.h"
 
+#include <fmt/format.h>
 #include <imgui.h>
 
 #include <algorithm>
@@ -548,8 +550,8 @@ void ViewportPanel::draw(Engine& engine, EditorContext& context) {
             // Where the editor's camera is - when it is the one that is looked through.
             if (!m_showsGame) {
                 const Vec3& position = m_camera.position();
-                ImGui::SetCursorScreenPos(ImVec2(origin.x + 8.0f, origin.y + 6.0f));
-                ImGui::TextDisabled("%.1f, %.1f, %.1f", position.x, position.y, position.z);
+                overlayText(*ImGui::GetWindowDrawList(), ImVec2(origin.x + 8.0f, origin.y + 6.0f),
+                            fmt::format("{:.1f}, {:.1f}, {:.1f}", position.x, position.y, position.z));
             }
         }
     }

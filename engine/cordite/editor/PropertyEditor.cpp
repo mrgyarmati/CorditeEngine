@@ -2,6 +2,7 @@
 
 #include "cordite/core/Result.h"
 #include "cordite/math/Transform.h"
+#include "cordite/ui/UiSystem.h"
 
 #include <misc/cpp/imgui_stdlib.h>
 
@@ -435,7 +436,7 @@ bool PropertyEditor::drawJson(Json& value) {
         }
     }
     if (!draft.problem.empty()) {
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.95f, 0.4f, 0.35f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_Text, UiSystem::palette().error);
         ImGui::TextWrapped("%s", draft.problem.c_str());
         ImGui::PopStyleColor();
     }
