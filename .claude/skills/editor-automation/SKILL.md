@@ -290,6 +290,10 @@ its simulation, its sounds - play it:
   game did. `play.stop` puts the scene back exactly as `play.start` found it. To
   keep a change, make it when the scene is stopped.
 - `scene.save`, `scene.open` and `scene.new` fail while the scene plays: stop first.
+- `entity.copy {"entities": [...]}` keeps a copy of entities with everything below them;
+  `entity.paste` creates it again with new ids - where it came from, or under
+  `{"parent": ...}` (`""` for the roots) - in this scene or after `scene.open` in
+  another. `entity.cut` copies and deletes.
 
 ## See the result
 

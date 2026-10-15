@@ -954,6 +954,12 @@ void EditorApp::handleShortcuts() {
         m_submittedLines.emplace_back("play.step");
     }
 
+    handleGizmoShortcuts();
+    handleEntityShortcuts();
+}
+
+void EditorApp::handleGizmoShortcuts() {
+    const ImGuiInputFlags route = ImGuiInputFlags_RouteGlobal;
     // What the gizmo does, as in the editors people know - unless the camera is being flown,
     // which takes the same keys.
     if (!m_viewport->camera().isNavigating() && !m_viewport->isDraggingGizmo()) {
@@ -971,11 +977,25 @@ void EditorApp::handleShortcuts() {
                                                                                     : GizmoSpace::World);
         }
     }
+}
+
+void EditorApp::handleEntityShortcuts() {
+    const ImGuiInputFlags route = ImGuiInputFlags_RouteGlobal;
+    // Pasting needs nothing selected: what was copied goes where it came from.
+    if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_V, route) && !m_context->clipboard().is_null()) {
+        reportIfFailed(EditorActions(*m_context).pasteEntities());
+    }
 
     const std::vector<Entity> selection = m_context->selection();
     if (!selection.empty()) {
         if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_D, route)) {
             reportIfFailed(EditorActions(*m_context).duplicateEntities(selection));
+        }
+        if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_C, route)) {
+            reportIfFailed(EditorActions(*m_context).copyEntities(selection));
+        }
+        if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_X, route)) {
+            reportIfFailed(EditorActions(*m_context).cutEntities(selection));
         }
         if (ImGui::Shortcut(ImGuiKey_Delete, route)) {
             reportIfFailed(EditorActions(*m_context).deleteEntities(selection));
@@ -1024,6 +1044,15 @@ void EditorApp::drawMainMenu() {
             reportIfFailed(history.redo());
         }
         ImGui::Separator();
+        if (ImGui::MenuItem("Cut", "Ctrl+X", false, !selection.empty())) {
+            reportIfFailed(actions.cutEntities(selection));
+        }
+        if (ImGui::MenuItem("Copy", "Ctrl+C", false, !selection.empty())) {
+            reportIfFailed(actions.copyEntities(selection));
+        }
+        if (ImGui::MenuItem("Paste", "Ctrl+V", false, !m_context->clipboard().is_null())) {
+            reportIfFailed(actions.pasteEntities());
+        }
         if (ImGui::MenuItem("Duplicate", "Ctrl+D", false, !selection.empty())) {
             reportIfFailed(actions.duplicateEntities(selection));
         }

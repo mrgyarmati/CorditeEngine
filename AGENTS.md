@@ -1261,6 +1261,11 @@ panels, EditorApp    the interface, built on the three layers above
 
 - **Every edit goes through `EditorActions`.** Panels and commands never change the
   world directly, so everything is undoable and nothing exists only in the interface.
+- **What is copied is a snapshot, kept by the document** (`EditorContext::clipboard`):
+  the entities as `serializeEntities` writes them, which outlives what it was taken from
+  and the scene, and is pasted with ids of its own (`EditorActions::pasteEntities`).
+  It is the editor's, not the system's: a test or an agent that copies changes nothing
+  outside the editor.
 - **Everything a person can do is a command.** A new editor feature is an action, a
   command and their tests first, and interface second. `editor.commands` returns the
   catalogue an agent reads, so every command and parameter needs a real description

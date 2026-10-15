@@ -47,6 +47,36 @@ std::vector<std::string> namesOf(const Json& entities) {
 } // namespace
 
 TEST_SUITE("EditorCommands") {
+    TEST_CASE("entities are copied, cut and pasted by command") {
+        CommandFixture fixture;
+        CHECK(fixture.fail("entity.paste").code == ErrorCode::NotFound);
+
+        // The table and the lamp on it.
+        CHECK(fixture.run("entity.copy", R"({"entities": ["Table"]})")["copied"] == 2);
+        const size_t before = fixture.world.entityCount();
+        const Json pasted = fixture.run("entity.paste");
+        CHECK(namesOf(pasted) == std::vector<std::string>{"Table"});
+        CHECK(pasted[0]["id"] != fixture.world.id(fixture.table).toString());
+        CHECK(fixture.world.entityCount() == before + 2);
+        CHECK(fixture.run("selection.get") == pasted);
+
+        // Under another entity, and as a root.
+        const Json underChair = fixture.run("entity.paste", R"({"parent": "Room/Chair"})");
+        const Entity copy = fixture.world.findById(*Uuid::parse(underChair[0]["id"].get<std::string>()));
+        CHECK(fixture.world.parent(copy) == fixture.chair);
+        const Json asRoot = fixture.run("entity.paste", R"({"parent": ""})");
+        const Entity root = fixture.world.findById(*Uuid::parse(asRoot[0]["id"].get<std::string>()));
+        CHECK(fixture.world.parent(root).isNull());
+        CHECK_FALSE(fixture.fail("entity.paste", R"({"parent": "Nowhere"})").message.empty());
+
+        // Cut: copied, and gone - one step to undo.
+        CHECK(fixture.run("entity.cut", R"({"entities": ["Eye"]})")["copied"] == 1);
+        CHECK(fixture.world.findByName("Eye").isNull());
+        fixture.run("editor.undo");
+        CHECK_FALSE(fixture.world.findByName("Eye").isNull());
+        CHECK(fixture.fail("entity.copy", R"({"entities": []})").code == ErrorCode::InvalidArgument);
+    }
+
     TEST_CASE("the catalogue lists every command with complete documentation") {
         CommandFixture fixture;
         const Json catalogue = fixture.run("editor.commands");
@@ -64,15 +94,16 @@ TEST_SUITE("EditorCommands") {
             }
         }
 
-        CHECK(names ==
-              std::set<std::string>{
-                  "asset.get",        "asset.instantiate", "asset.list",    "asset.refresh",     "component.add",
-                  "component.get",    "component.remove",  "component.set", "component.types",   "editor.commands",
-                  "editor.redo",      "editor.state",      "editor.undo",   "entity.create",     "entity.delete",
-                  "entity.duplicate", "entity.get",        "entity.rename", "entity.setEnabled", "entity.setParent",
-                  "prefab.create",    "scene.describe",    "scene.get",     "scene.new",         "scene.open",
-                  "scene.save",       "scene.validate",    "selection.get", "selection.set",
-              });
+        CHECK(names == std::set<std::string>{
+                           "asset.get",       "asset.instantiate", "asset.list",       "asset.refresh",
+                           "component.add",   "component.get",     "component.remove", "component.set",
+                           "component.types", "editor.commands",   "editor.redo",      "editor.state",
+                           "editor.undo",     "entity.copy",       "entity.create",    "entity.cut",
+                           "entity.delete",   "entity.paste",      "entity.duplicate", "entity.get",
+                           "entity.rename",   "entity.setEnabled", "entity.setParent", "prefab.create",
+                           "scene.describe",  "scene.get",         "scene.new",        "scene.open",
+                           "scene.save",      "scene.validate",    "selection.get",    "selection.set",
+                       });
         CHECK(catalogue.size() == fixture.commands.commands().size());
     }
 

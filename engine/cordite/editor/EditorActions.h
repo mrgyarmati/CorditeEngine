@@ -63,6 +63,23 @@ public:
     /// copies of the listed entities and selects them.
     [[nodiscard]] Result<std::vector<Entity>> duplicateEntities(std::span<const Entity> entities);
 
+    /// Keeps a copy of the entities, with everything below them, to be pasted - into this
+    /// scene or another (EditorContext::clipboard). It changes no scene, and is no step of
+    /// the history. Fails with InvalidArgument when none of them is an entity.
+    [[nodiscard]] Status copyEntities(std::span<const Entity> entities);
+
+    /// Copies the entities and deletes them; the deletion is the step of the history.
+    /// Fails as copyEntities does, and then changes nothing.
+    [[nodiscard]] Status cutEntities(std::span<const Entity> entities);
+
+    /// Creates what was copied last, with ids of its own - references within what was
+    /// copied lead to the new entities - under `parent`, or, without one, where it was
+    /// copied from: under the same parent while that is still there, as roots otherwise.
+    /// Selects the new entities that were copied as such, returns them, and is one step of
+    /// the history. Fails with NotFound when nothing was copied, with InvalidArgument for
+    /// a parent that is no entity, and as instantiateEntities does; then nothing is created.
+    [[nodiscard]] Result<std::vector<Entity>> pasteEntities(std::optional<Entity> parent = std::nullopt);
+
     /// Places a model in the scene: an entity for each of its nodes, under one new root
     /// (see instantiateModel in cordite/engine/ModelInstance.h). Returns that root and
     /// selects it. Fails with NotFound when `model` names no asset, with InvalidArgument

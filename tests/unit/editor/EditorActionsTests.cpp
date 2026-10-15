@@ -558,6 +558,81 @@ TEST_SUITE("EditorActions") {
         CHECK(fixture.context.history().undoCount() == 2);
     }
 
+    TEST_CASE("what is copied is pasted as new entities, where it came from or under a parent") {
+        EditorFixture fixture;
+        EditorActions actions(fixture.context);
+        World& world = fixture.world;
+        CHECK(fixture.context.clipboard().is_null());
+        const Result<std::vector<Entity>> nothing = actions.pasteEntities();
+        REQUIRE_FALSE(nothing.has_value());
+        CHECK(nothing.error().code == ErrorCode::NotFound);
+
+        // The table with the lamp on it, and the lamp again: the lamp is part of the table.
+        const Entity both[] = {fixture.table, fixture.lamp};
+        REQUIRE(actions.copyEntities(both).has_value());
+        CHECK(fixture.context.clipboard().size() == 2);
+        CHECK(fixture.context.history().undoCount() == 0);
+        const size_t before = world.entityCount();
+        const Json scene = fixture.scene();
+
+        // Where it came from: under the room, beside the original, with ids of its own.
+        const std::vector<Entity> pasted = test::unwrap(actions.pasteEntities());
+        REQUIRE(pasted.size() == 1);
+        CHECK(world.name(pasted[0]) == "Table");
+        CHECK(world.parent(pasted[0]) == fixture.room);
+        CHECK(world.id(pasted[0]) != world.id(fixture.table));
+        CHECK(world.children(pasted[0]).size() == 1);
+        CHECK(world.entityCount() == before + 2);
+        CHECK(fixture.context.selection() == pasted);
+        CHECK(fixture.context.history().undoLabel() == "Paste 'Table'");
+        checkUndoRedo(fixture, scene);
+
+        // Again, under the chair; and as a root.
+        const std::vector<Entity> underChair = test::unwrap(actions.pasteEntities(fixture.chair));
+        CHECK(world.parent(underChair.at(0)) == fixture.chair);
+        const std::vector<Entity> asRoot = test::unwrap(actions.pasteEntities(Entity{}));
+        CHECK(world.parent(asRoot.at(0)).isNull());
+        CHECK(world.entityCount() == before + 6);
+
+        // What was copied outlives the original.
+        REQUIRE(actions.deleteEntities(std::span(&fixture.table, 1)).has_value());
+        CHECK(world.name(test::unwrap(actions.pasteEntities()).at(0)) == "Table");
+
+        // What cannot be done changes nothing.
+        const size_t steps = fixture.context.history().undoCount();
+        CHECK_FALSE(actions.copyEntities({}).has_value());
+        Entity gone = world.createEntity("Gone");
+        world.destroyEntity(gone);
+        CHECK_FALSE(actions.pasteEntities(gone).has_value());
+        CHECK_FALSE(actions.copyEntities(std::span(&gone, 1)).has_value());
+        // A clipboard that holds a list of nothing has nothing to paste either.
+        fixture.context.setClipboard(Json::array());
+        const Result<std::vector<Entity>> empty = actions.pasteEntities();
+        REQUIRE_FALSE(empty.has_value());
+        CHECK(empty.error().code == ErrorCode::NotFound);
+        CHECK(fixture.context.history().undoCount() == steps);
+    }
+
+    TEST_CASE("what is cut is copied and deleted, one step to undo") {
+        EditorFixture fixture;
+        EditorActions actions(fixture.context);
+        const Json scene = fixture.scene();
+        REQUIRE(actions.cutEntities(std::span(&fixture.chair, 1)).has_value());
+        CHECK(fixture.world.findByName("Chair").isNull());
+        CHECK(fixture.context.history().undoCount() == 1);
+        CHECK(fixture.context.clipboard().size() == 1);
+        // Pasted, it is back under the room - another entity, with the same name.
+        const std::vector<Entity> pasted = test::unwrap(actions.pasteEntities());
+        CHECK(fixture.world.parent(pasted.at(0)) == fixture.room);
+        CHECK(fixture.world.name(pasted.at(0)) == "Chair");
+        REQUIRE(fixture.context.history().undo().has_value());
+        REQUIRE(fixture.context.history().undo().has_value());
+        CHECK(fixture.scene() == scene);
+        // Nothing to cut: nothing is copied, nothing deleted.
+        CHECK_FALSE(actions.cutEntities({}).has_value());
+        CHECK(fixture.context.history().undoCount() == 0);
+    }
+
     TEST_CASE("a whole session can be undone to the start and redone to the end") {
         EditorFixture fixture;
         EditorActions actions(fixture.context);

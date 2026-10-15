@@ -80,6 +80,13 @@ public:
     [[nodiscard]] Entity primarySelection() const;
     [[nodiscard]] bool isSelected(Entity entity) const;
 
+    /// What was copied last (EditorActions::copyEntities): the entities, with everything
+    /// below them, as serializeEntities writes them - or null when nothing was. A copy, not
+    /// a reference: it outlives what it was taken from, and the scene, and playing.
+    [[nodiscard]] const Json& clipboard() const { return m_clipboard; }
+
+    void setClipboard(Json entities) { m_clipboard = std::move(entities); }
+
     /// Replaces the selection. Invalid handles and repetitions are dropped.
     void setSelection(std::span<const Entity> entities);
 
@@ -160,6 +167,7 @@ private:
     UndoStack m_history;
     /// By id, so that the selection survives entities being destroyed and restored.
     std::vector<Uuid> m_selection;
+    Json m_clipboard;
     std::filesystem::path m_scenePath;
     uint64_t m_savedStateId = 0;
     std::optional<PlayedDocument> m_play;

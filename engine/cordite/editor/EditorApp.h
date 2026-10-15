@@ -171,6 +171,10 @@ private:
     void drawViewMenu();
     void drawFileDialog();
     void handleShortcuts();
+    /// W, E, R and X: what the gizmo does, and along whose axes.
+    void handleGizmoShortcuts();
+    /// Copying, cutting, pasting, duplicating and deleting entities.
+    void handleEntityShortcuts();
     void updateWindowTitle();
 
     /// What the path dialog is being asked for.

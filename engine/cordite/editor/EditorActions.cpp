@@ -318,6 +318,49 @@ Result<std::vector<Entity>> EditorActions::duplicateEntities(std::span<const Ent
     return copies;
 }
 
+Status EditorActions::copyEntities(std::span<const Entity> entities) {
+    const World& world = m_context.world();
+    const std::vector<Entity> copied = topLevelEntities(world, entities);
+    if (copied.empty()) {
+        return makeError(ErrorCode::InvalidArgument, "there is no valid entity to copy");
+    }
+    m_context.setClipboard(serializeEntities(world, copied, m_context.components()));
+    return {};
+}
+
+Status EditorActions::cutEntities(std::span<const Entity> entities) {
+    CORDITE_TRY(copyEntities(entities));
+    return deleteEntities(entities);
+}
+
+Result<std::vector<Entity>> EditorActions::pasteEntities(std::optional<Entity> parent) {
+    const Json& copied = m_context.clipboard();
+    if (!copied.is_array() || copied.empty()) {
+        return makeError(ErrorCode::NotFound, "nothing has been copied to paste");
+    }
+    World& world = m_context.world();
+    CORDITE_TRY_ASSIGN(
+        const std::vector<Entity> created,
+        instantiateEntities(world, copied, m_context.components(), {.parent = parent, .generateNewIds = true}));
+    // What was copied as such, not what came along below it.
+    std::vector<Entity> pasted = topLevelEntities(world, created);
+
+    // Redoing must bring back these very entities, ids included, so that later history
+    // entries still find them.
+    Json snapshot = serializeEntities(world, pasted, m_context.components());
+    std::vector<Placement> placements = placementsOf(world, pasted);
+    std::vector<Uuid> ids = idsOf(world, pasted);
+    EditorContext* context = &m_context;
+    m_context.history().push({
+        .label = fmt::format("Paste {}", describeCount(pasted, world)),
+        .undo = [context, ids = std::move(ids)] { return destroyEntities(*context, ids); },
+        .redo = [context, snapshot = std::move(snapshot),
+                 placements = std::move(placements)] { return restoreEntities(*context, snapshot, placements); },
+    });
+    m_context.setSelection(pasted);
+    return pasted;
+}
+
 Result<Entity> EditorActions::instantiateModel(const Uuid& model, const ModelInstanceOptions& options) {
     World& world = m_context.world();
     if (!options.parent.isNull()) {

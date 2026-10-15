@@ -222,6 +222,57 @@ Status registerEntityCommands(CommandRegistry& commands, EditorContext& context)
     }));
 
     CORDITE_TRY(commands.add({
+        .name = "entity.copy",
+        .description = "Keeps a copy of entities, with everything below them, for entity.paste - in this "
+                       "scene or another. Changes nothing. Returns how many were copied.",
+        .parameters = {{"entities", Type::Array, "The entities to copy, each given as an id, a path or a name."}},
+        .handler = [&context](const Json& parameters) -> Result<Json> {
+            CORDITE_TRY_ASSIGN(const std::vector<Entity> entities,
+                               entityListParameter(context, parameters, "entities"));
+            CORDITE_TRY(EditorActions(context).copyEntities(entities));
+            Json result = Json::object();
+            result["copied"] = context.clipboard().size();
+            return result;
+        },
+    }));
+
+    CORDITE_TRY(commands.add({
+        .name = "entity.cut",
+        .description = "Copies entities as entity.copy does, and deletes them: one step to undo.",
+        .parameters = {{"entities", Type::Array, "The entities to cut, each given as an id, a path or a name."}},
+        .handler = [&context](const Json& parameters) -> Result<Json> {
+            CORDITE_TRY_ASSIGN(const std::vector<Entity> entities,
+                               entityListParameter(context, parameters, "entities"));
+            CORDITE_TRY(EditorActions(context).cutEntities(entities));
+            Json result = Json::object();
+            result["copied"] = context.clipboard().size();
+            return result;
+        },
+    }));
+
+    CORDITE_TRY(commands.add({
+        .name = "entity.paste",
+        .description = "Creates what entity.copy or entity.cut kept, with ids of its own, and selects it: "
+                       "under the given parent, or where it was copied from. One step to undo. Returns the "
+                       "new entities.",
+        .parameters = {{"parent", Type::String,
+                        "The entity to paste under; empty for the roots of the scene. Without it, under the "
+                        "parent of what was copied, while that is still there.",
+                        false}},
+        .handler = [&context](const Json& parameters) -> Result<Json> {
+            std::optional<Entity> parent;
+            if (const auto named = parameters.find("parent"); named != parameters.end()) {
+                parent = Entity{};
+                if (!named->get<std::string>().empty()) {
+                    CORDITE_TRY_ASSIGN(parent, entityParameter(context, parameters, "parent"));
+                }
+            }
+            CORDITE_TRY_ASSIGN(const std::vector<Entity> pasted, EditorActions(context).pasteEntities(parent));
+            return describeEntities(context, pasted);
+        },
+    }));
+
+    CORDITE_TRY(commands.add({
         .name = "entity.rename",
         .description = "Changes the name of an entity.",
         .parameters = {{"entity", Type::String, kEntityReference},
