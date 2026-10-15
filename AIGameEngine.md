@@ -318,3 +318,4 @@ Early UE3 titles relied heavily on normal maps, aggressive specular response, an
 ## Note
 
 - Skeletal mesh and animation missing froom the Initial Milestones
+- The editor should be modern, flat designed UI and layout inspired by Unity and Unreal Engine. A project could be opened by double-click on the project file, and editor theme.
