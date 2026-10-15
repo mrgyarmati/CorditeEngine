@@ -16,6 +16,7 @@
 
 #include <fmt/format.h>
 #include <imgui.h>
+#include <imgui_internal.h>
 
 #include <algorithm>
 #include <cmath>
@@ -42,6 +43,8 @@ constexpr Vec4 kColliderColor(0.40f, 0.95f, 0.50f, 1.0f);
 constexpr Vec4 kTriggerColor(1.00f, 0.55f, 0.20f, 1.0f);
 /// A joint between two bodies: where it is, about or along which axis, and to what.
 constexpr Vec4 kPhysicsJointColor(0.45f, 0.75f, 1.00f, 1.0f);
+/// The least radius that F frames: what is selected is never closer than this fills the view.
+constexpr float kFramedRadius = 0.5f;
 
 /// What a gizmo moves: the selection, without what hangs under something else that is
 /// selected - which its parent carries along already.
@@ -565,12 +568,16 @@ void ViewportPanel::draw(Engine& engine, EditorContext& context) {
             const Vec2 pixel((pointer.x - origin.x) * scale.x, (pointer.y - origin.y) * scale.y);
 
             // The gizmo has the pointer first: a click on one of its handles selects nothing.
-            const bool gizmoHasPointer = !m_showsGame && updateGizmo(context, pixel, hovered);
+            // With Alt held, the left button is the camera's, which orbits.
+            const Input& input = engine.input();
+            const bool orbits = input.isKeyDown(Key::LeftAlt) || input.isKeyDown(Key::RightAlt);
+            const bool gizmoHasPointer = !m_showsGame && updateGizmo(context, pixel, hovered && !orbits);
 
             // A click that was not the end of a drag selects what is under the pointer -
             // in the editor's view. In the game's, a click is the game's.
             const ImVec2 dragged = ImGui::GetMouseDragDelta(ImGuiMouseButton_Left, 0.0f);
-            if (hovered && !m_showsGame && !gizmoHasPointer && ImGui::IsMouseReleased(ImGuiMouseButton_Left) &&
+            if (hovered && !m_showsGame && !gizmoHasPointer && !orbits &&
+                ImGui::IsMouseReleased(ImGuiMouseButton_Left) &&
                 std::abs(dragged.x) + std::abs(dragged.y) <= kClickTolerance) {
                 const Entity picked = pick(context, pixel);
                 if (picked.isNull()) {
@@ -592,8 +599,22 @@ void ViewportPanel::draw(Engine& engine, EditorContext& context) {
     }
     ImGui::End();
 
+    // F frames what is selected, wherever the pointer is - but not into a text being typed,
+    // nor while the camera is being steered.
+    if (!m_showsGame && engine.input().wasKeyPressed(Key::F) && !ImGui::GetIO().WantTextInput &&
+        !m_camera.isNavigating()) {
+        frameSelection(context);
+    }
+
     // The editor's camera is flown only while it is the one that is looked through.
     m_camera.update(engine.input(), engine.deltaSeconds(), hovered && !m_showsGame);
+
+    // Alt pressed and let go of alone takes the keyboard to the menus, in Dear ImGui; Alt
+    // that turned the camera did not mean that. A key that is claimed does not do it, and
+    // this claim lasts until Alt is let go of.
+    if (m_camera.isOrbiting()) {
+        ImGui::SetKeyOwner(ImGuiMod_Alt, ImGui::GetID("viewport-orbit"), ImGuiInputFlags_LockUntilRelease);
+    }
 
     // While the camera is being steered the pointer is hidden and held in place, so that
     // it cannot run into the edge of the screen.
@@ -605,6 +626,29 @@ void ViewportPanel::draw(Engine& engine, EditorContext& context) {
 
 float ViewportPanel::gizmoPixelScale() {
     return ImGui::GetStyle().FontScaleDpi * ImGui::GetIO().DisplayFramebufferScale.y;
+}
+
+bool ViewportPanel::frameSelection(EditorContext& context) {
+    const World& world = context.world();
+    Aabb bounds;
+    for (const Entity selected : context.selection()) {
+        world.traverseSubtree(selected, [&](Entity entity, uint32_t /*depth*/) {
+            // Worked out, not as the last frame left it: a command may frame what it has
+            // just made or moved.
+            const Mat4 placement = world.computeWorldMatrix(entity);
+            if (const std::optional<PosedMesh> mesh = posedMeshOf(world, context.assets(), entity)) {
+                bounds.expand(mesh->bounds.transformed(placement));
+            } else {
+                bounds.expand(Vec3(placement[3]));
+            }
+        });
+    }
+    if (bounds.isEmpty()) {
+        return false;
+    }
+    // A point, or something as small, is framed as a metre around it.
+    m_camera.frame(bounds.center(), std::max(glm::length(bounds.extents()), kFramedRadius));
+    return true;
 }
 
 bool ViewportPanel::updateGizmo(EditorContext& context, Vec2 pixel, bool hovered) {

@@ -487,11 +487,25 @@ Status EditorApp::registerApplicationCommands() {
 
     CORDITE_TRY(m_commands.add({
         .name = "viewport.frame",
-        .description = "Moves the viewport camera so that an entity is in view, keeping the viewing direction.",
-        .parameters = {{"entity", Type::String, "The entity, by id, path or name."},
-                       {"radius", Type::Number, "The size of the area to show around it, in metres. Defaults to 1.",
+        .description = "Moves the viewport camera so that an entity is in view, keeping the viewing direction - "
+                       "or, without one, what is selected, as F does. What is framed is what the camera "
+                       "orbits about with Alt and the left button.",
+        .parameters = {{"entity", Type::String, "The entity, by id, path or name. Without it, the selection.", false},
+                       {"radius", Type::Number,
+                        "The size of the area to show around the entity, in metres. Defaults to 1. Only with "
+                        "`entity`: the selection is framed by its own size.",
                         false}},
         .handler = [this](const Json& parameters) -> Result<Json> {
+            if (!parameters.contains("entity")) {
+                if (parameters.contains("radius")) {
+                    return makeError(ErrorCode::InvalidArgument,
+                                     "'radius' is the size around an entity; the selection is framed by its own size");
+                }
+                if (!m_viewport->frameSelection(*m_context)) {
+                    return makeError(ErrorCode::InvalidArgument, "nothing is selected to frame; name an entity");
+                }
+                return Json(nullptr);
+            }
             CORDITE_TRY_ASSIGN(const Entity entity,
                                m_context->resolveEntity(parameters.at("entity").get<std::string>()));
             const auto radius = jsonGetOr<float>(parameters, "radius", 1.0f);

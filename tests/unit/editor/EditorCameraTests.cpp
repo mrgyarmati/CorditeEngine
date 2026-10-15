@@ -277,4 +277,73 @@ TEST_SUITE("EditorCamera") {
         camera.update(input, kFrameSeconds, notHovered);
         CHECK_NEAR(camera.position(), Vec3(0.0f, 0.0f, -4.0f), 1e-5f);
     }
+    TEST_CASE("Alt and the left button turn the camera around what it looks at") {
+        EditorCamera camera;
+        camera.lookSensitivity = 0.5f;
+        camera.lookAt(Vec3(0.0f, 0.0f, 10.0f), Vec3(0.0f));
+        CHECK(camera.focusDistance() == doctest::Approx(10.0f));
+        Input input = restingInput();
+
+        // Without Alt the left button is not the camera's.
+        press(input, camera, MouseButton::Left);
+        CHECK_FALSE(camera.isNavigating());
+        input.injectMouseButton(MouseButton::Left, false);
+        input.beginFrame();
+
+        input.injectKey(Key::LeftAlt, true);
+        press(input, camera, MouseButton::Left);
+        CHECK(camera.isNavigating());
+        CHECK(camera.isOrbiting());
+        // 40 pixels to the right: twenty degrees round, at half a degree a pixel.
+        input.injectMouseMove(Vec2(140.0f, 100.0f));
+        camera.update(input, kFrameSeconds, true);
+        CHECK(camera.yawDegrees() == doctest::Approx(-20.0f));
+        // Still ten metres from the origin, and looking at it.
+        CHECK(glm::length(camera.position()) == doctest::Approx(10.0f));
+        CHECK_NEAR(camera.position() + camera.forward() * camera.focusDistance(), Vec3(0.0f), 1e-4f);
+        // Dragged right, it goes round to the left: the scene is seen turned to the right.
+        CHECK(camera.position().x < -3.0f);
+
+        // Let go, it stops; held where it began, nothing begins.
+        input.beginFrame();
+        input.injectMouseButton(MouseButton::Left, false);
+        camera.update(input, kFrameSeconds, true);
+        CHECK_FALSE(camera.isNavigating());
+        CHECK_FALSE(camera.isOrbiting());
+        input.beginFrame();
+        press(input, camera, MouseButton::Left, false);
+        CHECK_FALSE(camera.isNavigating());
+
+        // Looking about with the right button, Alt or not, is no orbit.
+        input.injectMouseButton(MouseButton::Left, false);
+        input.beginFrame();
+        press(input, camera, MouseButton::Right);
+        CHECK(camera.isNavigating());
+        CHECK_FALSE(camera.isOrbiting());
+    }
+
+    TEST_CASE("framing and looking at choose what the camera turns around, and the wheel nears it") {
+        EditorCamera camera;
+        camera.frame(Vec3(5.0f, 1.0f, -3.0f), 2.0f);
+        CHECK(camera.focusDistance() == doctest::Approx(glm::distance(camera.position(), Vec3(5.0f, 1.0f, -3.0f))));
+        camera.lookAt(Vec3(0.0f, 0.0f, 10.0f), Vec3(0.0f));
+        CHECK(camera.focusDistance() == doctest::Approx(10.0f));
+        // Looking at where it is, it turns around a point just ahead.
+        camera.lookAt(Vec3(1.0f), Vec3(1.0f));
+        CHECK(camera.focusDistance() > 0.0f);
+
+        // Two notches: four metres nearer. Past it, the point is a little further on.
+        camera.moveSpeed = 10.0f;
+        camera.lookAt(Vec3(0.0f, 0.0f, 10.0f), Vec3(0.0f));
+        Input input = restingInput();
+        input.injectScroll(Vec2(0.0f, 2.0f));
+        camera.update(input, kFrameSeconds, true);
+        CHECK(camera.focusDistance() == doctest::Approx(6.0f));
+        input.beginFrame();
+        input.injectScroll(Vec2(0.0f, 5.0f));
+        camera.update(input, kFrameSeconds, true);
+        CHECK(camera.position().z == doctest::Approx(-4.0f));
+        CHECK(camera.focusDistance() > 0.0f);
+        CHECK(camera.focusDistance() < 0.5f);
+    }
 }

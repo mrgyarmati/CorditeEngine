@@ -18,7 +18,11 @@
 /// - hold the right button and move the pointer to look around; with it held, W A S D
 ///   move forwards, left, backwards and right, E and Q up and down, Shift moves faster;
 /// - hold the middle button and move the pointer to slide sideways and up or down;
-/// - turn the wheel to move forwards and backwards.
+/// - turn the wheel to move forwards and backwards;
+/// - hold Alt and the left button and move the pointer to turn around what the camera
+///   looks at - the centre of what it framed or looked at last, focusDistance() ahead.
+///
+/// F frames what is selected; the viewport does that, which knows the selection.
 
 #include "cordite/math/Math.h"
 #include "cordite/platform/Input.h"
@@ -36,7 +40,15 @@ public:
 
     /// True while a button that steers the camera is held. The viewport hides and locks
     /// the pointer for that time.
-    [[nodiscard]] bool isNavigating() const { return m_looking || m_panning; }
+    [[nodiscard]] bool isNavigating() const { return m_looking || m_panning || m_orbiting; }
+
+    /// Whether the camera is being turned around what it looks at: Alt and the left button.
+    [[nodiscard]] bool isOrbiting() const { return m_orbiting; }
+
+    /// How far ahead the point is that the camera turns around while it orbits: what
+    /// lookAt() looked at or frame() framed last, wherever the camera has moved since. The
+    /// wheel brings the camera nearer it; once there, the point is a little further on.
+    [[nodiscard]] float focusDistance() const { return m_focusDistance; }
 
     /// Puts the camera at `position`, looking at `target`.
     void lookAt(const Vec3& position, const Vec3& target);
@@ -83,6 +95,9 @@ private:
     CameraComponent m_lens{.verticalFovDegrees = 60.0f, .nearPlane = 0.05f, .farPlane = 2000.0f};
     bool m_looking = false;
     bool m_panning = false;
+    bool m_orbiting = false;
+    /// From where the camera starts to what it looks at: the doc's lookAt, (0, 0.5, 0).
+    float m_focusDistance = 10.6f;
 };
 
 } // namespace cordite

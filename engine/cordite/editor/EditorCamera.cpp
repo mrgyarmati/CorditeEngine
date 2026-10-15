@@ -13,6 +13,8 @@ constexpr float kMaxPitchDegrees = 89.0f;
 /// fractions of the flying speed.
 constexpr float kPanSpeedFactor = 0.002f;
 constexpr float kWheelSpeedFactor = 0.2f;
+/// The nearest the point that the camera orbits may come: the wheel stops there.
+constexpr float kMinimumFocusDistance = 0.1f;
 
 float wrapDegrees(float degrees) {
     const float wrapped = std::fmod(degrees + 180.0f, 360.0f);
@@ -44,6 +46,7 @@ void EditorCamera::setOrientation(float yawDegrees, float pitchDegrees) {
 
 void EditorCamera::lookAt(const Vec3& position, const Vec3& target) {
     m_position = position;
+    m_focusDistance = std::max(glm::distance(position, target), kMinimumFocusDistance);
     const Vec3 direction = normalizeOr(target - position, kWorldForward);
 
     // Inverse of forward(): yaw turns -Z towards -X, pitch lifts it towards +Y.
@@ -57,6 +60,7 @@ void EditorCamera::frame(const Vec3& center, float radius) {
     const float halfAngle = 0.5f * toRadians(std::clamp(m_lens.verticalFovDegrees, 1.0f, 179.0f));
     const float distance = std::max(radius, 0.01f) / std::sin(halfAngle) * 1.2f;
     m_position = center - forward() * distance;
+    m_focusDistance = distance;
 }
 
 void EditorCamera::update(const Input& input, float deltaSeconds, bool viewportHovered) {
@@ -67,13 +71,25 @@ void EditorCamera::update(const Input& input, float deltaSeconds, bool viewportH
     if (viewportHovered && input.wasMouseButtonPressed(MouseButton::Middle)) {
         m_panning = true;
     }
+    const bool alt = input.isKeyDown(Key::LeftAlt) || input.isKeyDown(Key::RightAlt);
+    if (viewportHovered && alt && input.wasMouseButtonPressed(MouseButton::Left)) {
+        m_orbiting = true;
+    }
     m_looking = m_looking && input.isMouseButtonDown(MouseButton::Right);
     m_panning = m_panning && input.isMouseButtonDown(MouseButton::Middle);
+    m_orbiting = m_orbiting && input.isMouseButtonDown(MouseButton::Left);
 
     const Vec2 pointerDelta = input.mouseDelta();
     if (m_looking) {
         setOrientation(m_yawDegrees - pointerDelta.x * lookSensitivity,
                        m_pitchDegrees - pointerDelta.y * lookSensitivity);
+    }
+    if (m_orbiting) {
+        // Turned as looking turns, about the point ahead instead of about itself.
+        const Vec3 pivot = m_position + forward() * m_focusDistance;
+        setOrientation(m_yawDegrees - pointerDelta.x * lookSensitivity,
+                       m_pitchDegrees - pointerDelta.y * lookSensitivity);
+        m_position = pivot - forward() * m_focusDistance;
     }
 
     const Quat orientation = rotation();
@@ -102,7 +118,10 @@ void EditorCamera::update(const Input& input, float deltaSeconds, bool viewportH
     }
 
     if (viewportHovered && input.scrollDelta().y != 0.0f) {
-        m_position += ahead * input.scrollDelta().y * moveSpeed * kWheelSpeedFactor;
+        const float travel = input.scrollDelta().y * moveSpeed * kWheelSpeedFactor;
+        m_position += ahead * travel;
+        // Nearer the point ahead - and once there, it is a little further on.
+        m_focusDistance = std::max(m_focusDistance - travel, kMinimumFocusDistance);
     }
 }
 

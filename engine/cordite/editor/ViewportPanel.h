@@ -142,6 +142,12 @@ public:
 
     void setGizmoSpace(GizmoSpace space) { m_gizmoSpace = space; }
 
+    /// Moves the camera so that what is selected fills the view - its meshes as they are
+    /// posed, and where the rest is - keeping the direction it looks in, and makes the middle
+    /// of it what the camera orbits. Returns false, and moves nothing, when nothing is
+    /// selected. F does this.
+    bool frameSelection(EditorContext& context);
+
     /// Whether a handle of the gizmo is held: a drag is under way.
     [[nodiscard]] bool isDraggingGizmo() const { return m_held.has_value(); }
 

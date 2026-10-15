@@ -316,7 +316,8 @@ its simulation, its sounds - play it:
   it. To move something, set its `Transform` with `component.set`: that is what dragging
   the gizmo does, one step to undo.
 - `viewport.lookAt {"position": [x,y,z], "target": [x,y,z]}` and
-  `viewport.frame {"entity": ...}` place the viewport camera first.
+  `viewport.frame {"entity": ...}` place the viewport camera first; `viewport.frame`
+  without an entity frames the selection, meshes by their size, as F does.
 - `viewport.show {"camera": "game"}` looks through the camera the game renders from
   - the first enabled primary `Camera` of the scene - and draws nothing an editor
   adds: what a player would see. `{"camera": "editor"}` goes back. A scene that is

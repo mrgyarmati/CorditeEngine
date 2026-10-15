@@ -2003,6 +2003,88 @@ TEST_SUITE("EditorApp") {
         checkNoValidationIssues(editor->engine().graphics());
     }
 
+    TEST_CASE("F frames what is selected, and Alt with the left button turns the camera around it") {
+        const std::unique_ptr<EditorApp> editor = createEditor(headlessDesc(UVec2(640, 360)));
+        run(*editor, "entity.create", R"({"name": "Far", "components": {"Transform": {"position": [30, 2, -20]}}})");
+        const Vec3 far(30.0f, 2.0f, -20.0f);
+        const EditorCamera& camera = editor->camera();
+        const auto key = [&](const char* name, bool down) {
+            run(*editor, "input.inject", fmt::format(R"({{"key": "{}", "down": {}}})", name, down));
+            REQUIRE(editor->runFrames(1).has_value());
+        };
+        const auto looksAt = [&](const Vec3& point) {
+            return glm::dot(glm::normalize(point - camera.position()), camera.forward()) > 0.9999f;
+        };
+        REQUIRE(editor->runFrames(2).has_value());
+        CHECK_FALSE(looksAt(far));
+
+        // Nothing selected: nothing to frame.
+        key("F", true);
+        key("F", false);
+        CHECK_FALSE(looksAt(far));
+        CHECK(refusal(*editor, "viewport.frame").code == ErrorCode::InvalidArgument);
+
+        run(*editor, "selection.set", R"({"entities": ["Far"]})");
+        key("F", true);
+        key("F", false);
+        CHECK(looksAt(far));
+        CHECK(glm::distance(camera.position(), far) == doctest::Approx(camera.focusDistance()));
+        // What is framed is a metre around a point.
+        CHECK(camera.focusDistance() < 2.0f);
+
+        // Around it, with Alt held: the left button turns the camera and chooses nothing.
+        const ViewportPanel& viewport = editor->viewport();
+        const Vec2 middle = viewport.imageOrigin() + Vec2(viewport.targets().size()) * 0.5f;
+        const Vec3 stoodAt = camera.position();
+        run(*editor, "input.inject", fmt::format(R"({{"mouseMove": [{}, {}]}})", middle.x, middle.y));
+        key("LeftAlt", true);
+        run(*editor, "input.inject", R"({"mouseButton": "Left", "down": true})");
+        REQUIRE(editor->runFrames(2).has_value());
+        run(*editor, "input.inject", fmt::format(R"({{"mouseMove": [{}, {}]}})", middle.x + 60.0f, middle.y));
+        REQUIRE(editor->runFrames(2).has_value());
+        // Alt is claimed while it turns the camera, so that letting go of it does not take
+        // the keyboard to the menus.
+        CHECK(camera.isOrbiting());
+        CHECK(ImGui::GetKeyOwner(ImGuiMod_Alt) != ImGuiKeyOwner_NoOwner);
+        run(*editor, "input.inject", R"({"mouseButton": "Left", "down": false})");
+        key("LeftAlt", false);
+        REQUIRE(editor->runFrames(1).has_value());
+        CHECK(ImGui::GetKeyOwner(ImGuiMod_Alt) == ImGuiKeyOwner_NoOwner);
+        CHECK(glm::distance(camera.position(), stoodAt) > 0.1f);
+        CHECK(looksAt(far));
+        CHECK(glm::distance(camera.position(), far) == doctest::Approx(camera.focusDistance()));
+        CHECK(run(*editor, "selection.get").size() == 1);
+
+        // A mesh is framed by its size: a cube ten metres across is seen from further away
+        // than a point.
+        run(*editor, "entity.create",
+            fmt::format(
+                R"({{"name": "Block", "components": {{"Transform": {{"position": [30, 2, -20], "scale": [10, 10, 10]}}, "MeshRenderer": {{"mesh": "{}"}}}}}})",
+                builtinMeshId(BuiltinMesh::Cube).toString()));
+        run(*editor, "selection.set", R"({"entities": ["Block"]})");
+        key("F", true);
+        key("F", false);
+        CHECK(looksAt(far));
+        CHECK(camera.focusDistance() > 10.0f);
+        run(*editor, "selection.set", R"({"entities": ["Far"]})");
+
+        // The command frames the selection as F does - also what was made a moment ago,
+        // before a frame has placed it.
+        run(*editor, "viewport.lookAt", R"({"position": [0, 5, 10], "target": [0, 0, 0]})");
+        CHECK_FALSE(looksAt(far));
+        run(*editor, "viewport.frame");
+        CHECK(looksAt(far));
+        run(*editor, "entity.create", R"({"name": "New", "components": {"Transform": {"position": [-12, 3, 7]}}})");
+        run(*editor, "selection.set", R"({"entities": ["New"]})");
+        run(*editor, "viewport.frame");
+        CHECK(looksAt(Vec3(-12.0f, 3.0f, 7.0f)));
+        // A size goes with an entity; the selection has its own.
+        const Error sized = refusal(*editor, "viewport.frame", R"({"radius": 3})");
+        CHECK(sized.code == ErrorCode::InvalidArgument);
+        CHECK(sized.message.find("'radius'") != std::string::npos);
+        checkNoValidationIssues(editor->engine().graphics());
+    }
+
     TEST_CASE("the application adds its commands to the catalogue") {
         const std::unique_ptr<EditorApp> editor = createEditor(headlessDesc(UVec2(640, 360)));
         for (const char* name :

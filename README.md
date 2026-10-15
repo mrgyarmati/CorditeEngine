@@ -95,7 +95,11 @@ feature the engine has so far: here a sky that lights the scene, a sun, a street
 the ball alone.
 
 In the viewport, hold the right mouse button to look around and fly with W A S D, Q and
-E; hold the middle button to slide; turn the wheel to move forwards and backwards.
+E; hold the middle button to slide; turn the wheel to move forwards and backwards; hold
+Alt and the left button to turn around what is in front. F frames what is selected,
+which the camera then turns around. W, E and R give the gizmo on the selection its
+arrows, rings or boxes - to move, turn or scale it - and X switches between the axes of
+the world and those of the entity.
 
 F5 plays the scene where it stands: its scripts run, its bodies fall, its sounds are
 heard, the viewport shows it through the camera of the game (View > Game camera
