@@ -859,6 +859,10 @@ ScriptRuntime& ScriptSystem::runtime() {
     return *m_impl->runtime;
 }
 
+const ScriptRuntime& ScriptSystem::runtime() const {
+    return *m_impl->runtime;
+}
+
 const ScriptContext* ScriptSystem::context() const {
     return m_impl->context;
 }

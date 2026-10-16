@@ -7,7 +7,8 @@
 /// checking that the validation layers stayed silent. Rendered frames are compared
 /// against reference images in tests/render/references/. To approve new or changed
 /// output, run the suite with CORDITE_UPDATE_REFERENCES=1 and review the images it
-/// writes before committing them.
+/// writes before committing them. The pages of docs/reference are held to what the engine
+/// writes the same way (checkTextAgainstReference).
 
 #include "cordite/assets/Image.h"
 #include "cordite/assets/ImageCompare.h"
@@ -22,6 +23,8 @@
 #include <filesystem>
 #include <functional>
 #include <memory>
+#include <optional>
+#include <string>
 #include <string_view>
 
 namespace cordite::test {
@@ -72,5 +75,15 @@ Image readToImage(GraphicsDevice& device, nvrhi::ITexture* texture);
 /// actual image and a difference visualization are written to tests/render/output/.
 void checkAgainstReference(const Image& actual, std::string_view name,
                            const ImageCompareOptions& options = {.channelTolerance = 4, .maxDifferingRatio = 0.002});
+
+/// Where two texts first differ, for a person to find it: the line, with what the file has
+/// there (`expected`) and what the engine wrote (`actual`), or how many lines each has.
+/// Nullopt when they are the same, but for carriage returns, which Git may put into files.
+[[nodiscard]] std::optional<std::string> firstDifference(std::string_view expected, std::string_view actual);
+
+/// Compares a text with the file of the repository it is meant to be - `file`, from the
+/// root of the repository: a page of docs/reference that the engine writes. With
+/// CORDITE_UPDATE_REFERENCES=1 the file is written instead, to be read and committed.
+void checkTextAgainstReference(std::string_view text, const std::filesystem::path& file);
 
 } // namespace cordite::test

@@ -238,6 +238,7 @@ public:
     /// The runtime the scripts run in: to give them more functions, and to ask what
     /// they have been given.
     [[nodiscard]] ScriptRuntime& runtime();
+    [[nodiscard]] const ScriptRuntime& runtime() const;
 
     /// For the functions of the engine that scripts call. The world as the update that
     /// is under way was given it; null outside an update, where no script runs.

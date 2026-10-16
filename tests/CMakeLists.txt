@@ -253,6 +253,7 @@ cordite_add_test_suite(render
         render/GraphicsDeviceTests.cpp
         render/PostProcessTests.cpp
         render/PropertyEditorTests.cpp
+        render/ReferenceDocsTests.cpp
         render/RenderPassTests.cpp
         render/RenderTargetTests.cpp
         render/RenderTestSupport.cpp

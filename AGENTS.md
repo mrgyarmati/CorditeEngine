@@ -1504,6 +1504,12 @@ with CTest under the module name. See the skills
 - Rendered frames are compared with reference images in `tests/render/references/`
   within a small tolerance. A new or changed reference image is reviewed by looking at
   it before it is committed; never approve one unseen.
+- **The reference pages of the user guide are written by the engine** (`docs/reference/`:
+  components, the scripting API, the editor's commands, the names of controls;
+  `editor/ReferenceDocs.h`). The `ReferenceDocs` test writes them again and fails, naming
+  the first line that differs, when a file is not what the engine writes - so a new
+  component, property, script function, command or key changes a page in the same commit:
+  run the test with `CORDITE_UPDATE_REFERENCES=1`, read the change, and commit it.
 - **Performance is tested against budgets.** The `performance` suite (labels `gpu` and
   `perf`) runs scenarios - the showcase as a game would run it, a field under six
   hundred lights - and checks what each costs against `tests/perf/budgets.json`. Counts

@@ -59,6 +59,8 @@ cordite_add_module(editor
         PosedMesh.h
         PropertyEditor.cpp
         PropertyEditor.h
+        ReferenceDocs.cpp
+        ReferenceDocs.h
         ScriptCommands.cpp
         ScriptCommands.h
         UndoStack.cpp

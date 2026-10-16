@@ -4,9 +4,13 @@
 #include "cordite/core/Platform.h"
 #include "cordite/shader_compiler/EngineShaderCache.h"
 
+#include <fmt/format.h>
+
+#include <algorithm>
 #include <optional>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace cordite::test {
 namespace {
@@ -124,6 +128,54 @@ Image readToImage(GraphicsDevice& device, nvrhi::ITexture* texture) {
     Result<Image> image = Image::fromPixels(pixels->width, pixels->height, ImageFormat::Rgba8, std::move(pixels->data));
     REQUIRE_MESSAGE(image.has_value(), test::errorOf(image));
     return std::move(*image);
+}
+
+std::optional<std::string> firstDifference(std::string_view expected, std::string_view actual) {
+    const auto linesOf = [](std::string_view text) {
+        std::vector<std::string> lines;
+        std::string line;
+        for (const char character : text) {
+            if (character == '\n') {
+                lines.push_back(std::move(line));
+                line.clear();
+            } else if (character != '\r') {
+                line += character;
+            }
+        }
+        if (!line.empty()) {
+            lines.push_back(std::move(line));
+        }
+        return lines;
+    };
+    const std::vector<std::string> wanted = linesOf(expected);
+    const std::vector<std::string> written = linesOf(actual);
+    for (size_t index = 0; index < std::min(wanted.size(), written.size()); ++index) {
+        if (wanted[index] != written[index]) {
+            return fmt::format("line {}: the file has \"{}\", the engine \"{}\"", index + 1, wanted[index],
+                               written[index]);
+        }
+    }
+    if (wanted.size() != written.size()) {
+        return fmt::format("the file has {} lines, the engine {}", wanted.size(), written.size());
+    }
+    return std::nullopt;
+}
+
+void checkTextAgainstReference(std::string_view text, const std::filesystem::path& file) {
+    const std::filesystem::path path = sourceDirectory() / file;
+    if (shouldUpdateReferences()) {
+        REQUIRE_MESSAGE(writeTextFile(path, text).has_value(), "cannot write " << pathToUtf8(path));
+        MESSAGE("wrote " << pathToUtf8(file) << ": read it before it is committed");
+        return;
+    }
+    const Result<std::string> existing = readTextFile(path);
+    REQUIRE_MESSAGE(existing.has_value(),
+                    pathToUtf8(file) << " is not there: run the test with CORDITE_UPDATE_REFERENCES=1 to write it");
+    const std::optional<std::string> difference = firstDifference(existing.value_or(std::string()), text);
+    CHECK_MESSAGE(!difference.has_value(),
+                  pathToUtf8(file) << " is not what the engine writes (" << difference.value_or(std::string())
+                                   << "): run the test with CORDITE_UPDATE_REFERENCES=1, read the change, "
+                                      "and commit it");
 }
 
 void checkAgainstReference(const Image& actual, std::string_view name, const ImageCompareOptions& options) {

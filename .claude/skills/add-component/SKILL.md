@@ -160,6 +160,10 @@ The editor reference images (`editor-showcase-1280x720` and the others that show
 showcase) change when the showcase scene does. Look at the new images and approve them
 (skill: `render-tests`).
 
+`docs/reference/components.md` lists every component with every property, and is written
+by the engine: run `cordite_render_tests -ts=ReferenceDocs` with
+`CORDITE_UPDATE_REFERENCES=1`, read the new section, and commit it with the component.
+
 ## Adding a property to an existing component
 
 1. Add the member with a default.

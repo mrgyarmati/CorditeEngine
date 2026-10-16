@@ -95,8 +95,11 @@ of [AGENTS.md](../../../AGENTS.md)). Everything they can call is a C++ function 
    makes itself, and it leaves the scene as it found it - the same test checks that.
    The showcase is also where people learn the API: say in a comment what is shown.
 
-5. **Document it** where it changes what AGENTS.md or `docs/architecture.md` say, and
-   run the pre-commit gate (see the pre-commit-review skill).
+5. **Document it** where it changes what AGENTS.md or `docs/architecture.md` say. The
+   reference page of the API, `docs/reference/script-api.md`, is written from the
+   catalogue: run `cordite_render_tests -ts=ReferenceDocs` with
+   `CORDITE_UPDATE_REFERENCES=1` and commit the page with the function. Then run the
+   pre-commit gate (see the pre-commit-review skill).
 
 ## A function the engine calls in a script
 
