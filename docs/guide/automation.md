@@ -59,6 +59,7 @@ cordite-editor --headless --project my-game --exec build-scene.json --frames 1 -
 | `entity.get` | Everything about one entity |
 | `asset.list`, `asset.get` | The assets, and one asset with what it uses and what uses it |
 | `asset.preview` | A picture of an asset, saved as a PNG |
+| `asset.listen` | Hear a sound of the assets, also while the scene is not played |
 | `script.api` | Every function scripts can call, and every function the engine calls in a script |
 | `editor.screenshot` | The editor's window, or the viewport, as a PNG |
 | `editor.statistics` | What a frame costs |

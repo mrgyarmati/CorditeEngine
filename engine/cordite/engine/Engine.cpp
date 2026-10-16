@@ -438,7 +438,8 @@ void Engine::updateWorld(WorldClock clock) {
     if (running) {
         impl.audioStatistics = impl.audio->update(impl.world, *impl.assets, impl.deltaSeconds);
     } else {
-        impl.audio->pause();
+        // A preview for whoever is at the editor goes on.
+        impl.audio->pause(impl.deltaSeconds);
         impl.audioStatistics = {};
     }
 }

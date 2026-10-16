@@ -1957,6 +1957,18 @@ What is left out is left out on purpose for now: no Doppler effect - sources and
 the listener have no velocity - no cones, no reverberation, nothing in the way of a
 sound.
 
+### A preview is beside the world, not on a bus of it
+
+The Assets panel plays a sound for whoever is at the editor while the scene is not
+played - when everything of the world is held. A bus would not do for it: buses are
+the world's, turned down by a game's settings and by its scripts, and held with it.
+So a preview has a group of its own beside the one that everything of the world
+plays into, and the volume of the listener, which used to be on everything, went
+onto the world's group with the rest of what turns the world down. Only the volume
+of everything is on top of both. A preview is one sound at a time, not a voice of
+the world's, and `pause` mixes it offline - which is how the tests hear it while the
+world is held.
+
 ### Enum names use `nameOf`, not `toString`
 
 doctest stringifies values by calling an unqualified `toString`, which finds any

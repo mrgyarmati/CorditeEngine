@@ -1,5 +1,6 @@
 #include "cordite/editor/AssetBrowser.h"
 
+#include "cordite/assets/Sound.h"
 #include "cordite/core/FileSystem.h"
 #include "cordite/core/Json.h"
 #include "cordite/core/StringUtils.h"
@@ -272,6 +273,20 @@ std::string moveAssetCommand(const Uuid& asset, std::string_view to) {
     parameters["asset"] = asset.toString();
     parameters["to"] = to;
     return fmt::format("asset.move {}", parameters.dump());
+}
+
+std::string listenCommand(std::optional<Uuid> sound) {
+    if (!sound) {
+        return "asset.listen";
+    }
+    Json parameters = Json::object();
+    parameters["asset"] = sound->toString();
+    return fmt::format("asset.listen {}", parameters.dump());
+}
+
+std::string describeSound(const SoundData& sound) {
+    return fmt::format("{:.2f} s, {}, {} Hz", sound.seconds(), sound.channels == 1 ? "mono" : "stereo",
+                       sound.sampleRate);
 }
 
 std::string dropTarget(const AssetInfo& asset, const AssetBrowserRow& row) {

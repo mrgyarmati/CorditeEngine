@@ -1,5 +1,7 @@
 #include "cordite/editor/AssetBrowserPanel.h"
 
+#include "cordite/assets/Sound.h"
+#include "cordite/audio/AudioSystem.h"
 #include "cordite/core/StringUtils.h"
 #include "cordite/editor/EditorActions.h"
 #include "cordite/editor/EditorIcons.h"
@@ -233,12 +235,16 @@ void AssetBrowserPanel::draw(Engine& engine, EditorContext& context, ShadowQuali
         // chosen, which stays where it is however many rows there are.
         const float footerHeight = ImGui::GetFrameHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y + 1.0f;
         // Beside the rows, a picture of the chosen asset, when it has one: square, as high as
-        // the rows are, and no wider than a share of the panel.
+        // the rows are, and no wider than a share of the panel. A sound has what is said of
+        // it there, and the button that plays it, which need no square.
         const AssetInfo* chosen = database.find(m_browser.selection());
         const ImVec2 room = ImGui::GetContentRegionAvail();
-        const float pictureWidth = chosen != nullptr && AssetPreview::hasPicture(chosen->type)
-                                       ? std::floor(std::min(room.y - footerHeight, room.x * kPictureShare))
-                                       : 0.0f;
+        float pictureWidth = 0.0f;
+        if (chosen != nullptr && AssetPreview::hasPicture(chosen->type)) {
+            pictureWidth = std::floor(std::min(room.y - footerHeight, room.x * kPictureShare));
+        } else if (chosen != nullptr && chosen->type == AssetType::Sound) {
+            pictureWidth = std::floor(room.x * kPictureShare);
+        }
         const bool pictured = pictureWidth >= kSmallestPicture;
         const float besideRows = pictured ? pictureWidth + ImGui::GetStyle().ItemSpacing.x : 0.0f;
         if (ImGui::BeginChild("rows", ImVec2(-besideRows, -footerHeight))) {
@@ -251,7 +257,11 @@ void AssetBrowserPanel::draw(Engine& engine, EditorContext& context, ShadowQuali
             // for a picture of another.
             if (ImGui::BeginChild("picture", ImVec2(0.0f, -footerHeight), ImGuiChildFlags_None,
                                   ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
-                drawPicture(engine, context, shadows, *chosen);
+                if (chosen->type == AssetType::Sound) {
+                    drawSound(engine, context, *chosen, submittedLines);
+                } else {
+                    drawPicture(engine, context, shadows, *chosen);
+                }
             }
             ImGui::EndChild();
         }
@@ -260,6 +270,39 @@ void AssetBrowserPanel::draw(Engine& engine, EditorContext& context, ShadowQuali
         drawMoveDialog(context, submittedLines);
     }
     ImGui::End();
+}
+
+void AssetBrowserPanel::drawSound(Engine& engine, EditorContext& context, const AssetInfo& asset,
+                                  std::vector<std::string>& submittedLines) {
+    // Read once, not in every frame: a file that cannot be read is tried again when the
+    // assets are.
+    const uint64_t revision = context.assets().database().revision();
+    if (m_soundRead != asset.id || m_soundRevision != revision) {
+        const Result<std::shared_ptr<const SoundData>> sound = context.assets().loadSound(asset.id);
+        m_soundRead = asset.id;
+        m_soundRevision = revision;
+        m_soundHeard = sound.has_value();
+        m_soundText = sound ? describeSound(**sound) : fmt::format("It cannot be heard: {}", sound.error().message);
+    }
+    ImGui::PushTextWrapPos(0.0f);
+    if (m_soundHeard) {
+        ImGui::TextUnformatted(m_soundText.c_str());
+    } else {
+        ImGui::TextDisabled("%s", m_soundText.c_str());
+    }
+    ImGui::PopTextWrapPos();
+    if (!m_soundHeard) {
+        return;
+    }
+    // Heard by whoever is at the editor, also while the scene is not played. Play on a
+    // sound while another is heard puts this one in its place.
+    if (engine.audio().previewing() == asset.id) {
+        if (ImGui::Button(fmt::format("{}  Stop", icons::kStop.text()).c_str())) {
+            submittedLines.push_back(listenCommand(std::nullopt));
+        }
+    } else if (ImGui::Button(fmt::format("{}  Play", icons::kPlay.text()).c_str())) {
+        submittedLines.push_back(listenCommand(asset.id));
+    }
 }
 
 void AssetBrowserPanel::drawPicture(Engine& engine, EditorContext& context, ShadowQuality shadows,

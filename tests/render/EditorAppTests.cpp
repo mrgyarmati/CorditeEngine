@@ -5,6 +5,7 @@
 #include "cordite/assets/GltfExporter.h"
 #include "cordite/assets/ImageCompare.h"
 #include "cordite/assets/Primitives.h"
+#include "cordite/audio/AudioSystem.h"
 #include "cordite/core/FileSystem.h"
 #include "cordite/core/Log.h"
 #include "cordite/core/Platform.h"
@@ -31,6 +32,7 @@
 #include <cstddef>
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <set>
 #include <span>
 #include <string>
@@ -1676,7 +1678,9 @@ TEST_SUITE("EditorApp") {
         CHECK(statistics["scripts"]["instances"] == 0);
         CHECK(statistics["physics"]["steps"] == 0);
         CHECK(statistics["audio"]["voices"] == 0);
-        CHECK(engine.audio().mixed().empty());
+        // Held, the game is silence.
+        CHECK_FALSE(engine.audio().mixed().empty());
+        CHECK(std::ranges::all_of(engine.audio().mixed(), [](float sample) { return sample == 0.0f; }));
         CHECK(refusal(*editor, "play.pause").message == "play.pause: there is nothing to pause: the scene is paused");
 
         // A frame at a time: it goes on for as many as are asked for, and is held again.
@@ -2556,6 +2560,94 @@ TEST_SUITE("EditorApp") {
         checkNoValidationIssues(editor->engine().graphics());
     }
 
+    TEST_CASE("a sound of the assets is heard in the editor while its scene is not played, and stops on request") {
+        EditorAppDesc desc = headlessDesc(UVec2(320, 180));
+        desc.project = showcaseProject();
+        const std::unique_ptr<EditorApp> editor = createEditor(desc);
+        const AudioSystem& audio = editor->engine().audio();
+        // Whether anything at all was heard in the frames that run.
+        const auto heardIn = [&](int frames) {
+            bool heard = false;
+            for (int frame = 0; frame < frames; ++frame) {
+                run(*editor, "editor.runFrames");
+                heard = heard || std::ranges::any_of(audio.mixed(), [](float sample) { return sample != 0.0f; });
+            }
+            return heard;
+        };
+        // The showcase has sounds that play when its scene starts, which an editor holds.
+        CHECK_FALSE(heardIn(3));
+
+        const Json listened = run(*editor, "asset.listen", R"({"asset": "sounds/hop.wav"})");
+        CHECK(listened["playing"] == true);
+        // A quarter of a second, to the frame: 5513 at 22050 frames a second.
+        CHECK(listened["seconds"].get<double>() == doctest::Approx(0.25).epsilon(1.0e-4));
+        CHECK(listened["channels"] == 1);
+        CHECK(listened["sampleRate"] == 22050);
+        const Uuid hop = unwrap(editor->context().resolveAsset("sounds/hop.wav"))->id;
+        CHECK(audio.previewing() == hop);
+        CHECK(heardIn(3));
+        // Stopped by the line of the panel's Stop button.
+        editor->runCommandLine(listenCommand(std::nullopt));
+        CHECK_FALSE(audio.previewing().has_value());
+        CHECK_FALSE(heardIn(3));
+        // Played by the line of its Play button, to its end - a quarter of a second - and
+        // not again.
+        editor->runCommandLine(listenCommand(hop));
+        CHECK(audio.previewing() == hop);
+        CHECK(heardIn(3));
+        run(*editor, "editor.runFrames", R"({"count": 20})");
+        CHECK_FALSE(audio.previewing().has_value());
+        CHECK_FALSE(heardIn(3));
+
+        const Error script = refusal(*editor, "asset.listen", R"({"asset": "scripts/hop.lua"})");
+        CHECK(script.code == ErrorCode::InvalidArgument);
+        CHECK(script.message == "asset.listen: scripts/hop.lua is a script, which is not heard");
+        CHECK(refusal(*editor, "asset.listen", R"({"asset": "sounds/none.wav"})").code == ErrorCode::NotFound);
+        CHECK(refusal(*editor, "asset.listen", R"({"asset": ""})").code == ErrorCode::InvalidArgument);
+        CHECK(refusal(*editor, "asset.listen", R"({"asset": 5})").code == ErrorCode::InvalidArgument);
+        // Nothing to stop: nothing happens.
+        CHECK(run(*editor, "asset.listen")["playing"] == false);
+        checkNoValidationIssues(editor->engine().graphics());
+    }
+
+    TEST_CASE("a sound chosen in the Assets panel is played and stopped with the button beside the rows") {
+        EditorAppDesc desc = headlessDesc(UVec2(1280, 720));
+        desc.project = showcaseProject();
+        const std::unique_ptr<EditorApp> editor = createEditor(desc);
+        const AudioSystem& audio = editor->engine().audio();
+        const Uuid hop = unwrap(editor->context().resolveAsset("sounds/hop.wav"))->id;
+        run(*editor, "assets.browse", R"({"select": "sounds/hop.wav"})");
+        REQUIRE(editor->runFrames(2).has_value());
+
+        // The button is the last thing in the area beside the rows, under what is said of
+        // the sound, in the pixels of the interface.
+        const auto pressButton = [&] {
+            const ImGuiWindow* area = nullptr;
+            for (const ImGuiWindow* window : GImGui->Windows) {
+                if (std::string_view(window->Name).find("###Assets/picture_") != std::string_view::npos) {
+                    area = window;
+                }
+            }
+            REQUIRE(area != nullptr);
+            const Vec2 at(area->DC.CursorStartPos.x + 10.0f, area->DC.CursorMaxPos.y - ImGui::GetFrameHeight() * 0.5f);
+            run(*editor, "input.inject", fmt::format(R"({{"mouseMove": [{}, {}]}})", at.x, at.y));
+            REQUIRE(editor->runFrames(2).has_value());
+            run(*editor, "input.inject", R"({"mouseButton": "Left", "down": true})");
+            REQUIRE(editor->runFrames(2).has_value());
+            run(*editor, "input.inject", R"({"mouseButton": "Left", "down": false})");
+            REQUIRE(editor->runFrames(2).has_value());
+        };
+        // While another sound is heard, the button plays this one in its place.
+        run(*editor, "asset.listen", R"({"asset": "sounds/call.wav"})");
+        CHECK(audio.previewing() != hop);
+        pressButton();
+        CHECK(audio.previewing() == hop);
+        // Now it says Stop, where it said Play.
+        pressButton();
+        CHECK_FALSE(audio.previewing().has_value());
+        checkNoValidationIssues(editor->engine().graphics());
+    }
+
     TEST_CASE("a game is made of the project by command, and not of a scene that is not saved") {
         const TempDirectory directory;
         // Without a project there is nothing to make a game of.
@@ -2585,12 +2677,12 @@ TEST_SUITE("EditorApp") {
     TEST_CASE("the application adds its commands to the catalogue") {
         const std::unique_ptr<EditorApp> editor = createEditor(headlessDesc(UVec2(640, 360)));
         for (const char* name :
-             {"editor.runFrames",  "editor.screenshot",  "editor.statistics",  "editor.showPanel", "editor.exit",
-              "editor.focusPanel", "editor.theme",       "assets.browse",      "viewport.lookAt",  "viewport.frame",
-              "viewport.camera",   "viewport.debugView", "viewport.gizmo",     "entity.create",    "scene.save",
-              "play.start",        "play.stop",          "play.pause",         "play.resume",      "play.step",
-              "play.status",       "asset.move",         "asset.import",       "asset.preview",    "project.export",
-              "project.new",       "project.open",       "asset.moveDirectory"}) {
+             {"editor.runFrames",  "editor.screenshot",  "editor.statistics",   "editor.showPanel", "editor.exit",
+              "editor.focusPanel", "editor.theme",       "assets.browse",       "viewport.lookAt",  "viewport.frame",
+              "viewport.camera",   "viewport.debugView", "viewport.gizmo",      "entity.create",    "scene.save",
+              "play.start",        "play.stop",          "play.pause",          "play.resume",      "play.step",
+              "play.status",       "asset.move",         "asset.import",        "asset.preview",    "project.export",
+              "project.new",       "project.open",       "asset.moveDirectory", "asset.listen"}) {
             CAPTURE(name);
             const CommandDesc* command = editor->commands().find(name);
             REQUIRE(command != nullptr);

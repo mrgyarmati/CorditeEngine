@@ -37,6 +37,8 @@
 
 namespace cordite {
 
+struct SoundData;
+
 /// What of the assets is shown.
 struct AssetBrowserFilter {
     /// Only assets of this type. None for assets of every type.
@@ -162,6 +164,14 @@ private:
 /// What the Assets panel asks for when the file of an asset is renamed or moved, as a
 /// line for the console: `asset.move`.
 [[nodiscard]] std::string moveAssetCommand(const Uuid& asset, std::string_view to);
+
+/// What the Assets panel asks for when a sound is to be heard, as a line for the console:
+/// `asset.listen`, with the sound - or without one, which stops what is heard.
+[[nodiscard]] std::string listenCommand(std::optional<Uuid> sound);
+
+/// What the Assets panel says of a sound where other assets have a picture: how long it
+/// lasts, its channels and its rate, as in "1.50 s, stereo, 44100 Hz".
+[[nodiscard]] std::string describeSound(const SoundData& sound);
 
 /// Where the file of an asset goes when it is dropped onto a row of the browser: into the
 /// directory of the row, under its own name. Empty when the row is no directory of the

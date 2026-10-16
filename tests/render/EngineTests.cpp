@@ -1044,10 +1044,12 @@ TEST_SUITE("Engine") {
         REQUIRE(engine->audio().mixed().size() == 1600);
         CHECK(engine->audio().mixed().back() == 0.25f);
 
-        // While time does not pass for the world, nothing is heard and nothing moves on.
+        // While time does not pass for the world, nothing of it is heard and nothing moves
+        // on: the time of the frame is silence (in which a preview would be heard).
         REQUIRE(test::unwrap(engine->beginFrame()));
         engine->updateWorld(WorldClock::Stopped);
-        CHECK(engine->audio().mixed().empty());
+        CHECK(engine->audio().mixed().size() == 1600);
+        CHECK(std::ranges::all_of(engine->audio().mixed(), [](float sample) { return sample == 0.0f; }));
         REQUIRE(engine->endFrame().has_value());
         CHECK(engine->statistics().audio == AudioStatistics());
         CHECK(world.tryGet<AudioSourceComponent>(speaker)->playing);

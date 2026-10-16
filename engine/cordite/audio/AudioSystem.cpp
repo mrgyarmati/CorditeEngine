@@ -170,6 +170,10 @@ struct AudioSystem::Impl {
         // the engine onto a device of the context, and all of them write to the log.
         sources.clear();
         shots.clear();
+        preview.reset();
+        if (previewsReady) {
+            ma_sound_group_uninit(&previews);
+        }
         for (size_t index = busesReady; index > 0; --index) {
             ma_sound_group_uninit(&buses[index - 1]);
         }
@@ -268,15 +272,22 @@ struct AudioSystem::Impl {
             }
             busesReady = index + 1;
         }
+        // Beside everything else, not in it: what holds the world holds no preview.
+        if (result = ma_sound_group_init(&engine, flags, nullptr, &previews); result != MA_SUCCESS) {
+            return makeError(ErrorCode::DeviceError, "the mixer of previews could not be made: {}",
+                             ma_result_description(result));
+        }
+        previewsReady = true;
         busVolumes.fill(1.0f);
         return {};
     }
 
     [[nodiscard]] size_t voiceCount() const { return sources.size() + shots.size(); }
 
-    /// A voice that plays `data` on `bus`, not started yet.
+    /// A voice that plays `data` on `bus` - into `group` instead, when one is given - not
+    /// started yet.
     [[nodiscard]] Result<std::unique_ptr<Voice>> makeVoice(std::shared_ptr<const SoundData> data, const Uuid& id,
-                                                           AudioBus bus) {
+                                                           AudioBus bus, ma_sound_group* group = nullptr) {
         // What the assets hand out has been through decodeSound(). This is against a
         // mistake in the engine, and looks at no sample: a voice is made too often to
         // read a whole sound for it.
@@ -298,7 +309,8 @@ struct AudioSystem::Impl {
         // the mix"; said here, a sound of another rate is converted as it plays.
         voice->buffer.sampleRate = voice->data->sampleRate;
 
-        result = ma_sound_init_from_data_source(&engine, &voice->buffer, 0, &buses[indexOf(bus)], &voice->sound);
+        result = ma_sound_init_from_data_source(&engine, &voice->buffer, 0,
+                                                group != nullptr ? group : &buses[indexOf(bus)], &voice->sound);
         if (result != MA_SUCCESS) {
             return makeError(ErrorCode::DeviceError, "the sound could not be given a voice: {}",
                              ma_result_description(result));
@@ -378,13 +390,14 @@ struct AudioSystem::Impl {
     /// cannot be played is remembered with the reason, and not read again - a file
     /// that is broken would otherwise be read for every frame its source waits - until
     /// the assets change or everything is cleared.
-    [[nodiscard]] Result<std::unique_ptr<Voice>> voiceFor(AssetManager& assets, const Uuid& sound, AudioBus bus) {
+    [[nodiscard]] Result<std::unique_ptr<Voice>> voiceFor(AssetManager& assets, const Uuid& sound, AudioBus bus,
+                                                          ma_sound_group* group = nullptr) {
         if (const auto known = unplayable.find(sound); known != unplayable.end()) {
             return tl::unexpected(known->second.error);
         }
         Result<std::shared_ptr<const SoundData>> data = assets.loadSound(sound);
         Result<std::unique_ptr<Voice>> voice =
-            data ? makeVoice(std::move(*data), sound, bus) : tl::unexpected(data.error());
+            data ? makeVoice(std::move(*data), sound, bus, group) : tl::unexpected(data.error());
         if (!voice) {
             unplayable.emplace(sound, Unplayable{.error = voice.error()});
         }
@@ -480,17 +493,22 @@ struct AudioSystem::Impl {
         ma_engine_listener_set_position(&engine, 0, position.x, position.y, position.z);
         ma_engine_listener_set_direction(&engine, 0, forward.x, forward.y, forward.z);
         ma_engine_listener_set_world_up(&engine, 0, up.x, up.y, up.z);
-        listenerVolume = heard;
-        ma_engine_set_volume(&engine, masterVolume * listenerVolume);
+        // On what is of the world, not on everything: a preview is heard by no listener of it.
+        if (heard != listenerVolume) {
+            listenerVolume = heard;
+            ma_sound_group_set_volume(&everything, listenerVolume);
+        }
     }
 
-    /// Offline: mixes as much as `seconds` of sound. With a device, the device does.
+    /// Offline: mixes as much as `seconds` of sound - kMaxAudioUpdateSeconds at the most,
+    /// and none for a time that is no number. With a device, the device does.
     void mix(double seconds) {
         mixed.clear();
         if (output != AudioOutput::Offline) {
             return;
         }
-        pendingFrames += seconds * static_cast<double>(desc.sampleRate);
+        const double bounded = std::isfinite(seconds) ? std::clamp(seconds, 0.0, kMaxAudioUpdateSeconds) : 0.0;
+        pendingFrames += bounded * static_cast<double>(desc.sampleRate);
         const auto frames = static_cast<size_t>(pendingFrames);
         pendingFrames -= static_cast<double>(frames);
         if (frames == 0) {
@@ -527,6 +545,10 @@ struct AudioSystem::Impl {
     /// Everything that is of the world plays into this, so that it can be held as one.
     ma_sound_group everything{};
     std::array<ma_sound_group, kAudioBuses.size()> buses{};
+    /// Previews play into this, which is not in `everything`.
+    ma_sound_group previews{};
+    bool previewsReady = false;
+    std::unique_ptr<Voice> preview;
     bool logReady = false;
     bool contextReady = false;
     bool engineReady = false;
@@ -648,21 +670,21 @@ AudioStatistics AudioSystem::update(World& world, AssetManager& assets, double d
     }
 
     impl.placeListener(world, listener);
-    const double seconds = std::isfinite(deltaSeconds) ? std::clamp(deltaSeconds, 0.0, kMaxAudioUpdateSeconds) : 0.0;
-    impl.mix(seconds);
+    impl.mix(deltaSeconds);
 
     impl.endWhatIsOver(world);
     impl.count(statistics);
     return statistics;
 }
 
-void AudioSystem::pause() {
+void AudioSystem::pause(double deltaSeconds) {
     Impl& impl = *m_impl;
     if (!impl.paused) {
         ma_sound_group_stop(&impl.everything);
         impl.paused = true;
     }
-    impl.mixed.clear();
+    // What is not held is mixed: a preview.
+    impl.mix(deltaSeconds);
 }
 
 void AudioSystem::clear() {
@@ -703,6 +725,31 @@ void AudioSystem::stop(AudioVoiceId voice) {
     m_impl->shots.erase(voice);
 }
 
+Status AudioSystem::preview(AssetManager& assets, const Uuid& sound) {
+    Impl& impl = *m_impl;
+    impl.preview.reset();
+    impl.noticeAssets(assets);
+    CORDITE_TRY_ASSIGN(std::unique_ptr<Voice> voice, impl.voiceFor(assets, sound, AudioBus::Interface, &impl.previews));
+    Impl::apply(*voice, {});
+    if (const ma_result result = ma_sound_start(&voice->sound); result != MA_SUCCESS) {
+        return makeError(ErrorCode::DeviceError, "the sound could not be started: {}", ma_result_description(result));
+    }
+    impl.preview = std::move(voice);
+    return {};
+}
+
+void AudioSystem::stopPreview() {
+    m_impl->preview.reset();
+}
+
+std::optional<Uuid> AudioSystem::previewing() const {
+    const Impl& impl = *m_impl;
+    if (impl.preview == nullptr || ma_sound_at_end(&impl.preview->sound) == MA_TRUE) {
+        return std::nullopt;
+    }
+    return impl.preview->soundId;
+}
+
 bool AudioSystem::isPlaying(AudioVoiceId voice) const {
     const auto found = m_impl->shots.find(voice);
     return found != m_impl->shots.end() && ma_sound_at_end(&found->second->sound) == MA_FALSE;
@@ -729,7 +776,7 @@ float AudioSystem::masterVolume() const {
 Status AudioSystem::setMasterVolume(float volume) {
     CORDITE_TRY(checkVolume(volume, "the volume of everything"));
     m_impl->masterVolume = volume;
-    ma_engine_set_volume(&m_impl->engine, m_impl->masterVolume * m_impl->listenerVolume);
+    ma_engine_set_volume(&m_impl->engine, volume);
     return {};
 }
 

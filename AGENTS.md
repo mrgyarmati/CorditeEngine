@@ -1022,10 +1022,19 @@ Step-by-step guide: [work-with-assets](.claude/skills/work-with-assets/SKILL.md)
   a side as loud as it gets in that ear and a fifth of it in the other. Distance
   is the rolloff's: `inverse` halves at twice `minDistance` and never reaches
   nothing, `linear` reaches it at `maxDistance`.
-- **While time does not pass nothing is heard.** `Engine::updateWorld` with a stopped
-  clock calls `AudioSystem::pause`, which holds every voice where it is; a scene
-  that is replaced has its voices stopped (`changeScene`, after the scripts have
-  ended). That is why an editor is silent until it plays its scene.
+- **While time does not pass nothing of the world is heard.** `Engine::updateWorld`
+  with a stopped clock calls `AudioSystem::pause`, which holds every voice of the
+  world where it is; a scene that is replaced has its voices stopped (`changeScene`,
+  after the scripts have ended). That is why an editor is silent until it plays its
+  scene.
+- **A preview is for whoever is at the editor**, not for the world
+  (`AudioSystem::preview`; `asset.listen`; Play beside the rows of the Assets panel):
+  a sound of the assets, once, without a place, in a group of its own beside the
+  world's. What holds, ends and turns down the world - `pause`, `clear`, the buses,
+  the volume of a listener, which is why that is set on the world's group and not on
+  everything - leaves it alone; only the volume of everything applies, and it is no
+  voice of the world's. `pause` takes the time of the frame, and an `Offline` system
+  mixes that much of a preview while the world is held.
 - **Scripts have two ways to be heard, as C++ has.** What an entity sounds like is its
   `AudioSource`: `entity:set("AudioSource", "playing", true)` plays it, and no
   function was added for that. `cordite.audio.play` is for what belongs to no entity;

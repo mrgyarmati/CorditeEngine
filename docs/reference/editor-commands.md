@@ -37,6 +37,14 @@ Lists the assets the scene can use, each with its id, type, name and path, and w
 |---|---|---|---|
 | `type` | string | no | Only assets of this type: texture, mesh, material, model, scene, skeleton, animation, script, sound or prefab. |
 
+## asset.listen
+
+Plays a sound of the assets for whoever is at the editor: once, from its beginning, without a place and as loud as it was made - also while the scene is not played, which is silent otherwise. A sound that is heard already is replaced. Without `asset`, stops what is heard. Returns the sound's length in seconds, its channels and its rate, and whether it plays.
+
+| Parameter | Kind | Needed | Meaning |
+|---|---|---|---|
+| `asset` | string | no | The sound: its id, or where it is. Left out, what plays stops. |
+
 ## asset.move
 
 Moves or renames the file of an asset, with its .meta: it keeps its id, so whatever refers to it by id follows it, and so do the file of the open scene and the start scene of the project. Refused for what it would break or cannot do: an asset that is built in or inside a file (move the file), a path outside the assets, with a part that begins with a dot, or with another ending, a place that holds a file, a glTF file that names its buffers and images by where they are and would leave them behind in another directory, and a texture that a glTF file names by where it is. Returns `mentions`: lines of scripts, scenes and prefabs, and values in the open scene, that still name it by where it was - those follow by hand. Files are no part of the document: editor.undo does not move it back.

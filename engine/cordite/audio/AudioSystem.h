@@ -10,8 +10,10 @@
 ///
 /// // A game, every frame, after everything has been moved:
 /// audio->update(world, assets, frameSeconds);
-/// // While time does not pass - a pause, an editor - nothing is heard:
-/// audio->pause();
+/// // While time does not pass - a pause, an editor - nothing of the world is heard:
+/// audio->pause(frameSeconds);
+/// // ...but a sound that whoever is at the editor chose among the assets is:
+/// CORDITE_TRY(audio->preview(assets, soundId));
 ///
 /// // A sound that belongs to no entity, once:
 /// CORDITE_TRY_ASSIGN(const AudioVoiceId shot,
@@ -148,13 +150,14 @@ public:
     /// (World::updateWorldTransforms).
     AudioStatistics update(World& world, AssetManager& assets, double deltaSeconds);
 
-    /// Holds everything where it is: nothing is heard and no sound moves on until the
-    /// next update(). For a world whose time does not pass.
-    void pause();
+    /// Holds the sound of the world where it is: nothing of it is heard and no sound of it
+    /// moves on until the next update(). For a world whose time does not pass. A preview
+    /// goes on meanwhile; Offline, `deltaSeconds` of it are mixed into mixed().
+    void pause(double deltaSeconds = 0.0);
 
-    /// Stops everything, and forgets which sounds could not be played. For a world that
-    /// is replaced; one that is still there afterwards is heard from the beginning, as
-    /// its sources say.
+    /// Stops every sound of the world, and forgets which sounds could not be played. For a
+    /// world that is replaced; one that is still there afterwards is heard from the
+    /// beginning, as its sources say. A preview goes on.
     void clear();
 
     /// Starts a sound that belongs to no entity. It is heard with the next update(),
@@ -168,6 +171,21 @@ public:
     void stop(AudioVoiceId voice);
     /// Whether what play() started is still to be heard: not stopped, not at its end.
     [[nodiscard]] bool isPlaying(AudioVoiceId voice) const;
+
+    /// Plays a sound for whoever is at the editor - a sound chosen among its assets -
+    /// once, from its beginning, without a place and as loud as it was made: of the
+    /// volumes, only that of everything (setMasterVolume()) applies, not those of the buses
+    /// or of a listener. It is no voice of the world's - maxVoices does not count it - and
+    /// is heard while the sound of the world is held (pause()) too, and goes on through
+    /// update() and clear(). A preview that plays already is replaced, also when this one
+    /// fails. Fails as AssetManager::loadSound() does for a sound that cannot be loaded,
+    /// and as play() does for one that cannot be played.
+    [[nodiscard]] Status preview(AssetManager& assets, const Uuid& sound);
+    /// Stops the preview. Nothing happens when none plays.
+    void stopPreview();
+    /// The sound of the preview that is still to be heard - not stopped, not at its end -
+    /// and none when there is no such preview.
+    [[nodiscard]] std::optional<Uuid> previewing() const;
 
     /// How loud everything on a bus is: 1 as it is, 0 not at all.
     [[nodiscard]] float volume(AudioBus bus) const;

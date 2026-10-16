@@ -8,7 +8,8 @@
 /// picture of that asset when it has one (AssetPreview). A model or a
 /// prefab is placed in the scene by a double click or from its menu, a scene is opened
 /// from its menu, and any asset is dragged onto a property of the inspector that takes
-/// one of its kind, or - a model or a prefab - onto an entity of the hierarchy.
+/// one of its kind, or - a model or a prefab - onto an entity of the hierarchy. A sound
+/// has its length beside the rows instead of a picture, and is heard with Play.
 ///
 /// @code
 /// AssetBrowserPanel assets;
@@ -30,6 +31,7 @@
 #include "cordite/engine/Engine.h"
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -69,6 +71,10 @@ private:
     void drawMoveDialog(const EditorContext& context, std::vector<std::string>& submittedLines);
     /// The picture of `asset`, as large as there is room for.
     void drawPicture(Engine& engine, EditorContext& context, ShadowQuality shadows, const AssetInfo& asset);
+    /// What a sound has instead of a picture: how long it is, and Play and Stop
+    /// (`asset.listen`).
+    void drawSound(Engine& engine, EditorContext& context, const AssetInfo& asset,
+                   std::vector<std::string>& submittedLines);
 
     AssetBrowser m_browser;
     AssetPreview m_preview;
@@ -91,6 +97,12 @@ private:
     /// The entities of the open scene that use the chosen asset, with their paths: found
     /// when its list opens, not in every frame it is open.
     std::vector<std::pair<Uuid, std::string>> m_sceneUsers;
+    /// The sound that was last read for the area beside the rows, at which revision of
+    /// the assets, and what was found: whether it can be heard, and what is said of it.
+    std::optional<Uuid> m_soundRead;
+    uint64_t m_soundRevision = 0;
+    bool m_soundHeard = false;
+    std::string m_soundText;
     /// The asset the rows were last drawn with as the chosen one. When something else
     /// than a click in here chooses another - a command - the rows scroll to it.
     Uuid m_shownSelection;

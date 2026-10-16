@@ -80,7 +80,7 @@ does the same by hand.
 The Assets panel lists the assets as a tree of directories and files, with what is inside
 files - the meshes, materials and animations of a model. Narrow it down by kind, or by typing
 part of a name. Beside the list is a picture of the chosen asset: a texture as it is, a mesh,
-a material on a ball, a model or a prefab.
+a material on a ball, a model or a prefab - and for a sound, its length with a **Play** button.
 
 - Double-click a model or a prefab to place it in the scene, or drag it onto an entity of
   the Hierarchy to place it under that entity.

@@ -18,6 +18,7 @@
 #include "support/TestSupport.h"
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -1387,6 +1388,20 @@ TEST_SUITE("AssetCommands") {
         // What has no file of its own does not move.
         CHECK(dropTarget(*database.findByReference("models/cart.gltf#mesh/0"), rowOf("textures")).empty());
         CHECK(dropTarget(*database.find(builtinMeshId(BuiltinMesh::Cube)), rowOf("textures")).empty());
+    }
+
+    TEST_CASE("a sound is heard by a line, and said in a few words beside the rows") {
+        const Uuid sound = Uuid::generate();
+        CHECK(listenCommand(sound) == fmt::format(R"(asset.listen {{"asset":"{}"}})", sound.toString()));
+        // Without a sound the line stops what is heard.
+        CHECK(listenCommand(std::nullopt) == "asset.listen");
+
+        CHECK(describeSound({.sampleRate = 48000, .channels = 1, .samples = std::vector<float>(12000)}) ==
+              "0.25 s, mono, 48000 Hz");
+        CHECK(describeSound({.sampleRate = 44100, .channels = 2, .samples = std::vector<float>(2 * 66150)}) ==
+              "1.50 s, stereo, 44100 Hz");
+        // A sound with nothing in it lasts no time.
+        CHECK(describeSound({.sampleRate = 22050, .channels = 2}) == "0.00 s, stereo, 22050 Hz");
     }
 
     TEST_CASE("a directory is moved by a line, and dropped onto another directory it goes into it") {

@@ -217,7 +217,9 @@ public:
     /// the audio sources say is heard from where they now are (AudioSystem). With the
     /// clock stopped no script runs, nothing is simulated and
     /// nothing plays: bodies are where their entities are, the poses are those of
-    /// the times the animators hold, and what was sounding is held where it was.
+    /// the times the animators hold, and what was sounding is held where it was - all
+    /// but a preview for whoever is at the editor (AudioSystem::preview()), which goes
+    /// on by deltaSeconds().
     ///
     /// Call it once per frame with a running clock, between beginFrame() and drawing:
     /// each call lets the time of a frame pass. A running clock outside a frame is a

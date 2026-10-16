@@ -80,6 +80,7 @@ Do not guess command or property names; ask the editor.
 | `project.open` | Open another project (`{"path": "..."}`): the editor closes and begins again on it |
 | `project.export` | Make a game of the project (`{"path": "out/MyGame"}`): its program, assets, compiled shaders and license notices; a game exported there before is replaced; refused while playing or with unsaved changes |
 | `asset.preview` | Save a picture of a mesh, a material (on a ball), a model or a prefab, as the Assets panel draws it (`{"asset": ..., "path": "out/crate.png", "size": 256}`): how to look at an asset without a window |
+| `asset.listen` | Hear a sound of the assets (`{"asset": "sounds/hop.wav"}`) while the scene is not played - once, without a place; without `asset`, stop it. A headless editor mixes it into memory: what was heard is `engine().audio().mixed()` in a test |
 | `asset.import` | Bring files from elsewhere into the assets (`{"files": ["C:/Downloads/crate.glb"], "to": "props"}`): copies, a glTF file with the files it names; new ids. Not undoable |
 | `asset.move` | Rename or move the file of an asset, with its .meta (`{"asset": ..., "to": "textures/brick.png"}`); returns `mentions`, what still names the old path. Not undoable |
 | `asset.moveDirectory` | Rename or move a directory of the assets with all in it (`{"from": "textures/old", "to": "art/textures"}`): every asset keeps its id; returns every asset that moved, with its `mentions`. Not undoable |

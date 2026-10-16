@@ -919,6 +919,38 @@ Status EditorApp::registerProjectCommands() {
     }));
 
     CORDITE_TRY(m_commands.add({
+        .name = "asset.listen",
+        .description = "Plays a sound of the assets for whoever is at the editor: once, from its beginning, without a "
+                       "place and as loud as it was made - also while the scene is not played, which is silent "
+                       "otherwise. A sound that is heard already is replaced. Without `asset`, stops what is heard. "
+                       "Returns the sound's length in seconds, its channels and its rate, and whether it plays.",
+        .parameters = {{"asset", Type::String, "The sound: its id, or where it is. Left out, what plays stops.",
+                        false}},
+        .handler = [this](const Json& parameters) -> Result<Json> {
+            Json result = Json::object();
+            if (!parameters.contains("asset")) {
+                m_engine->audio().stopPreview();
+                result["playing"] = false;
+                return result;
+            }
+            CORDITE_TRY_ASSIGN(const AssetInfo* asset,
+                               m_context->resolveAsset(parameters.at("asset").get<std::string>()));
+            if (asset->type != AssetType::Sound) {
+                return makeError(ErrorCode::InvalidArgument, "{} is {}, which is not heard", asset->reference(),
+                                 withArticle(asset->type));
+            }
+            const Uuid id = asset->id;
+            CORDITE_TRY_ASSIGN(const std::shared_ptr<const SoundData> sound, m_context->assets().loadSound(id));
+            CORDITE_TRY(m_engine->audio().preview(m_context->assets(), id));
+            result["seconds"] = sound->seconds();
+            result["channels"] = sound->channels;
+            result["sampleRate"] = sound->sampleRate;
+            result["playing"] = true;
+            return result;
+        },
+    }));
+
+    CORDITE_TRY(m_commands.add({
         .name = "asset.preview",
         .description = "Draws a picture of an asset as the Assets panel shows it - a mesh as it is, a material on a "
                        "ball, a model or a prefab as it is placed, whole, from in front and above - and saves it "

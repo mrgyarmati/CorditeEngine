@@ -1072,4 +1072,97 @@ TEST_SUITE("AudioSystem") {
         CHECK(stage.sourceOf(entity).playing);
         stage.audio->clear();
     }
+
+    TEST_CASE("a preview is heard while the sound of the world is held, as it was made") {
+        Stage stage;
+        stage.source("quiet.wav");
+        CHECK(stage.level() == Vec2(0.125f));
+        REQUIRE(stage.audio->preview(*stage.assets, stage.idOf("steady.wav")).has_value());
+        CHECK(stage.audio->previewing() == stage.idOf("steady.wav"));
+
+        // Held: the world says nothing - not even the eighth of its source - and the preview
+        // goes on (after the frame the mixer is behind).
+        stage.audio->pause(kTick);
+        const Heard held{.samples = {stage.audio->mixed().begin(), stage.audio->mixed().end()}};
+        REQUIRE(held.frames() == kTickFrames);
+        CHECK(std::ranges::all_of(held.samples, [](float sample) { return sample == 0.0f || sample == 0.5f; }));
+        CHECK(held.last() == Vec2(0.5f));
+        // With the world going again, both - added up, the world where it was held.
+        CHECK(stage.level() == Vec2(0.625f));
+
+        // Stopped: only the world.
+        stage.audio->stopPreview();
+        CHECK_FALSE(stage.audio->previewing().has_value());
+        CHECK(stage.level() == Vec2(0.125f));
+        stage.audio->pause(kTick);
+        CHECK(stage.audio->mixed().size() == kTickFrames * 2);
+        CHECK(std::ranges::all_of(stage.audio->mixed(), [](float sample) { return sample == 0.0f; }));
+        // No time is no time, and neither is a time that is no number.
+        stage.audio->pause();
+        CHECK(stage.audio->mixed().empty());
+        stage.audio->pause(kNotANumber);
+        CHECK(stage.audio->mixed().empty());
+        // Stopping what is not there does nothing.
+        stage.audio->stopPreview();
+        CHECK(stage.level() == Vec2(0.125f));
+    }
+
+    TEST_CASE("a preview is no voice of the world's, and no bus or listener of the world is heard in it") {
+        Stage stage({.maxVoices = 1});
+        stage.source("quiet.wav");
+        stage.hear();
+        REQUIRE(stage.audio->preview(*stage.assets, stage.idOf("steady.wav")).has_value());
+        stage.hear();
+        CHECK(stage.statistics.voices == 1);
+        CHECK(errorIn(stage.audio->play(*stage.assets, {.sound = stage.idOf("quiet.wav")})).code ==
+              ErrorCode::OutOfRange);
+
+        // The world at half on every bus, and heard at half: an eighth of a quarter of it.
+        // And heard from four metres to the right, which would be heard in a preview that
+        // had a place: it has none.
+        for (const AudioBus bus : kAudioBuses) {
+            REQUIRE(stage.audio->setVolume(bus, 0.5f).has_value());
+        }
+        const Entity ears = stage.world.createEntity("Ears");
+        stage.world.add<AudioListenerComponent>(ears).volume = 0.5f;
+        stage.world.tryGet<Transform>(ears)->position = Vec3(4.0f, 0.0f, 0.0f);
+        CHECK(stage.level() == Vec2(0.5f + 0.03125f));
+        // The volume of everything is the preview's too.
+        REQUIRE(stage.audio->setMasterVolume(0.5f).has_value());
+        CHECK(stage.level() == Vec2(0.265625f));
+        // And a world that is cleared away takes no preview with it.
+        stage.audio->clear();
+        CHECK(stage.audio->previewing() == stage.idOf("steady.wav"));
+        // (The source begins again, as its component says.)
+        CHECK(stage.level() == Vec2(0.265625f));
+    }
+
+    TEST_CASE("a preview replaces another, ends with its sound, and is refused for what cannot be heard") {
+        Stage stage;
+        REQUIRE(stage.audio->preview(*stage.assets, stage.idOf("steady.wav")).has_value());
+        REQUIRE(stage.audio->preview(*stage.assets, stage.idOf("sides.wav")).has_value());
+        CHECK(stage.audio->previewing() == stage.idOf("sides.wav"));
+        // Its own channels, each in its ear: a preview has no place.
+        stage.audio->pause(kTick);
+        const Heard first{.samples = {stage.audio->mixed().begin(), stage.audio->mixed().end()}};
+        CHECK(first.last() == Vec2(0.25f, -0.5f));
+        // To its end, and no further, as long as what play() starts: it does not loop.
+        int ticks = 1;
+        for (; ticks < 100 && stage.audio->previewing().has_value(); ++ticks) {
+            stage.audio->pause(kTick);
+        }
+        CHECK(ticks == 11);
+        stage.audio->pause(kTick);
+        CHECK(std::ranges::all_of(stage.audio->mixed(), [](float sample) { return sample == 0.0f; }));
+
+        // What is not a sound, and what is no asset: refused, and what was heard is gone.
+        REQUIRE(stage.audio->preview(*stage.assets, stage.idOf("steady.wav")).has_value());
+        CHECK(errorIn(stage.audio->preview(*stage.assets, stage.idOf("words.wav"))).code == ErrorCode::ParseError);
+        CHECK_FALSE(stage.audio->previewing().has_value());
+        CHECK(errorIn(stage.audio->preview(*stage.assets, stage.idOf("notes.lua"))).code == ErrorCode::InvalidArgument);
+        CHECK(errorIn(stage.audio->preview(*stage.assets, Uuid::generate())).code == ErrorCode::NotFound);
+        CHECK_FALSE(stage.audio->previewing().has_value());
+        stage.audio->pause(kTick);
+        CHECK(std::ranges::all_of(stage.audio->mixed(), [](float sample) { return sample == 0.0f; }));
+    }
 }

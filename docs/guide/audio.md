@@ -40,6 +40,8 @@ nothing to stop the game for.
 
 ## In the editor
 
-Nothing is heard while you edit. A scene that is played is heard; pausing it pauses its
-sounds, and stopping it stops them. A batch run of the editor and the tests mix sound into
-memory instead of a device, the same on every run.
+Nothing of the scene is heard while you edit. A scene that is played is heard; pausing it
+pauses its sounds, and stopping it stops them. To hear a sound file before you use it,
+choose it in the Assets panel and press **Play** beside the list (`asset.listen` for agents):
+it plays once, as it was made, also while the scene is not played. A batch run of the editor
+and the tests mix sound into memory instead of a device, the same on every run.
