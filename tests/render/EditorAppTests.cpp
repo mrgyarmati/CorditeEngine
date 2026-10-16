@@ -13,6 +13,7 @@
 #include "cordite/editor/AssetPreview.h"
 #include "cordite/editor/EditorPreferences.h"
 #include "cordite/editor/Gizmo.h"
+#include "cordite/editor/NewProject.h"
 #include "cordite/engine/Project.h"
 #include "cordite/platform/InputMap.h"
 #include "cordite/renderer/RenderDebugView.h"
@@ -2462,6 +2463,70 @@ TEST_SUITE("EditorApp") {
         CHECK(editor->context().assets().database().revision() != revision);
     }
 
+    TEST_CASE("a new project is made by command, and the editor closes so that it is opened instead") {
+        const TempDirectory directory;
+        EditorAppDesc desc = headlessDesc(UVec2(320, 180));
+        desc.project = showcaseProject();
+        const std::unique_ptr<EditorApp> editor = createEditor(desc);
+        Json parameters = Json::object();
+        parameters["path"] = pathToUtf8(directory.path() / "fresh");
+        parameters["name"] = "Fresh";
+
+        // What is not saved would be lost; what is played is no scene to leave.
+        run(*editor, "entity.create", R"({"name": "Unsaved"})");
+        CHECK(refusal(*editor, "project.new", parameters.dump()).message.find("not saved") != std::string::npos);
+        run(*editor, "editor.undo");
+        run(*editor, "play.start");
+        CHECK(refusal(*editor, "project.new", parameters.dump()).message.find("played") != std::string::npos);
+        run(*editor, "play.stop");
+        CHECK_FALSE(std::filesystem::exists(directory.path() / "fresh"));
+        CHECK_FALSE(editor->projectToOpen().has_value());
+
+        const Json made = run(*editor, "project.new", parameters.dump());
+        CHECK(made["name"] == "Fresh");
+        CHECK(made["startScene"] == "scenes/main.scene.json");
+        REQUIRE(editor->projectToOpen().has_value());
+        CHECK(*editor->projectToOpen() == directory.path() / "fresh");
+        CHECK_FALSE(unwrap(editor->runFrame()));
+        // There is a project there now.
+        CHECK(refusal(*editor, "project.new", parameters.dump()).code == ErrorCode::AlreadyExists);
+    }
+
+    TEST_CASE("an editor opens another project by command, and nothing that is no project") {
+        const std::unique_ptr<EditorApp> editor = createEditor(headlessDesc(UVec2(320, 180)));
+        const TempDirectory directory;
+        Json nowhere = Json::object();
+        nowhere["path"] = pathToUtf8(directory.path());
+        CHECK(refusal(*editor, "project.open", nowhere.dump()).code == ErrorCode::NotFound);
+        CHECK_FALSE(editor->projectToOpen().has_value());
+
+        Json showcase = Json::object();
+        showcase["path"] = pathToUtf8(showcaseProject() / "project.cordite");
+        CHECK(run(*editor, "project.open", showcase.dump())["name"] == "Showcase");
+        REQUIRE(editor->projectToOpen().has_value());
+        CHECK(*editor->projectToOpen() == showcaseProject());
+        CHECK_FALSE(unwrap(editor->runFrame()));
+    }
+
+    TEST_CASE("a new project opens with its scene, which the game's camera shows lit") {
+        const TempDirectory directory;
+        const Project made = unwrap(createStarterProject(directory.path() / "lit", "Lit"));
+        EditorAppDesc desc = headlessDesc(UVec2(320, 180));
+        desc.project = made.directory;
+        const std::unique_ptr<EditorApp> editor = createEditor(desc);
+        CHECK(editor->context().scenePath() == made.startScenePath());
+        run(*editor, "viewport.show", R"({"camera": "game"})");
+        const Image picture = unwrap(editor->captureViewport(UVec2(320, 180)));
+        // The box in the middle, lit by the sun, and the floor below it, in its shadow or
+        // not: neither is black, and they differ.
+        const Vec4 box = picture.pixel(160, 95);
+        const Vec4 floor = picture.pixel(160, 170);
+        CHECK(box.r + box.g + box.b > 0.3f);
+        CHECK(floor.r + floor.g + floor.b > 0.15f);
+        CHECK(glm::length(Vec3(box) - Vec3(floor)) > 0.02f);
+        checkNoValidationIssues(editor->engine().graphics());
+    }
+
     TEST_CASE("a game is made of the project by command, and not of a scene that is not saved") {
         const TempDirectory directory;
         // Without a project there is nothing to make a game of.
@@ -2495,7 +2560,8 @@ TEST_SUITE("EditorApp") {
               "editor.focusPanel", "editor.theme",       "assets.browse",     "viewport.lookAt",  "viewport.frame",
               "viewport.camera",   "viewport.debugView", "viewport.gizmo",    "entity.create",    "scene.save",
               "play.start",        "play.stop",          "play.pause",        "play.resume",      "play.step",
-              "play.status",       "asset.move",         "asset.import",      "asset.preview",    "project.export"}) {
+              "play.status",       "asset.move",         "asset.import",      "asset.preview",    "project.export",
+              "project.new",       "project.open"}) {
             CAPTURE(name);
             const CommandDesc* command = editor->commands().find(name);
             REQUIRE(command != nullptr);

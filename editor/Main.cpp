@@ -13,6 +13,10 @@
 ///
 ///     cordite-editor samples/showcase/project.cordite
 ///
+/// A new project, with a scene to begin with, is made and opened:
+///
+///     cordite-editor --new-project games/depot --name "Depot"
+///
 /// And it makes a game of a project, opening no editor, no window and no GPU device:
 ///
 ///     cordite-editor --project samples/showcase --export out/Showcase
@@ -30,16 +34,21 @@
 #include "cordite/editor/EditorPreferences.h"
 #include "cordite/editor/FileAssociation.h"
 #include "cordite/editor/GameExport.h"
+#include "cordite/editor/NewProject.h"
 #include "cordite/engine/Project.h"
 
 #include <CLI/CLI.hpp>
 #include <fmt/format.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdlib>
 #include <exception>
+#include <filesystem>
 #include <iostream>
+#include <optional>
 #include <string>
+#include <utility>
 
 namespace {
 
@@ -67,6 +76,9 @@ struct Options {
     std::string scriptOutput;
     /// Where to make a game of the project, instead of opening the editor.
     std::string exportTo;
+    /// Where to make a new project, which is then opened, and what its game is called.
+    std::string newProject;
+    std::string newProjectName;
     std::string screenshot;
     std::string adapter;
     std::string logLevel = "info";
@@ -141,19 +153,9 @@ int exportProject(const Options& options) {
     return kExitSuccess;
 }
 
-int run(const Options& options) {
+/// How an editor is made for the options: everything but which project and scene it opens.
+cordite::EditorAppDesc editorDescFor(const Options& options) {
     using namespace cordite;
-
-    LogConfig logConfig;
-    logConfig.level = cordite::logLevelFromName(options.logLevel).value_or(cordite::LogLevel::Info);
-    if (const Status status = Log::initialize(logConfig); !status) {
-        CORDITE_LOG_WARN("Editor", "{}", status.error().message);
-    }
-    CORDITE_LOG_INFO("Editor", "{} editor {}", kEngineName, kEngineVersion);
-    if (!options.exportTo.empty()) {
-        return exportProject(options);
-    }
-
     EditorAppDesc desc;
     desc.engine.headless = options.headless;
     desc.engine.validation = options.validation;
@@ -177,60 +179,108 @@ int run(const Options& options) {
     if (!options.headless) {
         desc.preferencesFile = editorPreferencesFile();
     }
-    desc.project = pathFromUtf8(options.project.empty() ? options.projectFile : options.project);
-    desc.scene = pathFromUtf8(options.scene);
+    return desc;
+}
+
+int run(const Options& options) {
+    using namespace cordite;
+
+    LogConfig logConfig;
+    logConfig.level = cordite::logLevelFromName(options.logLevel).value_or(cordite::LogLevel::Info);
+    if (const Status status = Log::initialize(logConfig); !status) {
+        CORDITE_LOG_WARN("Editor", "{}", status.error().message);
+    }
+    CORDITE_LOG_INFO("Editor", "{} editor {}", kEngineName, kEngineVersion);
+    if (!options.exportTo.empty()) {
+        return exportProject(options);
+    }
+
+    std::filesystem::path project = pathFromUtf8(options.project.empty() ? options.projectFile : options.project);
+    if (!options.newProject.empty()) {
+        const Result<Project> made = createStarterProject(pathFromUtf8(options.newProject), options.newProjectName);
+        if (!made) {
+            CORDITE_LOG_CRITICAL("Editor", "cannot make the project: {}", made.error().describe());
+            showErrorDialog("Cordite editor",
+                            fmt::format("The project cannot be made.\n\n{}", made.error().describe()));
+            return kExitFailure;
+        }
+        CORDITE_LOG_INFO("Editor", "made the project {} in {}", made->settings.name, pathToUtf8(made->directory));
+        project = made->directory;
+    }
 
     // A person at the editor double-clicks project files; a batch run leaves the system alone.
     if (!options.headless) {
         associateProjectFiles();
     }
 
-    Result<std::unique_ptr<EditorApp>> editor = EditorApp::create(desc);
-    if (!editor) {
-        CORDITE_LOG_CRITICAL("Editor", "cannot start: {}", editor.error().describe());
-        showErrorDialog("Cordite editor", fmt::format("The editor cannot start.\n\n{}", editor.error().describe()));
-        return kExitFailure;
-    }
-    Engine& engine = (*editor)->engine();
-
+    // The editor works on one project. Asked to open another - File > New project, Open
+    // project - it ends, and another editor begins on that one: with the frames that are
+    // left to run, and without the script, which was the first one's.
+    std::filesystem::path scene = pathFromUtf8(options.scene);
+    bool firstEditor = true;
+    uint64_t framesLeft = options.frames;
     int exitCode = kExitSuccess;
-    if (!options.script.empty() && !runScriptFile(**editor, options)) {
-        exitCode = kExitScriptFailed;
-    }
-
-    // Interactive: until the window is closed. Batch: exactly as many frames as asked for,
-    // on top of any the script ran.
-    const uint64_t firstFrame = engine.frameIndex();
-    const bool untilClosed = options.frames == 0 && !options.headless;
-    while (untilClosed || engine.frameIndex() - firstFrame < options.frames) {
-        const Result<bool> keepRunning = (*editor)->runFrame();
-        if (!keepRunning) {
-            CORDITE_LOG_CRITICAL("Editor", "frame {} failed: {}", engine.frameIndex(), keepRunning.error().describe());
-            showErrorDialog("Cordite editor",
-                            fmt::format("The editor has stopped.\n\n{}", keepRunning.error().describe()));
+    size_t validationIssues = 0;
+    while (true) {
+        EditorAppDesc desc = editorDescFor(options);
+        desc.project = project;
+        desc.scene = std::exchange(scene, {});
+        Result<std::unique_ptr<EditorApp>> editor = EditorApp::create(desc);
+        if (!editor) {
+            CORDITE_LOG_CRITICAL("Editor", "cannot start: {}", editor.error().describe());
+            showErrorDialog("Cordite editor", fmt::format("The editor cannot start.\n\n{}", editor.error().describe()));
             return kExitFailure;
         }
-        if (!*keepRunning) {
-            break;
+        Engine& engine = (*editor)->engine();
+
+        if (firstEditor && !options.script.empty() && !runScriptFile(**editor, options)) {
+            exitCode = kExitScriptFailed;
         }
+        firstEditor = false;
+
+        // Interactive: until the window is closed. Batch: exactly as many frames as asked
+        // for, on top of any the script ran.
+        const uint64_t firstFrame = engine.frameIndex();
+        const bool untilClosed = options.frames == 0 && !options.headless;
+        while (untilClosed || engine.frameIndex() - firstFrame < framesLeft) {
+            const Result<bool> keepRunning = (*editor)->runFrame();
+            if (!keepRunning) {
+                CORDITE_LOG_CRITICAL("Editor", "frame {} failed: {}", engine.frameIndex(),
+                                     keepRunning.error().describe());
+                showErrorDialog("Cordite editor",
+                                fmt::format("The editor has stopped.\n\n{}", keepRunning.error().describe()));
+                return kExitFailure;
+            }
+            if (!*keepRunning) {
+                break;
+            }
+        }
+        framesLeft -= std::min(framesLeft, engine.frameIndex() - firstFrame);
+        validationIssues += engine.graphics().validationIssueCount();
+
+        if (const std::optional<std::filesystem::path>& next = (*editor)->projectToOpen()) {
+            CORDITE_LOG_INFO("Editor", "opening the project {}", pathToUtf8(*next));
+            project = *next;
+            continue;
+        }
+
+        if (!options.screenshot.empty()) {
+            const Result<Image> frame = engine.captureFrame();
+            if (!frame) {
+                CORDITE_LOG_ERROR("Editor", "cannot capture the frame: {}", frame.error().describe());
+                return kExitFailure;
+            }
+            if (const Status saved = frame->savePng(pathFromUtf8(options.screenshot)); !saved) {
+                CORDITE_LOG_ERROR("Editor", "cannot save the screenshot: {}", saved.error().describe());
+                return kExitFailure;
+            }
+            CORDITE_LOG_INFO("Editor", "saved {}", options.screenshot);
+        }
+        break;
     }
 
-    if (!options.screenshot.empty()) {
-        const Result<Image> frame = engine.captureFrame();
-        if (!frame) {
-            CORDITE_LOG_ERROR("Editor", "cannot capture the frame: {}", frame.error().describe());
-            return kExitFailure;
-        }
-        if (const Status saved = frame->savePng(pathFromUtf8(options.screenshot)); !saved) {
-            CORDITE_LOG_ERROR("Editor", "cannot save the screenshot: {}", saved.error().describe());
-            return kExitFailure;
-        }
-        CORDITE_LOG_INFO("Editor", "saved {}", options.screenshot);
-    }
-
-    const size_t issues = engine.graphics().validationIssueCount();
-    if (issues > 0) {
-        CORDITE_LOG_ERROR("Editor", "the GPU validation layers reported {} issue(s)", issues);
+    if (validationIssues > 0) {
+        CORDITE_LOG_ERROR("Editor", "the GPU validation layers reported {} issue(s)", validationIssues);
         return kExitValidationIssues;
     }
     return exitCode;
@@ -283,6 +333,15 @@ int parseAndRun(int argc, char** argv) {
         ->excludes("--scene")
         ->excludes("--frames")
         ->excludes("--screenshot");
+    CLI::Option* newProject =
+        app.add_option("--new-project", options.newProject,
+                       "Make a new project in this directory - with a scene to begin with - and open it")
+            ->excludes("--project")
+            ->excludes("project-file")
+            ->excludes("--export");
+    app.add_option("--name", options.newProjectName,
+                   "What the game of the new project is called; the name of its directory without")
+        ->needs(newProject);
 
     CLI11_PARSE(app, argc, argv);
 

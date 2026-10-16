@@ -13,6 +13,7 @@
 #include "cordite/editor/EditorToolbar.h"
 #include "cordite/editor/GameExport.h"
 #include "cordite/editor/InputCommands.h"
+#include "cordite/editor/NewProject.h"
 #include "cordite/editor/PhysicsCommands.h"
 #include "cordite/editor/ScriptCommands.h"
 #include "cordite/math/MathJson.h"
@@ -826,6 +827,60 @@ Json EditorApp::describePlay() const {
 }
 
 Status EditorApp::registerProjectCommands() {
+    // Another project is another engine - other assets, another cache - so the editor
+    // ends, and whoever runs it begins again on the project (projectToOpen()).
+    const auto refuseToLeave = [this]() -> Status {
+        if (m_context->isPlaying()) {
+            return makeError(ErrorCode::InvalidState, "the scene is being played: stop it first");
+        }
+        if (m_context->hasUnsavedChanges()) {
+            return makeError(ErrorCode::InvalidState,
+                             "the scene has changes that are not saved, and would be lost: save it, or undo them");
+        }
+        return {};
+    };
+    CORDITE_TRY(m_commands.add({
+        .name = "project.new",
+        .description = "Makes a new project - a directory with a project.cordite and its assets - with a scene to "
+                       "begin with: a camera that looks at a box on a floor, under a sun and a sky. Then the "
+                       "editor closes, and the program that runs it opens it again on the new project. Refused "
+                       "while the scene is played or has changes that are not saved, and for a directory that "
+                       "holds a project already. Returns the project and its start scene.",
+        .parameters =
+            {{"path", Type::String, "The directory of the project: not there yet, or one without a project in it."},
+             {"name", Type::String, "What the game is called. Defaults to the name of the directory.", false}},
+        .handler = [this, refuseToLeave](const Json& parameters) -> Result<Json> {
+            CORDITE_TRY(refuseToLeave());
+            CORDITE_TRY_ASSIGN(const Project made,
+                               createStarterProject(pathFromUtf8(parameters.at("path").get<std::string>()),
+                                                    jsonGetOr<std::string>(parameters, "name", "")));
+            m_projectToOpen = made.directory;
+            m_engine->requestExit();
+            Json result = Json::object();
+            result["project"] = pathToUtf8(made.directory);
+            result["name"] = made.settings.name;
+            result["startScene"] = made.settings.startScene;
+            return result;
+        },
+    }));
+    CORDITE_TRY(m_commands.add({
+        .name = "project.open",
+        .description = "Opens another project: the editor closes, and the program that runs it opens it again on "
+                       "that project. Refused while the scene is played or has changes that are not saved, and "
+                       "for a path that holds no project. Returns the project.",
+        .parameters = {{"path", Type::String, "The project: its directory, or its project.cordite."}},
+        .handler = [this, refuseToLeave](const Json& parameters) -> Result<Json> {
+            CORDITE_TRY(refuseToLeave());
+            CORDITE_TRY_ASSIGN(const Project project,
+                               loadProject(pathFromUtf8(parameters.at("path").get<std::string>())));
+            m_projectToOpen = project.directory;
+            m_engine->requestExit();
+            Json result = Json::object();
+            result["project"] = pathToUtf8(project.directory);
+            result["name"] = project.settings.name;
+            return result;
+        },
+    }));
     CORDITE_TRY(m_commands.add({
         .name = "project.export",
         .description = "Makes a game of the project: a directory with its program - cordite-player, under the "
@@ -1219,6 +1274,45 @@ void EditorApp::handleEntityShortcuts() {
     }
 }
 
+void EditorApp::drawFileMenu() {
+    if (!ImGui::BeginMenu("File")) {
+        return;
+    }
+    if (ImGui::MenuItem("New project...", nullptr, false, !m_context->isPlaying())) {
+        m_fileDialog = FileDialog::NewProject;
+        m_openFileDialog = true;
+    }
+    if (ImGui::MenuItem("Open project...", nullptr, false, !m_context->isPlaying())) {
+        m_fileDialog = FileDialog::OpenProject;
+        m_openFileDialog = true;
+    }
+    ImGui::Separator();
+    if (ImGui::MenuItem("New scene")) {
+        reportIfFailed(m_context->newScene());
+    }
+    if (ImGui::MenuItem("Open scene...", "Ctrl+O")) {
+        m_fileDialog = FileDialog::Open;
+        m_openFileDialog = true;
+    }
+    if (ImGui::MenuItem("Save", "Ctrl+S", false, !m_context->scenePath().empty())) {
+        reportIfFailed(m_context->saveScene());
+    }
+    if (ImGui::MenuItem("Save as...")) {
+        m_fileDialog = FileDialog::SaveAs;
+        m_openFileDialog = true;
+    }
+    ImGui::Separator();
+    if (ImGui::MenuItem("Export game...", nullptr, false, m_project.has_value() && !m_context->isPlaying())) {
+        m_fileDialog = FileDialog::ExportGame;
+        m_openFileDialog = true;
+    }
+    ImGui::Separator();
+    if (ImGui::MenuItem("Exit")) {
+        m_engine->requestExit();
+    }
+    ImGui::EndMenu();
+}
+
 void EditorApp::drawMainMenu() {
     if (!ImGui::BeginMainMenuBar()) {
         return;
@@ -1227,32 +1321,7 @@ void EditorApp::drawMainMenu() {
     UndoStack& history = m_context->history();
     const std::vector<Entity> selection = m_context->selection();
 
-    if (ImGui::BeginMenu("File")) {
-        if (ImGui::MenuItem("New scene")) {
-            reportIfFailed(m_context->newScene());
-        }
-        if (ImGui::MenuItem("Open scene...", "Ctrl+O")) {
-            m_fileDialog = FileDialog::Open;
-            m_openFileDialog = true;
-        }
-        if (ImGui::MenuItem("Save", "Ctrl+S", false, !m_context->scenePath().empty())) {
-            reportIfFailed(m_context->saveScene());
-        }
-        if (ImGui::MenuItem("Save as...")) {
-            m_fileDialog = FileDialog::SaveAs;
-            m_openFileDialog = true;
-        }
-        ImGui::Separator();
-        if (ImGui::MenuItem("Export game...", nullptr, false, m_project.has_value() && !m_context->isPlaying())) {
-            m_fileDialog = FileDialog::ExportGame;
-            m_openFileDialog = true;
-        }
-        ImGui::Separator();
-        if (ImGui::MenuItem("Exit")) {
-            m_engine->requestExit();
-        }
-        ImGui::EndMenu();
-    }
+    drawFileMenu();
 
     if (ImGui::BeginMenu("Edit")) {
         // The labels say what would be undone and redone.
@@ -1559,9 +1628,21 @@ void EditorApp::drawAssetMenu() {
 void EditorApp::drawFileDialog() {
     if (m_openFileDialog) {
         m_openFileDialog = false;
-        m_fileDialogPath = m_fileDialog == FileDialog::ExportGame && m_project
-                               ? pathToUtf8(defaultGameDirectory(m_project->directory))
-                               : pathToUtf8(m_context->scenePath());
+        m_fileDialogName.clear();
+        switch (m_fileDialog) {
+            case FileDialog::ExportGame:
+                m_fileDialogPath = m_project ? pathToUtf8(defaultGameDirectory(m_project->directory)) : std::string();
+                break;
+            case FileDialog::NewProject:
+            case FileDialog::OpenProject:
+                m_fileDialogPath = m_project ? pathToUtf8(m_project->directory.parent_path()) : std::string();
+                break;
+            case FileDialog::None:
+            case FileDialog::Open:
+            case FileDialog::SaveAs:
+                m_fileDialogPath = pathToUtf8(m_context->scenePath());
+                break;
+        }
         ImGui::OpenPopup(kFileDialogId);
     }
 
@@ -1570,24 +1651,41 @@ void EditorApp::drawFileDialog() {
         return;
     }
 
-    const bool isOpen = m_fileDialog == FileDialog::Open;
-    const bool isExport = m_fileDialog == FileDialog::ExportGame;
     // What the dialog asks, and what its button does.
     const char* prompt = "Save the scene as:";
     const char* action = "Save";
-    if (isOpen) {
-        prompt = "Scene file to open:";
-        action = "Open";
-    } else if (isExport) {
-        prompt = "Make the game in:";
-        action = "Export";
+    switch (m_fileDialog) {
+        case FileDialog::Open:
+            prompt = "Scene file to open:";
+            action = "Open";
+            break;
+        case FileDialog::ExportGame:
+            prompt = "Make the game in:";
+            action = "Export";
+            break;
+        case FileDialog::NewProject:
+            prompt = "Make the project in the directory:";
+            action = "Create";
+            break;
+        case FileDialog::OpenProject:
+            prompt = "The project to open - its directory, or its project.cordite:";
+            action = "Open";
+            break;
+        case FileDialog::None:
+        case FileDialog::SaveAs:
+            break;
     }
     ImGui::TextUnformatted(prompt);
     ImGui::SetNextItemWidth(-std::numeric_limits<float>::min());
     if (ImGui::IsWindowAppearing()) {
         ImGui::SetKeyboardFocusHere();
     }
-    const bool entered = ImGui::InputText("##path", &m_fileDialogPath, ImGuiInputTextFlags_EnterReturnsTrue);
+    bool entered = ImGui::InputText("##path", &m_fileDialogPath, ImGuiInputTextFlags_EnterReturnsTrue);
+    if (m_fileDialog == FileDialog::NewProject) {
+        ImGui::TextUnformatted("What the game is called (the name of the directory, if nothing):");
+        ImGui::SetNextItemWidth(-std::numeric_limits<float>::min());
+        entered = ImGui::InputText("##name", &m_fileDialogName, ImGuiInputTextFlags_EnterReturnsTrue) || entered;
+    }
 
     const bool hasPath = !trim(m_fileDialogPath).empty();
     ImGui::BeginDisabled(!hasPath);
@@ -1598,14 +1696,28 @@ void EditorApp::drawFileDialog() {
 
     if (confirmed) {
         const std::filesystem::path path = pathFromUtf8(trim(m_fileDialogPath));
-        if (isExport) {
-            // Between frames, as a command: it compiles the engine's shaders, and says so.
-            Json parameters = Json::object();
-            parameters["path"] = pathToUtf8(path);
-            m_submittedLines.push_back(fmt::format("project.export {}", parameters.dump()));
-        } else {
-            // The dialog closes either way; a failure is shown in the console.
-            reportIfFailed(isOpen ? m_context->openScene(path) : m_context->saveScene(path));
+        // What leaves this scene or this project runs between frames, as a command, and says
+        // what it did or why it would not; the dialog closes either way.
+        Json parameters = Json::object();
+        parameters["path"] = pathToUtf8(path);
+        switch (m_fileDialog) {
+            case FileDialog::ExportGame:
+                m_submittedLines.push_back(fmt::format("project.export {}", parameters.dump()));
+                break;
+            case FileDialog::NewProject:
+                parameters["name"] = std::string(trim(m_fileDialogName));
+                m_submittedLines.push_back(fmt::format("project.new {}", parameters.dump()));
+                break;
+            case FileDialog::OpenProject:
+                m_submittedLines.push_back(fmt::format("project.open {}", parameters.dump()));
+                break;
+            case FileDialog::Open:
+                reportIfFailed(m_context->openScene(path));
+                break;
+            case FileDialog::None:
+            case FileDialog::SaveAs:
+                reportIfFailed(m_context->saveScene(path));
+                break;
         }
     }
     if (confirmed || cancelled) {

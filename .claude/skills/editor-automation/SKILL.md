@@ -76,6 +76,8 @@ Do not guess command or property names; ask the editor.
 | `editor.state` | Scene file, unsaved changes, what undo and redo would do, the selection |
 | `asset.list` | Every asset with its id, type, name and path; optionally of one type |
 | `asset.get` | One asset: what it needs (`dependencies`), what needs it (`usedBy`) and where the open scene refers to it (`usedInScene`), import warnings, and its content (size, properties, nodes) |
+| `project.new` | Make a new project with a scene to begin with (`{"path": "out/my-game", "name": "My Game"}`); the editor closes and the program opens it again on the new project. `cordite-editor --new-project` does the same from the command line |
+| `project.open` | Open another project (`{"path": "..."}`): the editor closes and begins again on it |
 | `project.export` | Make a game of the project (`{"path": "out/MyGame"}`): its program, assets, compiled shaders and license notices; a game exported there before is replaced; refused while playing or with unsaved changes |
 | `asset.preview` | Save a picture of a mesh, a material (on a ball), a model or a prefab, as the Assets panel draws it (`{"asset": ..., "path": "out/crate.png", "size": 256}`): how to look at an asset without a window |
 | `asset.import` | Bring files from elsewhere into the assets (`{"files": ["C:/Downloads/crate.glb"], "to": "props"}`): copies, a glTF file with the files it names; new ids. Not undoable |

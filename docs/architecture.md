@@ -2049,3 +2049,21 @@ again only the files that changed. What the editor writes itself - a scene it sa
 what a refresh writes - the .meta files of new assets - is taken for no change, or every
 save would read the assets again. A batch run and a test do not watch: they see the files
 as their own commands leave them.
+
+### An editor works on one project, and begins again for another
+
+An engine is made for the assets and the cache of one project: the asset database, the
+shader cache, every system that holds what it loaded from them. Opening another project in
+the same editor would mean taking all of that apart and putting it together again, which
+is what making a new engine does anyway, and a second way of doing it would be one more
+thing to keep right. So File > New project and Open project close the editor, and the
+program that runs it - `editor/Main.cpp` - makes another on the project that was asked
+for, in the same process: a new window, the same person at it. A batch run goes on with
+the frames it has left, so that a script can make a project and look at it.
+
+A new project is not empty. It has a scene to begin with - a camera that looks at a box on
+a floor, under a sun and a sky - made of the engine's own components and built-in assets,
+written by the engine's own serializer, so that it is right by construction and plays and
+exports as it is. Making one writes over nothing: a directory that holds a project, or a
+scene where the new one would go, is refused, and assets that are there already become the
+project's.

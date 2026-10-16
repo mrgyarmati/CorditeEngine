@@ -50,6 +50,7 @@ Read this file before changing anything. Task-specific walkthroughs live in
 
 ./scripts/dev.ps1 run -Target cordite-editor       # open the editor without a project
 ./scripts/dev.ps1 run -Target cordite-editor -- --project samples/showcase
+./scripts/dev.ps1 run -Target cordite-editor -- --new-project out/my-game --name "My Game"   # a new project, with a scene to begin with
 ./scripts/dev.ps1 run -Target cordite-editor -- --headless --validation --project samples/showcase --exec tests/data/editor-smoke.json --frames 3 --screenshot out.png
 ./scripts/dev.ps1 run -Target cordite-sample-assets -- samples/showcase/assets   # regenerate the showcase's textures, models and sounds
 ./scripts/dev.ps1 run -Target cordite-editor -- --project samples/showcase --export out/Showcase   # make a game of a project
@@ -1415,6 +1416,15 @@ panels, EditorApp    the interface, built on the three layers above
   that a script plays (`play.start`, `editor.runFrames`) the same game, frame for
   frame. Without a window the editor opens no sound device: what would be heard is
   mixed into memory.
+- **The editor works on one project; another is opened by beginning again.** The engine
+  is made for the assets and the cache of one project, so File > New project and Open
+  project (`project.new`, `project.open`) close the editor (`EditorApp::projectToOpen`),
+  and `editor/Main.cpp` makes another on that project - with the frames of a batch run
+  that are left, without its script. Both are refused while the scene is played or has
+  changes that are not saved. A new project (`createStarterProject`, `editor/NewProject.h`)
+  has a start scene made of the engine's own components and built-in assets: a camera, a
+  sun, a sky, a floor and a box, so that it plays and exports as it is; `new_project_smoke`
+  makes one of each kind, exports one and plays it.
 - **The editor and the player open no console window on Windows**: they are programs of
   the Windows subsystem (`WINDOWED` in `cordite_add_executable`), with `main` as their
   entry point all the same. What they write goes where they are given - the pipes of

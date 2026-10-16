@@ -162,6 +162,12 @@ public:
     /// The project being worked on, if the editor was started with one.
     [[nodiscard]] const std::optional<Project>& project() const { return m_project; }
 
+    /// The project the editor was asked to open instead of its own - by File > New project,
+    /// File > Open project or their commands - which closes it: runFrame() returns false
+    /// from then on, and whoever runs it starts another editor on that project. Empty while
+    /// nothing was asked.
+    [[nodiscard]] const std::optional<std::filesystem::path>& projectToOpen() const { return m_projectToOpen; }
+
 private:
     EditorApp() = default;
 
@@ -184,6 +190,7 @@ private:
     [[nodiscard]] Json describePlay() const;
     void drawInterface();
     void drawMainMenu();
+    void drawFileMenu();
     void drawEntityMenu();
     void drawAssetMenu();
     /// A menu of the assets of one type, called `label`; `nothing` is said in it when
@@ -206,6 +213,10 @@ private:
         SaveAs,
         /// Where a game of the project goes.
         ExportGame,
+        /// Where a new project is made, and what it is called.
+        NewProject,
+        /// A project to open instead.
+        OpenProject,
     };
 
     std::optional<Project> m_project;
@@ -233,6 +244,9 @@ private:
     FileDialog m_fileDialog = FileDialog::None;
     bool m_openFileDialog = false;
     std::string m_fileDialogPath;
+    /// The name of a new project, typed in the dialog that makes one.
+    std::string m_fileDialogName;
+    std::optional<std::filesystem::path> m_projectToOpen;
     bool m_showInterfaceDemo = false;
     bool m_showStatistics = false;
     /// The window that is brought to the front with the next frame: the one

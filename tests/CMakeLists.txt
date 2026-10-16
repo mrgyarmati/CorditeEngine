@@ -198,6 +198,7 @@ cordite_add_test_suite(editor
         unit/editor/EditorToolbarTests.cpp
         unit/editor/FileAssociationTests.cpp
         unit/editor/GameExportTests.cpp
+        unit/editor/NewProjectTests.cpp
         unit/editor/GizmoTests.cpp
         unit/editor/InputCommandsTests.cpp
         unit/editor/ScriptCommandsTests.cpp
@@ -323,6 +324,17 @@ add_test(NAME export_smoke
         -P "${PROJECT_SOURCE_DIR}/cmake/RunExportedGame.cmake")
 set_tests_properties(export_smoke PROPERTIES LABELS "gpu" TIMEOUT 300)
 cordite_configure_gpu_test(export_smoke "gpu")
+
+# New projects made as a person makes them - from the command line, and by File > New
+# project from a running editor, which then opens it - and one of them exported and played.
+add_test(NAME new_project_smoke
+    COMMAND ${CMAKE_COMMAND}
+        "-DEDITOR=$<TARGET_FILE:cordite-editor>"
+        "-DDIRECTORY=${PROJECT_BINARY_DIR}/test-tmp/new-project-smoke"
+        "-DPROGRAM=Smoke Test$<TARGET_FILE_SUFFIX:cordite-player>"
+        -P "${PROJECT_SOURCE_DIR}/cmake/RunNewProject.cmake")
+set_tests_properties(new_project_smoke PROPERTIES LABELS "gpu" TIMEOUT 300)
+cordite_configure_gpu_test(new_project_smoke "gpu")
 
 if(WIN32)
     # The editor and a game have windows of their own: started with a double click, no
