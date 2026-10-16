@@ -225,7 +225,10 @@ TEST_SUITE("GltfExporter") {
         REQUIRE(exportGltf(document, path).has_value());
 
         CHECK(fileExists(directory.path() / "scene.bin"));
-        checkSameDocument(unwrap(importGltf(path)), document);
+        const GltfDocument imported = unwrap(importGltf(path));
+        checkSameDocument(imported, document);
+        // What has to stay beside it: the buffer, and the image that is in a file.
+        CHECK(imported.externalFiles == std::vector<std::string>{"scene.bin", "textures/wall.png"});
     }
 
     TEST_CASE("a document written as .glb reads back the same") {
@@ -236,7 +239,9 @@ TEST_SUITE("GltfExporter") {
 
         // One file holds everything.
         CHECK_FALSE(fileExists(directory.path() / "scene.bin"));
-        checkSameDocument(unwrap(importGltf(path)), document);
+        const GltfDocument imported = unwrap(importGltf(path));
+        checkSameDocument(imported, document);
+        CHECK(imported.externalFiles == std::vector<std::string>{"textures/wall.png"});
     }
 
     TEST_CASE("the extension decides the form, whatever its case") {

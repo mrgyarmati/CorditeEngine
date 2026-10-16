@@ -648,6 +648,15 @@ Step-by-step guide: [work-with-assets](.claude/skills/work-with-assets/SKILL.md)
   (`rereadDependencies`), because a refresh reloads every asset; `revision()` does not
   change then, so nothing may keep dependencies by it. What a script loads while it
   runs is known to nothing until it runs.
+- **A file moves with its .meta** (`asset.move`, `editor/AssetMove.h`): it keeps its id,
+  so whatever refers to it by id follows it, and so do the open scene's file and the
+  project's start scene. A file that had no .meta gets one that keeps the id it had.
+  What names a file by where it is does not follow: `moveAsset` refuses to leave a glTF
+  file's buffers and images behind in another directory (`GltfDocument::externalFiles`)
+  and to take a texture away from the glTF file that names it, and lists the lines of
+  scripts, scenes and prefabs, and the values in the open scene, that still name the old
+  path: those are changed by hand. It takes the id by value - the assets are read again
+  on the way, and an `AssetInfo` does not outlive that. Directories do not move yet.
 - **The showcase's textures, models and sounds are generated**, by `tools/sample-assets`.
   Change the generator, run it, look at the result, commit both. Its materials, its
   prefab and its scene are written by hand, with comments: they are the reference for

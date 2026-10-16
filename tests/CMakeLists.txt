@@ -183,6 +183,7 @@ cordite_add_test_suite(editor
     SOURCES
         unit/editor/AssetBrowserTests.cpp
         unit/editor/AssetCommandsTests.cpp
+        unit/editor/AssetMoveTests.cpp
         unit/editor/ColliderOutlinesTests.cpp
         unit/editor/CommandRegistryTests.cpp
         unit/editor/ConsolePanelTests.cpp

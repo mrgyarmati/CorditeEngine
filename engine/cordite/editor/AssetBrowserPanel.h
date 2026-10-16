@@ -57,6 +57,8 @@ private:
     /// The entities of the open scene in the list of what needs the chosen asset; a click
     /// selects one, or all.
     void drawSceneUsers(std::vector<std::string>& submittedLines) const;
+    /// The dialog in which a file is given another name or place, once a menu asked for it.
+    void drawMoveDialog(const EditorContext& context, std::vector<std::string>& submittedLines);
 
     AssetBrowser m_browser;
     /// The rows that are drawn, and what they were worked out from: they are asked for
@@ -68,6 +70,11 @@ private:
     /// What is in the text field, as it was typed: the filter keeps it without the
     /// blanks at its ends, and a blank that was just typed must not vanish.
     std::string m_search;
+    /// The asset whose file the dialog moves, and where it is to go, as it is typed. The
+    /// dialog opens in the frame after the menu asked: a popup is opened where it is drawn.
+    Uuid m_moving;
+    std::string m_moveTarget;
+    bool m_openMoveDialog = false;
     /// The entities of the open scene that use the chosen asset, with their paths: found
     /// when its list opens, not in every frame it is open.
     std::vector<std::pair<Uuid, std::string>> m_sceneUsers;

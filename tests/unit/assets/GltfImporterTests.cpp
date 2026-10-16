@@ -671,6 +671,8 @@ TEST_SUITE("GltfImporter") {
 
             CHECK(document.images[2].isEmbedded());
             CHECK(document.images[2].encoded == png);
+            // The buffer beside it and the image in a file; what is data is in it.
+            CHECK(document.externalFiles == std::vector<std::string>{"images.bin", "textures/my wall.png"});
         }
         SUBCASE("with only the structure") {
             const GltfDocument document =
@@ -681,6 +683,12 @@ TEST_SUITE("GltfImporter") {
             CHECK(document.images[1].encoded.empty());
             CHECK(document.images[2].isEmbedded());
             CHECK(document.images[2].encoded.empty());
+            CHECK(document.externalFiles == std::vector<std::string>{"images.bin", "textures/my wall.png"});
+        }
+        SUBCASE("with the buffer inside the file") {
+            const GltfDocument document = unwrap(
+                importGltf(file.write(directory.path(), "inline", GltfFile::Buffer::DataUri), {.loadData = false}));
+            CHECK(document.externalFiles == std::vector<std::string>{"textures/my wall.png"});
         }
     }
 

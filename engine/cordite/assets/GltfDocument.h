@@ -140,6 +140,11 @@ struct GltfDocument {
     /// What the file contains that was left out or changed on the way in, one sentence
     /// each. Empty for a file the engine represents completely.
     std::vector<std::string> warnings;
+    /// The files the document names by where they are - buffers, then images, each once,
+    /// relative to the document's own directory and with escapes decoded, as
+    /// GltfImage::uri has them: what has to stay beside it. Filled in by the importer;
+    /// what an exporter writes is its own business.
+    std::vector<std::string> externalFiles;
 };
 
 /// What a node of a document is called as a joint, and in the tracks of animations: by

@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <array>
 #include <cstddef>
+#include <cstring>
 #include <optional>
 #include <span>
 
@@ -22,6 +23,7 @@ namespace {
 constexpr float kTypeFilterWidth = 130.0f;
 constexpr float kSearchWidth = 220.0f;
 constexpr float kTypeColumnWidth = 90.0f;
+constexpr float kMoveFieldWidth = 420.0f;
 
 /// Rows of assets to go to: a click chooses one in the browser. An id that is no asset is
 /// said to be missing, and is nowhere to go.
@@ -50,8 +52,10 @@ void drawAssetLinks(const AssetDatabase& database, std::span<const Uuid> assets,
     ImGui::EndTable();
 }
 
-/// The menu of the row that was drawn last, for its asset. Returns whether it is open.
-bool drawAssetMenu(const EditorContext& context, const AssetInfo& asset, std::vector<std::string>& submittedLines) {
+/// The menu of the row that was drawn last, for its asset. Returns whether it is open;
+/// `moveAsked` says that its file is to be renamed or moved.
+bool drawAssetMenu(const EditorContext& context, const AssetInfo& asset, std::vector<std::string>& submittedLines,
+                   bool& moveAsked) {
     if (!ImGui::BeginPopupContextItem("asset_menu")) {
         return false;
     }
@@ -67,8 +71,36 @@ bool drawAssetMenu(const EditorContext& context, const AssetInfo& asset, std::ve
     if (ImGui::MenuItem("Copy path")) {
         ImGui::SetClipboardText(asset.reference().c_str());
     }
+    // What is built in, or inside a file, has no file of its own.
+    if (!asset.isBuiltin() && asset.subPath.empty()) {
+        ImGui::Separator();
+        if (ImGui::MenuItem("Rename or move...")) {
+            moveAsked = true;
+        }
+    }
     ImGui::EndPopup();
     return true;
+}
+
+/// Takes an asset that is dragged onto the directory of `row`, and asks for its file to
+/// move there. What could not go there is not taken.
+void acceptMoveDrop(const AssetDatabase& database, const AssetBrowserRow& row,
+                    std::vector<std::string>& submittedLines) {
+    if (!ImGui::BeginDragDropTarget()) {
+        return;
+    }
+    const ImGuiPayload* dragged = ImGui::GetDragDropPayload();
+    if (dragged != nullptr && dragged->IsDataType(PropertyEditor::kAssetPayload) &&
+        dragged->DataSize == static_cast<int>(sizeof(Uuid))) {
+        Uuid id;
+        std::memcpy(&id, dragged->Data, sizeof(Uuid));
+        const AssetInfo* asset = database.find(id);
+        const std::string to = asset != nullptr ? dropTarget(*asset, row) : std::string();
+        if (!to.empty() && ImGui::AcceptDragDropPayload(PropertyEditor::kAssetPayload) != nullptr) {
+            submittedLines.push_back(moveAssetCommand(id, to));
+        }
+    }
+    ImGui::EndDragDropTarget();
 }
 
 /// What a click did to a row.
@@ -77,6 +109,8 @@ struct RowClick {
     bool toggled = false;
     /// Its asset was clicked, or its menu opened: that is the asset chosen.
     bool chosen = false;
+    /// Its menu asked for the file of its asset to be renamed or moved.
+    bool moveAsked = false;
 };
 
 /// Draws one row: its name, as far in as the row is, and for an asset its type in the
@@ -130,7 +164,7 @@ RowClick drawRow(const EditorContext& context, const AssetBrowserRow& row, bool 
     }
     if (isAsset) {
         if (const AssetInfo* asset = context.assets().database().find(row.asset);
-            asset != nullptr && drawAssetMenu(context, *asset, submittedLines)) {
+            asset != nullptr && drawAssetMenu(context, *asset, submittedLines, click.moveAsked)) {
             click.chosen = true;
         }
         if (ImGui::BeginDragDropSource()) {
@@ -141,6 +175,8 @@ RowClick drawRow(const EditorContext& context, const AssetBrowserRow& row, bool 
         ImGui::TableNextColumn();
         const std::string type(displayNameOf(row.type));
         ImGui::TextDisabled("%s", type.c_str());
+    } else {
+        acceptMoveDrop(context.assets().database(), row, submittedLines);
     }
     ImGui::PopID();
     return click;
@@ -172,6 +208,7 @@ void AssetBrowserPanel::draw(EditorContext& context, std::vector<std::string>& s
         ImGui::EndChild();
         ImGui::Separator();
         drawSelection(context, submittedLines);
+        drawMoveDialog(context, submittedLines);
     }
     ImGui::End();
 }
@@ -268,6 +305,11 @@ void AssetBrowserPanel::drawRows(const EditorContext& context, std::vector<std::
             }
             if (click.chosen) {
                 chosen = m_rows[position].asset;
+            }
+            if (click.moveAsked) {
+                m_moving = m_rows[position].asset;
+                m_moveTarget = m_rows[position].path;
+                m_openMoveDialog = true;
             }
         }
     }
@@ -368,6 +410,39 @@ void AssetBrowserPanel::drawUses(const EditorContext& context, const AssetInfo& 
         m_browser.select(*chosen);
         m_browser.reveal(database, *chosen);
     }
+}
+
+void AssetBrowserPanel::drawMoveDialog(const EditorContext& context, std::vector<std::string>& submittedLines) {
+    if (m_openMoveDialog) {
+        ImGui::OpenPopup("Rename or move");
+        m_openMoveDialog = false;
+    }
+    if (!ImGui::BeginPopupModal("Rename or move", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        return;
+    }
+    const AssetInfo* asset = context.assets().database().find(m_moving);
+    if (asset == nullptr) {
+        // Gone while the dialog was open: the assets were read again.
+        ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+        return;
+    }
+    ImGui::TextUnformatted(fmt::format("Where {} goes, inside the asset directory:", asset->path).c_str());
+    if (ImGui::IsWindowAppearing()) {
+        ImGui::SetKeyboardFocusHere();
+    }
+    ImGui::SetNextItemWidth(kMoveFieldWidth);
+    const bool entered = ImGui::InputText("##to", &m_moveTarget, ImGuiInputTextFlags_EnterReturnsTrue);
+    ImGui::TextDisabled("It keeps its id: what refers to it by id follows it.");
+    if (ImGui::Button("Move") || entered) {
+        submittedLines.push_back(moveAssetCommand(m_moving, trim(m_moveTarget)));
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
 }
 
 void AssetBrowserPanel::drawSceneUsers(std::vector<std::string>& submittedLines) const {

@@ -59,6 +59,24 @@ Read `problems` in the result of `asset.list` or `asset.refresh`: a texture a mo
 refers to but cannot find, a material with a typo, a `.meta` without its file. A
 problem leaves that one asset out or incomplete; it never stops the others.
 
+## Rename or move an asset
+
+Use `asset.move {"asset": "textures/wall.png", "to": "textures/brick/wall.png"}` (or Rename
+or move in the menu of the Assets panel, or drop the asset onto a directory there), never
+the file system: it moves the `.meta` along, so the asset keeps its id and every scene,
+prefab and material that refers to it by id follows. The open scene's file and the
+project's `startScene` follow too.
+
+- What names a file by where it is does not follow. A `.gltf` names its `.bin` and its
+  images so: it is renamed where it is, and refused another directory while it names
+  any. A texture that a glTF file names is refused altogether.
+- The result's `mentions` are the lines of scripts, scenes and prefabs, and the values in
+  the open scene (`Script` properties), that still name the old path. Change those by
+  hand.
+- The ending stays: a `.png` stays a `.png`. Directories whose names begin with a dot
+  are never read for assets, and are refused.
+- It is not undoable; move it back with another `asset.move`.
+
 ## Write a material
 
 A material is a JSON file. Only what differs from the defaults has to be stated:

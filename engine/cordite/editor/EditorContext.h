@@ -133,6 +133,10 @@ public:
     /// under another name - makes them refresh, so that it is listed at once.
     [[nodiscard]] Status saveScene(const std::filesystem::path& path = {});
 
+    /// Says that the scene's file is `path` from now on - where it went when it was moved
+    /// (moveAsset()). Nothing is read or written, and what counts as saved stays.
+    void setScenePath(std::filesystem::path path) { m_scenePath = std::move(path); }
+
     /// True when edits were made, or undone, since the scene was last saved or loaded.
     /// What is edited while the scene is played does not count: it does not stay.
     [[nodiscard]] bool hasUnsavedChanges() const;

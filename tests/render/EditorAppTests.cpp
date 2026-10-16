@@ -2100,6 +2100,41 @@ TEST_SUITE("EditorApp") {
         checkNoValidationIssues(editor->engine().graphics());
     }
 
+    TEST_CASE("a file of an asset is moved by command, and the project follows its start scene") {
+        const TempDirectory directory;
+        Project project = unwrap(createProject(directory.path(), "Moving"));
+        REQUIRE(writeTextFile(project.assetDirectory() / "scenes" / "start.scene.json",
+                              R"({"format": "cordite.scene", "version": 1, "name": "Start", "entities": []})")
+                    .has_value());
+        project.settings.startScene = "scenes/start.scene.json";
+        REQUIRE(saveProject(project).has_value());
+        EditorAppDesc desc = headlessDesc(UVec2(640, 360));
+        desc.project = directory.path();
+        const std::unique_ptr<EditorApp> editor = createEditor(desc);
+        REQUIRE(editor->context().world().sceneName() == "Start");
+
+        const Json moved =
+            run(*editor, "asset.move", R"({"asset": "scenes/start.scene.json", "to": "levels/first.scene.json"})");
+        CHECK(moved["from"] == "scenes/start.scene.json");
+        CHECK(moved["to"] == "levels/first.scene.json");
+        CHECK(moved["startScene"] == "levels/first.scene.json");
+        CHECK(moved["mentions"].empty());
+        // The project file says so, and the open scene is saved where it went.
+        CHECK(unwrap(loadProject(directory.path())).settings.startScene == "levels/first.scene.json");
+        CHECK(editor->context().scenePath() == project.assetDirectory() / "levels" / "first.scene.json");
+        CHECK(run(*editor, "asset.get", R"({"asset": "levels/first.scene.json"})")["type"] == "scene");
+
+        // Another asset leaves the project as it is; what is refused changes nothing.
+        REQUIRE(writeTextFile(project.assetDirectory() / "scripts" / "door.lua", "return {}\n").has_value());
+        run(*editor, "asset.refresh");
+        CHECK_FALSE(
+            run(*editor, "asset.move", R"({"asset": "scripts/door.lua", "to": "door.lua"})").contains("startScene"));
+        CHECK(refusal(*editor, "asset.move", R"({"asset": "door.lua", "to": "door.txt"})").code ==
+              ErrorCode::InvalidArgument);
+        CHECK(unwrap(loadProject(directory.path())).settings.startScene == "levels/first.scene.json");
+        checkNoValidationIssues(editor->engine().graphics());
+    }
+
     TEST_CASE("the application adds its commands to the catalogue") {
         const std::unique_ptr<EditorApp> editor = createEditor(headlessDesc(UVec2(640, 360)));
         for (const char* name :
@@ -2107,7 +2142,7 @@ TEST_SUITE("EditorApp") {
               "editor.focusPanel", "editor.theme",       "assets.browse",     "viewport.lookAt",  "viewport.frame",
               "viewport.camera",   "viewport.debugView", "viewport.gizmo",    "entity.create",    "scene.save",
               "play.start",        "play.stop",          "play.pause",        "play.resume",      "play.step",
-              "play.status"}) {
+              "play.status",       "asset.move"}) {
             CAPTURE(name);
             const CommandDesc* command = editor->commands().find(name);
             REQUIRE(command != nullptr);

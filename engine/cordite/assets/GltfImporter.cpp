@@ -1352,6 +1352,28 @@ Result<GltfDocument> convertDocument(const cgltf_data& data, const GltfImportOpt
     return document;
 }
 
+/// GltfDocument::externalFiles of a file: the URIs of its buffers and images that are no data.
+std::vector<std::string> externalFilesOf(const cgltf_data& data) {
+    std::vector<std::string> files;
+    const auto add = [&files](const char* uri) {
+        if (uri == nullptr || std::string_view(uri).starts_with("data:")) {
+            return;
+        }
+        std::string decoded(uri);
+        decoded.resize(cgltf_decode_uri(decoded.data()));
+        if (std::ranges::find(files, decoded) == files.end()) {
+            files.push_back(std::move(decoded));
+        }
+    };
+    for (cgltf_size index = 0; index < data.buffers_count; ++index) {
+        add(data.buffers[index].uri);
+    }
+    for (cgltf_size index = 0; index < data.images_count; ++index) {
+        add(data.images[index].uri);
+    }
+    return files;
+}
+
 } // namespace
 
 Result<GltfDocument> importGltf(const std::filesystem::path& path, const GltfImportOptions& importOptions) {
@@ -1412,6 +1434,7 @@ Result<GltfDocument> importGltf(const std::filesystem::path& path, const GltfImp
     if (!document) {
         return fail(document.error());
     }
+    document->externalFiles = externalFilesOf(*data);
     return document;
 }
 

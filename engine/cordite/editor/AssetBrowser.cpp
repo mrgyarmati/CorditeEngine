@@ -266,6 +266,27 @@ std::string selectEntitiesCommand(std::span<const Uuid> entities) {
     return fmt::format("selection.set {}", parameters.dump());
 }
 
+std::string moveAssetCommand(const Uuid& asset, std::string_view to) {
+    Json parameters = Json::object();
+    parameters["asset"] = asset.toString();
+    parameters["to"] = to;
+    return fmt::format("asset.move {}", parameters.dump());
+}
+
+std::string dropTarget(const AssetInfo& asset, const AssetBrowserRow& row) {
+    if (row.kind != AssetBrowserRow::Kind::Directory || row.key == kBuiltinKey || asset.isBuiltin() ||
+        !asset.subPath.empty()) {
+        return {};
+    }
+    const size_t slash = asset.path.rfind('/');
+    if (slash != std::string::npos && std::string_view(asset.path).substr(0, slash) == row.path) {
+        return {};
+    }
+    const std::string_view name =
+        slash == std::string::npos ? std::string_view(asset.path) : std::string_view(asset.path).substr(slash + 1);
+    return fmt::format("{}/{}", row.path, name);
+}
+
 std::string openSceneCommand(const AssetInfo& scene) {
     Json parameters = Json::object();
     parameters["path"] = scene.reference();

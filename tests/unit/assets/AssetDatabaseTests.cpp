@@ -384,6 +384,22 @@ TEST_SUITE("AssetDatabase") {
         CHECK_FALSE(wall.isBuiltin());
     }
 
+    TEST_CASE("the ending of an asset file says its kind, and its .meta is beside it") {
+        CHECK(assetFileExtension("paint.Material.JSON") == ".material.json");
+        CHECK(assetFileExtension("models/crate.GLTF") == ".gltf");
+        CHECK(assetFileExtension("wall.png") == ".png");
+        CHECK(assetFileExtension("notes.json").empty());
+        CHECK(assetFileExtension(".png").empty());
+        CHECK(assetMetaPath(pathFromUtf8("models/wall.png")) == pathFromUtf8("models/wall.png.meta"));
+
+        // What an editor writes for a file that has none is what the database reads.
+        const AssetDirectory project;
+        project.writeTexture("wall.png");
+        const Uuid id = *Uuid::parse("22222222-2222-4222-8222-222222222222");
+        REQUIRE(writeAssetMeta(project.file("wall.png"), id).has_value());
+        CHECK(require(project.open(), "wall.png").id == id);
+    }
+
     TEST_CASE("references distinguish upper and lower case, and unknown ones are not found") {
         const AssetDirectory project;
         project.writeTexture("textures/wall.png");

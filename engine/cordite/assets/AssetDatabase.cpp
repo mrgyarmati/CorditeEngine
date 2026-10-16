@@ -126,6 +126,19 @@ std::optional<AssetType> assetTypeOfFile(std::string_view path) {
     return kind != nullptr ? std::optional(kind->type) : std::nullopt;
 }
 
+std::string_view assetFileExtension(std::string_view path) {
+    const FileKind* kind = kindOfFile(path);
+    return kind != nullptr ? kind->extension : std::string_view();
+}
+
+std::filesystem::path assetMetaPath(const std::filesystem::path& file) {
+    return metaPathOf(file);
+}
+
+Status writeAssetMeta(const std::filesystem::path& file, const Uuid& id) {
+    return writeMetaFile(metaPathOf(file), id);
+}
+
 std::string_view nameOf(AssetType type) {
     switch (type) {
         case AssetType::Texture:

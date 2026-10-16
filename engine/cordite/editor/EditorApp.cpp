@@ -4,6 +4,7 @@
 #include "cordite/core/Log.h"
 #include "cordite/core/StringUtils.h"
 #include "cordite/editor/AssetCommands.h"
+#include "cordite/editor/AssetMove.h"
 #include "cordite/editor/EditorActions.h"
 #include "cordite/editor/EditorCommands.h"
 #include "cordite/editor/EditorFeedback.h"
@@ -183,6 +184,7 @@ Result<std::unique_ptr<EditorApp>> EditorApp::create(const EditorAppDesc& desc) 
     CORDITE_TRY(registerAssetBrowserCommands(app->m_commands, *app->m_context, app->m_assets.browser()));
     CORDITE_TRY(app->registerApplicationCommands());
     CORDITE_TRY(app->registerPlayCommands());
+    CORDITE_TRY(app->registerProjectCommands());
     CORDITE_TRY_ASSIGN(app->m_viewport, ViewportPanel::create(*app->m_engine));
 
     if (!scene.empty()) {
@@ -791,6 +793,48 @@ Json EditorApp::describePlay() const {
     }
     status["scriptProblems"] = std::move(problems);
     return status;
+}
+
+Status EditorApp::registerProjectCommands() {
+    // Here and not with the other commands of assets: the project names its start scene by
+    // where it is, and the application is what has the project.
+    return m_commands.add({
+        .name = "asset.move",
+        .description =
+            "Moves or renames the file of an asset, with its .meta: it keeps its id, so whatever refers to it by "
+            "id follows it, and so do the file of the open scene and the start scene of the project. Refused "
+            "for what it would break or cannot do: an asset that is built in or inside a file (move the file), "
+            "a path outside the assets, with a part that begins with a dot, or with another ending, a place "
+            "that holds a file, a glTF file that names its buffers and images by where they are and would "
+            "leave them behind in another directory, and a texture that a glTF file names by where it is. "
+            "Returns `mentions`: lines of scripts, scenes and prefabs, and values in the open scene, that "
+            "still name it by where it was - those follow by hand. Files are no part of the document: "
+            "edit.undo does not move it back.",
+        .parameters = {{"asset", Type::String, "The asset whose file moves: its id, or where it is."},
+                       {"to", Type::String,
+                        "Where the file goes, inside the asset directory, with forward slashes: "
+                        "\"textures/brick.png\"."}},
+        .handler = [this](const Json& parameters) -> Result<Json> {
+            CORDITE_TRY_ASSIGN(const AssetInfo* asset,
+                               m_context->resolveAsset(parameters.at("asset").get<std::string>()));
+            CORDITE_TRY_ASSIGN(const AssetMove moved,
+                               moveAsset(*m_context, asset->id, parameters.at("to").get<std::string>()));
+            Json result = describeAssetMove(*m_context, moved);
+            if (m_project && m_project->settings.startScene == moved.from) {
+                m_project->settings.startScene = moved.to;
+                if (const Status saved = saveProject(*m_project); !saved) {
+                    return tl::unexpected(saved.error().withContext(fmt::format(
+                        "{} was moved to {}, but the project still starts with where it was", moved.from, moved.to)));
+                }
+                result["startScene"] = moved.to;
+            }
+            for (const Json& mention : result["mentions"]) {
+                CORDITE_LOG_WARN("Editor", "{} still names {}: {}",
+                                 jsonGetOr<std::string>(mention, "file", "the open scene"), moved.from, mention.dump());
+            }
+            return result;
+        },
+    });
 }
 
 Status EditorApp::registerPlayCommands() {

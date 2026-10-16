@@ -116,6 +116,18 @@ std::string_view nameOf(BuiltinMesh mesh);
 /// nothing but such an ending - "prefabs/.prefab.json".
 [[nodiscard]] std::optional<AssetType> assetTypeOfFile(std::string_view path);
 
+/// The ending that makes a file an asset, in lower case whatever the case of the file:
+/// ".material.json" for "paint.Material.json", ".png" for "wall.PNG". Empty for a file
+/// that is no asset. Two files of one ending are of one kind and one format.
+[[nodiscard]] std::string_view assetFileExtension(std::string_view path);
+
+/// Where the .meta file of an asset file is: beside it, with ".meta" added to its name.
+[[nodiscard]] std::filesystem::path assetMetaPath(const std::filesystem::path& file);
+
+/// Writes the .meta file of the asset file `file`, which says that its id is `id` - what an
+/// editor does for a file that has none. Fails as writing the file fails.
+[[nodiscard]] Status writeAssetMeta(const std::filesystem::path& file, const Uuid& id);
+
 /// The `path` of assets that are built into the engine.
 inline constexpr std::string_view kBuiltinAssetPath = "builtin";
 

@@ -1365,6 +1365,30 @@ TEST_SUITE("AssetCommands") {
         CHECK(usersOfBody().size() == 2);
     }
 
+    TEST_CASE("a file is moved by a line, and dropped onto a directory of the project it goes into it") {
+        AssetFixture fixture;
+        const Uuid paint = *Uuid::parse(fixture.id("materials/paint.material.json"));
+        CHECK(moveAssetCommand(paint, "looks/paint.material.json") ==
+              fmt::format(R"(asset.move {{"asset":"{}","to":"looks/paint.material.json"}})", paint.toString()));
+
+        const AssetDatabase& database = fixture.assets->database();
+        const std::vector<AssetBrowserRow> rows = fixture.browser.rows(database);
+        const auto rowOf = [&rows](std::string_view path) {
+            const auto found = std::ranges::find(rows, path, &AssetBrowserRow::path);
+            REQUIRE_MESSAGE(found != rows.end(), "no row " << std::string(path));
+            return *found;
+        };
+        const AssetInfo& material = *database.findByReference("materials/paint.material.json");
+        CHECK(dropTarget(material, rowOf("textures")) == "textures/paint.material.json");
+        // Where it is already, onto what the engine has built in, onto an asset: nowhere.
+        CHECK(dropTarget(material, rowOf("materials")).empty());
+        CHECK(dropTarget(material, rowOf(std::string(kBuiltinAssetPath))).empty());
+        CHECK(dropTarget(material, rowOf("textures/wall.png")).empty());
+        // What has no file of its own does not move.
+        CHECK(dropTarget(*database.findByReference("models/cart.gltf#mesh/0"), rowOf("textures")).empty());
+        CHECK(dropTarget(*database.find(builtinMeshId(BuiltinMesh::Cube)), rowOf("textures")).empty());
+    }
+
     TEST_CASE("the entities that use an asset are found in the order of the hierarchy, and selected by a line") {
         AssetFixture fixture;
         const std::string body = fixture.id("models/cart.gltf#mesh/0");

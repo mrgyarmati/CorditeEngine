@@ -158,4 +158,14 @@ private:
 /// console: `selection.set`, with their ids.
 [[nodiscard]] std::string selectEntitiesCommand(std::span<const Uuid> entities);
 
+/// What the Assets panel asks for when the file of an asset is renamed or moved, as a
+/// line for the console: `asset.move`.
+[[nodiscard]] std::string moveAssetCommand(const Uuid& asset, std::string_view to);
+
+/// Where the file of an asset goes when it is dropped onto a row of the browser: into the
+/// directory of the row, under its own name. Empty when the row is no directory of the
+/// project - an asset, or what the engine has built in - or holds the file already, and
+/// for an asset that has no file of its own to move: one that is built in or inside a file.
+[[nodiscard]] std::string dropTarget(const AssetInfo& asset, const AssetBrowserRow& row);
+
 } // namespace cordite

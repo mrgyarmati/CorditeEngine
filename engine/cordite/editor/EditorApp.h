@@ -153,6 +153,7 @@ private:
 
     [[nodiscard]] Status registerApplicationCommands();
     [[nodiscard]] Status registerPlayCommands();
+    [[nodiscard]] Status registerProjectCommands();
     /// Draws the interface in a theme from the next frame on, and remembers it in the
     /// preferences, if there is a file for them.
     void chooseTheme(UiTheme theme);
