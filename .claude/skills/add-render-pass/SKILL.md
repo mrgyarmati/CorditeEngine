@@ -52,8 +52,11 @@ Conventions:
 ## 2. Register it for compile testing
 
 Add every entry point (and every define combination the engine uses) to
-`engineShaders()` in `tests/unit/shader_compiler/EngineShadersTests.cpp`. That test
-compiles them all on every platform without a GPU and fails on any compiler warning.
+`engineShaderRequests()` in `engine/cordite/shaders/EngineShaders.cpp`. `EngineShadersTests`
+compiles them all on every platform without a GPU and fails on any compiler warning;
+`EditorAppTests` drives the renderer through every debug view and quality and fails
+for a permutation that the engine asks for and the list does not have - which an
+exported game, shipping a cache of the list and no compiler, would not find.
 
 ## 3. Write the pass
 

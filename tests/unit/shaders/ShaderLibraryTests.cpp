@@ -302,4 +302,32 @@ TEST_SUITE("ShaderLibrary") {
         CHECK(successes.load() == kThreads);
         CHECK(fixture.compiler.compileCount == 1);
     }
+    TEST_CASE("what was asked for is remembered, found or not, kept or forgotten") {
+        Fixture fixture;
+        ShaderLibrary library(fixture.desc());
+        CHECK(library.requested().empty());
+        REQUIRE(library.load(Fixture::request()).has_value());
+        // Asked twice, it is one permutation.
+        REQUIRE(library.load(Fixture::request()).has_value());
+        ShaderRequest defined = Fixture::request();
+        defined.defines = {{"B", "1"}, {"A", "1"}};
+        REQUIRE(library.load(defined).has_value());
+        ShaderRequest missing = Fixture::request();
+        missing.path = "passes/None.slang";
+        CHECK_FALSE(library.load(missing).has_value());
+        library.clearMemory();
+
+        const std::vector<ShaderRequest> asked = library.requested();
+        REQUIRE(asked.size() == 3);
+        for (size_t index = 0; index < asked.size(); ++index) {
+            // Normalized - the defines sorted - and in the order of their keys.
+            ShaderRequest normalized = asked[index];
+            REQUIRE(normalized.normalize().has_value());
+            CHECK(normalized.key() == asked[index].key());
+            if (index > 0) {
+                CHECK(asked[index - 1].key().toHex() < asked[index].key().toHex());
+            }
+        }
+        CHECK(std::ranges::count(asked, std::string("passes/None.slang"), &ShaderRequest::path) == 1);
+    }
 }

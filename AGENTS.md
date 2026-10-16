@@ -496,9 +496,12 @@ Vulkan directly. Step-by-step guide for adding a pass:
   own in a loop paces them the same way.
 - **Shader permutations** are `ShaderRequest`s: path, entry point, stage and sorted
   defines. Their key is deterministic and pinned by a test; changing how it is computed
-  orphans every shader cache. Every engine shader entry point is listed in
-  `tests/unit/shader_compiler/EngineShadersTests.cpp`, which compiles them all without
-  a GPU.
+  orphans every shader cache. Every permutation the engine asks for is listed in
+  `engineShaderRequests()` (`shaders/EngineShaders.cpp`): an exported game ships a
+  cache of exactly those and no compiler. `EngineShadersTests` compiles them all
+  without a GPU, and a test drives the editor through every debug view, quality and a
+  played scene and fails for a permutation that was asked for and is not listed - or
+  is listed and was not asked for (`ShaderLibrary::requested()`).
 - **Swapchain back buffers** are 8-bit UNORM; the final pass writes display-encoded
   (sRGB) values itself. Do not render linear values straight to the back buffer. A
   finished picture is dithered by a level at the most, so that slow gradients show no

@@ -1,5 +1,7 @@
 cordite_add_module(shaders
     SOURCES
+        EngineShaders.cpp
+        EngineShaders.h
         ShaderCache.cpp
         ShaderCache.h
         ShaderCompiler.h

@@ -52,6 +52,7 @@ Result<std::shared_ptr<const ShaderBinary>> ShaderLibrary::load(ShaderRequest re
     // One lock for the whole operation: compiling the same permutation twice in
     // parallel would be wasted work, and the compiler is not re-entrant.
     const std::lock_guard lock(m_mutex);
+    m_requested.try_emplace(keyText, request);
 
     if (const auto found = m_entries.find(keyText); found != m_entries.end()) {
         ++m_stats.memoryHits;
@@ -118,6 +119,16 @@ std::vector<ShaderRequest> ShaderLibrary::invalidateChanged() {
 void ShaderLibrary::clearMemory() {
     const std::lock_guard lock(m_mutex);
     m_entries.clear();
+}
+
+std::vector<ShaderRequest> ShaderLibrary::requested() const {
+    const std::lock_guard lock(m_mutex);
+    std::vector<ShaderRequest> requests;
+    requests.reserve(m_requested.size());
+    for (const auto& [key, request] : m_requested) {
+        requests.push_back(request);
+    }
+    return requests;
 }
 
 ShaderLibraryStats ShaderLibrary::stats() const {

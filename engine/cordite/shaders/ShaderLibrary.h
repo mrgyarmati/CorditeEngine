@@ -32,6 +32,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -86,6 +87,11 @@ public:
     /// Forgets all in-memory shaders. The disk cache is untouched.
     void clearMemory();
 
+    /// Every permutation load() was asked for since the library was made - found or not,
+    /// kept in memory or forgotten since - normalized, each once, in the order of their
+    /// keys: what a program needs of shaders, which a cache that it ships must hold.
+    [[nodiscard]] std::vector<ShaderRequest> requested() const;
+
     [[nodiscard]] ShaderLibraryStats stats() const;
 
     [[nodiscard]] const std::vector<std::filesystem::path>& sourceRoots() const { return m_desc.sourceRoots; }
@@ -107,6 +113,8 @@ private:
 
     mutable std::mutex m_mutex;
     std::unordered_map<std::string, Entry> m_entries;
+    /// requested(), by key.
+    std::map<std::string, ShaderRequest> m_requested;
     ShaderLibraryStats m_stats;
 };
 

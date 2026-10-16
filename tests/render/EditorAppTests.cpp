@@ -14,7 +14,9 @@
 #include "cordite/editor/Gizmo.h"
 #include "cordite/engine/Project.h"
 #include "cordite/platform/InputMap.h"
+#include "cordite/renderer/RenderDebugView.h"
 #include "cordite/rhi/TextureReadback.h"
+#include "cordite/shaders/EngineShaders.h"
 #include "cordite/world/SceneSerializer.h"
 
 #include "render/RenderTestSupport.h"
@@ -26,6 +28,7 @@
 #include <cstddef>
 #include <filesystem>
 #include <memory>
+#include <set>
 #include <span>
 #include <string>
 #include <string_view>
@@ -2328,6 +2331,51 @@ TEST_SUITE("EditorApp") {
         CHECK(script.message == "scripts/door.lua is a script, which has no picture");
         commandList->close();
         checkNoValidationIssues(editor->engine().graphics());
+    }
+
+    TEST_CASE("the engine asks for the permutations of its shaders on its list, every one, and no other") {
+        EditorAppDesc desc = headlessDesc(UVec2(640, 360));
+        desc.project = showcaseProject();
+        const std::unique_ptr<EditorApp> editor = createEditor(desc);
+        // Every way a picture is made: each debug view, each quality of everything, edges
+        // smoothed and not, and the scene played - its figures in their poses.
+        for (const RenderDebugView view : kRenderDebugViews) {
+            run(*editor, "viewport.debugView", fmt::format(R"({{"view": "{}"}})", nameOf(view)));
+            REQUIRE(editor->runFrames(1).has_value());
+        }
+        run(*editor, "viewport.debugView", R"({"view": "none"})");
+        for (const std::string_view quality : {"off", "low", "medium", "high"}) {
+            run(*editor, "viewport.quality",
+                fmt::format(R"({{"shadows": "{0}", "effects": "{0}", "postProcess": "{0}"}})", quality));
+            REQUIRE(editor->runFrames(1).has_value());
+        }
+        run(*editor, "viewport.quality", R"({"antiAliasing": "off"})");
+        REQUIRE(editor->runFrames(1).has_value());
+        run(*editor, "play.start");
+        REQUIRE(editor->runFrames(5).has_value());
+        run(*editor, "play.stop");
+
+        const auto keysOf = [](const std::vector<ShaderRequest>& requests) {
+            std::set<std::string> keys;
+            for (const ShaderRequest& request : requests) {
+                keys.insert(request.key().toHex());
+            }
+            return keys;
+        };
+        const std::vector<ShaderRequest> listed = engineShaderRequests();
+        const std::vector<ShaderRequest> asked = editor->engine().shaders().requested();
+        const std::set<std::string> listedKeys = keysOf(listed);
+        const std::set<std::string> askedKeys = keysOf(asked);
+        // A game that is exported has these, and no compiler for another.
+        for (const ShaderRequest& request : asked) {
+            CAPTURE(request.describe());
+            CHECK(listedKeys.contains(request.key().toHex()));
+        }
+        // And what is listed is asked for: the list has nothing that no longer is.
+        for (const ShaderRequest& request : listed) {
+            CAPTURE(request.describe());
+            CHECK(askedKeys.contains(request.key().toHex()));
+        }
     }
 
     TEST_CASE("the application adds its commands to the catalogue") {
