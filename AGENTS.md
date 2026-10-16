@@ -1415,6 +1415,12 @@ panels, EditorApp    the interface, built on the three layers above
   that a script plays (`play.start`, `editor.runFrames`) the same game, frame for
   frame. Without a window the editor opens no sound device: what would be heard is
   mixed into memory.
+- **The editor and the player open no console window on Windows**: they are programs of
+  the Windows subsystem (`WINDOWED` in `cordite_add_executable`), with `main` as their
+  entry point all the same. What they write goes where they are given - the pipes of
+  CTest, Git Bash and scripts - or, started from a terminal with nothing redirected, to
+  that terminal (`attachToParentConsole`). What stops them before a person could see it
+  in a log is said in a dialog (`showErrorDialog`), which a headless run never opens.
 - **The interface is Dear ImGui**, reached through the `ui` module. It runs without a
   window too, with the pointer fed from `Engine::input()`, so interface code is covered
   by headless tests.
@@ -1540,6 +1546,10 @@ body explaining what changed and why. One logical change per commit.
 
 - PowerShell 5.1: do not append `2>&1` to native commands; it turns stderr lines into
   errors and hides the real output.
+- PowerShell waits for the editor and the player - programs without a console of their
+  own - only while it reads what they write: `& cordite-editor.exe ... | Out-Host`, or
+  `dev.ps1 run`, which does that. Without it the command returns at once, with no exit
+  status. Git Bash, CTest and CMake's `execute_process` wait anyway.
 - A test executable that cannot find its data is usually being run from the wrong
   directory; CTest runs suites from the repository root.
 - The default MSVC toolset on a machine may be older than the newest one installed.

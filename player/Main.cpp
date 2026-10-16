@@ -19,6 +19,7 @@
 #include "cordite/engine/Game.h"
 
 #include <CLI/CLI.hpp>
+#include <fmt/format.h>
 
 #include <cstdint>
 #include <exception>
@@ -47,6 +48,13 @@ struct Options {
     std::string logLevel = "info";
 };
 
+/// Says why the game ends to the person who plays it, who has no console to read the log
+/// in. Nobody is asked when it runs unattended (--headless, suppressErrorDialogs()).
+void tellPlayer(const std::string& message) {
+    // The program is named after its game.
+    cordite::showErrorDialog(cordite::pathToUtf8(cordite::executablePath().stem()), message);
+}
+
 int run(const Options& options) {
     cordite::LogConfig logConfig;
     logConfig.level = cordite::logLevelFromName(options.logLevel).value_or(cordite::LogLevel::Info);
@@ -72,6 +80,7 @@ int run(const Options& options) {
     cordite::Result<std::unique_ptr<cordite::Game>> game = cordite::Game::create(std::move(desc));
     if (!game) {
         CORDITE_LOG_CRITICAL("Game", "cannot start: {}", game.error().describe());
+        tellPlayer(fmt::format("The game cannot start.\n\n{}", game.error().describe()));
         return kExitFailure;
     }
     cordite::Engine& engine = (*game)->engine();
@@ -81,6 +90,7 @@ int run(const Options& options) {
         const cordite::Result<bool> keepRunning = (*game)->runFrame();
         if (!keepRunning) {
             CORDITE_LOG_CRITICAL("Game", "frame {} failed: {}", engine.frameIndex(), keepRunning.error().describe());
+            tellPlayer(fmt::format("The game has stopped.\n\n{}", keepRunning.error().describe()));
             return kExitFailure;
         }
         if (!*keepRunning) {
@@ -153,6 +163,8 @@ int parseAndRun(int argc, char** argv) {
 } // namespace
 
 int main(int argc, char** argv) {
+    // Before anything is written: a game has no console of its own.
+    cordite::attachToParentConsole();
     // The engine reports failures as Results; an exception reaching this point comes from a
     // library and is a bug. Report it and exit with a status instead of terminating.
     try {

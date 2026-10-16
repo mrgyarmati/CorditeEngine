@@ -4,6 +4,7 @@
 #include "cordite/core/FileSystem.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <cstdlib>
 #include <system_error>
 #include <thread>
@@ -97,6 +98,76 @@ void suppressErrorDialogs() {
         _CrtSetReportFile(reportType, _CRTDBG_FILE_STDERR);
     }
 #endif
+#endif
+}
+
+#if CORDITE_PLATFORM_WINDOWS
+namespace {
+
+/// Whether a standard handle was given a pipe or a file to write to. A character device -
+/// a console the program is not attached to, or NUL - is taken for the console.
+bool writesToPipeOrFile(HANDLE handle) {
+    if (handle == nullptr || handle == INVALID_HANDLE_VALUE) {
+        return false;
+    }
+    const DWORD type = GetFileType(handle);
+    return type == FILE_TYPE_PIPE || type == FILE_TYPE_DISK;
+}
+
+/// Points a standard handle, and the stream of the C runtime that writes through it, at the
+/// console the program is attached to.
+void writeToConsole(DWORD which, FILE* stream) {
+    // Open for as long as the program runs, as a standard handle is.
+    HANDLE console = CreateFileW(L"CONOUT$", GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
+                                 OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (console == INVALID_HANDLE_VALUE) {
+        return;
+    }
+    SetStdHandle(which, console);
+    FILE* reopened = nullptr;
+    // A stream that cannot be reopened writes nowhere, as it did before.
+    static_cast<void>(freopen_s(&reopened, "CONOUT$", "w", stream));
+}
+
+std::wstring wideOf(std::string_view text) {
+    if (text.empty()) {
+        return {};
+    }
+    const int length = MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), nullptr, 0);
+    std::wstring wide(static_cast<size_t>(length), L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, text.data(), static_cast<int>(text.size()), wide.data(), length);
+    return wide;
+}
+
+} // namespace
+#endif
+
+void attachToParentConsole() {
+#if CORDITE_PLATFORM_WINDOWS
+    const bool output = writesToPipeOrFile(GetStdHandle(STD_OUTPUT_HANDLE));
+    const bool error = writesToPipeOrFile(GetStdHandle(STD_ERROR_HANDLE));
+    if ((output && error) || AttachConsole(ATTACH_PARENT_PROCESS) == 0) {
+        return;
+    }
+    if (!output) {
+        writeToConsole(STD_OUTPUT_HANDLE, stdout);
+    }
+    if (!error) {
+        writeToConsole(STD_ERROR_HANDLE, stderr);
+    }
+#endif
+}
+
+void showErrorDialog(std::string_view title, std::string_view message) {
+#if CORDITE_PLATFORM_WINDOWS
+    // The system remembers suppressErrorDialogs(), in the error mode of the process.
+    if ((GetErrorMode() & SEM_FAILCRITICALERRORS) != 0) {
+        return;
+    }
+    MessageBoxW(nullptr, wideOf(message).c_str(), wideOf(title).c_str(), MB_OK | MB_ICONERROR | MB_SETFOREGROUND);
+#else
+    static_cast<void>(title);
+    static_cast<void>(message);
 #endif
 }
 

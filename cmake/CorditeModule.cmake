@@ -37,15 +37,24 @@ function(cordite_add_module name)
     set_property(GLOBAL PROPERTY CORDITE_MODULE_DEPENDS_${name} "${arg_DEPENDS}")
 endfunction()
 
-# cordite_add_executable(<name> SOURCES <files...> [LIBRARIES <targets...>])
+# cordite_add_executable(<name> [WINDOWED] SOURCES <files...> [LIBRARIES <targets...>])
+#
+# WINDOWED: a program with windows of its own - the editor, the program of a game - that
+# opens no console window beside them on Windows. It is built for the Windows subsystem,
+# with main() for its entry point all the same, and calls attachToParentConsole()
+# (core/Platform.h) to write to a terminal that started it.
 function(cordite_add_executable name)
-    cmake_parse_arguments(PARSE_ARGV 1 arg "" "" "SOURCES;LIBRARIES")
+    cmake_parse_arguments(PARSE_ARGV 1 arg "WINDOWED" "" "SOURCES;LIBRARIES")
 
     add_executable(${name} ${arg_SOURCES})
     target_link_libraries(${name} PRIVATE cordite::build_options ${arg_LIBRARIES})
     set_target_properties(${name} PROPERTIES
         FOLDER "Cordite/Applications"
         COMPILE_WARNING_AS_ERROR ${CORDITE_WARNINGS_AS_ERRORS})
+    if(arg_WINDOWED AND WIN32)
+        set_target_properties(${name} PROPERTIES WIN32_EXECUTABLE TRUE)
+        target_link_options(${name} PRIVATE /ENTRY:mainCRTStartup)
+    endif()
 endfunction()
 
 # cordite_add_test_suite(<name>

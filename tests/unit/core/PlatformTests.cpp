@@ -4,6 +4,7 @@
 
 #include "support/TestSupport.h"
 
+#include <cstdio>
 #include <string>
 
 using namespace cordite;
@@ -74,5 +75,21 @@ TEST_SUITE("Platform") {
         // The test harness has already done it; doing it again changes nothing.
         CHECK_NOTHROW(suppressErrorDialogs());
         CHECK_NOTHROW(suppressErrorDialogs());
+    }
+
+    TEST_CASE("an error dialog asks nobody once dialogs are suppressed") {
+        suppressErrorDialogs();
+        // A dialog would wait here until the suite is stopped for taking too long.
+        CHECK_NOTHROW(showErrorDialog("Cordite tests", "Nobody is there to close this. \xC3\xA9"));
+    }
+
+    TEST_CASE("a program that writes to pipes goes on writing to them after looking for a console") {
+        // The tests write to the pipes of the test runner, or to the console they have: both stay.
+        attachToParentConsole();
+        attachToParentConsole();
+        CHECK(std::fputs("", stdout) >= 0);
+        CHECK(std::fflush(stdout) == 0);
+        CHECK(std::fflush(stderr) == 0);
+        CHECK(std::ferror(stdout) == 0);
     }
 }

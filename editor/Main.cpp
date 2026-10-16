@@ -33,6 +33,7 @@
 #include "cordite/engine/Project.h"
 
 #include <CLI/CLI.hpp>
+#include <fmt/format.h>
 
 #include <cstdint>
 #include <cstdlib>
@@ -184,6 +185,7 @@ int run(const Options& options) {
     Result<std::unique_ptr<EditorApp>> editor = EditorApp::create(desc);
     if (!editor) {
         CORDITE_LOG_CRITICAL("Editor", "cannot start: {}", editor.error().describe());
+        showErrorDialog("Cordite editor", fmt::format("The editor cannot start.\n\n{}", editor.error().describe()));
         return kExitFailure;
     }
     Engine& engine = (*editor)->engine();
@@ -201,6 +203,8 @@ int run(const Options& options) {
         const Result<bool> keepRunning = (*editor)->runFrame();
         if (!keepRunning) {
             CORDITE_LOG_CRITICAL("Editor", "frame {} failed: {}", engine.frameIndex(), keepRunning.error().describe());
+            showErrorDialog("Cordite editor",
+                            fmt::format("The editor has stopped.\n\n{}", keepRunning.error().describe()));
             return kExitFailure;
         }
         if (!*keepRunning) {
@@ -302,6 +306,8 @@ int parseAndRun(int argc, char** argv) {
 } // namespace
 
 int main(int argc, char** argv) {
+    // Before anything is written: the editor has no console of its own.
+    cordite::attachToParentConsole();
     // The engine reports failures as Results; an exception reaching this point comes from
     // a library and is a bug. Report it and exit with a status instead of terminating.
     try {

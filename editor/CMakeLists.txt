@@ -1,4 +1,4 @@
-cordite_add_executable(cordite-editor
+cordite_add_executable(cordite-editor WINDOWED
     SOURCES
         Main.cpp
     LIBRARIES

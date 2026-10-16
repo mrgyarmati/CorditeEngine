@@ -323,6 +323,15 @@ add_test(NAME export_smoke
 set_tests_properties(export_smoke PROPERTIES LABELS "gpu" TIMEOUT 300)
 cordite_configure_gpu_test(export_smoke "gpu")
 
+if(WIN32)
+    # The editor and a game have windows of their own: started with a double click, no
+    # console window opens beside them (WINDOWED in cordite_add_executable).
+    add_test(NAME programs_open_no_console
+        COMMAND ${CMAKE_COMMAND}
+            "-DPROGRAMS=$<TARGET_FILE:cordite-editor>$<SEMICOLON>$<TARGET_FILE:cordite-player>"
+            -P "${PROJECT_SOURCE_DIR}/cmake/CheckWindowsSubsystem.cmake")
+endif()
+
 cordite_add_layering_test()
 
 # Rejects tests that are written in a way that crashes as soon as doctest is asked to

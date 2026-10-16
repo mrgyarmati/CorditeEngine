@@ -566,6 +566,11 @@ switch ($Command) {
         if (-not (Test-Path $executable)) {
             throw "$executable does not exist. Build it first: scripts/dev.ps1 build -Target $Target -Config $Config"
         }
-        Invoke-Checked $executable $Arguments
+        # The editor and a game have no console of their own, and PowerShell waits for such a
+        # program only while it reads what the program writes: so that is read, and passed on.
+        & $executable @Arguments | Out-Host
+        if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+        }
     }
 }

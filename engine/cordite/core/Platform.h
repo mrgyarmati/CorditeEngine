@@ -39,6 +39,30 @@ bool isDebuggerPresent();
 /// @endcode
 void suppressErrorDialogs();
 
+/// Lets a program without a console of its own write to the terminal it was started from.
+/// The editor and the program of a game are built for the Windows subsystem, so that no
+/// console window opens beside them when they are started with a double click - and such
+/// a program writes nowhere unless it is given somewhere. A pipe or a file that it is given,
+/// as tests and scripts give it, stays where it is; what it would write to a console, or to
+/// nothing, goes to the console of the program that started it, once this was called -
+/// if that has one. Call it first thing in main(), before anything is written. Does
+/// nothing on other systems, where programs have no such difference.
+///
+/// @code
+/// int main(int argc, char** argv) {
+///     cordite::attachToParentConsole();
+///     ...
+/// }
+/// @endcode
+void attachToParentConsole();
+
+/// Tells the person at the machine that the program cannot go on, in a dialog that waits
+/// for them to close it: what a program without a console has no other way to say, such
+/// as a game that cannot start. `title` and `message` are UTF-8. Does nothing after
+/// suppressErrorDialogs() - nobody would close it - and on systems without such dialogs
+/// (Linux, macOS), where what a program says goes to standard error alone.
+void showErrorDialog(std::string_view title, std::string_view message);
+
 /// The file name of a program called `name` on this system: "name.exe" on Windows, the
 /// name itself elsewhere.
 [[nodiscard]] std::string executableFileName(std::string_view name);
