@@ -16,7 +16,6 @@
 #include "cordite/renderer/TestPatternPass.h"
 #include "cordite/rhi/Swapchain.h"
 #include "cordite/rhi/TextureReadback.h"
-#include "cordite/shader_compiler/SlangShaderCompiler.h"
 #include "cordite/world/Components.h"
 
 #include <algorithm>
@@ -74,7 +73,7 @@ struct Engine::Impl {
     std::unique_ptr<Window> window;
     std::unique_ptr<GraphicsDevice> graphics;
     std::unique_ptr<Swapchain> swapchain;
-    std::unique_ptr<SlangShaderCompiler> shaderCompiler;
+    std::unique_ptr<IShaderCompiler> shaderCompiler;
     std::unique_ptr<ShaderLibrary> shaderLibrary;
     std::unique_ptr<ShaderManager> shaderManager;
 
@@ -159,12 +158,21 @@ Status Engine::Impl::initialize() {
         CORDITE_TRY_ASSIGN(swapchain, Swapchain::create(*graphics, *window, {.vsync = desc.vsync}));
     }
 
-    CORDITE_TRY_ASSIGN(const std::filesystem::path shaderDirectory, locateShaderDirectory(desc.shaderDirectory));
-    CORDITE_TRY_ASSIGN(shaderCompiler, SlangShaderCompiler::create({.sourceRoots = {shaderDirectory}}));
-
     ShaderLibraryDesc libraryDesc;
-    libraryDesc.sourceRoots = {shaderDirectory};
-    libraryDesc.compiler = shaderCompiler.get();
+    if (desc.shaderCompiler) {
+        CORDITE_TRY_ASSIGN(const std::filesystem::path shaderDirectory, locateShaderDirectory(desc.shaderDirectory));
+        CORDITE_TRY_ASSIGN(shaderCompiler, desc.shaderCompiler(shaderDirectory));
+        libraryDesc.sourceRoots = {shaderDirectory};
+        libraryDesc.compiler = shaderCompiler.get();
+    } else {
+        // A game that was exported: what it has of shaders is the cache it came with.
+        if (desc.cacheDirectory.empty()) {
+            return makeError(ErrorCode::InvalidArgument,
+                             "an engine without a shader compiler has its shaders from a cache, and was given no "
+                             "cache directory");
+        }
+        libraryDesc.trustCache = true;
+    }
     if (!desc.cacheDirectory.empty()) {
         libraryDesc.cacheDirectory = desc.cacheDirectory / "shaders";
     }

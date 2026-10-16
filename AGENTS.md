@@ -132,11 +132,11 @@ by accident.
 | `scripting` | `core`, `math`, `platform`, `assets`, `world`, `physics`, `audio` | `ScriptRuntime`: the Lua state that gameplay scripts run in and the fence around it - limits on instructions, memory and nesting, the libraries a script may have, an environment for every chunk, the catalogue of the functions scripts are given - and values on their way between JSON and Lua; the `Script` component; `ScriptSystem`, which gives every entity with a script an instance of it and calls its `start`, `update` and `destroy`; the functions scripts are given: entities and their hierarchy, transforms, components through the reflection, vectors and rotations, the time, the ids of assets, the controls, the simulation |
 | `rhi` | `core`, `math`, `platform` | Vulkan device, swapchain and texture readback over NVRHI |
 | `shaders` | `core` | Shader requests and permutation keys, disk cache, `ShaderLibrary` |
-| `shader_compiler` | `core`, `shaders` | Slang to SPIR-V compiler (not linked into exported games) |
+| `shader_compiler` | `core`, `shaders` | Slang to SPIR-V compiler, and the cache of the engine's shaders compiled ahead that an exported game ships (`EngineShaderCache.h`); not linked into exported games |
 | `renderer` | `core`, `math`, `assets`, `world`, `animation`, `rhi`, `shaders` | The scene renderer and what it is made of: GPU copies of assets, the mesh passes, the G-buffer and its lighting, the lights of a world and the clusters they are sorted into, their shadow maps and the atlas those share, what finishes the picture (exposure, bloom, tone mapping, grading), the environment (the sky and what it lights), ambient occlusion from the screen, fog, the debug views, scene targets, the `MeshRenderer`, `Light`, `AmbientLight`, `Environment`, `Fog` and `PostProcess` components; camera views, debug lines, GPU timing, GPU shader management |
 | `ui` | `core`, `math`, `platform`, `rhi`, `shaders`, `renderer` | The immediate-mode interface: the Dear ImGui context and its NVRHI renderer; its typefaces and icons, compiled in; its themes, and the widgets it draws the same way everywhere |
-| `engine` | all of the above | `Engine`: owns the subsystems, the assets, the world and the interface, and runs the frame loop; projects; placing models; checking the assets a scene uses |
-| `editor` | `engine` and below | The editor: the scene document, undoable actions, scene and asset commands, panels, `EditorApp` (not linked into exported games) |
+| `engine` | all of the above but `shader_compiler` | `Engine`: owns the subsystems, the assets, the world and the interface, and runs the frame loop; projects; placing models; checking the assets a scene uses |
+| `editor` | `engine` and below, `shader_compiler` | The editor: the scene document, undoable actions, scene and asset commands, panels, `EditorApp` (not linked into exported games) |
 
 `cordite-editor` (in `editor/`) is a thin `main` around `EditorApp`. Everything else,
 including what tests need to drive the editor, is in the `editor` module.
@@ -502,6 +502,11 @@ Vulkan directly. Step-by-step guide for adding a pass:
   without a GPU, and a test drives the editor through every debug view, quality and a
   played scene and fails for a permutation that was asked for and is not listed - or
   is listed and was not asked for (`ShaderLibrary::requested()`).
+- **An engine compiles shaders only when it is given a compiler** (`EngineDesc::
+  shaderCompiler`: `makeSlangShaderCompiler`, which the editor and the tests pass). Without
+  one it needs no sources and reads every shader from its cache, trusted as it is - the
+  cache an exported game ships (`compileEngineShaders`). The `engine` module does not
+  depend on `shader_compiler`, and `module_layering` keeps it so.
 - **Swapchain back buffers** are 8-bit UNORM; the final pass writes display-encoded
   (sRGB) values itself. Do not render linear values straight to the back buffer. A
   finished picture is dithered by a level at the most, so that slow gradients show no

@@ -69,6 +69,8 @@ cordite_add_module(editor
         world
         rhi
         renderer
+        shaders
+        shader_compiler
         ui
         engine)
 

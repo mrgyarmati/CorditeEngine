@@ -50,6 +50,7 @@
 #include "cordite/renderer/ShaderManager.h"
 #include "cordite/rhi/GraphicsDevice.h"
 #include "cordite/scripting/ScriptSystem.h"
+#include "cordite/shaders/ShaderCompiler.h"
 #include "cordite/shaders/ShaderLibrary.h"
 #include "cordite/ui/UiSystem.h"
 #include "cordite/world/ComponentRegistry.h"
@@ -59,6 +60,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -118,8 +120,20 @@ struct EngineDesc {
     /// GPU to prefer, by name substring. See GraphicsDeviceDesc::preferredAdapter.
     std::string preferredAdapter;
 
-    /// Directory holding the engine's shader sources. Empty uses the default: a
-    /// `shaders` directory beside the executable, or the repository's in development builds.
+    /// Makes the compiler of the engine's shaders, given the directory of their sources
+    /// (`shaderDirectory`): makeSlangShaderCompiler() of
+    /// cordite/shader_compiler/EngineShaderCache.h, which an editor and the tests are made
+    /// with. Left empty, the engine compiles nothing and needs no sources: every shader
+    /// comes from the cache in `cacheDirectory`, trusted as it is - the cache that a game
+    /// which is exported ships (compileEngineShaders()). Creation then fails with
+    /// InvalidArgument without a `cacheDirectory`, and with NotFound for the first shader
+    /// that the cache does not have.
+    std::function<Result<std::unique_ptr<IShaderCompiler>>(const std::filesystem::path& sourceDirectory)>
+        shaderCompiler;
+
+    /// Directory holding the engine's shader sources, for the compiler. Empty uses the
+    /// default: a `shaders` directory beside the executable, or the repository's in
+    /// development builds. Of no use without a `shaderCompiler`.
     std::filesystem::path shaderDirectory;
 
     /// Directory for derived data such as the shader cache. Empty keeps it in memory.

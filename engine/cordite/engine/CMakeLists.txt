@@ -24,7 +24,6 @@ cordite_add_module(engine
         scripting
         rhi
         shaders
-        shader_compiler
         renderer
         ui)
 

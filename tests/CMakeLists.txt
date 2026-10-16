@@ -281,6 +281,7 @@ cordite_add_test_suite(performance
         render/RenderTestSupport.h
     LIBRARIES
         cordite::engine
+        cordite::shader_compiler
     LABELS
         gpu
         perf)

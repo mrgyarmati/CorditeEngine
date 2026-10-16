@@ -1,5 +1,7 @@
 cordite_add_module(shader_compiler
     SOURCES
+        EngineShaderCache.cpp
+        EngineShaderCache.h
         SlangShaderCompiler.cpp
         SlangShaderCompiler.h
     DEPENDS

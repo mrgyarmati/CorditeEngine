@@ -4,7 +4,9 @@
 
 #include "cordite/shaders/EngineShaders.h"
 
+#include "cordite/shader_compiler/EngineShaderCache.h"
 #include "cordite/shader_compiler/SlangShaderCompiler.h"
+#include "cordite/shaders/ShaderLibrary.h"
 
 #include "support/TestSupport.h"
 
@@ -13,23 +15,43 @@
 using namespace cordite;
 
 TEST_SUITE("EngineShaders") {
-    TEST_CASE("every engine shader compiles without warnings") {
-        const auto compiler = SlangShaderCompiler::create({.sourceRoots = {test::sourceDirectory() / "shaders"}});
-        REQUIRE_MESSAGE(compiler.has_value(), test::errorOf(compiler));
+    TEST_CASE("every engine shader compiles without warnings, into a cache that a game without a compiler reads") {
+        const test::TempDirectory directory;
+        {
+            test::LogCapture capture(LogLevel::Warn);
+            const Status compiled =
+                compileEngineShaders(test::sourceDirectory() / "shaders", directory.path() / "shaders");
+            REQUIRE_MESSAGE(compiled.has_value(), test::errorOf(compiled));
+            for (const LogMessage& message : capture.messages()) {
+                FAIL_CHECK("unexpected shader compiler output: " << message.text);
+            }
+        }
 
-        test::LogCapture capture(LogLevel::Warn);
-        for (const ShaderRequest& request : engineShaderRequests()) {
+        // What an exported game has: the cache, trusted, without a compiler or sources.
+        ShaderLibrary shipped({.cacheDirectory = directory.path() / "shaders", .trustCache = true});
+        const std::vector<ShaderRequest> requests = engineShaderRequests();
+        for (const ShaderRequest& request : requests) {
             CAPTURE(request.describe());
-
-            const Result<ShaderBinary> binary = (*compiler)->compile(request);
+            const Result<std::shared_ptr<const ShaderBinary>> binary = shipped.load(request);
             REQUIRE_MESSAGE(binary.has_value(), test::errorOf(binary));
-            CHECK(isSpirv(binary->code));
-            CHECK_FALSE(binary->dependencies.empty());
+            CHECK(isSpirv((*binary)->code));
+            CHECK_FALSE((*binary)->dependencies.empty());
         }
+        CHECK(shipped.stats().diskHits == requests.size());
+        CHECK(shipped.stats().compilations == 0);
+    }
 
-        for (const LogMessage& message : capture.messages()) {
-            FAIL_CHECK("unexpected shader compiler output: " << message.text);
-        }
+    TEST_CASE("the compiler an engine is made with, and what a cache cannot be made of") {
+        const Result<std::unique_ptr<IShaderCompiler>> compiler =
+            makeSlangShaderCompiler(test::sourceDirectory() / "shaders");
+        REQUIRE_MESSAGE(compiler.has_value(), test::errorOf(compiler));
+        CHECK_FALSE((*compiler)->version().empty());
+
+        // Without the sources, the first permutation of the list is named.
+        const test::TempDirectory directory;
+        const Status failed = compileEngineShaders(directory.path() / "none", directory.path() / "shaders");
+        REQUIRE_FALSE(failed.has_value());
+        CHECK(failed.error().message.find(engineShaderRequests().front().path) != std::string::npos);
     }
     TEST_CASE("the list of the engine's shaders is normalized, each permutation once, in order") {
         const std::vector<ShaderRequest> requests = engineShaderRequests();

@@ -36,6 +36,7 @@
 #include "cordite/renderer/MeshPass.h"
 #include "cordite/renderer/RenderResources.h"
 #include "cordite/renderer/SceneRenderer.h"
+#include "cordite/shader_compiler/EngineShaderCache.h"
 
 #include "render/RenderTestSupport.h"
 #include "support/TestSupport.h"
@@ -98,6 +99,7 @@ inline EngineDesc measuredEngineDesc(std::string applicationName, const std::fil
     desc.renderSize = UVec2(960, 540);
     desc.fixedTimeStep = 1.0 / 60.0;
     desc.shaderDirectory = shaderDirectory();
+    desc.shaderCompiler = makeSlangShaderCompiler;
     desc.cacheDirectory = cacheDirectory;
     desc.assetDirectory = assetDirectory;
     return desc;

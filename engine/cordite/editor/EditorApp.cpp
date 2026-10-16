@@ -16,6 +16,7 @@
 #include "cordite/editor/ScriptCommands.h"
 #include "cordite/math/MathJson.h"
 #include "cordite/rhi/TextureReadback.h"
+#include "cordite/shader_compiler/EngineShaderCache.h"
 
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -153,6 +154,10 @@ Result<std::unique_ptr<EditorApp>> EditorApp::create(const EditorAppDesc& desc) 
     }
     // An editor is where assets get their ids.
     engineDesc.writeAssetMetaFiles = true;
+    // An editor compiles the engine's shaders: what changes in them is seen at once.
+    if (!engineDesc.shaderCompiler) {
+        engineDesc.shaderCompiler = makeSlangShaderCompiler;
+    }
     if (engineDesc.applicationName == EngineDesc().applicationName) {
         engineDesc.applicationName = kEditorName;
     }

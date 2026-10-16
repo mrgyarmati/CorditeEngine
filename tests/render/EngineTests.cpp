@@ -19,6 +19,7 @@
 #include "cordite/renderer/RenderComponents.h"
 #include "cordite/scripting/ScriptComponents.h"
 #include "cordite/scripting/ScriptSystem.h"
+#include "cordite/shader_compiler/EngineShaderCache.h"
 #include "cordite/world/Components.h"
 #include "cordite/world/SceneSerializer.h"
 
@@ -51,6 +52,7 @@ EngineDesc headlessDesc(UVec2 size = UVec2(320, 180)) {
     desc.fixedTimeStep = 1.0 / 60.0;
     // Tests must not depend on where the engine would look for shaders by default.
     desc.shaderDirectory = test::shaderDirectory();
+    desc.shaderCompiler = makeSlangShaderCompiler;
     return desc;
 }
 
@@ -170,6 +172,49 @@ TEST_SUITE("Engine") {
         CHECK(engine->shaders().stats().compilations == 0);
         CHECK(engine->shaders().stats().diskHits == 26);
         checkNoValidationIssues(engine->graphics());
+    }
+
+    TEST_CASE("an engine without a compiler draws with the cache of its shaders that it is given") {
+        const TempDirectory cache;
+        REQUIRE(compileEngineShaders(test::shaderDirectory(), cache.path() / "shaders").has_value());
+        // A game that was exported: no compiler, no sources - where they would be is never looked at.
+        EngineDesc desc = headlessDesc(UVec2(160, 90));
+        desc.shaderCompiler = nullptr;
+        desc.shaderDirectory = test::sourceDirectory() / "no-such-directory";
+        desc.cacheDirectory = cache.path();
+        const std::unique_ptr<Engine> engine = createEngine(desc);
+        World& world = engine->world();
+        const Entity camera = world.createEntity("Camera");
+        world.transform(camera).position = Vec3(0.0f, 0.0f, 3.0f);
+        world.add<CameraComponent>(camera);
+        world.add<MeshRendererComponent>(world.createEntity("Cube")).mesh = builtinMeshId(BuiltinMesh::Cube);
+        const Entity lamp = world.createEntity("Lamp");
+        world.transform(lamp).position = Vec3(0.0f, 0.0f, 3.0f);
+        world.add<LightComponent>(lamp) = {.type = LightType::Point, .intensity = 9.0f, .range = 10.0f};
+
+        runFrames(*engine, 2);
+        const Image frame = test::unwrap(engine->captureFrame());
+        CHECK(frame.pixel(80, 45).r > frame.pixel(2, 2).r + 0.3f);
+        CHECK(engine->shaders().stats().compilations == 0);
+        CHECK(engine->shaders().stats().diskHits > 0);
+        checkNoValidationIssues(engine->graphics());
+    }
+
+    TEST_CASE("an engine without a compiler needs a cache, and one that has its shaders") {
+        EngineDesc withoutCache = headlessDesc();
+        withoutCache.shaderCompiler = nullptr;
+        const Result<std::unique_ptr<Engine>> refused = Engine::create(withoutCache);
+        REQUIRE_FALSE(refused.has_value());
+        CHECK(refused.error().code == ErrorCode::InvalidArgument);
+
+        const TempDirectory empty;
+        EngineDesc emptyCache = headlessDesc();
+        emptyCache.shaderCompiler = nullptr;
+        emptyCache.cacheDirectory = empty.path();
+        const Result<std::unique_ptr<Engine>> missing = Engine::create(emptyCache);
+        REQUIRE_FALSE(missing.has_value());
+        CHECK(missing.error().code == ErrorCode::NotFound);
+        CHECK(missing.error().message.find(".slang") != std::string::npos);
     }
 
     TEST_CASE("a program can drive the frame step by step") {
