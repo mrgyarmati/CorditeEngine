@@ -20,6 +20,7 @@ cordite_add_test_suite(core
         unit/core/AssertTests.cpp
         unit/core/BinaryStreamTests.cpp
         unit/core/ConfigTests.cpp
+        unit/core/DirectoryWatcherTests.cpp
         unit/core/DocumentTests.cpp
         unit/core/FileSystemTests.cpp
         unit/core/HashTests.cpp

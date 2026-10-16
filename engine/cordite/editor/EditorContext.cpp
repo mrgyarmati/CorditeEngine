@@ -254,6 +254,7 @@ Status EditorContext::saveScene(const std::filesystem::path& path) {
     CORDITE_TRY(cordite::saveScene(target, m_world, m_components));
     m_scenePath = target;
     m_savedStateId = m_history.stateId();
+    ++m_saveCount;
 
     // The scene is saved, whatever the assets make of it: what went wrong there is said,
     // and is not a failure of the save.

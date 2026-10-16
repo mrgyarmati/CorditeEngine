@@ -124,7 +124,7 @@ by accident.
 
 | Module | Depends on | Contains |
 |--------|-----------|----------|
-| `core` | -         | Logging, assertions, `Result`, hashing, UUIDs, JSON, reflection, binary streams, file I/O, config, job system, allocators, timing |
+| `core` | -         | Logging, assertions, `Result`, hashing, UUIDs, JSON, reflection, binary streams, file I/O, noticing that files change, config, job system, allocators, timing |
 | `math` | `core`    | glm aliases, `Transform`, bounds, rays, frustum, projections, color, curves, random, spherical harmonics, directions in images of everything around, reflection of math types |
 | `platform` | `core`, `math` | Windows (GLFW), keyboard / mouse / gamepad input, and the controls a game has by name: `InputMap`, `InputActions` |
 | `assets` | `core`, `math` | Assets as data: images and mipmaps, meshes - rigid and skinned - and what prepares them, skeletons, animation clips, materials, the text of scripts, the samples of sounds, prefabs as their files have them, glTF import and export, the asset database (ids, `.meta` files) and the asset manager (loading by id) |
@@ -1421,6 +1421,14 @@ panels, EditorApp    the interface, built on the three layers above
   CTest, Git Bash and scripts - or, started from a terminal with nothing redirected, to
   that terminal (`attachToParentConsole`). What stops them before a person could see it
   in a log is said in a dialog (`showErrorDialog`), which a headless run never opens.
+- **The editor reads the assets again when another program changes their files**
+  (`EditorAppDesc::watchAssets`, on unless it is headless): a `DirectoryWatcher` looks at
+  them on a thread of its own, and a file that was added, removed or written queues
+  `asset.refresh` before the next frame - which is also how a scene that is played gets
+  the new text of a script. What the editor writes itself (`EditorContext::saveCount`) or
+  has just read again (`AssetDatabase::revision`, with the .meta files that writes) is
+  taken for no change. A refresh reads everything again, as the button does. Batch runs
+  and tests leave it off: they see the files as their commands leave them.
 - **The interface is Dear ImGui**, reached through the `ui` module. It runs without a
   window too, with the pointer fed from `Engine::input()`, so interface code is covered
   by headless tests.

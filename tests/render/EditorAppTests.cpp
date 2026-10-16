@@ -26,6 +26,7 @@
 #include <imgui_internal.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cstddef>
 #include <filesystem>
 #include <memory>
@@ -34,6 +35,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <thread>
 #include <vector>
 
 using namespace cordite;
@@ -2377,6 +2379,87 @@ TEST_SUITE("EditorApp") {
             CAPTURE(request.describe());
             CHECK(askedKeys.contains(request.key().toHex()));
         }
+    }
+
+    TEST_CASE("files of the assets that another program changes are read again, and a played script goes on with "
+              "its new text") {
+        const TempDirectory directory;
+        const Project project = unwrap(createProject(directory.path() / "watched", "Watched"));
+        const std::filesystem::path script = project.assetDirectory() / "scripts" / "namer.lua";
+        const auto namer = [](std::string_view name) {
+            return fmt::format("return {{\n    update = function(self)\n        self.entity:setName(\"{}\")\n    "
+                               "end,\n}}\n",
+                               name);
+        };
+        REQUIRE(writeTextFile(script, namer("first")).has_value());
+
+        EditorAppDesc desc = headlessDesc(UVec2(320, 180));
+        desc.project = project.directory;
+        desc.watchAssets = true;
+        desc.assetWatchInterval = std::chrono::milliseconds(10);
+        const std::unique_ptr<EditorApp> editor = createEditor(desc);
+        const AssetDatabase& database = editor->context().assets().database();
+        Json named = Json::object();
+        named["name"] = "Named";
+        named["components"]["Script"]["script"] = run(*editor, "asset.get", R"({"asset": "scripts/namer.lua"})")["id"];
+        const std::string id = run(*editor, "entity.create", named.dump())["id"].get<std::string>();
+        const auto nameOf = [&] {
+            Json entity = Json::object();
+            entity["entity"] = id;
+            return run(*editor, "entity.get", entity.dump())["name"].get<std::string>();
+        };
+        // Frames until the name is what is expected, or ten seconds have passed: the files
+        // are looked at on a thread of their own.
+        const auto runUntilNamed = [&](std::string_view name) {
+            const auto end = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+            while (nameOf() != name && std::chrono::steady_clock::now() < end) {
+                run(*editor, "editor.runFrames");
+                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+            }
+            return nameOf();
+        };
+
+        run(*editor, "play.start");
+        CHECK(runUntilNamed("first") == "first");
+        // Written by another program while the game runs.
+        REQUIRE(writeTextFile(script, namer("second, written while it ran")).has_value());
+        CHECK(runUntilNamed("second, written while it ran") == "second, written while it ran");
+        CHECK(editor->engine().scripts().problems().empty());
+        run(*editor, "play.stop");
+
+        // What the editor writes itself is no reason to read the assets again: a new scene
+        // file is read by the save, and one saved again is not read at all.
+        Json save = Json::object();
+        save["path"] = pathToUtf8(project.assetDirectory() / "scenes" / "watched.scene.json");
+        run(*editor, "scene.save", save.dump());
+        run(*editor, "editor.runFrames");
+        const uint64_t revision = database.revision();
+        run(*editor, "entity.rename", fmt::format(R"({{"entity": "{}", "name": "Renamed"}})", id));
+        run(*editor, "scene.save");
+        for (int frame = 0; frame < 20; ++frame) {
+            run(*editor, "editor.runFrames");
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+        CHECK(database.revision() == revision);
+        checkNoValidationIssues(editor->engine().graphics());
+    }
+
+    TEST_CASE("an editor reads the assets again only when asked, unless it watches them") {
+        const TempDirectory directory;
+        const Project project = unwrap(createProject(directory.path() / "unwatched", "Unwatched"));
+        EditorAppDesc desc = headlessDesc(UVec2(320, 180));
+        desc.project = project.directory;
+        desc.assetWatchInterval = std::chrono::milliseconds(10);
+        const std::unique_ptr<EditorApp> editor = createEditor(desc);
+        const uint64_t revision = editor->context().assets().database().revision();
+        REQUIRE(writeTextFile(project.assetDirectory() / "scripts" / "late.lua", "return {}\n").has_value());
+        for (int frame = 0; frame < 20; ++frame) {
+            run(*editor, "editor.runFrames");
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+        CHECK(editor->context().assets().database().revision() == revision);
+        run(*editor, "asset.refresh");
+        CHECK(editor->context().assets().database().revision() != revision);
     }
 
     TEST_CASE("a game is made of the project by command, and not of a scene that is not saved") {

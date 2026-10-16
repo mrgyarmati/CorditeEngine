@@ -8,6 +8,8 @@ cordite_add_module(core
         BinaryStream.cpp
         BinaryStream.h
         Config.cpp
+        DirectoryWatcher.cpp
+        DirectoryWatcher.h
         Config.h
         Document.cpp
         Document.h

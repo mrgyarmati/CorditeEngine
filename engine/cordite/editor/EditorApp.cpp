@@ -212,12 +212,19 @@ Result<std::unique_ptr<EditorApp>> EditorApp::create(const EditorAppDesc& desc) 
     if (!scene.empty()) {
         CORDITE_TRY(app->m_context->openScene(scene));
     }
+    if (const std::optional<Project>& project = app->m_project; desc.watchAssets && project) {
+        app->m_assetWatcher = std::make_unique<DirectoryWatcher>(
+            DirectoryWatcherDesc{.directory = project->assetDirectory(), .interval = desc.assetWatchInterval});
+        app->m_watchedRevision = app->m_context->assets().database().revision();
+        app->m_watchedSaves = app->m_context->saveCount();
+    }
     return app;
 }
 
 EditorApp::~EditorApp() = default;
 
 Result<bool> EditorApp::runFrame() {
+    followAssetFiles();
     // Lines entered in the console run here, between frames, where a command is free to
     // render frames of its own.
     const std::vector<std::string> lines = std::exchange(m_submittedLines, {});
@@ -953,6 +960,30 @@ Result<Image> EditorApp::previewImage(const Uuid& asset, uint32_t size) {
     device->executeCommandList(commandList);
     CORDITE_TRY_ASSIGN(TexturePixels pixels, readTexture(m_engine->graphics(), preview.picture()));
     return Image::fromPixels(pixels.width, pixels.height, ImageFormat::Rgba8, std::move(pixels.data));
+}
+
+void EditorApp::followAssetFiles() {
+    if (!m_assetWatcher) {
+        return;
+    }
+    const uint64_t revision = m_context->assets().database().revision();
+    const uint64_t saves = m_context->saveCount();
+    if (revision != m_watchedRevision || saves != m_watchedSaves) {
+        // What the editor wrote itself, or has just read - with the .meta files that reading
+        // wrote - is no change of the files.
+        m_assetWatcher->rebaseline();
+        m_watchedRevision = revision;
+        m_watchedSaves = saves;
+        return;
+    }
+    const std::vector<std::string> changes = m_assetWatcher->takeChanges();
+    if (changes.empty()) {
+        return;
+    }
+    CORDITE_LOG_INFO("Editor", "{} changed: the assets are read again",
+                     changes.size() == 1 ? changes.front() : fmt::format("{} files", changes.size()));
+    // Before the next frame, as a command: what it finds is said in the console.
+    m_submittedLines.emplace_back("asset.refresh");
 }
 
 void EditorApp::importDroppedFiles() {

@@ -45,6 +45,7 @@
 #include "cordite/assets/AssetDatabase.h"
 #include "cordite/assets/Image.h"
 #include "cordite/core/Base.h"
+#include "cordite/core/DirectoryWatcher.h"
 #include "cordite/core/Json.h"
 #include "cordite/core/Result.h"
 #include "cordite/core/Uuid.h"
@@ -64,6 +65,7 @@
 
 #include <imgui.h>
 
+#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <memory>
@@ -100,6 +102,16 @@ struct EditorAppDesc {
     /// Empty keeps nothing, and every session starts with the defaults, which is what
     /// automation wants. A file that cannot be read is said in the log, and not used.
     std::filesystem::path preferencesFile;
+
+    /// Notice when the files of the assets are added, removed or written by other programs
+    /// - a script saved in a text editor, a texture painted anew - and read the assets
+    /// again, as asset.refresh does: the scripts of a scene that is played go on with
+    /// their new text. Left off, the assets are read again only when that is asked for,
+    /// which is what automation wants: a batch run sees the files as its commands leave
+    /// them. Needs a project.
+    bool watchAssets = false;
+    /// How long the watcher of the assets waits between two looks at their files.
+    std::chrono::milliseconds assetWatchInterval{500};
 };
 
 class EditorApp {
@@ -158,6 +170,9 @@ private:
     [[nodiscard]] Status registerProjectCommands();
     /// Asks for files dropped onto the window from outside to be brought into the assets.
     void importDroppedFiles();
+    /// Asks for the assets to be read again when files of theirs were changed by another
+    /// program, and takes the files for unchanged after the editor wrote or read them.
+    void followAssetFiles();
     /// A picture of an asset, drawn between frames: what asset.preview saves.
     [[nodiscard]] Result<Image> previewImage(const Uuid& asset, uint32_t size);
     /// Draws the interface in a theme from the next frame on, and remembers it in the
@@ -226,6 +241,11 @@ private:
     std::string m_panelToFocus;
     /// What the window title was last set from, to change it only when needed.
     std::string m_shownTitle;
+    /// Watches the files of the assets (EditorAppDesc::watchAssets); null when nothing does.
+    std::unique_ptr<DirectoryWatcher> m_assetWatcher;
+    /// The revision of the assets and the count of saves that the watcher's files are of.
+    uint64_t m_watchedRevision = 0;
+    uint64_t m_watchedSaves = 0;
 };
 
 } // namespace cordite

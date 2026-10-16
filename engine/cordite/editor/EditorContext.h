@@ -141,6 +141,10 @@ public:
     /// What is edited while the scene is played does not count: it does not stay.
     [[nodiscard]] bool hasUnsavedChanges() const;
 
+    /// How many times the scene was written to a file (saveScene()): what watches the files
+    /// of the assets takes those writes for no change of them.
+    [[nodiscard]] uint64_t saveCount() const { return m_saveCount; }
+
     /// Whether the scene is being played: between beginPlay() and endPlay().
     [[nodiscard]] bool isPlaying() const { return m_play.has_value(); }
 
@@ -179,6 +183,7 @@ private:
     Json m_clipboard;
     std::filesystem::path m_scenePath;
     uint64_t m_savedStateId = 0;
+    uint64_t m_saveCount = 0;
     std::optional<PlayedDocument> m_play;
 };
 

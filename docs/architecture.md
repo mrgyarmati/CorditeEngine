@@ -29,7 +29,7 @@ of slowly turning the code base into a ball of mud.
 
 | Module | Depends on | Responsibility |
 |--------|-----------|----------------|
-| `core` | -         | Services every other module needs: logging, assertions, error handling, hashing, UUIDs, JSON and binary serialization, file I/O, configuration, the job system, memory allocators, timing, platform queries. |
+| `core` | -         | Services every other module needs: logging, assertions, error handling, hashing, UUIDs, JSON and binary serialization, file I/O and noticing that files change, configuration, the job system, memory allocators, timing, platform queries. |
 | `math` | `core`    | glm type aliases and conventions; `Transform`, bounding volumes, rays and intersection tests, frustum culling, projection matrices, color conversions, keyframed curves, deterministic random numbers, spherical harmonics, and where a direction is in an image of everything around. |
 | `platform` | `core`, `math` | The window system and windows (GLFW), and per-window keyboard, mouse and gamepad state with an injection API for tests and automation. |
 | `assets` | `core`, `math` | Assets as data, and where they come from: images and mipmaps; meshes, primitives and mesh processing; materials; the text of scripts; the samples of sounds; prefabs, as far as their files go; glTF import and export; the asset database, which knows what exists and under which id; the asset manager, which loads by id. Knows nothing of the GPU. |
@@ -2030,3 +2030,22 @@ Vulkan driver - is said in a dialog (`showErrorDialog`), which a headless run ne
 The price is PowerShell, which waits for such a program only while it reads what the
 program writes: `dev.ps1 run` reads it, and a person who starts one by hand pipes it into
 `Out-Host`.
+
+### The editor notices changed files by looking at them
+
+Scripts are edited in a text editor, and textures in a paint program; the editor reads
+them again when they change, so that what is played is what was saved - a script of a
+scene that is being played goes on with its new text, keeping what its instances hold.
+How it notices is by looking: every half second a thread of its own lists the files of
+the assets, with their sizes and the times they were written, and compares (`DirectoryWatcher`).
+The notifications each system offers differ from one another, need a library to be
+used alike (efsw, for one), miss what happens on network drives, and come in bursts that
+have to be gathered anyway; a look at a few thousand files costs milliseconds, off the
+thread that draws, and is the same everywhere, which the tests rely on.
+
+What changes is answered with what the Refresh button does: everything is read again.
+That is simple and right, and slow for a large project, where the next step is to read
+again only the files that changed. What the editor writes itself - a scene it saves - and
+what a refresh writes - the .meta files of new assets - is taken for no change, or every
+save would read the assets again. A batch run and a test do not watch: they see the files
+as their own commands leave them.

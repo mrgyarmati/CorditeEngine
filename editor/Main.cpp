@@ -169,6 +169,9 @@ int run(const Options& options) {
     // A batch run starts from the default layout every time, so that its output does not
     // depend on what a person did to the windows earlier.
     desc.rememberLayout = !options.headless;
+    // Somebody at the editor edits scripts and textures in other programs; a batch run sees
+    // the files as its commands leave them.
+    desc.watchAssets = !options.headless;
     // So does its theme: a batch run is drawn in the default one, and leaves the choice of
     // the person who runs it as it was.
     if (!options.headless) {
