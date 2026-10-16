@@ -71,15 +71,19 @@ enum class RenderDebugView : uint8_t {
     Wireframe,
     /// How often each pixel is drawn, hidden surfaces included: the brighter, the more.
     Overdraw,
+    /// How blurred each pixel is by the depth of field (DepthOfFieldPass): black where it
+    /// is sharp, red in front of that and blue behind, as much as it is blurred. Drawn by
+    /// the depth of field over the lit picture, also where the scene has none.
+    Focus,
 };
 
-inline constexpr std::array<RenderDebugView, 17> kRenderDebugViews = {
+inline constexpr std::array<RenderDebugView, 18> kRenderDebugViews = {
     RenderDebugView::None,       RenderDebugView::BaseColor,      RenderDebugView::Normals,
     RenderDebugView::Roughness,  RenderDebugView::Metallic,       RenderDebugView::Specular,
     RenderDebugView::Occlusion,  RenderDebugView::Emissive,       RenderDebugView::Depth,
     RenderDebugView::LightCount, RenderDebugView::ShadowCascades, RenderDebugView::AmbientOcclusion,
     RenderDebugView::Fog,        RenderDebugView::LightingOnly,   RenderDebugView::Reflections,
-    RenderDebugView::Wireframe,  RenderDebugView::Overdraw,
+    RenderDebugView::Wireframe,  RenderDebugView::Overdraw,       RenderDebugView::Focus,
 };
 
 /// The name used in files and by tools: "none", "baseColor", "lightingOnly", "reflections", ...

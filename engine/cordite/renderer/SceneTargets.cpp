@@ -3,7 +3,9 @@
 #include "cordite/core/Assert.h"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
+#include <cstddef>
 #include <utility>
 
 namespace cordite {
@@ -234,6 +236,58 @@ void SceneTargets::releaseAliased() {
 uint64_t SceneTargets::aliasedBytes() const {
     // Four bytes a pixel.
     return m_aliased ? uint64_t{m_size.x} * m_size.y * 4 : 0;
+}
+
+Status SceneTargets::prepareDepthOfField(nvrhi::IDevice* device) {
+    CORDITE_ASSERT(isValid() && device != nullptr, "depth of field needs valid targets and a device");
+    if (!isValid() || device == nullptr) {
+        return makeError(ErrorCode::InvalidArgument, "depth of field needs valid targets and a device");
+    }
+    if (m_depthOfFieldSource && m_depthOfFieldBlur) {
+        return {};
+    }
+    releaseDepthOfField();
+
+    // A texel for every block of four pixels, the last of which may hang over the edge.
+    const UVec2 size = (m_size + UVec2(1)) / 2u;
+    std::array<nvrhi::TextureHandle, 2> images;
+    std::array<nvrhi::FramebufferHandle, 2> framebuffers;
+    for (size_t index = 0; index < images.size(); ++index) {
+        images[index] = createTexture(device, size, nvrhi::Format::RGBA16_FLOAT,
+                                      m_debugName + (index == 0 ? " depth of field source" : " depth of field blur"),
+                                      nvrhi::ResourceStates::ShaderResource);
+        if (images[index]) {
+            framebuffers[index] = device->createFramebuffer(nvrhi::FramebufferDesc().addColorAttachment(images[index]));
+        }
+        if (!framebuffers[index]) {
+            return makeError(ErrorCode::DeviceError,
+                             "cannot create the {}x{} images the depth of field of '{}' is "
+                             "worked out in",
+                             size.x, size.y, m_debugName);
+        }
+    }
+    m_depthOfFieldSource = std::move(images[0]);
+    m_depthOfFieldBlur = std::move(images[1]);
+    m_depthOfFieldSourceFramebuffer = std::move(framebuffers[0]);
+    m_depthOfFieldBlurFramebuffer = std::move(framebuffers[1]);
+    return {};
+}
+
+void SceneTargets::releaseDepthOfField() {
+    // What a command list on its way still draws into is kept alive by that list.
+    m_depthOfFieldSourceFramebuffer = nullptr;
+    m_depthOfFieldBlurFramebuffer = nullptr;
+    m_depthOfFieldSource = nullptr;
+    m_depthOfFieldBlur = nullptr;
+}
+
+uint64_t SceneTargets::depthOfFieldBytes() const {
+    if (!m_depthOfFieldSource || !m_depthOfFieldBlur) {
+        return 0;
+    }
+    // Two images of four half floats a texel.
+    const nvrhi::TextureDesc& desc = m_depthOfFieldSource->getDesc();
+    return uint64_t{desc.width} * desc.height * 8 * 2;
 }
 
 nvrhi::ITexture* SceneTargets::bloomLevel(uint32_t level) const {

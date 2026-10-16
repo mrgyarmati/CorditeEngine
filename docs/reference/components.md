@@ -213,6 +213,12 @@ How the picture is finished - exposure, bloom, tone mapping, grading - everywher
 | `ambientOcclusionIntensity` | float | `1.0` | 0.0 to 4.0 | Ambient occlusion: how much darker the light from all around gets in creases and under things. 0 not at all, 1 as the geometry says, more exaggerated |
 | `ambientOcclusionRadius` | float | `0.5` | 0.01 to 10.0; m | Ambient occlusion: how far from a point things are looked for that stand in its light |
 | `ambientOcclusionBias` | float | `2.0` | 0.0 to 30.0; deg | Ambient occlusion: how far something has to rise above a surface before it counts; more hides streaks on surfaces seen at a low angle |
+| `focusDistance` | float | `10.0` | 0.0 to 10000.0; m | Depth of field: how far from the camera what is sharp is, along the way it looks |
+| `focusRange` | float | `2.0` | 0.0 to 10000.0; m | Depth of field: how far in front of the focus distance and behind it everything stays sharp |
+| `focusTransition` | float | `5.0` | 0.0 to 10000.0; m | Depth of field: over how many metres beyond that the blur grows to its most; with nothing, what is not sharp is blurred at its most |
+| `nearBlur` | float | `0.0` | 0.0 to 1.0 | Depth of field: the most blur in front of what is sharp, as a share of the blur size: 0 none, 1 all of it |
+| `farBlur` | float | `0.0` | 0.0 to 1.0 | Depth of field: the most blur behind what is sharp, and where nothing was drawn, as a share of the blur size: 0 none, 1 all of it |
+| `blurSize` | float | `0.01` | 0.0 to 0.03 | Depth of field: the radius of the circle a point becomes at the most blur, as a share of the height of the picture |
 
 ## PrefabInstance
 

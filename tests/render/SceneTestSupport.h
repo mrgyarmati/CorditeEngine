@@ -250,10 +250,13 @@ public:
                               static_cast<float>(m_size.x) / static_cast<float>(m_size.y));
     }
 
-    [[nodiscard]] CameraView perspectiveView(const Vec3& eye, const Vec3& target, float fovDegrees = 50.0f) const {
+    /// A camera with perspective that looks from `eye` at `target`, `fovDegrees` from top
+    /// to bottom, with `up` the way up in the picture.
+    [[nodiscard]] CameraView perspectiveView(const Vec3& eye, const Vec3& target, float fovDegrees = 50.0f,
+                                             const Vec3& up = kWorldUp) const {
         CameraComponent camera;
         camera.verticalFovDegrees = fovDegrees;
-        return makeCameraView(glm::inverse(lookAt(eye, target)), camera,
+        return makeCameraView(glm::inverse(lookAt(eye, target, up)), camera,
                               static_cast<float>(m_size.x) / static_cast<float>(m_size.y));
     }
 

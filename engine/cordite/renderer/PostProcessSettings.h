@@ -8,7 +8,9 @@
 /// The renderer computes light without an upper limit; a display has one. Finishing a
 /// picture is, in this order:
 ///
-/// 1. the lens: chromatic aberration parts the colors towards the corners;
+/// 1. the lens: depth of field blurs what is not at the focus distance (focusBlur()) -
+///    worked out before the rest, into the light of the scene, by DepthOfFieldPass - and
+///    chromatic aberration parts the colors towards the corners;
 /// 2. bloom: light that is brighter than the threshold spills over what is around it;
 /// 3. exposure: all of it is made brighter or darker, by a fixed amount or by what the
 ///    picture as a whole needs;
@@ -46,6 +48,12 @@
 #include <string_view>
 
 namespace cordite {
+
+/// Depth of field: the farthest focus distance, range and transition, in metres, and the
+/// widest blur, as a share of the height of the picture. Wider, a blur of a few dozen
+/// points would come apart into the points it is made of.
+inline constexpr float kMaxFocusDistance = 10000.0f;
+inline constexpr float kMaxBlurSize = 0.03f;
 
 /// How light without an upper limit is brought into the range of a display. Both curves
 /// leave a mid-grey of 0.18 where it is, so that changing the curve does not change how
@@ -201,6 +209,24 @@ struct PostProcessSettings {
     /// counts as standing in its light, as an angle in degrees. More of it hides the
     /// streaks a surface seen at a low angle can show, and takes from shallow creases.
     float ambientOcclusionBias = 2.0f;
+
+    /// Depth of field: how far from the camera what is sharp is, in metres - along the
+    /// way the camera looks (focusBlur()).
+    float focusDistance = 10.0f;
+    /// Depth of field: how far in front of the focus distance and behind it everything
+    /// stays sharp, in metres.
+    float focusRange = 2.0f;
+    /// Depth of field: over how many metres beyond that the blur grows to its most. With
+    /// nothing, what is not sharp is blurred at its most.
+    float focusTransition = 5.0f;
+    /// Depth of field: the most blur in front of what is sharp, and behind it, as a share
+    /// of blurSize: 0 none, 1 all of it. With both at nothing there is no depth of field,
+    /// and it costs nothing.
+    float nearBlur = 0.0f;
+    float farBlur = 0.0f;
+    /// Depth of field: how wide the most blur is - the radius of the circle a point
+    /// becomes - as a share of the height of the picture, up to 0.03.
+    float blurSize = 0.01f;
 };
 
 /// `settings` with every number inside the range it is documented for, and "not a
@@ -213,6 +239,18 @@ struct PostProcessSettings {
 /// lookup table - changes over half way. A lookup table that only one of the two has
 /// fades in or out through its intensity instead.
 [[nodiscard]] PostProcessSettings blend(const PostProcessSettings& from, const PostProcessSettings& to, float amount);
+
+/// Depth of field: how blurred what is `viewDepth` metres in front of the camera - along
+/// the way it looks - is, as a share of `blurSize`. Nothing within `focusRange` of the
+/// focus distance; beyond that it grows in a straight line over `focusTransition` metres
+/// to `nearBlur` in front and `farBlur` behind, and stays there. Negative in front, so
+/// that the two are told apart. What is infinitely far - where nothing was drawn - is
+/// behind at the most; a depth that is no number is sharp.
+[[nodiscard]] float focusBlur(const PostProcessSettings& settings, float viewDepth);
+
+/// Whether `settings` blur anything at all: depth of field that is not there costs
+/// nothing.
+[[nodiscard]] bool hasDepthOfField(const PostProcessSettings& settings);
 
 /// What `stops` of exposure multiply light by: two to the power of them.
 [[nodiscard]] float exposureScale(float stops);
@@ -254,6 +292,9 @@ struct PostProcessQualitySettings {
     /// picture is looked at.
     float antiAliasingEdgeThreshold = 0.166f;
     float antiAliasingEdgeMinimum = 0.0625f;
+    /// Depth of field: how many points of the picture each point of the blur is made of -
+    /// 16, 32 or 64. The fewer, the coarser a wide blur.
+    uint32_t depthOfFieldTaps = 32;
 
     bool operator==(const PostProcessQualitySettings&) const = default;
 };

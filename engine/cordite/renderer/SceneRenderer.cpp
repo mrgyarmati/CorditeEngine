@@ -69,6 +69,12 @@ MeshPassDesc overdrawPassDesc() {
     return desc;
 }
 
+/// Whether the picture of a view is finished (PostProcessPass) or only encoded: a debug
+/// view is not, nor is a view that asks for no finishing.
+bool isFinishedPicture(const SceneRenderSettings& settings, RenderDebugView debugView) {
+    return settings.postProcessQuality != PostProcessQuality::Off && debugView == RenderDebugView::None;
+}
+
 /// What the lighting pass makes of the G-buffer for a view that shows `debugView`.
 DeferredLightingMode lightingModeOf(RenderDebugView debugView) {
     if (debugView == RenderDebugView::LightingOnly) {
@@ -164,6 +170,7 @@ SceneRenderStatistics& SceneRenderStatistics::operator+=(const SceneRenderStatis
     environmentsMade += other.environmentsMade;
     environmentBytes = std::max(environmentBytes, other.environmentBytes);
     ambientOcclusionBytes = std::max(ambientOcclusionBytes, other.ambientOcclusionBytes);
+    depthOfFieldBytes = std::max(depthOfFieldBytes, other.depthOfFieldBytes);
     shadowPass += other.shadowPass;
     depthPass += other.depthPass;
     basePass += other.basePass;
@@ -210,6 +217,7 @@ Result<std::unique_ptr<SceneRenderer>> SceneRenderer::create(nvrhi::IDevice* dev
     CORDITE_TRY_ASSIGN(ShadowAtlas shadows, ShadowAtlas::create(device, shaders, materialLayout, jointLayout));
     CORDITE_TRY_ASSIGN(EnvironmentMaps environments, EnvironmentMaps::create(device, shaders, assets));
     CORDITE_TRY_ASSIGN(AmbientOcclusionPass occlusion, AmbientOcclusionPass::create(device, shaders, viewLayout));
+    CORDITE_TRY_ASSIGN(DepthOfFieldPass depthOfField, DepthOfFieldPass::create(device, shaders, viewLayout));
     CORDITE_TRY_ASSIGN(PostProcessPass postProcess, PostProcessPass::create(device, shaders));
 
     Passes passes{.depth = std::move(depth),
@@ -223,6 +231,7 @@ Result<std::unique_ptr<SceneRenderer>> SceneRenderer::create(nvrhi::IDevice* dev
                   .shadows = std::move(shadows),
                   .environments = std::move(environments),
                   .occlusion = std::move(occlusion),
+                  .depthOfField = std::move(depthOfField),
                   .postProcess = std::move(postProcess)};
     return std::unique_ptr<SceneRenderer>(new SceneRenderer(device, std::move(resources), std::move(viewBindings),
                                                             std::move(palettes), std::move(passes),
@@ -442,9 +451,8 @@ void SceneRenderer::render(nvrhi::ICommandList* commandList, const World& world,
 
     // The look the scene asks for where the view is from: what its picture is finished
     // with, and what its screen effects are like.
-    const bool isFinished =
-        settings.postProcessQuality != PostProcessQuality::Off && debugView == RenderDebugView::None;
-    const bool needsLook = isFinished || settings.screenEffectsQuality != ScreenEffectsQuality::Off;
+    const bool needsLook = isFinishedPicture(settings, debugView) || debugView == RenderDebugView::Focus ||
+                           settings.screenEffectsQuality != ScreenEffectsQuality::Off;
     PostProcessSettings look;
     if (settings.postProcess) {
         look = sanitized(*settings.postProcess);
@@ -529,6 +537,34 @@ void SceneRenderer::render(nvrhi::ICommandList* commandList, const World& world,
                                                              m_drawList.blendedBatches(), meshBindings);
         }
     }
+    finishPicture(commandList, targets, viewBindings, look, settings, debugView);
+
+    m_statistics.views = 1;
+    m_statistics.shadowAtlasBytes = m_passes.shadows.byteSize();
+    m_statistics.ambientOcclusionBytes = targets.tracedOcclusionBytes();
+    m_statistics.depthOfFieldBytes = targets.depthOfFieldBytes();
+    m_statistics.meshes = m_statistics.shadowPass;
+    m_statistics.meshes += m_statistics.depthPass;
+    m_statistics.meshes += m_statistics.basePass;
+    m_statistics.meshes += m_statistics.forwardPass;
+    m_frameStatistics += m_statistics;
+}
+
+void SceneRenderer::finishPicture(nvrhi::ICommandList* commandList, SceneTargets& targets,
+                                  nvrhi::IBindingSet* viewBindings, const PostProcessSettings& look,
+                                  const SceneRenderSettings& settings, RenderDebugView debugView) {
+    const bool isFinished = isFinishedPicture(settings, debugView);
+    const bool showsFocus = debugView == RenderDebugView::Focus;
+    // Depth of field blurs the light of the scene before it is finished, so that bloom
+    // and exposure see the blur - or shows where it does, in a debug view of its own.
+    if ((isFinished && hasDepthOfField(look)) || showsFocus) {
+        m_statistics.screenPasses +=
+            m_passes.depthOfField.draw(commandList, targets, viewBindings, look,
+                                       {.quality = settings.postProcessQuality, .showFocus = showsFocus});
+    } else {
+        // A view that has none gives back what it was worked out in.
+        targets.releaseDepthOfField();
+    }
     if (isFinished) {
         // A lookup table that is used for the first time goes to the GPU now.
         nvrhi::ITexture* colorLut = m_resources->dataTexture(look.colorLut);
@@ -545,15 +581,6 @@ void SceneRenderer::render(nvrhi::ICommandList* commandList, const World& world,
         m_passes.encode.draw(commandList, targets.sceneColor(), targets.displayFramebuffer());
         ++m_statistics.screenPasses;
     }
-
-    m_statistics.views = 1;
-    m_statistics.shadowAtlasBytes = m_passes.shadows.byteSize();
-    m_statistics.ambientOcclusionBytes = targets.tracedOcclusionBytes();
-    m_statistics.meshes = m_statistics.shadowPass;
-    m_statistics.meshes += m_statistics.depthPass;
-    m_statistics.meshes += m_statistics.basePass;
-    m_statistics.meshes += m_statistics.forwardPass;
-    m_frameStatistics += m_statistics;
 }
 
 SceneRenderStatistics SceneRenderer::takeFrameStatistics() {

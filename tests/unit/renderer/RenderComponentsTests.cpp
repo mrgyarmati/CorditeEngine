@@ -463,6 +463,12 @@ TEST_SUITE("RenderComponents") {
         component.ambientOcclusionIntensity = 1.5f;
         component.ambientOcclusionRadius = 0.75f;
         component.ambientOcclusionBias = 4.0f;
+        component.focusDistance = 12.5f;
+        component.focusRange = 1.5f;
+        component.focusTransition = 6.0f;
+        component.nearBlur = 0.25f;
+        component.farBlur = 0.75f;
+        component.blurSize = 0.015625f;
 
         const Json saved = type.toJson(&component);
         CHECK(saved == json(R"({
@@ -476,7 +482,9 @@ TEST_SUITE("RenderComponents") {
             "lift": [0.0, 0.125, 0.25], "gamma": [0.5, 1.0, 2.0], "gain": [1.5, 1.0, 0.5],
             "colorLut": "11111111-2222-4333-8444-555555555555", "colorLutIntensity": 0.5,
             "vignette": 0.375, "chromaticAberration": 0.25, "filmGrain": 0.125,
-            "ambientOcclusionIntensity": 1.5, "ambientOcclusionRadius": 0.75, "ambientOcclusionBias": 4.0
+            "ambientOcclusionIntensity": 1.5, "ambientOcclusionRadius": 0.75, "ambientOcclusionBias": 4.0,
+            "focusDistance": 12.5, "focusRange": 1.5, "focusTransition": 6.0,
+            "nearBlur": 0.25, "farBlur": 0.75, "blurSize": 0.015625
         })"));
 
         PostProcessComponent loaded;
@@ -495,6 +503,11 @@ TEST_SUITE("RenderComponents") {
         REQUIRE(type.fromJson(&loaded, json(R"({"toneMapper": "linear", "exposureMode": "manual"})")).has_value());
         CHECK(loaded.toneMapper == ToneMapper::Linear);
         CHECK(loaded.exposureMode == ExposureMode::Manual);
+
+        // The widest blur is taken as it is written, and nothing wider.
+        REQUIRE(type.fromJson(&loaded, json(R"({"blurSize": 0.03})")).has_value());
+        CHECK(loaded.blurSize == kMaxBlurSize);
+        CHECK_FALSE(type.fromJson(&loaded, json(R"({"blurSize": 0.031})")).has_value());
 
         // The lookup table is a reference to a texture.
         const PropertyInfo* lut = type.findProperty("colorLut");

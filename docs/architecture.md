@@ -1118,6 +1118,44 @@ header, which is a file of macros for a dozen compilers of 2011 and none for Sla
 what there is to get wrong in it - up for down, the side of the edge, the end of a
 run - is what the tests turn the picture round for.
 
+### Depth of field is gathered at half the size, from light, before the picture is finished
+
+A lens is sharp at one distance; in front of it and behind, a point becomes a circle.
+The controls are those of the engines this one takes its look from: a distance that is
+sharp, how far around it everything stays sharp, over how many metres the blur grows
+beyond that, how much of the most blur there is in front and behind, and how wide the
+most blur is. They are numbers a person can set by looking, not the aperture and focal
+length of a camera.
+
+How blurred a pixel is follows from its depth alone, so it is worked out where the
+depth is. The blur itself is gathered: every texel of an image half the size of the
+picture is made of the texels around it whose own circle reaches it. Scattering - every
+pixel drawn as a circle of its own size - is the other way, and the slower one, and
+needs no less care at edges. At half the size a blur costs a quarter, and what is
+blurred has no detail to lose.
+
+It is done to the light, before the picture is finished, so that a lamp out of focus is
+still a lamp: blurred after the tone mapping, a highlight would be greyed into its
+surroundings, and bloom and exposure would see a sharp picture that is then blurred.
+
+What makes it hard is edges, where something near and something far meet, and each
+rule of the gather is there for one of them. A block of four pixels takes the blur of
+its nearest, so that what is in front grows over what is behind. A tap is the texel it
+falls in, never filtered between texels: filtered, how blurred it is would be a
+mixture across the edge, and something sharp in front would glow into the blur behind
+it. What is behind a texel counts as far as the texel's own blur reaches, and no
+further than twice that: something sharp keeps its edge, something blurred lets what is
+behind it show through its own. And the blur is laid over each pixel from the texels of
+the half-sized image that are blurred like the pixel, or the texels that hold an edge -
+half of the one thing, half of the other - would draw a fringe around everything sharp
+against a blurred sky. Tests hold each edge, and where nothing is out of focus, that
+the picture is left as it was, to the bit.
+
+What it does not do: the circles are discs of even light, not the shapes of a lens's
+blades; a translucent surface is not in the depth buffer and is blurred as what is
+behind it; and a blur of a texel or two is made of few texels, which shows less as a
+blur than as a softening.
+
 ### Not finishing a picture is a quality
 
 `PostProcessQuality` runs from low to high like the quality of shadows, and like it

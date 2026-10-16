@@ -40,6 +40,8 @@ std::string_view nameOf(RenderDebugView view) {
             return "wireframe";
         case RenderDebugView::Overdraw:
             return "overdraw";
+        case RenderDebugView::Focus:
+            return "focus";
     }
     return "unknown";
 }
@@ -80,6 +82,8 @@ std::string_view displayNameOf(RenderDebugView view) {
             return "Wireframe";
         case RenderDebugView::Overdraw:
             return "Overdraw";
+        case RenderDebugView::Focus:
+            return "Depth of field";
     }
     return "Unknown";
 }

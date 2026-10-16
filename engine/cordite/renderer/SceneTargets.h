@@ -195,6 +195,29 @@ public:
     /// The memory of that image, in bytes: nothing when there is none.
     [[nodiscard]] uint64_t aliasedBytes() const;
 
+    /// Makes sure there are the two images depth of field is worked out in
+    /// (DepthOfFieldPass): each half as wide and as high as the view - rounded up - in
+    /// light without an upper limit, with how blurred each texel is in alpha. Fails when
+    /// the device cannot create them; the targets then hold neither.
+    [[nodiscard]] Status prepareDepthOfField(nvrhi::IDevice* device);
+
+    /// Lets go of those images: for a view that has no depth of field any more.
+    void releaseDepthOfField();
+
+    /// The images prepareDepthOfField() made - what the picture is blurred from, and the
+    /// blur - and the framebuffers that draw into them. Null before that call and after
+    /// releaseDepthOfField().
+    [[nodiscard]] nvrhi::ITexture* depthOfFieldSource() const { return m_depthOfFieldSource; }
+
+    [[nodiscard]] nvrhi::IFramebuffer* depthOfFieldSourceFramebuffer() const { return m_depthOfFieldSourceFramebuffer; }
+
+    [[nodiscard]] nvrhi::ITexture* depthOfFieldBlur() const { return m_depthOfFieldBlur; }
+
+    [[nodiscard]] nvrhi::IFramebuffer* depthOfFieldBlurFramebuffer() const { return m_depthOfFieldBlurFramebuffer; }
+
+    /// The memory of those images, in bytes: nothing when there are none.
+    [[nodiscard]] uint64_t depthOfFieldBytes() const;
+
     /// Scene color alone: what the passes that read the depth as a texture draw into,
     /// the lighting first of all.
     [[nodiscard]] nvrhi::IFramebuffer* lightingFramebuffer() const { return m_lightingFramebuffer; }
@@ -230,6 +253,8 @@ private:
     uint32_t m_tracedOcclusionDivisor = 0;
     nvrhi::TextureHandle m_display;
     nvrhi::TextureHandle m_aliased;
+    nvrhi::TextureHandle m_depthOfFieldSource;
+    nvrhi::TextureHandle m_depthOfFieldBlur;
     std::array<nvrhi::TextureHandle, kMaxBloomLevels> m_bloom;
     std::array<nvrhi::FramebufferHandle, kMaxBloomLevels> m_bloomFramebuffers;
     uint32_t m_bloomLevelCount = 0;
@@ -247,6 +272,8 @@ private:
     nvrhi::FramebufferHandle m_sceneFramebuffer;
     nvrhi::FramebufferHandle m_displayFramebuffer;
     nvrhi::FramebufferHandle m_aliasedFramebuffer;
+    nvrhi::FramebufferHandle m_depthOfFieldSourceFramebuffer;
+    nvrhi::FramebufferHandle m_depthOfFieldBlurFramebuffer;
     nvrhi::FramebufferHandle m_overlayFramebuffer;
 };
 

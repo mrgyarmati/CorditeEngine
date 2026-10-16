@@ -244,6 +244,7 @@ cordite_add_test_suite(render
         render/AmbientOcclusionTests.cpp
         render/AntiAliasingTests.cpp
         render/DebugLineTests.cpp
+        render/DepthOfFieldTests.cpp
         render/EditorAppTests.cpp
         render/EngineTests.cpp
         render/EnvironmentTests.cpp

@@ -348,6 +348,44 @@ TypeInfo describePostProcess() {
                    .maximum = 30.0,
                    .step = 0.1,
                    .unit = "deg"})
+        .property("focusDistance", &Component::focusDistance,
+                  {.description = "Depth of field: how far from the camera what is sharp is, along the way it looks",
+                   .minimum = 0.0,
+                   .maximum = kMaxFocusDistance,
+                   .step = 0.1,
+                   .unit = "m"})
+        .property("focusRange", &Component::focusRange,
+                  {.description = "Depth of field: how far in front of the focus distance and behind it everything "
+                                  "stays sharp",
+                   .minimum = 0.0,
+                   .maximum = kMaxFocusDistance,
+                   .step = 0.1,
+                   .unit = "m"})
+        .property("focusTransition", &Component::focusTransition,
+                  {.description = "Depth of field: over how many metres beyond that the blur grows to its most; with "
+                                  "nothing, what is not sharp is blurred at its most",
+                   .minimum = 0.0,
+                   .maximum = kMaxFocusDistance,
+                   .step = 0.1,
+                   .unit = "m"})
+        .property("nearBlur", &Component::nearBlur,
+                  {.description = "Depth of field: the most blur in front of what is sharp, as a share of the blur "
+                                  "size: 0 none, 1 all of it",
+                   .minimum = 0.0,
+                   .maximum = 1.0,
+                   .step = 0.01})
+        .property("farBlur", &Component::farBlur,
+                  {.description = "Depth of field: the most blur behind what is sharp, and where nothing was drawn, "
+                                  "as a share of the blur size: 0 none, 1 all of it",
+                   .minimum = 0.0,
+                   .maximum = 1.0,
+                   .step = 0.01})
+        .property("blurSize", &Component::blurSize,
+                  {.description = "Depth of field: the radius of the circle a point becomes at the most blur, as a "
+                                  "share of the height of the picture",
+                   .minimum = 0.0,
+                   .maximum = 0.03,
+                   .step = 0.001})
         .build();
 }
 

@@ -90,6 +90,7 @@ of the **PostProcess** component:
 | Tone mapping | `toneMapper`: `filmic` (soft contrast, muted colors - the default), `aces` (more contrast and saturation), `linear` |
 | Grading | `temperature`, `tint`, `contrast`, `saturation`, `lift`, `gamma`, `gain`, and a color lookup table (`colorLut`, `colorLutIntensity`) |
 | Lens | `vignette`, `chromaticAberration`, `filmGrain` |
+| Depth of field | `focusDistance`, `focusRange`, `focusTransition`, `nearBlur`, `farBlur`, `blurSize` |
 | Ambient occlusion | `ambientOcclusionIntensity`, `ambientOcclusionRadius`, `ambientOcclusionBias` |
 | Anti-aliasing | how far the smoothing follows edges |
 
@@ -104,6 +105,18 @@ Where the settings apply:
 
 Several are laid over one another by `priority`, lower first; `weight` says how much of a
 component applies.
+
+**Depth of field** blurs what is not at the focus, as a camera's lens does. What is
+`focusDistance` metres in front of the camera is sharp, and so is everything up to
+`focusRange` metres in front of that and behind it; over the next `focusTransition` metres
+the blur grows to its most - `nearBlur` in front, `farBlur` behind - and stays there. The
+sky is behind everything. `blurSize` is how wide the most blur is, as a share of the height
+of the picture (0.01 is a hundredth). With `nearBlur` and `farBlur` both 0 there is no depth
+of field, and it costs nothing. A volume can bring the focus closer where the camera goes -
+into a room, under a lamp - and a camera's own PostProcess component is the whole look of
+that camera, its focus included. The Depth of field render view shows how blurred each
+pixel is: red in front of the focus, blue behind, black where it is sharp. Glass and other
+translucent surfaces are blurred as much as what is behind them.
 
 A color lookup table is an image of N times N by N pixels - N slices side by side - that
 holds the colors you want in place of a neutral table's. Grade a screenshot in an image
@@ -121,7 +134,7 @@ stays the same at every quality; only detail and cost change.
 View > Render view shows the channels of the renderer instead of the finished picture: base
 color, normals, roughness, metallic, specular, occlusion, emissive, depth, how many lights
 each pixel has, the shadow cascades, ambient occlusion, fog, lighting only, reflections,
-wireframe and overdraw (`viewport.debugView` for scripts and agents). Use them to find out
+wireframe, overdraw and depth of field (`viewport.debugView` for scripts and agents). Use them to find out
 why something looks the way it does - a wrong normal map, a light with too small a range, a
 surface outside every cascade. View > Statistics shows what a frame costs: the time on the
 processor and on the GPU, draw calls, triangles, lights and shadow maps, and what meshes and

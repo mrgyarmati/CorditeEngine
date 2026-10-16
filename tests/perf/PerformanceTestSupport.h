@@ -185,6 +185,9 @@ inline Json describeScene(const SceneRenderStatistics& statistics) {
     Json occlusion = Json::object();
     occlusion["bytes"] = statistics.ambientOcclusionBytes;
     scene["ambientOcclusion"] = std::move(occlusion);
+    Json focus = Json::object();
+    focus["bytes"] = statistics.depthOfFieldBytes;
+    scene["depthOfField"] = std::move(focus);
     return scene;
 }
 

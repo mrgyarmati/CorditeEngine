@@ -178,6 +178,12 @@ PostProcessSettings sanitized(const PostProcessSettings& settings) {
     result.ambientOcclusionRadius =
         within(settings.ambientOcclusionRadius, 0.01f, 10.0f, defaults.ambientOcclusionRadius);
     result.ambientOcclusionBias = within(settings.ambientOcclusionBias, 0.0f, 30.0f, defaults.ambientOcclusionBias);
+    result.focusDistance = within(settings.focusDistance, 0.0f, kMaxFocusDistance, defaults.focusDistance);
+    result.focusRange = within(settings.focusRange, 0.0f, kMaxFocusDistance, defaults.focusRange);
+    result.focusTransition = within(settings.focusTransition, 0.0f, kMaxFocusDistance, defaults.focusTransition);
+    result.nearBlur = within(settings.nearBlur, 0.0f, 1.0f, defaults.nearBlur);
+    result.farBlur = within(settings.farBlur, 0.0f, 1.0f, defaults.farBlur);
+    result.blurSize = within(settings.blurSize, 0.0f, kMaxBlurSize, defaults.blurSize);
     return result;
 }
 
@@ -209,6 +215,12 @@ PostProcessSettings blend(const PostProcessSettings& from, const PostProcessSett
     result.ambientOcclusionIntensity = mix(from.ambientOcclusionIntensity, to.ambientOcclusionIntensity, t);
     result.ambientOcclusionRadius = mix(from.ambientOcclusionRadius, to.ambientOcclusionRadius, t);
     result.ambientOcclusionBias = mix(from.ambientOcclusionBias, to.ambientOcclusionBias, t);
+    result.focusDistance = mix(from.focusDistance, to.focusDistance, t);
+    result.focusRange = mix(from.focusRange, to.focusRange, t);
+    result.focusTransition = mix(from.focusTransition, to.focusTransition, t);
+    result.nearBlur = mix(from.nearBlur, to.nearBlur, t);
+    result.farBlur = mix(from.farBlur, to.farBlur, t);
+    result.blurSize = mix(from.blurSize, to.blurSize, t);
 
     // Two tables cannot be blended into one without making a third. The same table on
     // both sides blends its intensity; otherwise the one fades out towards the middle
@@ -229,6 +241,24 @@ PostProcessSettings blend(const PostProcessSettings& from, const PostProcessSett
         result.colorLutIntensity = takeNew ? toIntensity * (2.0f * t - 1.0f) : fromIntensity * (1.0f - 2.0f * t);
     }
     return result;
+}
+
+float focusBlur(const PostProcessSettings& settings, float viewDepth) {
+    if (std::isnan(viewDepth)) {
+        return 0.0f;
+    }
+    // What is infinitely far is infinitely far from the focus, and blurred at the most.
+    const float offset = viewDepth - settings.focusDistance;
+    const float beyond = std::abs(offset) - settings.focusRange;
+    if (!(beyond > 0.0f)) {
+        return 0.0f;
+    }
+    const float growth = settings.focusTransition > 0.0f ? std::min(beyond / settings.focusTransition, 1.0f) : 1.0f;
+    return offset < 0.0f ? -growth * settings.nearBlur : growth * settings.farBlur;
+}
+
+bool hasDepthOfField(const PostProcessSettings& settings) {
+    return (settings.nearBlur > 0.0f || settings.farBlur > 0.0f) && settings.blurSize > 0.0f;
 }
 
 float exposureScale(float stops) {
@@ -279,21 +309,24 @@ PostProcessQualitySettings postProcessSettingsFor(PostProcessQuality quality) {
                     .lensEffects = false,
                     .antiAliasingSteps = 5,
                     .antiAliasingEdgeThreshold = 0.25f,
-                    .antiAliasingEdgeMinimum = 0.0833f};
+                    .antiAliasingEdgeMinimum = 0.0833f,
+                    .depthOfFieldTaps = 16};
         case PostProcessQuality::Medium:
             return {.bloomFirstLevel = 0,
                     .bloomLevels = 5,
                     .lensEffects = true,
                     .antiAliasingSteps = 8,
                     .antiAliasingEdgeThreshold = 0.166f,
-                    .antiAliasingEdgeMinimum = 0.0625f};
+                    .antiAliasingEdgeMinimum = 0.0625f,
+                    .depthOfFieldTaps = 32};
         case PostProcessQuality::High:
             return {.bloomFirstLevel = 0,
                     .bloomLevels = 7,
                     .lensEffects = true,
                     .antiAliasingSteps = 12,
                     .antiAliasingEdgeThreshold = 0.125f,
-                    .antiAliasingEdgeMinimum = 0.0312f};
+                    .antiAliasingEdgeMinimum = 0.0312f,
+                    .depthOfFieldTaps = 64};
     }
     return {};
 }

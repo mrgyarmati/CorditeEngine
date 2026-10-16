@@ -1391,7 +1391,8 @@
                 // A PostProcess component on a camera is that camera's own: it applies to
                 // what is seen through it, after everything the scene says (see "Look"
                 // below), and to no other view. A map is no photograph: no curve
-                // ("linear" cuts off what is brighter than white), no bloom, no grade.
+                // ("linear" cuts off what is brighter than white), no bloom, no grade, and
+                // no depth of field - nothing is blurred in front or behind.
                 "PostProcess": {
                     "global": true,
                     "priority": 0,
@@ -1421,7 +1422,13 @@
                     "filmGrain": 0.0,
                     "ambientOcclusionIntensity": 1.0,
                     "ambientOcclusionRadius": 0.5,
-                    "ambientOcclusionBias": 2.0
+                    "ambientOcclusionBias": 2.0,
+                    "focusDistance": 10.0,
+                    "focusRange": 2.0,
+                    "focusTransition": 5.0,
+                    "nearBlur": 0.0,
+                    "farBlur": 0.0,
+                    "blurSize": 0.01
                 }
             }
         },
@@ -1579,6 +1586,13 @@
             // geometry says, for depth; its radius is how far around a point things are
             // looked for that stand in its light, in metres; its bias, in degrees, how far
             // above a surface something must rise to count.
+            //
+            // And depth of field, as a lens has it: what is eight metres from the camera -
+            // the stage, seen from the main camera - is sharp, and so is everything from
+            // five metres in front of that to five behind. Over the next fifteen metres
+            // the background softens to six tenths of the most blur, which "blurSize"
+            // makes six thousandths of the height of the picture; what is nearer than
+            // three metres blurs too, to half of it.
             "id": "10000000-0000-4000-8000-000000000025",
             "name": "Grade",
             "enabled": true,
@@ -1614,7 +1628,13 @@
                     "filmGrain": 0.15,
                     "ambientOcclusionIntensity": 1.4,
                     "ambientOcclusionRadius": 0.6,
-                    "ambientOcclusionBias": 2.0
+                    "ambientOcclusionBias": 2.0,
+                    "focusDistance": 8.0,
+                    "focusRange": 5.0,
+                    "focusTransition": 15.0,
+                    "nearBlur": 0.5,
+                    "farBlur": 0.6,
+                    "blurSize": 0.006
                 }
             }
         },
@@ -1624,7 +1644,8 @@
             // metres a side, under the street lamp - and fade in over "blendDistance"
             // outside it. A higher priority puts it on top of the scene's look. Under the
             // lamp the picture is warmer and harder ("aces" has more contrast than
-            // "filmic"), and the exposure is set by hand.
+            // "filmic"), and the exposure is set by hand. The focus comes closer, to what
+            // is near the lamp.
             "id": "10000000-0000-4000-8000-000000000026",
             "name": "Under the lamp",
             "enabled": true,
@@ -1660,7 +1681,13 @@
                     "filmGrain": 0.25,
                     "ambientOcclusionIntensity": 1.8,
                     "ambientOcclusionRadius": 0.4,
-                    "ambientOcclusionBias": 2.0
+                    "ambientOcclusionBias": 2.0,
+                    "focusDistance": 4.0,
+                    "focusRange": 2.5,
+                    "focusTransition": 10.0,
+                    "nearBlur": 0.5,
+                    "farBlur": 0.8,
+                    "blurSize": 0.006
                 }
             }
         }

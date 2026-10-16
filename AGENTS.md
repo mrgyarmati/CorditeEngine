@@ -307,11 +307,12 @@ Vulkan directly. Step-by-step guide for adding a pass:
   texture before the widget that shows it, never after.
 - **Meshes are drawn by `SceneRenderer`**, into a `SceneTargets` per view, in this
   order: shadow maps, depth pre-pass, base pass (fills the G-buffer), ambient occlusion,
-  deferred lighting, forward pass, post-processing. Solid surfaces - opaque and masked -
-  go through the G-buffer; only translucent ones are drawn forward. Front faces wind
-  counter-clockwise; depth is reversed. Draws that share mesh, submesh and material are
-  instanced, and sorted by the serial numbers of their GPU resources, never by address,
-  so that two runs issue the same draw calls in the same order (`MeshDrawList`).
+  deferred lighting, forward pass, depth of field, post-processing. Solid surfaces -
+  opaque and masked - go through the G-buffer; only translucent ones are drawn forward.
+  Front faces wind counter-clockwise; depth is reversed. Draws that share mesh, submesh
+  and material are instanced, and sorted by the serial numbers of their GPU resources,
+  never by address, so that two runs issue the same draw calls in the same order
+  (`MeshDrawList`).
 - **A pass that draws meshes is a `MeshPassDesc`**, not a new class: `MeshPass` owns
   what such passes share. All of them use the one vertex shader in
   `passes/MeshVertex.slang`. That is not a convenience: the base pass keeps only pixels
@@ -448,6 +449,27 @@ Vulkan directly. Step-by-step guide for adding a pass:
   against the numbers of the other: change both. A scene sets the numbers with
   `PostProcess` components (`ScenePostProcess.h`): global ones, boxes, and a camera's
   own, laid over one another by priority.
+- **Depth of field blurs the light of the scene, before it is finished**
+  (`DepthOfFieldPass`, `passes/DepthOfField.slang`), so that bloom and exposure see the
+  blur: three passes - the picture and how blurred each block of four pixels is, at half
+  the size, taking the nearest of the four; that blurred, each texel by the texels around
+  it whose own blur reaches it; and the blur laid over the scene color by blending. A
+  tap is read as the texel it falls in, never filtered between texels: filtered, how
+  blurred it is mixes across the edge of something, and a sharp thing in front glows
+  into the blur behind it (`DepthOfFieldTests` has both edges). What lies behind a
+  texel counts as far as the texel's own blur reaches and no further than twice that:
+  a sharp thing in front keeps its edge, a blurred one lets what is behind show through
+  its own. The blur is laid over each pixel from the texels that are blurred like it
+  (a bilateral upsampling): the texels along an edge are made of both sides, and
+  filtered into the blur beside them they would draw a fringe around everything sharp
+  against a blurred sky. Where neither a pixel's own blur nor what reaches it from in
+  front says anything, the blending leaves the picture exactly as it was, and a test
+  holds it to the bit. How blurred a depth is -
+  `focusBlur`, along the way the camera looks, nothing drawn being as far as can be -
+  is written down twice, in `PostProcessSettings.cpp` and in `common/DepthOfField.slang`:
+  change both. It is part of finishing: a picture that is not finished has none, and a
+  scene without `nearBlur` or `farBlur` pays nothing for it. Translucent surfaces are not
+  in the depth buffer, and are blurred as what is behind them.
 - **A test that says what a pixel must be draws a picture that is not finished**
   (`PostProcessQuality::Off`, which `SceneFixture::flatSettings()` asks for): the light
   as it was worked out, encoded and nothing else. Debug views are never finished
@@ -505,8 +527,10 @@ Vulkan directly. Step-by-step guide for adding a pass:
   the same frames, which is what tests and reference images rely on.
 - **Every renderer feature gets a debug view** (`RenderDebugView`) when there is
   something to look at: a channel, a mask, a count. A view of the G-buffer is a `case`
-  in `passes/DebugView.slang`; the editor's menu and `viewport.debugView` list them all
-  from `kRenderDebugViews`.
+  in `passes/DebugView.slang`; one that is not drawn from the G-buffer is drawn by the
+  pass it is about, in a mode of its own - lighting only and reflections by the lighting,
+  the focus by the depth of field, over the lit picture. The editor's menu and
+  `viewport.debugView` list them all from `kRenderDebugViews`.
 - **Uploads go through `RenderResources`.** It records them on a command list of its
   own, created with `setEnableImmediateExecution(false)` - NVRHI allows only one
   immediate command list to be open at a time, and the frame's is. That list is dropped

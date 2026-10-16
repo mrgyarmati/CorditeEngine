@@ -795,14 +795,18 @@ TEST_SUITE("EditorApp") {
         CHECK(scene["shadows"]["maps"] == 10);
         CHECK(scene["shadows"]["lightsWithout"] == 0);
         // Passes over the whole picture: the two of the ambient occlusion, the lighting,
-        // and what finishes the picture as the showcase says - five levels of bloom down
-        // and up, the exposure, the final pass, the smoothing of its edges.
-        CHECK(scene["screenPasses"] == 15);
+        // the three of the depth of field, and what finishes the picture as the showcase
+        // says - five levels of bloom down and up, the exposure, the final pass, the
+        // smoothing of its edges.
+        CHECK(scene["screenPasses"] == 18);
         // The ambient occlusion is worked out for one pixel in four of the viewport, in
-        // two half floats each.
+        // two half floats each; the depth of field in two images of a texel for every four
+        // pixels, of four half floats each.
         const UVec2 viewportSize = editor->viewport().targets().size();
         CHECK(scene["ambientOcclusion"]["bytes"] ==
               uint64_t{(viewportSize.x + 1) / 2} * ((viewportSize.y + 1) / 2) * 4);
+        CHECK(scene["depthOfField"]["bytes"] ==
+              uint64_t{(viewportSize.x + 1) / 2} * ((viewportSize.y + 1) / 2) * 8 * 2);
         // The atlas of the medium quality: 4096 texels a side, four bytes each.
         CHECK(scene["shadows"]["atlasBytes"] == 67108864);
         // The cube map of the showcase's sky, made in the first frame and in no frame

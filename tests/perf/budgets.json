@@ -28,12 +28,16 @@
         "drawCalls": 160,
         "triangles": 48500,
         // Passes over the whole picture: the two of the ambient occlusion, the lighting,
-        // and what finishes the picture as the scene says - five levels of bloom down
-        // and up, the automatic exposure, the final pass and the smoothing of its edges.
-        "screenPasses": 15,
+        // the three of the depth of field, and what finishes the picture as the scene
+        // says - five levels of bloom down and up, the automatic exposure, the final pass
+        // and the smoothing of its edges.
+        "screenPasses": 18,
         // The image the ambient occlusion is worked out in: at medium quality a texel
         // for one pixel in four of the 960 by 540 the tests draw, two half floats each.
         "ambientOcclusionBytes": 518400,
+        // The two images the depth of field is worked out in: a texel for every four
+        // pixels, four half floats each.
+        "depthOfFieldBytes": 2073600,
         // The lights in view, and the entries of the cluster lists they are in: how
         // many clusters the lamps of the showcase reach, all of them together. The
         // light at the sentry's post is among them also while it is dark: a script
@@ -111,6 +115,8 @@
         // says nothing: bloom, the final pass and the smoothing of its edges.
         "screenPasses": 14,
         "ambientOcclusionBytes": 518400,
+        // A scene that says nothing has no depth of field.
+        "depthOfFieldBytes": 0,
         "triangles": 340000,
         // Most of the lights are in view. The entries of the cluster lists say how well
         // they are told apart: the number goes up when lights are put into the lists of
@@ -143,6 +149,7 @@
         "drawCalls": 165,
         "screenPasses": 14,
         "ambientOcclusionBytes": 518400,
+        "depthOfFieldBytes": 0,
         "triangles": 800000,
         "lights": 600,
         "lightListEntries": 22500,

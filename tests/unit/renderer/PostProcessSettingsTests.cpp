@@ -70,21 +70,24 @@ TEST_SUITE("PostProcessSettings") {
                                          .lensEffects = false,
                                          .antiAliasingSteps = 5,
                                          .antiAliasingEdgeThreshold = 0.25f,
-                                         .antiAliasingEdgeMinimum = 0.0833f});
+                                         .antiAliasingEdgeMinimum = 0.0833f,
+                                         .depthOfFieldTaps = 16});
         CHECK(postProcessSettingsFor(PostProcessQuality::Medium) ==
               PostProcessQualitySettings{.bloomFirstLevel = 0,
                                          .bloomLevels = 5,
                                          .lensEffects = true,
                                          .antiAliasingSteps = 8,
                                          .antiAliasingEdgeThreshold = 0.166f,
-                                         .antiAliasingEdgeMinimum = 0.0625f});
+                                         .antiAliasingEdgeMinimum = 0.0625f,
+                                         .depthOfFieldTaps = 32});
         CHECK(postProcessSettingsFor(PostProcessQuality::High) ==
               PostProcessQualitySettings{.bloomFirstLevel = 0,
                                          .bloomLevels = 7,
                                          .lensEffects = true,
                                          .antiAliasingSteps = 12,
                                          .antiAliasingEdgeThreshold = 0.125f,
-                                         .antiAliasingEdgeMinimum = 0.0312f});
+                                         .antiAliasingEdgeMinimum = 0.0312f,
+                                         .depthOfFieldTaps = 64});
         // The higher the quality, the further an edge is followed and the fainter the
         // edges that are looked at; an edge always has to be something.
         PostProcessQualitySettings before = postProcessSettingsFor(PostProcessQuality::Low);
@@ -94,6 +97,7 @@ TEST_SUITE("PostProcessSettings") {
             CHECK(settings.antiAliasingEdgeThreshold < before.antiAliasingEdgeThreshold);
             CHECK(settings.antiAliasingEdgeMinimum < before.antiAliasingEdgeMinimum);
             CHECK(settings.antiAliasingEdgeMinimum > 0.0f);
+            CHECK(settings.depthOfFieldTaps > before.depthOfFieldTaps);
             before = settings;
         }
         // What the defaults of the struct are, a medium quality is.
@@ -254,6 +258,47 @@ TEST_SUITE("PostProcessSettings") {
         CHECK(vignetteScale(9.0f, Vec2(1.0f, 1.0f)) == doctest::Approx(0.0f));
     }
 
+    TEST_CASE("depth of field blurs what is not at the focus, more the further it is, up to its most") {
+        PostProcessSettings look;
+        look.focusDistance = 10.0f;
+        look.focusRange = 2.0f;
+        look.focusTransition = 4.0f;
+        look.nearBlur = 0.5f;
+        look.farBlur = 1.0f;
+        CHECK(hasDepthOfField(look));
+        // Sharp at the focus, and as far as its range goes - its ends included.
+        CHECK(focusBlur(look, 10.0f) == 0.0f);
+        CHECK(focusBlur(look, 12.0f) == 0.0f);
+        CHECK(focusBlur(look, 8.0f) == 0.0f);
+        // Behind: half way through the transition, half the blur; beyond it, all.
+        CHECK(focusBlur(look, 14.0f) == 0.5f);
+        CHECK(focusBlur(look, 16.0f) == 1.0f);
+        CHECK(focusBlur(look, 1000.0f) == 1.0f);
+        // In front: of the near blur, and negative.
+        CHECK(focusBlur(look, 6.0f) == -0.25f);
+        CHECK(focusBlur(look, 0.5f) == -0.5f);
+        // Where nothing was drawn is infinitely far; a depth that is no number is sharp.
+        CHECK(focusBlur(look, std::numeric_limits<float>::infinity()) == 1.0f);
+        CHECK(focusBlur(look, std::numeric_limits<float>::quiet_NaN()) == 0.0f);
+
+        // Without a transition, what is not sharp is blurred at its most.
+        look.focusTransition = 0.0f;
+        CHECK(focusBlur(look, 12.0f) == 0.0f);
+        CHECK(focusBlur(look, 12.01f) == 1.0f);
+        CHECK(focusBlur(look, 7.99f) == -0.5f);
+
+        // Without blur there is none, anywhere - and no depth of field at all.
+        look.nearBlur = 0.0f;
+        look.farBlur = 0.0f;
+        CHECK(focusBlur(look, 100.0f) == 0.0f);
+        CHECK(focusBlur(look, 0.1f) == 0.0f);
+        CHECK_FALSE(hasDepthOfField(look));
+        CHECK_FALSE(hasDepthOfField(PostProcessSettings{}));
+        look.farBlur = 1.0f;
+        look.blurSize = 0.0f;
+        CHECK_FALSE(hasDepthOfField(look));
+    }
+
     TEST_CASE("settings are brought into their ranges, and what is not a number becomes the default") {
         const PostProcessSettings defaults;
         // What is in range is left alone.
@@ -290,6 +335,12 @@ TEST_SUITE("PostProcessSettings") {
         wild.vignette = 2.0f;
         wild.chromaticAberration = -1.0f;
         wild.filmGrain = 7.0f;
+        wild.focusDistance = -5.0f;
+        wild.focusRange = 1.0e9f;
+        wild.focusTransition = std::numeric_limits<float>::quiet_NaN();
+        wild.nearBlur = 3.0f;
+        wild.farBlur = -1.0f;
+        wild.blurSize = 0.5f;
         const PostProcessSettings tamed = sanitized(wild);
         CHECK(tamed.exposure == 16.0f);
         CHECK(tamed.autoExposureMinimum == 2.0f);
@@ -310,6 +361,12 @@ TEST_SUITE("PostProcessSettings") {
         CHECK(tamed.vignette == 1.0f);
         CHECK(tamed.chromaticAberration == 0.0f);
         CHECK(tamed.filmGrain == 1.0f);
+        CHECK(tamed.focusDistance == 0.0f);
+        CHECK(tamed.focusRange == kMaxFocusDistance);
+        CHECK(tamed.focusTransition == defaults.focusTransition);
+        CHECK(tamed.nearBlur == 1.0f);
+        CHECK(tamed.farBlur == 0.0f);
+        CHECK(tamed.blurSize == kMaxBlurSize);
 
         const float notANumber = std::numeric_limits<float>::quiet_NaN();
         PostProcessSettings broken;
@@ -410,6 +467,12 @@ TEST_SUITE("PostProcessSettings") {
         from.ambientOcclusionIntensity = 0.0f;
         from.ambientOcclusionRadius = 0.2f;
         from.ambientOcclusionBias = 0.0f;
+        from.focusDistance = 4.0f;
+        from.focusRange = 0.0f;
+        from.focusTransition = 2.0f;
+        from.nearBlur = 0.0f;
+        from.farBlur = 1.0f;
+        from.blurSize = 0.02f;
         PostProcessSettings to;
         to.exposureMode = ExposureMode::Automatic;
         to.exposure = 1.0f;
@@ -421,6 +484,12 @@ TEST_SUITE("PostProcessSettings") {
         to.ambientOcclusionIntensity = 2.0f;
         to.ambientOcclusionRadius = 1.0f;
         to.ambientOcclusionBias = 8.0f;
+        to.focusDistance = 8.0f;
+        to.focusRange = 4.0f;
+        to.focusTransition = 6.0f;
+        to.nearBlur = 1.0f;
+        to.farBlur = 0.0f;
+        to.blurSize = 0.0f;
 
         const PostProcessSettings start = blend(from, to, 0.0f);
         CHECK(start.exposure == -1.0f);
@@ -437,6 +506,12 @@ TEST_SUITE("PostProcessSettings") {
         CHECK(quarter.ambientOcclusionIntensity == doctest::Approx(0.5f));
         CHECK(quarter.ambientOcclusionRadius == doctest::Approx(0.4f));
         CHECK(quarter.ambientOcclusionBias == doctest::Approx(2.0f));
+        CHECK(quarter.focusDistance == doctest::Approx(5.0f));
+        CHECK(quarter.focusRange == doctest::Approx(1.0f));
+        CHECK(quarter.focusTransition == doctest::Approx(3.0f));
+        CHECK(quarter.nearBlur == doctest::Approx(0.25f));
+        CHECK(quarter.farBlur == doctest::Approx(0.75f));
+        CHECK(quarter.blurSize == doctest::Approx(0.015f));
         CHECK(quarter.exposureMode == ExposureMode::Manual);
         CHECK(quarter.toneMapper == ToneMapper::Filmic);
 

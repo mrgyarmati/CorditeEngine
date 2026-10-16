@@ -62,6 +62,7 @@
 #include "cordite/renderer/CameraView.h"
 #include "cordite/renderer/DebugViewPass.h"
 #include "cordite/renderer/DeferredLightingPass.h"
+#include "cordite/renderer/DepthOfFieldPass.h"
 #include "cordite/renderer/DisplayEncodePass.h"
 #include "cordite/renderer/EnvironmentMaps.h"
 #include "cordite/renderer/LightClusters.h"
@@ -237,6 +238,11 @@ struct SceneRenderStatistics {
     /// (SceneTargets::tracedOcclusion; the result is another of the view's targets, and
     /// not in this number). Over the views of a frame it is the largest of them.
     uint64_t ambientOcclusionBytes = 0;
+    /// The memory of the two images the depth of field of the view is worked out in, in
+    /// bytes: four half floats for every block of four pixels, twice
+    /// (SceneTargets::prepareDepthOfField). Over the views of a frame it is the largest
+    /// of them.
+    uint64_t depthOfFieldBytes = 0;
 
     /// What each of the passes that draw meshes did. A debug view that draws the meshes
     /// itself - wireframe, overdraw - counts as the forward pass.
@@ -297,6 +303,7 @@ private:
         ShadowAtlas shadows;
         EnvironmentMaps environments;
         AmbientOcclusionPass occlusion;
+        DepthOfFieldPass depthOfField;
         PostProcessPass postProcess;
     };
 
@@ -335,6 +342,13 @@ private:
     /// Draws the shadow maps of m_shadowPlan into the atlas, each with what casts a
     /// shadow in the light it belongs to.
     void drawShadows(nvrhi::ICommandList* commandList, const ShadowSettings& settings);
+
+    /// Makes the display image of `targets` of the light in their scene color: blurred
+    /// where it is out of focus, and finished with `look` - or only encoded, in a debug
+    /// view and where `settings` ask for no finishing. In the debug view of the depth of
+    /// field, how blurred each pixel is takes the place of the light first.
+    void finishPicture(nvrhi::ICommandList* commandList, SceneTargets& targets, nvrhi::IBindingSet* viewBindings,
+                       const PostProcessSettings& look, const SceneRenderSettings& settings, RenderDebugView debugView);
 
     nvrhi::IDevice* m_device;
     std::unique_ptr<RenderResources> m_resources;
