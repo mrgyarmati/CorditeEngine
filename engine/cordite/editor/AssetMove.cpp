@@ -16,9 +16,12 @@
 #include <array>
 #include <cctype>
 #include <filesystem>
+#include <optional>
+#include <span>
 #include <string>
 #include <system_error>
 #include <utility>
+#include <vector>
 
 namespace cordite {
 namespace {
@@ -138,9 +141,11 @@ bool isWholePath(std::string_view text, size_t position, size_t length) {
     return (position == 0 || !partOfPath(text[position - 1])) && (end == text.size() || !partOfPath(text[end]));
 }
 
-/// The lines of the scripts, scenes and prefabs of the project that name `reference`.
-std::vector<FileMention> findFileMentions(const AssetDatabase& database, std::string_view reference) {
-    std::vector<FileMention> mentions;
+/// The lines of the scripts, scenes and prefabs of the project that name each of
+/// `references`, in their order: every file is read once, for all of them.
+std::vector<std::vector<FileMention>> findFileMentions(const AssetDatabase& database,
+                                                       std::span<const std::string> references) {
+    std::vector<std::vector<FileMention>> mentions(references.size());
     for (const AssetInfo& asset : database.assets()) {
         const bool isText =
             asset.type == AssetType::Script || asset.type == AssetType::Scene || asset.type == AssetType::Prefab;
@@ -149,8 +154,8 @@ std::vector<FileMention> findFileMentions(const AssetDatabase& database, std::st
         }
         const Result<std::string> text = readTextFile(database.sourceFile(asset));
         if (!text) {
-            CORDITE_LOG_WARN("Editor", "{} could not be read to find what still names {}: {}", asset.path, reference,
-                             text.error().describe());
+            CORDITE_LOG_WARN("Editor", "{} could not be read to find what still names a file by where it was: {}",
+                             asset.path, text.error().describe());
             continue;
         }
         uint32_t lineNumber = 0;
@@ -159,11 +164,15 @@ std::vector<FileMention> findFileMentions(const AssetDatabase& database, std::st
             const size_t end = std::min(text->find('\n', begin), text->size());
             const std::string_view line = std::string_view(*text).substr(begin, end - begin);
             ++lineNumber;
-            for (size_t found = line.find(reference); found != std::string_view::npos;
-                 found = line.find(reference, found + 1)) {
-                if (isWholePath(line, found, reference.size())) {
-                    mentions.push_back({.file = asset.path, .line = lineNumber, .text = std::string(trim(line))});
-                    break;
+            for (size_t index = 0; index < references.size(); ++index) {
+                const std::string_view reference = references[index];
+                for (size_t found = line.find(reference); found != std::string_view::npos;
+                     found = line.find(reference, found + 1)) {
+                    if (isWholePath(line, found, reference.size())) {
+                        mentions[index].push_back(
+                            {.file = asset.path, .line = lineNumber, .text = std::string(trim(line))});
+                        break;
+                    }
                 }
             }
             begin = end + 1;
@@ -194,6 +203,52 @@ std::vector<EntityMention> findEntityMentions(const EditorContext& context, std:
         }
     });
     return mentions;
+}
+
+/// Whether the asset `reference` is in the directory `directory` of the assets, or below it.
+bool isInside(std::string_view reference, std::string_view directory) {
+    return reference.size() > directory.size() && reference.starts_with(directory) &&
+           reference[directory.size()] == '/';
+}
+
+/// Where `reference` is once the directory `from` it is in is at `to`.
+std::string movedTo(std::string_view reference, std::string_view from, std::string_view to) {
+    return fmt::format("{}{}", to, reference.substr(from.size()));
+}
+
+/// Where a file that the glTF file `model` names as `uri` is among the assets: the path
+/// from the directory of the glTF file, made plain.
+std::string namedFrom(std::string_view model, std::string_view uri) {
+    return pathToUtf8((pathFromUtf8(directoryOf(model)) / pathFromUtf8(uri)).lexically_normal());
+}
+
+/// Refuses moving the directory `from` to `to` where that would break what names a file by
+/// where it is: a glTF file that would name, from where it is then, another place than
+/// where its file is then - whichever of the two moves.
+Status checkDirectoryNamedByPath(const AssetDatabase& database, std::string_view from, std::string_view to) {
+    for (const AssetInfo& asset : database.assets()) {
+        if (asset.type != AssetType::Model || !asset.subPath.empty() || asset.isBuiltin()) {
+            continue;
+        }
+        const Result<GltfDocument> model =
+            importGltf(database.sourceFile(asset), {.loadData = false, .rootDirectory = database.rootDirectory()});
+        if (!model) {
+            return makeError(ErrorCode::InvalidArgument,
+                             "cannot tell which files {} names by where they are, and whether the move breaks it: {}",
+                             asset.path, model.error().describe());
+        }
+        const std::string modelThen = isInside(asset.path, from) ? movedTo(asset.path, from, to) : asset.path;
+        for (const std::string& uri : model->externalFiles) {
+            const std::string named = namedFrom(asset.path, uri);
+            const std::string namedThen = isInside(named, from) ? movedTo(named, from, to) : named;
+            if (namedFrom(modelThen, uri) != namedThen) {
+                return makeError(ErrorCode::InvalidArgument,
+                                 "{} names {} by where it is, which the move would part from it: move them by hand",
+                                 asset.path, named);
+            }
+        }
+    }
+    return {};
 }
 
 } // namespace
@@ -280,7 +335,7 @@ Result<AssetMove> moveAsset(EditorContext& context, Uuid id, std::string to) {
     }
 
     AssetMove moved{.asset = id, .from = from, .to = std::move(to)};
-    moved.files = findFileMentions(database, from);
+    moved.files = std::move(findFileMentions(database, std::span(&from, 1)).front());
     moved.entities = findEntityMentions(context, from);
     return moved;
 }
@@ -307,6 +362,99 @@ Json describeAssetMove(const EditorContext& context, const AssetMove& move) {
     result["from"] = move.from;
     result["to"] = move.to;
     result["mentions"] = std::move(mentions);
+    return result;
+}
+
+Result<DirectoryMove> moveAssetDirectory(EditorContext& context, std::string from, std::string to) {
+    AssetManager& assets = context.assets();
+    const AssetDatabase& database = assets.database();
+    CORDITE_TRY(checkAssetPath(from));
+    CORDITE_TRY(checkAssetPath(to));
+    const std::filesystem::path root = database.rootDirectory();
+    const std::filesystem::path source = root / pathFromUtf8(from);
+    const std::filesystem::path target = root / pathFromUtf8(to);
+    if (!directoryExists(source)) {
+        return makeError(ErrorCode::NotFound, "there is no directory {} among the assets", from);
+    }
+    if (to == from) {
+        return makeError(ErrorCode::InvalidArgument, "{} is where it is to go", from);
+    }
+    if (isInside(to, from)) {
+        return makeError(ErrorCode::InvalidArgument, "{} cannot go inside itself, to {}", from, to);
+    }
+    // Also where a directory on the way is a link: what is made there must be inside.
+    if (const Result<std::string> inside = relativePathWithin(root, target); !inside) {
+        return makeError(ErrorCode::InvalidArgument, "'{}' leads outside the asset directory", to);
+    }
+    // A name that differs only in case is the same directory, renamed.
+    std::error_code error;
+    if (std::filesystem::exists(target, error) && !isSameFile(source, target)) {
+        return makeError(ErrorCode::AlreadyExists, "there is something at {} already", to);
+    }
+    CORDITE_TRY(checkDirectoryNamedByPath(database, from, to));
+
+    // What moves, kept: reading the assets again leaves the database's entries behind.
+    std::vector<AssetMove> moved;
+    for (const AssetInfo& asset : database.assets()) {
+        if (asset.subPath.empty() && !asset.isBuiltin() && isInside(asset.path, from)) {
+            moved.push_back({.asset = asset.id, .from = asset.path, .to = movedTo(asset.path, from, to)});
+        }
+    }
+    // Every id goes along: without a .meta, the id of a file would be made of its new path.
+    for (const AssetMove& move : moved) {
+        const std::filesystem::path file = root / pathFromUtf8(move.from);
+        if (!fileExists(assetMetaPath(file))) {
+            CORDITE_TRY(writeAssetMeta(file, move.asset));
+        }
+    }
+
+    // The open scene follows when it is inside: where it is in the directory, kept.
+    std::optional<std::filesystem::path> sceneWithin;
+    if (const std::filesystem::path& scene = context.scenePath(); !scene.empty()) {
+        if (const Result<std::string> inside = relativePathWithin(source, scene)) {
+            sceneWithin = pathFromUtf8(*inside);
+        }
+    }
+    CORDITE_TRY(ensureDirectory(target.parent_path()));
+    std::filesystem::rename(source, target, error);
+    if (error) {
+        return makeError(ErrorCode::IoError, "cannot move {} to {}: {}", from, to, error.message());
+    }
+    if (sceneWithin) {
+        context.setScenePath(target / *sceneWithin);
+    }
+    if (const Status refreshed = assets.refresh(); !refreshed) {
+        return tl::unexpected(refreshed.error().withContext(
+            fmt::format("{} was moved to {}, but the assets could not be read again", from, to)));
+    }
+    std::vector<std::string> before;
+    before.reserve(moved.size());
+    for (const AssetMove& move : moved) {
+        const AssetInfo* found = database.find(move.asset);
+        if (found == nullptr || found->path != move.to) {
+            return makeError(ErrorCode::InvalidState, "{} was moved to {}, but the assets do not find {} at {}", from,
+                             to, move.asset.toString(), move.to);
+        }
+        before.push_back(move.from);
+    }
+    // Every text file is read once, for every path that is no more.
+    std::vector<std::vector<FileMention>> mentions = findFileMentions(database, before);
+    for (size_t index = 0; index < moved.size(); ++index) {
+        moved[index].files = std::move(mentions[index]);
+        moved[index].entities = findEntityMentions(context, moved[index].from);
+    }
+    return DirectoryMove{.from = std::move(from), .to = std::move(to), .assets = std::move(moved)};
+}
+
+Json describeDirectoryMove(const EditorContext& context, const DirectoryMove& move) {
+    Json assets = Json::array();
+    for (const AssetMove& asset : move.assets) {
+        assets.push_back(describeAssetMove(context, asset));
+    }
+    Json result = Json::object();
+    result["from"] = move.from;
+    result["to"] = move.to;
+    result["assets"] = std::move(assets);
     return result;
 }
 

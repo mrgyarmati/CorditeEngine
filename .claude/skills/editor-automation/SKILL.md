@@ -82,6 +82,7 @@ Do not guess command or property names; ask the editor.
 | `asset.preview` | Save a picture of a mesh, a material (on a ball), a model or a prefab, as the Assets panel draws it (`{"asset": ..., "path": "out/crate.png", "size": 256}`): how to look at an asset without a window |
 | `asset.import` | Bring files from elsewhere into the assets (`{"files": ["C:/Downloads/crate.glb"], "to": "props"}`): copies, a glTF file with the files it names; new ids. Not undoable |
 | `asset.move` | Rename or move the file of an asset, with its .meta (`{"asset": ..., "to": "textures/brick.png"}`); returns `mentions`, what still names the old path. Not undoable |
+| `asset.moveDirectory` | Rename or move a directory of the assets with all in it (`{"from": "textures/old", "to": "art/textures"}`): every asset keeps its id; returns every asset that moved, with its `mentions`. Not undoable |
 | `assets.browse` | What the Assets panel lists, as rows with their depth: directories, files, what is inside files. With `type`, `search`, `select`, `open` or `close` it sets that first |
 | `scene.validate` | References to assets that are missing or of the wrong kind, and colliders that no shape or body can be made of |
 | `editor.statistics` | What the last frame cost: CPU and GPU time, draw calls, triangles, lights, shadow maps, memory on the GPU |

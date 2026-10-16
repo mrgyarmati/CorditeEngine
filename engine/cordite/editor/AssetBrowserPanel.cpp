@@ -25,6 +25,8 @@ constexpr float kTypeFilterWidth = 130.0f;
 constexpr float kSearchWidth = 220.0f;
 constexpr float kTypeColumnWidth = 90.0f;
 constexpr float kMoveFieldWidth = 420.0f;
+/// What a dragged directory of the assets carries: its path.
+constexpr const char* kDirectoryPayload = "cordite.assetDirectory";
 /// The most of the width of the panel that the picture beside the rows takes, and the
 /// least it is drawn at, in units of the interface.
 constexpr float kPictureShare = 0.4f;
@@ -104,6 +106,12 @@ void acceptMoveDrop(const AssetDatabase& database, const AssetBrowserRow& row,
         if (!to.empty() && ImGui::AcceptDragDropPayload(PropertyEditor::kAssetPayload) != nullptr) {
             submittedLines.push_back(moveAssetCommand(id, to));
         }
+    } else if (dragged != nullptr && dragged->IsDataType(kDirectoryPayload) && dragged->DataSize > 0) {
+        const std::string directory(static_cast<const char*>(dragged->Data), static_cast<size_t>(dragged->DataSize));
+        const std::string to = directoryDropTarget(directory, row);
+        if (!to.empty() && ImGui::AcceptDragDropPayload(kDirectoryPayload) != nullptr) {
+            submittedLines.push_back(moveDirectoryCommand(directory, to));
+        }
     }
     ImGui::EndDragDropTarget();
 }
@@ -116,6 +124,8 @@ struct RowClick {
     bool chosen = false;
     /// Its menu asked for the file of its asset to be renamed or moved.
     bool moveAsked = false;
+    /// Its menu asked for its directory to be renamed or moved.
+    bool moveDirectoryAsked = false;
 };
 
 /// Draws one row: its name, as far in as the row is, and for an asset its type in the
@@ -181,6 +191,20 @@ RowClick drawRow(const EditorContext& context, const AssetBrowserRow& row, bool 
         const std::string type(displayNameOf(row.type));
         ImGui::TextDisabled("%s", type.c_str());
     } else {
+        // What the engine has built in is no directory to rename, or to carry about.
+        if (isProjectDirectory(row)) {
+            if (ImGui::BeginPopupContextItem("directory_menu")) {
+                if (ImGui::MenuItem("Rename or move...")) {
+                    click.moveDirectoryAsked = true;
+                }
+                ImGui::EndPopup();
+            }
+            if (ImGui::BeginDragDropSource()) {
+                ImGui::SetDragDropPayload(kDirectoryPayload, row.path.data(), row.path.size());
+                ImGui::TextUnformatted(row.path.c_str());
+                ImGui::EndDragDropSource();
+            }
+        }
         acceptMoveDrop(context.assets().database(), row, submittedLines);
     }
     ImGui::PopID();
@@ -362,6 +386,13 @@ void AssetBrowserPanel::drawRows(const EditorContext& context, std::vector<std::
             }
             if (click.moveAsked) {
                 m_moving = m_rows[position].asset;
+                m_movingDirectory.clear();
+                m_moveTarget = m_rows[position].path;
+                m_openMoveDialog = true;
+            }
+            if (click.moveDirectoryAsked) {
+                m_moving = Uuid();
+                m_movingDirectory = m_rows[position].path;
                 m_moveTarget = m_rows[position].path;
                 m_openMoveDialog = true;
             }
@@ -474,22 +505,31 @@ void AssetBrowserPanel::drawMoveDialog(const EditorContext& context, std::vector
     if (!ImGui::BeginPopupModal("Rename or move", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         return;
     }
-    const AssetInfo* asset = context.assets().database().find(m_moving);
-    if (asset == nullptr) {
-        // Gone while the dialog was open: the assets were read again.
-        ImGui::CloseCurrentPopup();
-        ImGui::EndPopup();
-        return;
+    // A directory, or the file of an asset.
+    std::string moving = m_movingDirectory;
+    if (moving.empty()) {
+        const AssetInfo* asset = context.assets().database().find(m_moving);
+        if (asset == nullptr) {
+            // Gone while the dialog was open: the assets were read again.
+            ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+            return;
+        }
+        moving = asset->path;
     }
-    ImGui::TextUnformatted(fmt::format("Where {} goes, inside the asset directory:", asset->path).c_str());
+    ImGui::TextUnformatted(fmt::format("Where {} goes, inside the asset directory:", moving).c_str());
     if (ImGui::IsWindowAppearing()) {
         ImGui::SetKeyboardFocusHere();
     }
     ImGui::SetNextItemWidth(kMoveFieldWidth);
     const bool entered = ImGui::InputText("##to", &m_moveTarget, ImGuiInputTextFlags_EnterReturnsTrue);
-    ImGui::TextDisabled("It keeps its id: what refers to it by id follows it.");
+    ImGui::TextDisabled(m_movingDirectory.empty() ? "It keeps its id: what refers to it by id follows it."
+                                                  : "Every asset in it keeps its id: what refers to them by id "
+                                                    "follows them.");
     if (ImGui::Button("Move") || entered) {
-        submittedLines.push_back(moveAssetCommand(m_moving, trim(m_moveTarget)));
+        submittedLines.push_back(m_movingDirectory.empty()
+                                     ? moveAssetCommand(m_moving, trim(m_moveTarget))
+                                     : moveDirectoryCommand(m_movingDirectory, trim(m_moveTarget)));
         ImGui::CloseCurrentPopup();
     }
     ImGui::SameLine();

@@ -61,8 +61,9 @@ mesh of a model - has an id derived from the file's and its place in the file.
 
 So renaming and moving files breaks nothing, as long as it happens in the editor: in the
 Assets panel, right-click a file and choose **Rename or move...**, or drag it onto a
-directory. Its `.meta` file goes with it and its id stays. What still names the old path - a
-line of a script, say - is listed, to be changed by hand.
+directory. Its `.meta` file goes with it and its id stays. Directories are renamed and moved
+the same way, with everything in them. What still names an old path - a line of a script,
+say - is listed, to be changed by hand.
 
 ## Bringing files in
 

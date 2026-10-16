@@ -959,7 +959,7 @@ Status EditorApp::registerProjectCommands() {
 
     // Here and not with the other commands of assets: the project names its start scene by
     // where it is, and the application is what has the project.
-    return m_commands.add({
+    CORDITE_TRY(m_commands.add({
         .name = "asset.move",
         .description =
             "Moves or renames the file of an asset, with its .meta: it keeps its id, so whatever refers to it by "
@@ -992,6 +992,54 @@ Status EditorApp::registerProjectCommands() {
             for (const Json& mention : result["mentions"]) {
                 CORDITE_LOG_WARN("Editor", "{} still names {}: {}",
                                  jsonGetOr<std::string>(mention, "file", "the open scene"), moved.from, mention.dump());
+            }
+            return result;
+        },
+    }));
+
+    return m_commands.add({
+        .name = "asset.moveDirectory",
+        .description =
+            "Moves or renames a directory of the assets, with all that is in it. Every asset in it keeps its id - a "
+            "file without a .meta gets one first - so whatever refers to them by id follows, and so do the file of "
+            "the open scene and the start scene and the input map of the project. Refused, moving nothing, for a "
+            "directory that is not there, a place that holds something, a place inside the directory, a path "
+            "outside the assets or with a part that begins with a dot, and for a move after which a glTF file would "
+            "not find a file it names by where it is. Returns every asset that moved, each with `mentions`: lines "
+            "of scripts, scenes and prefabs, and values in the open scene, that still name it by where it was - "
+            "those follow by hand. Files are no part of the document: editor.undo does not move them back.",
+        .parameters = {{"from", Type::String,
+                        "The directory, inside the asset directory, with forward slashes: \"textures/old\"."},
+                       {"to", Type::String, "Where it goes, likewise: \"art/textures\"."}},
+        .handler = [this](const Json& parameters) -> Result<Json> {
+            CORDITE_TRY_ASSIGN(const DirectoryMove moved,
+                               moveAssetDirectory(*m_context, parameters.at("from").get<std::string>(),
+                                                  parameters.at("to").get<std::string>()));
+            Json result = describeDirectoryMove(*m_context, moved);
+            // The project names its start scene and its controls by where they are.
+            if (m_project) {
+                bool changed = false;
+                const auto follow = [&](std::string& setting, const char* key) {
+                    if (setting.starts_with(moved.from + "/")) {
+                        setting = moved.to + setting.substr(moved.from.size());
+                        result[key] = setting;
+                        changed = true;
+                    }
+                };
+                follow(m_project->settings.startScene, "startScene");
+                follow(m_project->settings.inputMap, "inputMap");
+                if (const Status saved = changed ? saveProject(*m_project) : Status(); !saved) {
+                    return tl::unexpected(saved.error().withContext(
+                        fmt::format("{} was moved to {}, but the project still names what was in it by where it was",
+                                    moved.from, moved.to)));
+                }
+            }
+            for (const Json& asset : result["assets"]) {
+                for (const Json& mention : asset["mentions"]) {
+                    CORDITE_LOG_WARN("Editor", "{} still names {}: {}",
+                                     jsonGetOr<std::string>(mention, "file", "the open scene"),
+                                     asset["from"].get<std::string>(), mention.dump());
+                }
             }
             return result;
         },

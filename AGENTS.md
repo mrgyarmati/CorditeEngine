@@ -686,7 +686,11 @@ Step-by-step guide: [work-with-assets](.claude/skills/work-with-assets/SKILL.md)
   and to take a texture away from the glTF file that names it, and lists the lines of
   scripts, scenes and prefabs, and the values in the open scene, that still name the old
   path: those are changed by hand. It takes the id by value - the assets are read again
-  on the way, and an `AssetInfo` does not outlive that. Directories do not move yet.
+  on the way, and an `AssetInfo` does not outlive that. A directory moves the same way
+  (`asset.moveDirectory`, `moveAssetDirectory`), whole, in one rename: the assets in it
+  without a .meta get one first, a glTF file must still find what it names wherever the
+  move leaves the two - one may move without the other where the way between them stays
+  the same - and the project's start scene and input map follow it.
 - **A file from elsewhere is brought in by a copy** (`asset.import`,
   `editor/AssetImport.h`, or dropped onto the editor's window - into the directory of
   the asset chosen in the browser): a glTF file brings what it names by where it is,

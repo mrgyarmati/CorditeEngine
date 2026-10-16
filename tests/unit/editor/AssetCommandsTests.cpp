@@ -1389,6 +1389,41 @@ TEST_SUITE("AssetCommands") {
         CHECK(dropTarget(*database.find(builtinMeshId(BuiltinMesh::Cube)), rowOf("textures")).empty());
     }
 
+    TEST_CASE("a directory is moved by a line, and dropped onto another directory it goes into it") {
+        AssetFixture fixture;
+        CHECK(moveDirectoryCommand("looks", "art/looks") == R"(asset.moveDirectory {"from":"looks","to":"art/looks"})");
+
+        const std::vector<AssetBrowserRow> rows = fixture.browser.rows(fixture.assets->database());
+        const auto rowOf = [&rows](std::string_view path) {
+            const auto found = std::ranges::find(rows, path, &AssetBrowserRow::path);
+            REQUIRE_MESSAGE(found != rows.end(), "no row " << std::string(path));
+            return *found;
+        };
+        const auto directory = [](std::string path) {
+            AssetBrowserRow row;
+            row.kind = AssetBrowserRow::Kind::Directory;
+            row.key = path;
+            row.path = std::move(path);
+            return row;
+        };
+        CHECK(isProjectDirectory(rowOf("textures")));
+        CHECK_FALSE(isProjectDirectory(rowOf(std::string(kBuiltinAssetPath))));
+        CHECK_FALSE(isProjectDirectory(rowOf("textures/wall.png")));
+
+        CHECK(directoryDropTarget("materials", rowOf("textures")) == "textures/materials");
+        CHECK(directoryDropTarget("art/looks", directory("props")) == "props/looks");
+        // Onto itself, into what is inside it, where it is already, onto what is no
+        // directory of the project: nowhere.
+        CHECK(directoryDropTarget("materials", rowOf("materials")).empty());
+        CHECK(directoryDropTarget("art", directory("art/looks")).empty());
+        CHECK(directoryDropTarget("art/looks", directory("art")).empty());
+        CHECK(directoryDropTarget("materials", rowOf(std::string(kBuiltinAssetPath))).empty());
+        CHECK(directoryDropTarget("materials", rowOf("textures/wall.png")).empty());
+        CHECK(directoryDropTarget("", rowOf("textures")).empty());
+        // A name that only begins like another is not inside it.
+        CHECK(directoryDropTarget("art", directory("artwork")) == "artwork/art");
+    }
+
     TEST_CASE("files are brought in by command, and what is dropped goes where the chosen asset is") {
         AssetFixture fixture;
         const TempDirectory downloads;

@@ -169,6 +169,19 @@ private:
 /// for an asset that has no file of its own to move: one that is built in or inside a file.
 [[nodiscard]] std::string dropTarget(const AssetInfo& asset, const AssetBrowserRow& row);
 
+/// Whether a row is a directory of the project's own: not a file, nor what the engine has
+/// built in, which the browser shows as a directory too.
+[[nodiscard]] bool isProjectDirectory(const AssetBrowserRow& row);
+
+/// What the Assets panel asks for when a directory is renamed or moved, as a line for the
+/// console: `asset.moveDirectory`.
+[[nodiscard]] std::string moveDirectoryCommand(std::string_view from, std::string_view to);
+
+/// Where the directory `directory` goes when it is dropped onto a row of the browser: into
+/// the directory of the row, under its own name. Empty when the row is no directory of the
+/// project, is the directory itself or inside it, or holds it already.
+[[nodiscard]] std::string directoryDropTarget(std::string_view directory, const AssetBrowserRow& row);
+
 /// Where files dropped onto the editor from outside are brought in: the directory of the
 /// asset that is chosen in the browser - of its file, for one inside a file - or the top,
 /// when nothing is chosen or what is chosen is built in.

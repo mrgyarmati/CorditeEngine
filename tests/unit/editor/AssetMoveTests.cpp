@@ -120,6 +120,16 @@ struct MoveFixture {
         CHECK(assets->database().revision() == revision);
         return moved.error();
     }
+
+    /// The error of a move of a directory that is refused, after checking that nothing
+    /// moved.
+    Error directoryRefusal(std::string_view from, std::string_view to) {
+        const uint64_t revision = assets->database().revision();
+        const Result<DirectoryMove> moved = moveAssetDirectory(*context, std::string(from), std::string(to));
+        REQUIRE_FALSE(moved.has_value());
+        CHECK(assets->database().revision() == revision);
+        return moved.error();
+    }
 };
 
 } // namespace
@@ -235,6 +245,93 @@ TEST_SUITE("AssetMove") {
         unwrap(moveAsset(*fixture.context, barrel, "props/barrel.glb"));
         CHECK(fixture.where(barrel) == "props/barrel.glb");
         CHECK(fixture.assets->database().problems().empty());
+    }
+
+    TEST_CASE("a directory moves with all that is in it, and every asset in it keeps its id") {
+        MoveFixture fixture(false);
+        fixture.writeText("scripts/doors/creak.lua", "return {}\n");
+        fixture.writeText("scripts/notes.txt", "not an asset, and moved all the same");
+        REQUIRE(fixture.assets->refresh().has_value());
+        const Uuid door = fixture.id("scripts/door.lua");
+        const Uuid creak = fixture.id("scripts/doors/creak.lua");
+
+        const DirectoryMove moved = unwrap(moveAssetDirectory(*fixture.context, "scripts", "gameplay/scripts"));
+        CHECK(moved.from == "scripts");
+        CHECK(moved.to == "gameplay/scripts");
+        REQUIRE(moved.assets.size() == 2);
+        // Without a .meta, a file would have been given a new id made of its new path.
+        CHECK(fixture.where(door) == "gameplay/scripts/door.lua");
+        CHECK(fixture.where(creak) == "gameplay/scripts/doors/creak.lua");
+        CHECK(fixture.exists("gameplay/scripts/door.lua.meta"));
+        CHECK(fixture.exists("gameplay/scripts/notes.txt"));
+        CHECK_FALSE(std::filesystem::exists(fixture.root / "scripts"));
+        CHECK(fixture.assets->database().problems().empty());
+    }
+
+    TEST_CASE("what refers to the assets of a directory by id follows it, and what names them by where they were is "
+              "listed") {
+        MoveFixture fixture;
+        const Uuid paint = fixture.id("materials/paint.material.json");
+        fixture.writeTexture("decals/crack.png");
+        fixture.writeText("scripts/wall.lua", "local decal = \"decals/crack.png\"\nreturn {}\n");
+        REQUIRE(fixture.assets->refresh().has_value());
+
+        const DirectoryMove materials = unwrap(moveAssetDirectory(*fixture.context, "materials", "art/materials"));
+        CHECK(fixture.where(paint) == "art/materials/paint.material.json");
+        // The material loads where it is now, and still finds its texture, by id.
+        const std::shared_ptr<const MaterialData> material = unwrap(fixture.assets->loadMaterial(paint));
+        CHECK(fixture.where(material->baseColorTexture) == "textures/brick.png");
+        CHECK(materials.assets.front().files.empty());
+
+        const DirectoryMove decals = unwrap(moveAssetDirectory(*fixture.context, "decals", "art/decals"));
+        REQUIRE(decals.assets.size() == 1);
+        REQUIRE(decals.assets.front().files.size() == 1);
+        CHECK(decals.assets.front().files.front().file == "scripts/wall.lua");
+        CHECK(decals.assets.front().files.front().line == 1);
+        const Json described = describeDirectoryMove(*fixture.context, decals);
+        CHECK(described["from"] == "decals");
+        CHECK(described["assets"][0]["to"] == "art/decals/crack.png");
+        CHECK(described["assets"][0]["mentions"].size() == 1);
+    }
+
+    TEST_CASE("a directory of glTF files moves where the files they name by where they are stay where they say") {
+        MoveFixture fixture;
+        const Uuid body = fixture.id("models/cart.gltf#mesh/0");
+        // As deep as it was: "../textures/wall.png" is still the texture.
+        unwrap(moveAssetDirectory(*fixture.context, "models", "props"));
+        CHECK(fixture.where(body) == "props/cart.gltf#mesh/0");
+        CHECK(fixture.assets->database().problems().empty());
+        CHECK(fixture.assets->loadMesh(body).has_value());
+        // Deeper, it would name a texture that is not there; and the texture cannot go
+        // without the file that names it.
+        CHECK(fixture.directoryRefusal("props", "art/props").message.find("props/cart.gltf names textures/wall.png") !=
+              std::string::npos);
+        CHECK(fixture.directoryRefusal("textures", "art/textures").message.find("textures/wall.png") !=
+              std::string::npos);
+    }
+
+    TEST_CASE("the open scene follows its directory") {
+        MoveFixture fixture;
+        fixture.writeText("scenes/yard.scene.json", R"({"format": "cordite.scene", "version": 1, "entities": []})");
+        REQUIRE(fixture.assets->refresh().has_value());
+        REQUIRE(fixture.context->openScene(fixture.root / "scenes" / "yard.scene.json").has_value());
+        unwrap(moveAssetDirectory(*fixture.context, "scenes", "levels"));
+        CHECK(fixture.context->scenePath() == fixture.root / "levels" / "yard.scene.json");
+        fixture.world.createEntity("Gate");
+        REQUIRE(fixture.context->saveScene().has_value());
+        CHECK(unwrap(readTextFile(fixture.root / "levels" / "yard.scene.json")).find("Gate") != std::string::npos);
+    }
+
+    TEST_CASE("a directory goes nowhere it cannot, and nothing moves") {
+        MoveFixture fixture;
+        CHECK(fixture.directoryRefusal("nowhere", "elsewhere").code == ErrorCode::NotFound);
+        CHECK(fixture.directoryRefusal("scripts", "models").code == ErrorCode::AlreadyExists);
+        CHECK(fixture.directoryRefusal("scripts", "scripts").code == ErrorCode::InvalidArgument);
+        CHECK(fixture.directoryRefusal("scripts", "scripts/inner").code == ErrorCode::InvalidArgument);
+        CHECK(fixture.directoryRefusal("scripts", "../scripts").code == ErrorCode::InvalidArgument);
+        CHECK(fixture.directoryRefusal("scripts", ".hidden").code == ErrorCode::InvalidArgument);
+        CHECK(fixture.directoryRefusal("", "elsewhere").code == ErrorCode::InvalidArgument);
+        CHECK(fixture.exists("scripts/door.lua"));
     }
 
     TEST_CASE("what a move would break, or cannot do, is refused, and nothing moves") {

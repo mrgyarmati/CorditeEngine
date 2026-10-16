@@ -288,6 +288,36 @@ std::string dropTarget(const AssetInfo& asset, const AssetBrowserRow& row) {
     return fmt::format("{}/{}", row.path, name);
 }
 
+bool isProjectDirectory(const AssetBrowserRow& row) {
+    return row.kind == AssetBrowserRow::Kind::Directory && row.key != kBuiltinKey;
+}
+
+std::string moveDirectoryCommand(std::string_view from, std::string_view to) {
+    Json parameters = Json::object();
+    parameters["from"] = std::string(from);
+    parameters["to"] = std::string(to);
+    return fmt::format("asset.moveDirectory {}", parameters.dump());
+}
+
+std::string directoryDropTarget(std::string_view directory, const AssetBrowserRow& row) {
+    if (!isProjectDirectory(row) || directory.empty()) {
+        return {};
+    }
+    // Onto itself, or onto what is inside it.
+    const std::string_view onto = row.path;
+    if (onto == directory ||
+        (onto.size() > directory.size() && onto.starts_with(directory) && onto[directory.size()] == '/')) {
+        return {};
+    }
+    const size_t slash = directory.rfind('/');
+    const std::string_view parent = slash == std::string_view::npos ? std::string_view() : directory.substr(0, slash);
+    if (parent == onto) {
+        return {};
+    }
+    const std::string_view name = slash == std::string_view::npos ? directory : directory.substr(slash + 1);
+    return fmt::format("{}/{}", onto, name);
+}
+
 std::string importDirectory(const AssetBrowser& browser, const AssetDatabase& database) {
     const AssetInfo* chosen = database.find(browser.selection());
     if (chosen == nullptr || chosen->isBuiltin()) {

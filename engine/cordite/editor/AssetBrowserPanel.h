@@ -81,9 +81,11 @@ private:
     /// What is in the text field, as it was typed: the filter keeps it without the
     /// blanks at its ends, and a blank that was just typed must not vanish.
     std::string m_search;
-    /// The asset whose file the dialog moves, and where it is to go, as it is typed. The
-    /// dialog opens in the frame after the menu asked: a popup is opened where it is drawn.
+    /// The asset whose file the dialog moves - or the directory, when it moves one - and
+    /// where it is to go, as it is typed. The dialog opens in the frame after the menu
+    /// asked: a popup is opened where it is drawn.
     Uuid m_moving;
+    std::string m_movingDirectory;
     std::string m_moveTarget;
     bool m_openMoveDialog = false;
     /// The entities of the open scene that use the chosen asset, with their paths: found

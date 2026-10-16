@@ -46,6 +46,15 @@ Moves or renames the file of an asset, with its .meta: it keeps its id, so whate
 | `asset` | string | yes | The asset whose file moves: its id, or where it is. |
 | `to` | string | yes | Where the file goes, inside the asset directory, with forward slashes: "textures/brick.png". |
 
+## asset.moveDirectory
+
+Moves or renames a directory of the assets, with all that is in it. Every asset in it keeps its id - a file without a .meta gets one first - so whatever refers to them by id follows, and so do the file of the open scene and the start scene and the input map of the project. Refused, moving nothing, for a directory that is not there, a place that holds something, a place inside the directory, a path outside the assets or with a part that begins with a dot, and for a move after which a glTF file would not find a file it names by where it is. Returns every asset that moved, each with `mentions`: lines of scripts, scenes and prefabs, and values in the open scene, that still name it by where it was - those follow by hand. Files are no part of the document: editor.undo does not move them back.
+
+| Parameter | Kind | Needed | Meaning |
+|---|---|---|---|
+| `from` | string | yes | The directory, inside the asset directory, with forward slashes: "textures/old". |
+| `to` | string | yes | Where it goes, likewise: "art/textures". |
+
 ## asset.preview
 
 Draws a picture of an asset as the Assets panel shows it - a mesh as it is, a material on a ball, a model or a prefab as it is placed, whole, from in front and above - and saves it as a PNG file. A texture is its own picture: its file. Returns the path and the size.

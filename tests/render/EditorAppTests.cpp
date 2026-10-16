@@ -2527,6 +2527,35 @@ TEST_SUITE("EditorApp") {
         checkNoValidationIssues(editor->engine().graphics());
     }
 
+    TEST_CASE("a directory of the assets is moved by command, and the project's start scene and controls follow") {
+        const TempDirectory directory;
+        Project project = unwrap(createStarterProject(directory.path() / "moving", "Moving"));
+        REQUIRE(writeTextFile(project.assetDirectory() / "input" / "controls.input.json",
+                              R"({"format": "cordite.input", "version": 1, "actions": [], "axes": []})")
+                    .has_value());
+        project.settings.inputMap = "input/controls.input.json";
+        REQUIRE(saveProject(project).has_value());
+        EditorAppDesc desc = headlessDesc(UVec2(320, 180));
+        desc.project = project.directory;
+        const std::unique_ptr<EditorApp> editor = createEditor(desc);
+
+        const Json scenes = run(*editor, "asset.moveDirectory", R"({"from": "scenes", "to": "levels/first"})");
+        CHECK(scenes["to"] == "levels/first");
+        REQUIRE(scenes["assets"].size() == 1);
+        CHECK(scenes["assets"][0]["to"] == "levels/first/main.scene.json");
+        CHECK(scenes["startScene"] == "levels/first/main.scene.json");
+        CHECK(editor->context().scenePath() == project.assetDirectory() / "levels" / "first" / "main.scene.json");
+        CHECK(run(*editor, "asset.moveDirectory", R"({"from": "input", "to": "config"})")["inputMap"] ==
+              "config/controls.input.json");
+        const Project moved = unwrap(loadProject(project.directory));
+        CHECK(moved.settings.startScene == "levels/first/main.scene.json");
+        CHECK(moved.settings.inputMap == "config/controls.input.json");
+
+        CHECK(refusal(*editor, "asset.moveDirectory", R"({"from": "levels", "to": "levels/first/deeper"})").code ==
+              ErrorCode::InvalidArgument);
+        checkNoValidationIssues(editor->engine().graphics());
+    }
+
     TEST_CASE("a game is made of the project by command, and not of a scene that is not saved") {
         const TempDirectory directory;
         // Without a project there is nothing to make a game of.
@@ -2556,12 +2585,12 @@ TEST_SUITE("EditorApp") {
     TEST_CASE("the application adds its commands to the catalogue") {
         const std::unique_ptr<EditorApp> editor = createEditor(headlessDesc(UVec2(640, 360)));
         for (const char* name :
-             {"editor.runFrames",  "editor.screenshot",  "editor.statistics", "editor.showPanel", "editor.exit",
-              "editor.focusPanel", "editor.theme",       "assets.browse",     "viewport.lookAt",  "viewport.frame",
-              "viewport.camera",   "viewport.debugView", "viewport.gizmo",    "entity.create",    "scene.save",
-              "play.start",        "play.stop",          "play.pause",        "play.resume",      "play.step",
-              "play.status",       "asset.move",         "asset.import",      "asset.preview",    "project.export",
-              "project.new",       "project.open"}) {
+             {"editor.runFrames",  "editor.screenshot",  "editor.statistics",  "editor.showPanel", "editor.exit",
+              "editor.focusPanel", "editor.theme",       "assets.browse",      "viewport.lookAt",  "viewport.frame",
+              "viewport.camera",   "viewport.debugView", "viewport.gizmo",     "entity.create",    "scene.save",
+              "play.start",        "play.stop",          "play.pause",         "play.resume",      "play.step",
+              "play.status",       "asset.move",         "asset.import",       "asset.preview",    "project.export",
+              "project.new",       "project.open",       "asset.moveDirectory"}) {
             CAPTURE(name);
             const CommandDesc* command = editor->commands().find(name);
             REQUIRE(command != nullptr);

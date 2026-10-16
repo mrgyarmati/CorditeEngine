@@ -1,12 +1,13 @@
 #pragma once
 
 /// @file
-/// Moving and renaming the files of assets.
+/// Moving and renaming the files of assets, and directories of them.
 ///
 /// An asset is its id, which lives in the .meta file beside it: a file that moves with
 /// its .meta keeps its id, and whatever refers to it by id - scenes, prefabs, materials -
 /// follows it. What names a file by where it is does not. A glTF file names its buffers
-/// and its images so, and a material in it a texture: moveAsset() refuses to break those.
+/// and its images so, and a material in it a texture: moveAsset() refuses to break those,
+/// and so does moveAssetDirectory(), which moves a directory with all that is in it.
 /// The open scene's file follows the move. Scripts, and what scenes give them, may name
 /// a file by where it is too; those are found and listed, and are changed by hand.
 ///
@@ -15,6 +16,7 @@
 /// for (const FileMention& mention : moved.files) {
 ///     CORDITE_LOG_WARN("Assets", "{}:{} still names {}", mention.file, mention.line, moved.from);
 /// }
+/// CORDITE_TRY_ASSIGN(const DirectoryMove textures, moveAssetDirectory(context, "textures", "art/textures"));
 /// @endcode
 
 #include "cordite/core/Json.h"
@@ -96,5 +98,34 @@ struct AssetMove {
 /// lines of files (`file`, `line`, `text`), then values in the open scene (`entity`, `id`,
 /// `component`, `property`).
 [[nodiscard]] Json describeAssetMove(const EditorContext& context, const AssetMove& move);
+
+/// What moving a directory of the assets did.
+struct DirectoryMove {
+    /// Where the directory was and is, relative to the asset directory, with forward
+    /// slashes.
+    std::string from;
+    std::string to;
+    /// Every asset file that moved with it, with what still names it by where it was.
+    std::vector<AssetMove> assets;
+};
+
+/// Moves a directory of the assets, with all that is in it, to `to`: another name, another
+/// parent, or both. Every asset in it keeps its id - a file without a .meta gets one first,
+/// which keeps the id it has - so whatever refers to them by id follows. What names files
+/// by where they are is held as moveAsset() holds it: a glTF file whose files would no
+/// longer be where it says, moving or not, and a texture that a glTF file names and would
+/// lose, refuse the move. Then the assets are read again, and the open scene's file follows
+/// when it was inside. Files are no part of the document: undo does not move them back.
+///
+/// Fails, and moves nothing, with InvalidArgument for a `from` or a `to` that
+/// checkAssetPath() refuses, for a `to` that is `from` or inside it, and for what would
+/// break; with NotFound for a `from` that is no directory of the assets; with AlreadyExists
+/// for a `to` where something is; and with IoError when the file system refuses. When the
+/// assets cannot be read again afterwards, the files have moved, and the error says so.
+[[nodiscard]] Result<DirectoryMove> moveAssetDirectory(EditorContext& context, std::string from, std::string to);
+
+/// What moveAssetDirectory() did, as `asset.moveDirectory` returns it: `from`, `to`, and
+/// `assets`, each as describeAssetMove() describes a move.
+[[nodiscard]] Json describeDirectoryMove(const EditorContext& context, const DirectoryMove& move);
 
 } // namespace cordite
