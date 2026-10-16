@@ -62,6 +62,11 @@ public:
     /// for whoever holds it.
     [[nodiscard]] Status refresh();
 
+    /// Reads again which assets a scene or a prefab refers to, after its file was written,
+    /// without reading anything else: AssetDatabase::rereadDependencies(). What was loaded
+    /// stays as it is.
+    [[nodiscard]] Status rereadDependencies(const Uuid& id) { return m_database.rereadDependencies(id); }
+
     /// Each load fails with NotFound for an id that names no asset, with InvalidArgument
     /// for an asset of another type, and with the reader's error for a file that cannot
     /// be read; the message names the asset.

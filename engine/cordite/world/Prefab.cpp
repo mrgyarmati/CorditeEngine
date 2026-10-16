@@ -6,15 +6,10 @@
 #include "cordite/world/SceneSerializer.h"
 
 #include <array>
+#include <string>
 #include <vector>
 
 namespace cordite {
-namespace {
-
-/// The name the component that marks an instance has in files.
-constexpr const char* kPrefabInstanceName = "PrefabInstance";
-
-} // namespace
 
 Result<Entity> instantiatePrefab(World& world, const ComponentRegistry& components, const Json& entities,
                                  const Uuid& prefab, const PrefabInstanceOptions& options) {
@@ -67,7 +62,7 @@ Json serializePrefabEntities(const World& world, const ComponentRegistry& compon
     Json& first = entities.front();
     first["parent"] = nullptr;
     if (const auto held = first.find("components"); held != first.end() && held->is_object()) {
-        held->erase(kPrefabInstanceName);
+        held->erase(std::string(PrefabInstanceComponent::kName));
     }
     return entities;
 }

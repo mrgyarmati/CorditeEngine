@@ -1,11 +1,16 @@
 #include "cordite/engine/SceneAssets.h"
 
+#include "cordite/assets/Prefab.h"
+#include "cordite/core/Document.h"
 #include "cordite/core/Json.h"
 #include "cordite/core/Reflection.h"
 #include "cordite/core/StringUtils.h"
 #include "cordite/physics/PhysicsComponents.h"
+#include "cordite/world/Components.h"
+#include "cordite/world/SceneSerializer.h"
 
 #include <optional>
+#include <unordered_set>
 #include <utility>
 
 namespace cordite {
@@ -69,6 +74,59 @@ std::vector<AssetReferenceUse> collectAssetReferences(const World& world, const 
         }
     });
     return uses;
+}
+
+Result<std::vector<Uuid>> assetsReferencedBy(AssetType type, const Json& document,
+                                             const ComponentRegistry& components) {
+    // Both hold their entities as serializeEntities() writes them (SceneSerializer.h).
+    Json prefabEntities;
+    const Json* entities = nullptr;
+    if (type == AssetType::Scene) {
+        CORDITE_TRY(readDocumentHeader(document, kSceneFormat));
+        const auto found = document.find("entities");
+        if (found == document.end() || !found->is_array()) {
+            return makeError(ErrorCode::ParseError, "the scene has no 'entities' array");
+        }
+        entities = &*found;
+    } else if (type == AssetType::Prefab) {
+        CORDITE_TRY_ASSIGN(PrefabData prefab, parsePrefab(document));
+        prefabEntities = std::move(prefab.entities);
+        entities = &prefabEntities;
+    } else {
+        return makeError(ErrorCode::InvalidArgument, "{} has no entities to refer to assets with", withArticle(type));
+    }
+
+    std::vector<Uuid> used;
+    std::unordered_set<Uuid> seen;
+    const auto use = [&](const std::string& /*property*/, const Uuid& asset, const std::string& /*expected*/) {
+        if (seen.insert(asset).second) {
+            used.push_back(asset);
+        }
+    };
+    for (size_t index = 0; index < entities->size(); ++index) {
+        const Json& entity = (*entities)[index];
+        // What is no object finds nothing.
+        const auto held = entity.find("components");
+        if (held == entity.end() || !held->is_object()) {
+            continue;
+        }
+        for (const auto& component : held->items()) {
+            // The root of a prefab is the first of its entities; once placed, it is marked
+            // as an instance of the prefab, whatever its file says.
+            if (type == AssetType::Prefab && index == 0 && component.key() == PrefabInstanceComponent::kName) {
+                continue;
+            }
+            if (const ComponentDescriptor* descriptor = components.find(component.key())) {
+                visitAssetReferences(descriptor->type, component.value(), "", use);
+            }
+        }
+    }
+    return used;
+}
+
+AssetReferenceReader assetReferenceReader(const ComponentRegistry& components) {
+    return
+        [&components](AssetType type, const Json& document) { return assetsReferencedBy(type, document, components); };
 }
 
 std::vector<SceneProblem> findSceneProblems(const World& world, const ComponentRegistry& components,

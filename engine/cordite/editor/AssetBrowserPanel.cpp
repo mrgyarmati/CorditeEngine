@@ -6,10 +6,12 @@
 #include "cordite/editor/PropertyEditor.h"
 #include "cordite/ui/UiWidgets.h"
 
+#include <fmt/format.h>
 #include <imgui.h>
 #include <misc/cpp/imgui_stdlib.h>
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <optional>
 #include <span>
@@ -20,6 +22,33 @@ namespace {
 constexpr float kTypeFilterWidth = 130.0f;
 constexpr float kSearchWidth = 220.0f;
 constexpr float kTypeColumnWidth = 90.0f;
+
+/// Rows of assets to go to: a click chooses one in the browser. An id that is no asset is
+/// said to be missing, and is nowhere to go.
+void drawAssetLinks(const AssetDatabase& database, std::span<const Uuid> assets, std::optional<Uuid>& chosen) {
+    if (!ImGui::BeginTable("links", 2, ImGuiTableFlags_SizingFixedFit)) {
+        return;
+    }
+    for (const Uuid& id : assets) {
+        ImGui::PushID(id.toString().c_str());
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn();
+        if (const AssetInfo* asset = database.find(id)) {
+            const std::string label = fmt::format("{}  {}", iconOf(asset->type).text(), asset->name);
+            if (ImGui::Selectable(label.c_str(), false, ImGuiSelectableFlags_SpanAllColumns)) {
+                chosen = id;
+            }
+            ImGui::TableNextColumn();
+            ImGui::TextDisabled("%s", asset->reference().c_str());
+        } else {
+            ImGui::TextDisabled("%s  missing", icons::kWarning.text());
+            ImGui::TableNextColumn();
+            ImGui::TextDisabled("%s", id.toString().c_str());
+        }
+        ImGui::PopID();
+    }
+    ImGui::EndTable();
+}
 
 /// The menu of the row that was drawn last, for its asset. Returns whether it is open.
 bool drawAssetMenu(const EditorContext& context, const AssetInfo& asset, std::vector<std::string>& submittedLines) {
@@ -257,7 +286,7 @@ void AssetBrowserPanel::drawRows(const EditorContext& context, std::vector<std::
     }
 }
 
-void AssetBrowserPanel::drawSelection(const EditorContext& context, std::vector<std::string>& submittedLines) const {
+void AssetBrowserPanel::drawSelection(const EditorContext& context, std::vector<std::string>& submittedLines) {
     const AssetInfo* asset = context.assets().database().find(m_browser.selection());
     ImGui::AlignTextToFramePadding();
     if (asset == nullptr) {
@@ -286,6 +315,82 @@ void AssetBrowserPanel::drawSelection(const EditorContext& context, std::vector<
     ImGui::SameLine();
     if (ImGui::Button("Copy id")) {
         ImGui::SetClipboardText(asset->id.toString().c_str());
+    }
+    drawUses(context, *asset, submittedLines);
+}
+
+void AssetBrowserPanel::drawUses(const EditorContext& context, const AssetInfo& asset,
+                                 std::vector<std::string>& submittedLines) {
+    const AssetDatabase& database = context.assets().database();
+    const std::span<const Uuid> users = database.dependents(asset.id);
+
+    // The counts change; what the buttons are known by does not.
+    ImGui::SameLine();
+    ImGui::BeginDisabled(asset.dependencies.empty());
+    if (ImGui::Button(fmt::format("Uses {}###uses", asset.dependencies.size()).c_str())) {
+        ImGui::OpenPopup("uses");
+    }
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+        ImGui::SetTooltip("The assets it needs.");
+    }
+    ImGui::SameLine();
+    if (ImGui::Button(fmt::format("Used by {}###usedBy", users.size()).c_str())) {
+        ImGui::OpenPopup("usedBy");
+    }
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("The assets that need it, as their files were last read, and what in the open scene "
+                          "refers to it.");
+    }
+
+    std::optional<Uuid> chosen;
+    if (ImGui::BeginPopup("uses")) {
+        drawAssetLinks(database, asset.dependencies, chosen);
+        ImGui::EndPopup();
+    }
+    if (ImGui::BeginPopup("usedBy")) {
+        if (ImGui::IsWindowAppearing()) {
+            m_sceneUsers.clear();
+            for (const Uuid& id : entitiesUsing(context, asset.id)) {
+                m_sceneUsers.emplace_back(id, context.entityPath(context.world().findById(id)));
+            }
+        }
+        if (users.empty()) {
+            ImGui::TextDisabled("No asset needs it.");
+        } else {
+            drawAssetLinks(database, users, chosen);
+        }
+        ImGui::Separator();
+        drawSceneUsers(submittedLines);
+        ImGui::EndPopup();
+    }
+    if (chosen) {
+        m_browser.select(*chosen);
+        m_browser.reveal(database, *chosen);
+    }
+}
+
+void AssetBrowserPanel::drawSceneUsers(std::vector<std::string>& submittedLines) const {
+    if (m_sceneUsers.empty()) {
+        ImGui::TextDisabled("Nothing in the open scene refers to it.");
+        return;
+    }
+    ImGui::TextDisabled("In the open scene");
+    for (const auto& [id, path] : m_sceneUsers) {
+        ImGui::PushID(id.toString().c_str());
+        if (ImGui::Selectable(fmt::format("{}  {}", icons::kEntity.text(), path).c_str())) {
+            const std::array<Uuid, 1> one = {id};
+            submittedLines.push_back(selectEntitiesCommand(one));
+        }
+        ImGui::PopID();
+    }
+    if (m_sceneUsers.size() > 1 && ImGui::Selectable(fmt::format("Select all {}", m_sceneUsers.size()).c_str())) {
+        std::vector<Uuid> all;
+        all.reserve(m_sceneUsers.size());
+        for (const auto& user : m_sceneUsers) {
+            all.push_back(user.first);
+        }
+        submittedLines.push_back(selectEntitiesCommand(all));
     }
 }
 

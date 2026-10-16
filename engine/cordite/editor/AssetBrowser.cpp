@@ -2,6 +2,7 @@
 
 #include "cordite/core/Json.h"
 #include "cordite/core/StringUtils.h"
+#include "cordite/engine/SceneAssets.h"
 
 #include <fmt/format.h>
 
@@ -9,6 +10,7 @@
 #include <cstddef>
 #include <iterator>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -240,6 +242,28 @@ std::string placeAssetCommand(const EditorContext& context, const Uuid& asset) {
         parameters["parent"] = context.world().id(parent).toString();
     }
     return fmt::format("asset.instantiate {}", parameters.dump());
+}
+
+std::vector<Uuid> entitiesUsing(const EditorContext& context, const Uuid& asset) {
+    const World& world = context.world();
+    std::vector<Uuid> users;
+    // The uses of one entity come one after another: the walk goes entity by entity.
+    for (const AssetReferenceUse& use : collectAssetReferences(world, context.components())) {
+        if (const Uuid id = world.id(use.entity); use.asset == asset && (users.empty() || users.back() != id)) {
+            users.push_back(id);
+        }
+    }
+    return users;
+}
+
+std::string selectEntitiesCommand(std::span<const Uuid> entities) {
+    Json ids = Json::array();
+    for (const Uuid& entity : entities) {
+        ids.push_back(entity.toString());
+    }
+    Json parameters = Json::object();
+    parameters["entities"] = std::move(ids);
+    return fmt::format("selection.set {}", parameters.dump());
 }
 
 std::string openSceneCommand(const AssetInfo& scene) {

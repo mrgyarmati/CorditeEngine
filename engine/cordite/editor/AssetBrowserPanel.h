@@ -28,6 +28,7 @@
 
 #include <cstdint>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace cordite {
@@ -50,7 +51,12 @@ public:
 private:
     void drawToolbar(const AssetDatabase& database, std::vector<std::string>& submittedLines);
     void drawRows(const EditorContext& context, std::vector<std::string>& submittedLines);
-    void drawSelection(const EditorContext& context, std::vector<std::string>& submittedLines) const;
+    void drawSelection(const EditorContext& context, std::vector<std::string>& submittedLines);
+    /// The buttons that list what the chosen asset needs and what needs it, and their lists.
+    void drawUses(const EditorContext& context, const AssetInfo& asset, std::vector<std::string>& submittedLines);
+    /// The entities of the open scene in the list of what needs the chosen asset; a click
+    /// selects one, or all.
+    void drawSceneUsers(std::vector<std::string>& submittedLines) const;
 
     AssetBrowser m_browser;
     /// The rows that are drawn, and what they were worked out from: they are asked for
@@ -62,6 +68,9 @@ private:
     /// What is in the text field, as it was typed: the filter keeps it without the
     /// blanks at its ends, and a blank that was just typed must not vanish.
     std::string m_search;
+    /// The entities of the open scene that use the chosen asset, with their paths: found
+    /// when its list opens, not in every frame it is open.
+    std::vector<std::pair<Uuid, std::string>> m_sceneUsers;
     /// The asset the rows were last drawn with as the chosen one. When something else
     /// than a click in here chooses another - a command - the rows scroll to it.
     Uuid m_shownSelection;

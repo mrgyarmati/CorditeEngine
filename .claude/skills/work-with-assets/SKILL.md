@@ -109,6 +109,12 @@ The materials of the showcase are written by hand, with comments: they are the e
 Check a scene with `scene.validate` (or `findSceneProblems` in code): it reports
 references to assets that do not exist or are of the wrong kind.
 
+Before deleting, moving or changing an asset, ask what needs it: `asset.get` lists
+`dependencies` (what it needs), `usedBy` (the assets that need it - materials, models,
+scenes and prefabs, as their files are) and `usedInScene` (where the open scene refers
+to it, to the property). In code: `AssetInfo::dependencies` and
+`AssetDatabase::dependents`. In the editor: Uses and Used by under the Assets panel.
+
 ## Import a model
 
 glTF 2.0, `.gltf` or `.glb`. What comes across and what does not is listed at the top of

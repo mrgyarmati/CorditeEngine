@@ -27,6 +27,7 @@
 
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace cordite {
@@ -81,6 +82,9 @@ struct CameraComponent {
 /// ordinary one, and a prefab that is changed later does not change it - but a scene
 /// says with it which prefabs it was made of, and an editor where an entity came from.
 struct PrefabInstanceComponent {
+    /// What the component is called in files and in the component registry.
+    static constexpr std::string_view kName = "PrefabInstance";
+
     /// The prefab asset the entity was placed from. Nil for none.
     Uuid prefab;
 };

@@ -1,6 +1,7 @@
 #include "cordite/editor/EditorContext.h"
 
 #include "cordite/core/FileSystem.h"
+#include "cordite/core/Log.h"
 #include "cordite/core/StringUtils.h"
 #include "cordite/world/SceneSerializer.h"
 
@@ -253,7 +254,30 @@ Status EditorContext::saveScene(const std::filesystem::path& path) {
     CORDITE_TRY(cordite::saveScene(target, m_world, m_components));
     m_scenePath = target;
     m_savedStateId = m_history.stateId();
+
+    // The scene is saved, whatever the assets make of it: what went wrong there is said,
+    // and is not a failure of the save.
+    if (const Status noted = noteSavedScene(target); !noted) {
+        CORDITE_LOG_WARN("Editor", "the scene was saved, but the assets do not know what it uses now: {}",
+                         noted.error().describe());
+    }
     return {};
+}
+
+Status EditorContext::noteSavedScene(const std::filesystem::path& file) {
+    const AssetDatabase& database = m_assets.database();
+    if (database.rootDirectory().empty()) {
+        return {};
+    }
+    const Result<std::string> reference = relativePathWithin(database.rootDirectory(), file);
+    if (!reference || assetTypeOfFile(*reference) != AssetType::Scene) {
+        // Saved where no asset is, or as what is no scene to the assets.
+        return {};
+    }
+    if (const AssetInfo* asset = database.findByReference(*reference)) {
+        return m_assets.rereadDependencies(asset->id);
+    }
+    return m_assets.refresh();
 }
 
 } // namespace cordite

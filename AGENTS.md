@@ -636,6 +636,18 @@ Step-by-step guide: [work-with-assets](.claude/skills/work-with-assets/SKILL.md)
 - **A broken asset never stops a scene.** The database lists problems
   (`AssetDatabase::problems`), loading returns an error, and the renderer reports once
   and draws the rest. `scene.validate` and `findSceneProblems` find dangling references.
+- **What an asset needs, and what needs it, is in the database**: `AssetInfo::dependencies`
+  (a material its textures and its parent, a model what it holds, a scene and a prefab
+  what their entities refer to) and `AssetDatabase::dependents` the other way round,
+  where the file an asset is in is no user of it. What entities refer to only their
+  components can tell, which the `assets` module does not know: whoever makes a
+  database passes `AssetDatabaseDesc::readReferences`, and an engine passes
+  `assetReferenceReader` (`engine/SceneAssets.h`). That reads the JSON as it stands, so
+  a scene that would not load still says what it uses - which is when it is asked,
+  before something is deleted. A scene the editor saves is read again on its own
+  (`rereadDependencies`), because a refresh reloads every asset; `revision()` does not
+  change then, so nothing may keep dependencies by it. What a script loads while it
+  runs is known to nothing until it runs.
 - **The showcase's textures, models and sounds are generated**, by `tools/sample-assets`.
   Change the generator, run it, look at the result, commit both. Its materials, its
   prefab and its scene are written by hand, with comments: they are the reference for

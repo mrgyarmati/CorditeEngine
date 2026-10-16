@@ -15,7 +15,6 @@
 namespace cordite {
 namespace {
 
-constexpr DocumentFormat kSceneFormat{.name = "cordite.scene", .version = kSceneFormatVersion, .kind = "scene"};
 constexpr std::array<std::string_view, 4> kSceneMembers = {"format", "version", "name", "entities"};
 constexpr std::array<std::string_view, 5> kEntityMembers = {"id", "name", "enabled", "parent", "components"};
 

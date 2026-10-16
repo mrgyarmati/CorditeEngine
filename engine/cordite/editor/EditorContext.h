@@ -127,7 +127,10 @@ public:
 
     /// Saves to `path`, which becomes the scene's file; an empty path saves to the
     /// current file. Fails with InvalidState when the scene has no file yet, and while
-    /// it is being played: what would be written is a game half-way through.
+    /// it is being played: what would be written is a game half-way through. A file
+    /// among the assets is then read again for what it uses
+    /// (AssetManager::rereadDependencies()), and one that is new to them - a scene saved
+    /// under another name - makes them refresh, so that it is listed at once.
     [[nodiscard]] Status saveScene(const std::filesystem::path& path = {});
 
     /// True when edits were made, or undone, since the scene was last saved or loaded.
@@ -160,6 +163,8 @@ private:
     };
 
     void resetDocumentState();
+    /// Tells the assets that a scene file was written: see saveScene().
+    [[nodiscard]] Status noteSavedScene(const std::filesystem::path& file);
 
     World& m_world;
     const ComponentRegistry& m_components;

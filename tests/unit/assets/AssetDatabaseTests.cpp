@@ -2,13 +2,16 @@
 
 #include "cordite/assets/GltfExporter.h"
 #include "cordite/assets/Material.h"
+#include "cordite/assets/Prefab.h"
 #include "cordite/assets/Primitives.h"
 #include "cordite/core/Json.h"
 
 #include "AssetTestSupport.h"
 
 #include <algorithm>
+#include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 using namespace cordite;
@@ -107,6 +110,47 @@ bool hasProblem(const AssetDatabase& database, std::string_view fragment) {
     return std::ranges::any_of(database.problems(),
                                [&](const std::string& problem) { return problem.find(fragment) != std::string::npos; });
 }
+
+/// Stands in for what the engine reads scenes and prefabs with: the ids in a document's
+/// "uses", or the failure its "fail" says. Remembers what it was asked.
+struct FakeReader {
+    std::shared_ptr<std::vector<std::pair<AssetType, Json>>> calls =
+        std::make_shared<std::vector<std::pair<AssetType, Json>>>();
+
+    [[nodiscard]] AssetReferenceReader reader() const {
+        return [calls = calls](AssetType type, const Json& document) -> Result<std::vector<Uuid>> {
+            calls->emplace_back(type, document);
+            if (document.contains("fail")) {
+                return makeError(ErrorCode::ParseError, "{}", document["fail"].get<std::string>());
+            }
+            std::vector<Uuid> ids;
+            for (const Json& id : document.at("uses")) {
+                ids.push_back(*Uuid::parse(id.get<std::string>()));
+            }
+            return ids;
+        };
+    }
+
+    [[nodiscard]] AssetDatabase open(const std::filesystem::path& root) const {
+        AssetDatabase database({.rootDirectory = root, .readReferences = reader()});
+        REQUIRE(database.refresh().has_value());
+        return database;
+    }
+};
+
+/// A document the fake reader says uses `ids`.
+std::string usesDocument(std::initializer_list<Uuid> ids) {
+    Json uses = Json::array();
+    for (const Uuid& id : ids) {
+        uses.push_back(id.toString());
+    }
+    Json document = Json::object();
+    document["uses"] = std::move(uses);
+    return document.dump();
+}
+
+/// An id that no asset has.
+const Uuid kMissingAsset = *Uuid::parse("11111111-1111-4111-8111-111111111111");
 
 bool dependsOn(const AssetInfo& asset, const Uuid& id) {
     return std::ranges::find(asset.dependencies, id) != asset.dependencies.end();
@@ -761,5 +805,162 @@ TEST_SUITE("AssetDatabase") {
         CHECK(subAssetId(first, "mesh/0") != subAssetId(second, "mesh/0"));
         // Stored in scenes, so it must never change.
         CHECK(subAssetId(first, "mesh/0").toString() == "7c87221f-1dd6-8d48-93da-7d5594886ee3");
+    }
+    TEST_CASE("scenes and prefabs depend on what the reader they are read with finds in them") {
+        const AssetDirectory project;
+        project.writeTexture("textures/wall.png");
+        project.writeText("materials/paint.material.json", R"({"format": "cordite.material", "version": 1})");
+        project.writeText("scripts/door.lua", "return {}\n");
+        const AssetDatabase plain = project.open();
+        const Uuid wall = require(plain, "textures/wall.png").id;
+        const Uuid paint = require(plain, "materials/paint.material.json").id;
+        const Uuid cube = builtinMeshId(BuiltinMesh::Cube);
+        project.writeText("scenes/yard.scene.json", usesDocument({paint, wall, cube}));
+        project.writeText("prefabs/crate.prefab.json", usesDocument({paint}));
+
+        const FakeReader fake;
+        const AssetDatabase database = fake.open(project.root());
+        CHECK(database.problems().empty());
+        CHECK(require(database, "scenes/yard.scene.json").dependencies == std::vector<Uuid>{paint, wall, cube});
+        CHECK(require(database, "prefabs/crate.prefab.json").dependencies == std::vector<Uuid>{paint});
+        // Asked about scenes and prefabs only, in the order of their paths, with what their files hold.
+        REQUIRE(fake.calls->size() == 2);
+        CHECK(fake.calls->at(0).first == AssetType::Prefab);
+        CHECK(fake.calls->at(0).second == unwrap(parseJson(usesDocument({paint}))));
+        CHECK(fake.calls->at(1).first == AssetType::Scene);
+        CHECK(require(database, "scripts/door.lua").dependencies.empty());
+
+        // Without a reader, they need nothing that can be told.
+        const AssetDatabase without = project.open();
+        CHECK(require(without, "scenes/yard.scene.json").dependencies.empty());
+        CHECK(without.dependents(paint).empty());
+    }
+
+    TEST_CASE("a scene or a prefab that cannot be read for what it uses is listed, with the reason") {
+        const AssetDirectory project;
+        project.writeText("scenes/broken.scene.json", R"({"fail": "no entities here"})");
+        project.writeText("scenes/junk.scene.json", "not json");
+        // One byte too many, which is not even read.
+        project.writeText("prefabs/huge.prefab.json", std::string(kMaxPrefabFileBytes + 1, ' '));
+
+        const FakeReader fake;
+        const AssetDatabase database = fake.open(project.root());
+        CHECK(hasProblem(database, "scenes/broken.scene.json: no entities here"));
+        CHECK(hasProblem(database, "scenes/junk.scene.json: "));
+        CHECK(
+            hasProblem(database, fmt::format("prefabs/huge.prefab.json: it has {} bytes; a prefab file has {} at most",
+                                             kMaxPrefabFileBytes + 1, kMaxPrefabFileBytes)));
+        CHECK(database.problems().size() == 3);
+        for (const std::string_view reference :
+             {"scenes/broken.scene.json", "scenes/junk.scene.json", "prefabs/huge.prefab.json"}) {
+            CHECK(require(database, reference).dependencies.empty());
+        }
+        REQUIRE(fake.calls->size() == 1);
+        CHECK(fake.calls->front().first == AssetType::Scene);
+    }
+
+    TEST_CASE("what needs an asset is listed with it, each once, in the order of the assets") {
+        const AssetDirectory project;
+        project.writeTexture("textures/wall.png");
+        project.writeModel("models/crate.gltf");
+        const AssetDatabase first = project.open(true);
+        const Uuid wall = require(first, "textures/wall.png").id;
+        const Uuid body = require(first, "models/crate.gltf#mesh/0").id;
+        const Uuid wood = require(first, "models/crate.gltf#material/0").id;
+        const Uuid label = require(first, "models/crate.gltf#image/1").id;
+        const Uuid metal = require(first, "models/crate.gltf#material/1").id;
+        project.writeText("materials/paint.material.json",
+                          fmt::format(R"({{"format": "cordite.material", "version": 1, "baseColorTexture": "{0}",
+                                         "normalTexture": "{0}"}})",
+                                      wall.toString()));
+        // Named twice by the scene, which is still one user of it.
+        project.writeText("level.scene.json", usesDocument({body, wall, kMissingAsset, wall}));
+
+        const FakeReader fake;
+        const AssetDatabase database = fake.open(project.root());
+        const Uuid level = require(database, "level.scene.json").id;
+        const Uuid paint = require(database, "materials/paint.material.json").id;
+        CHECK(std::vector<Uuid>(database.dependents(wall).begin(), database.dependents(wall).end()) ==
+              std::vector<Uuid>{level, paint, wood});
+        // The model needs what is in it, which is no use of it: the mesh is used by the scene
+        // alone, and what is in the model and nowhere else by nothing.
+        CHECK(std::vector<Uuid>(database.dependents(body).begin(), database.dependents(body).end()) ==
+              std::vector<Uuid>{level});
+        CHECK(database.dependents(metal).empty());
+        // The image in the model is used by a material in the same file: that is a use.
+        CHECK(std::vector<Uuid>(database.dependents(label).begin(), database.dependents(label).end()) ==
+              std::vector<Uuid>{wood, metal});
+        CHECK(database.dependents(level).empty());
+        // What is referred to and is not there has its users too, and is a problem of each.
+        CHECK(std::vector<Uuid>(database.dependents(kMissingAsset).begin(), database.dependents(kMissingAsset).end()) ==
+              std::vector<Uuid>{level});
+        CHECK(hasProblem(database, fmt::format("level.scene.json: it refers to the asset {}, which does not exist",
+                                               kMissingAsset.toString())));
+        CHECK(database.dependents(Uuid::generate()).empty());
+    }
+
+    TEST_CASE("a refresh that finds no directory forgets what needed what") {
+        const AssetDirectory project;
+        project.writeTexture("wall.png");
+        const Uuid wall = require(project.open(), "wall.png").id;
+        project.writeText("yard.scene.json", usesDocument({wall}));
+        const FakeReader fake;
+        AssetDatabase database = fake.open(project.root());
+        REQUIRE(database.dependents(wall).size() == 1);
+
+        std::error_code removed;
+        std::filesystem::remove_all(project.root(), removed);
+        REQUIRE_FALSE(removed);
+        CHECK_FALSE(database.refresh().has_value());
+        CHECK(database.findByReference("yard.scene.json") == nullptr);
+        CHECK(database.dependents(wall).empty());
+    }
+
+    TEST_CASE("what a scene refers to is read again on its own after its file was written") {
+        const AssetDirectory project;
+        project.writeTexture("wall.png");
+        project.writeText("paint.material.json", R"({"format": "cordite.material", "version": 1})");
+        const AssetDatabase plain = project.open();
+        const Uuid wall = require(plain, "wall.png").id;
+        const Uuid paint = require(plain, "paint.material.json").id;
+        project.writeText("yard.scene.json", usesDocument({wall}));
+
+        const FakeReader fake;
+        AssetDatabase database = fake.open(project.root());
+        const Uuid yard = require(database, "yard.scene.json").id;
+        const uint64_t revision = database.revision();
+        CHECK(database.dependents(wall).size() == 1);
+
+        project.writeText("yard.scene.json", usesDocument({paint}));
+        REQUIRE(database.rereadDependencies(yard).has_value());
+        CHECK(require(database, "yard.scene.json").dependencies == std::vector<Uuid>{paint});
+        CHECK(database.dependents(wall).empty());
+        CHECK(std::vector<Uuid>(database.dependents(paint).begin(), database.dependents(paint).end()) ==
+              std::vector<Uuid>{yard});
+        // Nothing else was read, and nothing that caches by the revision has to start again.
+        CHECK(database.revision() == revision);
+        CHECK(fake.calls->size() == 2);
+
+        // What cannot be read again leaves the database as it was.
+        project.writeText("yard.scene.json", R"({"fail": "half written"})");
+        const Status failed = database.rereadDependencies(yard);
+        REQUIRE_FALSE(failed.has_value());
+        CHECK(failed.error().describe().find("yard.scene.json") != std::string::npos);
+        CHECK(failed.error().describe().find("half written") != std::string::npos);
+        CHECK(require(database, "yard.scene.json").dependencies == std::vector<Uuid>{paint});
+
+        // Only scenes and prefabs are read on their own; what is no asset is not there.
+        const Status material = database.rereadDependencies(paint);
+        REQUIRE_FALSE(material.has_value());
+        CHECK(material.error().code == ErrorCode::InvalidArgument);
+        const Status unknown = database.rereadDependencies(kMissingAsset);
+        REQUIRE_FALSE(unknown.has_value());
+        CHECK(unknown.error().code == ErrorCode::NotFound);
+
+        // Without a reader there is nothing to read again, and nothing changes.
+        AssetDatabase without({.rootDirectory = project.root()});
+        REQUIRE(without.refresh().has_value());
+        CHECK(without.rereadDependencies(yard).has_value());
+        CHECK(require(without, "yard.scene.json").dependencies.empty());
     }
 }

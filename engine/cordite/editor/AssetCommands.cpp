@@ -70,6 +70,36 @@ Json describeUsedAssets(const World& world, const ComponentRegistry& components,
     return used;
 }
 
+/// The assets that need `asset`, described as `dependencies` are, as their files were last
+/// read or saved.
+Json describeDependents(const AssetDatabase& database, const Uuid& asset) {
+    Json users = Json::array();
+    for (const Uuid& user : database.dependents(asset)) {
+        if (const AssetInfo* found = database.find(user)) {
+            users.push_back(describeAsset(*found));
+        }
+    }
+    return users;
+}
+
+/// Where the world refers to `asset`: every entity, component and property, in the order
+/// of the hierarchy.
+Json describeUsesInScene(const EditorContext& context, const Uuid& asset) {
+    Json uses = Json::array();
+    for (const AssetReferenceUse& use : collectAssetReferences(context.world(), context.components())) {
+        if (use.asset != asset) {
+            continue;
+        }
+        Json entry = Json::object();
+        entry["entity"] = context.entityPath(use.entity);
+        entry["id"] = context.world().id(use.entity).toString();
+        entry["component"] = use.component;
+        entry["property"] = use.property;
+        uses.push_back(std::move(entry));
+    }
+    return uses;
+}
+
 /// What is in a prefab, and what placing it anywhere would say: it is placed in a world
 /// of its own for that - whether its entities are right, which assets they use, and
 /// what they refer to that is not there or is of the wrong kind.
@@ -377,10 +407,13 @@ Status registerAssetCommands(CommandRegistry& commands, EditorContext& context) 
 
     CORDITE_TRY(commands.add({
         .name = "asset.get",
-        .description = "Describes one asset: the assets it depends on, what its importer left out, and what is in "
-                       "it - the size of a mesh or a texture, the properties of a material, the nodes of a model, "
-                       "the text of a script, the length of a sound, the entities of a prefab with the assets "
-                       "they use and what is wrong with them (\"problems\"). "
+        .description = "Describes one asset: the assets it depends on (`dependencies`) and those that depend on "
+                       "it (`usedBy`: a material that has a texture, a scene or a prefab whose entities refer "
+                       "to it - as their files were last read or saved), where the open scene refers to it "
+                       "(`usedInScene`: entity, component and property), what its importer left out, and "
+                       "what is in it - the size of a mesh or a texture, the properties of a material, the "
+                       "nodes of a model, the text of a script, the length of a sound, the entities of a "
+                       "prefab with the assets they use and what is wrong with them (\"problems\"). "
                        "Fails with the reason when the asset cannot be loaded.",
         .parameters = {{"asset", Type::String, kAssetReference}},
         .handler = [&context](const Json& parameters) -> Result<Json> {
@@ -401,6 +434,8 @@ Status registerAssetCommands(CommandRegistry& commands, EditorContext& context) 
                 }
             }
             result["dependencies"] = std::move(dependencies);
+            result["usedBy"] = describeDependents(database, asset->id);
+            result["usedInScene"] = describeUsesInScene(context, asset->id);
             result["warnings"] = asset->warnings;
             CORDITE_TRY_ASSIGN(result["content"], describeContent(context.assets(), context.components(), *asset));
             return result;

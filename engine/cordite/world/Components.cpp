@@ -39,7 +39,7 @@ TypeInfo describeCamera() {
 }
 
 TypeInfo describePrefabInstance() {
-    return TypeBuilder<PrefabInstanceComponent>("PrefabInstance")
+    return TypeBuilder<PrefabInstanceComponent>(std::string(PrefabInstanceComponent::kName))
         .property("prefab", &PrefabInstanceComponent::prefab,
                   {.description = "The prefab this entity, and what hangs under it, was placed from",
                    .semantic = PropertySemantic::AssetReference,

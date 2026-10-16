@@ -2,6 +2,7 @@
 
 #include "cordite/assets/GltfImporter.h"
 #include "cordite/assets/Material.h"
+#include "cordite/assets/Prefab.h"
 #include "cordite/core/Assert.h"
 #include "cordite/core/Document.h"
 #include "cordite/core/FileSystem.h"
@@ -48,6 +49,11 @@ constexpr std::array<FileKind, 15> kFileKinds = {{
     {".bmp", AssetType::Texture},
     {".hdr", AssetType::Texture},
 }};
+
+/// Whether assets of a type are made of entities, whose components say what they need.
+bool holdsEntities(AssetType type) {
+    return type == AssetType::Scene || type == AssetType::Prefab;
+}
 
 const FileKind* kindOfFile(std::string_view path) {
     // By what the file is called, not by where it is: a file called nothing but ".png"
@@ -403,6 +409,23 @@ void AssetDatabase::addMaterialDependencies(const ScannedFile& file, AssetInfo& 
     }
 }
 
+Result<std::vector<Uuid>> AssetDatabase::readEntityReferences(AssetType type, const std::filesystem::path& file) const {
+    if (type == AssetType::Prefab) {
+        // Refused as AssetManager::loadPrefab() refuses it, before it is read.
+        std::error_code failed;
+        const std::uintmax_t size = std::filesystem::file_size(file, failed);
+        if (failed) {
+            return makeError(ErrorCode::IoError, "it cannot be read: {}", failed.message());
+        }
+        if (size > kMaxPrefabFileBytes) {
+            return makeError(ErrorCode::InvalidArgument, "it has {} bytes; a prefab file has {} at most", size,
+                             kMaxPrefabFileBytes);
+        }
+    }
+    CORDITE_TRY_ASSIGN(const Json document, readJsonFile(file));
+    return m_desc.readReferences(type, document);
+}
+
 void AssetDatabase::addModelContents(const ScannedFile& file, const Uuid& modelId) {
     AssetInfo model{.id = modelId,
                     .type = AssetType::Model,
@@ -528,6 +551,7 @@ Status AssetDatabase::refresh() {
     m_indexById.clear();
     m_indexByReference.clear();
     m_problems.clear();
+    m_dependents.clear();
     m_pendingDependencies.clear();
     ++m_revision;
     addBuiltinAssets();
@@ -593,10 +617,19 @@ Status AssetDatabase::refresh() {
                         .path = file.relativePath};
         if (asset.type == AssetType::Material) {
             addMaterialDependencies(file, asset);
+        } else if (holdsEntities(asset.type) && m_desc.readReferences) {
+            Result<std::vector<Uuid>> references = readEntityReferences(asset.type, file.absolutePath);
+            if (references) {
+                asset.dependencies = std::move(*references);
+            } else {
+                // Listed all the same, as a material that cannot be read is.
+                addProblem(fmt::format("{}: {}", file.relativePath, references.error().message));
+            }
         }
         add(std::move(asset));
     }
     resolvePendingDependencies();
+    indexDependents();
 
     // A .meta whose asset is gone usually means the asset was deleted or renamed
     // without it.
@@ -606,6 +639,52 @@ Status AssetDatabase::refresh() {
             addProblem(fmt::format("{}: there is no asset file for this description", meta));
         }
     }
+    return {};
+}
+
+void AssetDatabase::indexDependents() {
+    m_dependents.clear();
+    for (const AssetInfo& asset : m_assets) {
+        for (const Uuid& dependency : asset.dependencies) {
+            // A file needs what is in it; that is no use of it.
+            const AssetInfo* needed = find(dependency);
+            if (needed != nullptr && asset.subPath.empty() && needed->path == asset.path) {
+                continue;
+            }
+            // Named twice by one asset, it has one user in it.
+            std::vector<Uuid>& users = m_dependents[dependency];
+            if (users.empty() || users.back() != asset.id) {
+                users.push_back(asset.id);
+            }
+        }
+    }
+}
+
+std::span<const Uuid> AssetDatabase::dependents(const Uuid& id) const {
+    const auto found = m_dependents.find(id);
+    return found != m_dependents.end() ? std::span<const Uuid>(found->second) : std::span<const Uuid>();
+}
+
+Status AssetDatabase::rereadDependencies(const Uuid& id) {
+    const auto index = m_indexById.find(id);
+    if (index == m_indexById.end()) {
+        return makeError(ErrorCode::NotFound, "there is no asset {}", id.toString());
+    }
+    AssetInfo& asset = m_assets[index->second];
+    if (!holdsEntities(asset.type)) {
+        return makeError(ErrorCode::InvalidArgument,
+                         "{} is {}; only scenes and prefabs are read again on their own, the rest by a refresh",
+                         asset.reference(), withArticle(asset.type));
+    }
+    if (!m_desc.readReferences) {
+        return {};
+    }
+    Result<std::vector<Uuid>> references = readEntityReferences(asset.type, sourceFile(asset));
+    if (!references) {
+        return tl::unexpected(references.error().withContext(asset.reference()));
+    }
+    asset.dependencies = std::move(*references);
+    indexDependents();
     return {};
 }
 

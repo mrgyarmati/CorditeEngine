@@ -517,6 +517,21 @@ TEST_SUITE("EditorApp") {
         CHECK(editor->context().world().sceneName() == "Showcase");
         CHECK(run(*editor, "asset.list", R"({"type": "model"})")["assets"].size() == 4);
         CHECK(run(*editor, "scene.validate")["valid"] == true);
+
+        // The engine's assets know what its scenes use: a bollard placed from the prefab,
+        // and nothing that is not there.
+        const Json bollard = run(*editor, "asset.get", R"({"asset": "prefabs/bollard.prefab.json"})");
+        bool usedByScene = false;
+        for (const Json& user : bollard["usedBy"]) {
+            usedByScene = usedByScene || user["path"] == "scenes/showcase.scene.json";
+        }
+        CHECK(usedByScene);
+        CHECK_FALSE(bollard["usedInScene"].empty());
+        const Json scene = run(*editor, "asset.get", R"({"asset": "scenes/showcase.scene.json"})");
+        CHECK(scene["dependencies"].size() > 10);
+        for (const Json& dependency : scene["dependencies"]) {
+            CHECK_FALSE(dependency.contains("missing"));
+        }
     }
 
     TEST_CASE("a project that is not one is reported, and a scene of choice replaces the start scene") {

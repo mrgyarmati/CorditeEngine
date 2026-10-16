@@ -44,6 +44,7 @@
 ///                    instantiateEntities(world, snapshot, components, {.generateNewIds = true}));
 /// @endcode
 
+#include "cordite/core/Document.h"
 #include "cordite/core/JsonFwd.h"
 #include "cordite/core/Result.h"
 #include "cordite/world/ComponentRegistry.h"
@@ -58,6 +59,10 @@
 namespace cordite {
 
 inline constexpr uint32_t kSceneFormatVersion = 1;
+
+/// What a scene document says it is (cordite/core/Document.h): whoever reads one checks
+/// it with readDocumentHeader() first.
+inline constexpr DocumentFormat kSceneFormat{.name = "cordite.scene", .version = kSceneFormatVersion, .kind = "scene"};
 
 /// Serializes the whole world into a scene document.
 [[nodiscard]] Json serializeScene(const World& world, const ComponentRegistry& components);

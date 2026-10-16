@@ -8,6 +8,7 @@
 #include "cordite/editor/EditorActions.h"
 #include "cordite/editor/EditorCommands.h"
 #include "cordite/engine/EngineComponents.h"
+#include "cordite/engine/SceneAssets.h"
 #include "cordite/renderer/RenderComponents.h"
 #include "cordite/world/Components.h"
 #include "cordite/world/SceneSerializer.h"
@@ -60,7 +61,9 @@ struct AssetFixture {
         writeSound("sounds/creak.wav");
 
         REQUIRE(registerEngineComponents(components).has_value());
-        assets = unwrap(AssetManager::create({.rootDirectory = root}));
+        // As an engine reads them: scenes and prefabs say what they use.
+        assets =
+            unwrap(AssetManager::create({.rootDirectory = root, .readReferences = assetReferenceReader(components)}));
         context = std::make_unique<EditorContext>(world, components, *assets);
         REQUIRE(registerEditorCommands(commands, *context).has_value());
         REQUIRE(registerAssetBrowserCommands(commands, *context, browser).has_value());
@@ -1273,5 +1276,131 @@ TEST_SUITE("AssetCommands") {
 
         // An asset that is not a scene is not opened as one.
         CHECK_FALSE(fixture.commands.execute("scene.open", json(R"({"path": "textures/wall.png"})")).has_value());
+    }
+    TEST_CASE("asset.get says what needs an asset, and where the open scene refers to it") {
+        AssetFixture fixture;
+        const std::string body = fixture.id("models/cart.gltf#mesh/0");
+        const std::string paint = fixture.id("materials/paint.material.json");
+        fixture.writeText("scenes/depot.scene.json",
+                          fmt::format(R"({{"format": "cordite.scene", "version": 1, "entities": [
+            {{"id": "{}", "name": "Crate",
+             "components": {{"MeshRenderer": {{"mesh": "{}", "materials": ["{}"]}}, "Transform": {{}}}}}}]}})",
+                                      Uuid::generate().toString(), body, paint));
+        static_cast<void>(fixture.run("asset.refresh"));
+
+        // The mesh is used by the scene; the model it is in holds it, which is no use of it.
+        const Json mesh = fixture.run("asset.get", R"({"asset": "models/cart.gltf#mesh/0"})");
+        REQUIRE(mesh["usedBy"].size() == 1);
+        CHECK(mesh["usedBy"][0]["path"] == "scenes/depot.scene.json");
+        CHECK(mesh["usedBy"][0]["type"] == "scene");
+        // The texture by the material of the model that has it.
+        const Json texture = fixture.run("asset.get", R"({"asset": "textures/wall.png"})");
+        REQUIRE(texture["usedBy"].size() == 1);
+        CHECK(texture["usedBy"][0]["path"] == "models/cart.gltf#material/0");
+        // And the scene says what it uses, as its file has it.
+        const Json depot = fixture.run("asset.get", R"({"asset": "scenes/depot.scene.json"})");
+        REQUIRE(depot["dependencies"].size() == 2);
+        CHECK(depot["dependencies"][0]["id"] == body);
+        CHECK(depot["dependencies"][1]["id"] == paint);
+        CHECK(depot["usedBy"].empty());
+        CHECK(depot["usedInScene"].empty());
+
+        // The open scene is another one: where it refers to the paint is said, to the property.
+        CHECK(fixture.run("asset.get", R"({"asset": "materials/paint.material.json"})")["usedInScene"].empty());
+        fixture.run("entity.create", R"({"name": "Bare"})");
+        fixture.run("entity.create", fmt::format(R"({{"name": "Shed", "parent": "Bare",
+            "components": {{"MeshRenderer": {{"mesh": "{0}", "materials": ["{1}", "{1}"]}}}}}})",
+                                                 body, paint));
+        const Json used = fixture.run("asset.get", R"({"asset": "materials/paint.material.json"})");
+        REQUIRE(used["usedInScene"].size() == 2);
+        CHECK(used["usedInScene"][0]["entity"] == "Bare/Shed");
+        CHECK(used["usedInScene"][0]["id"] == fixture.world.id(fixture.world.findByName("Shed")).toString());
+        CHECK(used["usedInScene"][0]["component"] == "MeshRenderer");
+        CHECK(used["usedInScene"][0]["property"] == "materials[0]");
+        CHECK(used["usedInScene"][1]["property"] == "materials[1]");
+        // What needs it among the assets is what their files say, not the open scene.
+        REQUIRE(used["usedBy"].size() == 1);
+        CHECK(used["usedBy"][0]["path"] == "scenes/depot.scene.json");
+    }
+
+    TEST_CASE("a saved scene is read again for what it uses, and one saved under a new name is listed at once") {
+        AssetFixture fixture;
+        const std::string body = fixture.id("models/cart.gltf#mesh/0");
+        const auto usersOfBody = [&fixture] {
+            // Kept: a loop over a member of what a call returns would outlive it.
+            const Json mesh = fixture.run("asset.get", R"({"asset": "models/cart.gltf#mesh/0"})");
+            std::vector<std::string> paths;
+            for (const Json& user : mesh["usedBy"]) {
+                paths.push_back(user["path"].get<std::string>());
+            }
+            return paths;
+        };
+        fixture.run("scene.open", R"({"path": "scenes/yard.scene.json"})");
+        fixture.run("entity.create",
+                    fmt::format(R"({{"name": "Cart", "components": {{"MeshRenderer": {{"mesh": "{}"}}}}}})", body));
+        CHECK(usersOfBody().empty());
+
+        // Saved where it was: read again, and nothing else is.
+        const uint64_t revision = fixture.assets->database().revision();
+        fixture.run("scene.save");
+        CHECK(usersOfBody() == std::vector<std::string>{"scenes/yard.scene.json"});
+        CHECK(fixture.assets->database().revision() == revision);
+
+        // Saved under another name among the assets: listed at once, with what it uses.
+        Json elsewhere = Json::object();
+        elsewhere["path"] = pathToUtf8(fixture.root / "scenes" / "depot.scene.json");
+        fixture.run("scene.save", elsewhere.dump());
+        CHECK(fixture.assets->database().findByReference("scenes/depot.scene.json") != nullptr);
+        CHECK(usersOfBody() == std::vector<std::string>{"scenes/depot.scene.json", "scenes/yard.scene.json"});
+
+        // Saved where no asset is, or as what is no scene to the assets: nothing to tell them.
+        const uint64_t listed = fixture.assets->database().revision();
+        for (const std::filesystem::path& file :
+             {fixture.directory.path() / "outside.scene.json", fixture.root / "scenes" / "notes.json"}) {
+            Json parameters = Json::object();
+            parameters["path"] = pathToUtf8(file);
+            fixture.run("scene.save", parameters.dump());
+        }
+        CHECK(fixture.assets->database().revision() == listed);
+        CHECK(usersOfBody().size() == 2);
+    }
+
+    TEST_CASE("the entities that use an asset are found in the order of the hierarchy, and selected by a line") {
+        AssetFixture fixture;
+        const std::string body = fixture.id("models/cart.gltf#mesh/0");
+        const std::string paint = fixture.id("materials/paint.material.json");
+        fixture.run("entity.create", R"({"name": "Yard"})");
+        // Made after the lamp's parent and before the lamp, but in the hierarchy after it.
+        fixture.run("entity.create", fmt::format(R"({{"name": "Shed",
+            "components": {{"MeshRenderer": {{"mesh": "{0}", "materials": ["{1}", "{1}"]}}}}}})",
+                                                 body, paint));
+        fixture.run(
+            "entity.create",
+            fmt::format(
+                R"({{"name": "Lamp", "parent": "Yard", "components": {{"MeshRenderer": {{"materials": ["{}"]}}}}}})",
+                paint));
+        fixture.run("entity.create",
+                    fmt::format(R"({{"name": "Wagon", "components": {{"MeshRenderer": {{"mesh": "{}"}}}}}})", body));
+        const auto idOf = [&fixture](std::string_view name) {
+            return fixture.world.id(fixture.world.findByName(name));
+        };
+
+        // Twice in one entity is one use of it.
+        const std::vector<Uuid> users = entitiesUsing(*fixture.context, *Uuid::parse(paint));
+        CHECK(users == std::vector<Uuid>{idOf("Lamp"), idOf("Shed")});
+        CHECK(entitiesUsing(*fixture.context, *Uuid::parse(body)) == std::vector<Uuid>{idOf("Shed"), idOf("Wagon")});
+        CHECK(entitiesUsing(*fixture.context, *Uuid::parse(fixture.id("textures/wall.png"))).empty());
+
+        const std::string line = selectEntitiesCommand(users);
+        CHECK(line == fmt::format(R"(selection.set {{"entities":["{}","{}"]}})", idOf("Lamp").toString(),
+                                  idOf("Shed").toString()));
+        REQUIRE(line.starts_with("selection.set "));
+        fixture.run("selection.set", line.substr(std::string_view("selection.set ").size()));
+        std::vector<Uuid> selected;
+        for (const Entity entity : fixture.context->selection()) {
+            selected.push_back(fixture.world.id(entity));
+        }
+        CHECK(selected == users);
+        CHECK(selectEntitiesCommand({}) == R"(selection.set {"entities":[]})");
     }
 }

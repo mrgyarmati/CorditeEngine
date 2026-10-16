@@ -29,6 +29,7 @@
 #include <functional>
 #include <optional>
 #include <set>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -148,5 +149,13 @@ private:
 /// What the Assets panel asks for when a scene of the project is to be opened, as a line
 /// for the console: `scene.open`, with where the scene is among the assets.
 [[nodiscard]] std::string openSceneCommand(const AssetInfo& scene);
+
+/// The entities of the open scene that refer to `asset`, each once, in the order of the
+/// hierarchy: what the Assets panel lists of the scene under "Used by".
+[[nodiscard]] std::vector<Uuid> entitiesUsing(const EditorContext& context, const Uuid& asset);
+
+/// What the Assets panel asks for when entities are to be selected, as a line for the
+/// console: `selection.set`, with their ids.
+[[nodiscard]] std::string selectEntitiesCommand(std::span<const Uuid> entities);
 
 } // namespace cordite

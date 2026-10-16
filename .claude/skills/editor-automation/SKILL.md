@@ -75,7 +75,7 @@ Do not guess command or property names; ask the editor.
 | `entity.get` | Everything about one entity, including all property values |
 | `editor.state` | Scene file, unsaved changes, what undo and redo would do, the selection |
 | `asset.list` | Every asset with its id, type, name and path; optionally of one type |
-| `asset.get` | One asset: dependencies, import warnings, and its content (size, properties, nodes) |
+| `asset.get` | One asset: what it needs (`dependencies`), what needs it (`usedBy`) and where the open scene refers to it (`usedInScene`), import warnings, and its content (size, properties, nodes) |
 | `assets.browse` | What the Assets panel lists, as rows with their depth: directories, files, what is inside files. With `type`, `search`, `select`, `open` or `close` it sets that first |
 | `scene.validate` | References to assets that are missing or of the wrong kind, and colliders that no shape or body can be made of |
 | `editor.statistics` | What the last frame cost: CPU and GPU time, draw calls, triangles, lights, shadow maps, memory on the GPU |

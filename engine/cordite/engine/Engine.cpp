@@ -7,6 +7,7 @@
 #include "cordite/core/Time.h"
 #include "cordite/core/Uuid.h"
 #include "cordite/engine/EngineComponents.h"
+#include "cordite/engine/SceneAssets.h"
 #include "cordite/engine/SceneChange.h"
 #include "cordite/renderer/BlitPass.h"
 #include "cordite/renderer/CameraView.h"
@@ -90,7 +91,10 @@ struct Engine::Impl {
     RenderTarget frameTarget;
     std::unique_ptr<UiSystem> ui;
 
-    // The asset manager outlives the scene renderer, which holds GPU copies of assets.
+    // The registry outlives the asset manager, which asks it what scenes and prefabs
+    // refer to; the asset manager outlives the scene renderer, which holds GPU copies of
+    // assets.
+    ComponentRegistry components;
     std::unique_ptr<AssetManager> assets;
     std::unique_ptr<SceneRenderer> sceneRenderer;
     /// What drawWorld() renders through; created when it is first needed.
@@ -103,7 +107,6 @@ struct Engine::Impl {
     /// The scene a script asked for in the frame before: loaded when the next begins.
     std::optional<Uuid> pendingScene;
 
-    ComponentRegistry components;
     World world;
     std::unique_ptr<PhysicsSystem> physics;
     /// What the last updateWorld() since the frame began did.
@@ -183,13 +186,15 @@ Status Engine::Impl::initialize() {
     CORDITE_TRY_ASSIGN(
         ui, UiSystem::create(device, *shaderManager, {.window = window.get(), .settingsFile = desc.uiSettingsFile}));
 
-    CORDITE_TRY_ASSIGN(assets, AssetManager::create(
-                                   {.rootDirectory = desc.assetDirectory, .writeMetaFiles = desc.writeAssetMetaFiles}));
+    // Before the assets, which ask the components what scenes and prefabs refer to.
+    CORDITE_TRY(registerEngineComponents(components));
+    CORDITE_TRY_ASSIGN(assets, AssetManager::create({.rootDirectory = desc.assetDirectory,
+                                                     .writeMetaFiles = desc.writeAssetMetaFiles,
+                                                     .readReferences = assetReferenceReader(components)}));
     CORDITE_TRY_ASSIGN(sceneRenderer,
                        SceneRenderer::create(device, *shaderManager, *assets,
                                              {.supportsWireframe = graphics->adapter().supportsWireframe}));
 
-    CORDITE_TRY(registerEngineComponents(components));
     CORDITE_TRY_ASSIGN(physics, PhysicsSystem::create(desc.physics));
     CORDITE_TRY_ASSIGN(scripts, ScriptSystem::create(desc.scripts));
     CORDITE_TRY_ASSIGN(audio, AudioSystem::create(desc.audio));

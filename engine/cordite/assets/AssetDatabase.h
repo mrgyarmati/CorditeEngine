@@ -22,19 +22,27 @@
 /// File types: `.gltf` and `.glb` are models, which contain meshes and materials (and
 /// textures, when images are embedded; skeletons and animations, when they are
 /// skinned); `.png`, `.jpg`, `.jpeg`, `.tga`, `.bmp` and `.hdr`
-/// are textures; `.material.json` is a material; `.scene.json` is a scene; `.lua` is a
-/// script. Other files are ignored, as are directories whose names start with a dot.
+/// are textures; `.material.json` is a material; `.scene.json` is a scene;
+/// `.prefab.json` is a prefab; `.lua` is a script; `.wav`, `.flac` and `.mp3` are sounds.
+/// Other files are ignored, as are directories whose names start with a dot.
+///
+/// What an asset needs is in AssetInfo::dependencies, and what needs it in
+/// dependents(): which scenes and materials a texture is in, before it is deleted.
+/// What scenes and prefabs need only their components can tell, which this module does
+/// not know; whoever makes the database says how (AssetDatabaseDesc::readReferences).
 ///
 /// A file that has no `.meta` yet gets an id derived from its path, so that a freshly
 /// generated project has the same ids on every machine. The `.meta` then keeps that id
 /// when the file moves. Commit `.meta` files together with their assets.
 
+#include "cordite/core/JsonFwd.h"
 #include "cordite/core/Result.h"
 #include "cordite/core/Uuid.h"
 
 #include <array>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <optional>
 #include <span>
 #include <string>
@@ -122,8 +130,9 @@ struct AssetInfo {
     std::string path;
     /// For an asset inside a file: what it is there and its index, such as "mesh/2".
     std::string subPath;
-    /// The assets this one needs: a material its textures and its parent, a model its
-    /// meshes and materials.
+    /// The assets this one needs: a material its textures and its parent, a model what is
+    /// in it, a scene and a prefab what their entities refer to - as their files were
+    /// when they were last read (AssetDatabase::rereadDependencies()).
     std::vector<Uuid> dependencies;
     /// For a model: what its file contains that the importer left out or changed.
     std::vector<std::string> warnings;
@@ -135,6 +144,10 @@ struct AssetInfo {
     [[nodiscard]] bool isBuiltin() const { return path == kBuiltinAssetPath; }
 };
 
+/// Says which assets a scene or a prefab refers to, given its type and the document its
+/// file holds: AssetDatabaseDesc::readReferences.
+using AssetReferenceReader = std::function<Result<std::vector<Uuid>>(AssetType type, const Json& document)>;
+
 struct AssetDatabaseDesc {
     /// The directory that holds the asset files. Empty for a database that only knows
     /// the built-in assets.
@@ -143,6 +156,14 @@ struct AssetDatabaseDesc {
     /// Create a `.meta` file for every asset that has none, and give a copied asset an
     /// id of its own. Editors do; a running game and most tests only read.
     bool writeMetaFiles = false;
+
+    /// Which assets a scene or a prefab refers to, given its type and the document its
+    /// file holds - each once. Only the components of its entities can tell, and they
+    /// are known to the modules above this one: an engine passes assetReferenceReader()
+    /// (cordite/engine/SceneAssets.h). What it returns is the file's dependencies; a
+    /// failure is a problem of the file, which is listed all the same. Without it,
+    /// scenes and prefabs have no dependencies.
+    AssetReferenceReader readReferences;
 };
 
 class AssetDatabase {
@@ -165,6 +186,21 @@ public:
     /// followed by what it contains.
     [[nodiscard]] std::span<const AssetInfo> assets() const { return m_assets; }
 
+    /// The assets that need this one - whose dependencies name it - each once, in the
+    /// order of assets(). The file an asset is in is not among them: a model needs what
+    /// it holds, and holding it is no use of it. Empty for an asset that nothing needs;
+    /// an id that is no asset has those that refer to it all the same.
+    [[nodiscard]] std::span<const Uuid> dependents(const Uuid& id) const;
+
+    /// Reads again which assets a scene or a prefab refers to, after its file was
+    /// written, without reading the rest of the directory: the assets keep their places
+    /// and revision() stays as it is - so dependencies and dependents() may change while
+    /// revision() does not - and problems() stay those of the last refresh(). Fails with
+    /// NotFound for an id that is no asset, with InvalidArgument for an asset that is no
+    /// scene and no prefab, and as reading the file fails, which leaves the database as it
+    /// was. Without AssetDatabaseDesc::readReferences there is nothing to read again.
+    [[nodiscard]] Status rereadDependencies(const Uuid& id);
+
     /// What the last refresh() found wrong, one sentence per problem, each naming a file.
     [[nodiscard]] std::span<const std::string> problems() const { return m_problems; }
 
@@ -186,13 +222,18 @@ private:
     [[nodiscard]] std::optional<Uuid> identify(const ScannedFile& file);
     void addModelContents(const ScannedFile& file, const Uuid& modelId);
     void addMaterialDependencies(const ScannedFile& file, AssetInfo& asset);
+    [[nodiscard]] Result<std::vector<Uuid>> readEntityReferences(AssetType type,
+                                                                 const std::filesystem::path& file) const;
     void resolvePendingDependencies();
+    void indexDependents();
 
     AssetDatabaseDesc m_desc;
     std::vector<AssetInfo> m_assets;
     std::unordered_map<Uuid, size_t> m_indexById;
     std::unordered_map<std::string, size_t> m_indexByReference;
     std::vector<std::string> m_problems;
+    /// For every asset that something needs, what needs it: dependents().
+    std::unordered_map<Uuid, std::vector<Uuid>> m_dependents;
 
     /// Dependencies named by file path, which can only be turned into ids once every
     /// file has been seen.

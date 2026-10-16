@@ -1,15 +1,24 @@
 #include "cordite/engine/SceneAssets.h"
 
 #include "cordite/assets/GltfExporter.h"
+#include "cordite/assets/Prefab.h"
+#include "cordite/core/Json.h"
 #include "cordite/core/Reflection.h"
 #include "cordite/engine/EngineComponents.h"
 #include "cordite/physics/PhysicsComponents.h"
 #include "cordite/renderer/RenderComponents.h"
+#include "cordite/world/Components.h"
+#include "cordite/world/Prefab.h"
+#include "cordite/world/SceneSerializer.h"
 
 #include "support/SkinnedModelSupport.h"
 #include "support/TestSupport.h"
 
+#include <fmt/format.h>
+
+#include <array>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -278,5 +287,115 @@ TEST_SUITE("SceneAssets") {
         const Entity ghost = fixture.addRenderer("Ghost", kMissing);
         fixture.world.setEnabled(ghost, false);
         CHECK(findSceneProblems(fixture.world, fixture.components, fixture.assets).size() == 1);
+    }
+    TEST_CASE("what a scene file refers to is read from its document, each once, as the document has it") {
+        Fixture fixture;
+        const Uuid cube = builtinMeshId(BuiltinMesh::Cube);
+        const Uuid sphere = builtinMeshId(BuiltinMesh::Sphere);
+        const Uuid paint = defaultMaterialId();
+        // Entities are written parents first, and the components of one in the order of the
+        // registry.
+        const Entity room = fixture.world.createEntity("Room");
+        Emitter& emitter = fixture.world.add<Emitter>(room);
+        emitter.sprite = kMissing;
+        emitter.decal.anything = cube;
+        const Entity crate = fixture.addRenderer("Crate", cube, {paint, Uuid(), paint});
+        REQUIRE(fixture.world.setParent(crate, room).has_value());
+        fixture.addRenderer("Ball", sphere, {kMissing});
+        fixture.addRenderer("Unset", Uuid());
+
+        const Json document = serializeScene(fixture.world, fixture.components);
+        const std::vector<Uuid> used = test::unwrap(assetsReferencedBy(AssetType::Scene, document, fixture.components));
+        CHECK(used == std::vector<Uuid>{kMissing, cube, paint, sphere});
+        // What the engine hands its assets reads the same.
+        CHECK(test::unwrap(assetReferenceReader(fixture.components)(AssetType::Scene, document)) == used);
+
+        // A scene of nothing uses nothing.
+        World empty;
+        CHECK(test::unwrap(
+                  assetsReferencedBy(AssetType::Scene, serializeScene(empty, fixture.components), fixture.components))
+                  .empty());
+    }
+
+    TEST_CASE("a scene that would not load still says what it uses") {
+        Fixture fixture;
+        const Uuid cube = builtinMeshId(BuiltinMesh::Cube);
+        const Json document = test::unwrap(parseJson(fmt::format(R"({{
+            "format": "cordite.scene", "version": 1, "extra": true,
+            "entities": [
+                {{"id": "not an id", "components": {{
+                    "Bogus": {{"mesh": "{0}"}},
+                    "MeshRenderer": {{"mesh": "{0}", "castShadows": "sometimes", "materials": [7, "{1}", null]}}
+                }}}},
+                "no entity",
+                {{"components": "none"}},
+                {{"components": {{"MeshRenderer": {{"mesh": "not an id either"}}}}}}
+            ]
+        }})",
+                                                                 cube.toString(), kMissing.toString())));
+        const std::vector<Uuid> used = test::unwrap(assetsReferencedBy(AssetType::Scene, document, fixture.components));
+        // The unknown component is passed over, and so is every value that is no id.
+        CHECK(used == std::vector<Uuid>{cube, kMissing});
+        // Loading it is what says what is wrong with it.
+        World world;
+        CHECK_FALSE(deserializeScene(world, document, fixture.components).has_value());
+    }
+
+    TEST_CASE("the mark of the root of a prefab is no use of anything, an instance below it is") {
+        Fixture fixture;
+        const Uuid cube = builtinMeshId(BuiltinMesh::Cube);
+        const Uuid sphere = builtinMeshId(BuiltinMesh::Sphere);
+        const Uuid outer = *Uuid::parse("22222222-2222-4222-8222-222222222222");
+        const Uuid inner = *Uuid::parse("33333333-3333-4333-8333-333333333333");
+
+        const Entity cart = fixture.addRenderer("Cart", cube);
+        fixture.world.add<PrefabInstanceComponent>(cart).prefab = outer;
+        const Entity wheel = fixture.addRenderer("Wheel", sphere);
+        fixture.world.add<PrefabInstanceComponent>(wheel).prefab = inner;
+        REQUIRE(fixture.world.setParent(wheel, cart).has_value());
+
+        // As a file would have it if a hand had written the mark of the root into it:
+        // placing the prefab replaces it, so it names nothing that is used.
+        Json entities = serializeEntities(fixture.world, std::array<Entity, 1>{cart}, fixture.components);
+        entities.front()["parent"] = nullptr;
+        const Json document = prefabDocument({.name = "Cart", .entities = entities});
+        CHECK(test::unwrap(assetsReferencedBy(AssetType::Prefab, document, fixture.components)) ==
+              std::vector<Uuid>{cube, inner, sphere});
+        // The prefab as the editor writes it, without the mark, reads the same.
+        const Json written = prefabDocument(
+            {.name = "Cart", .entities = serializePrefabEntities(fixture.world, fixture.components, cart)});
+        CHECK(test::unwrap(assetsReferencedBy(AssetType::Prefab, written, fixture.components)) ==
+              std::vector<Uuid>{cube, inner, sphere});
+        // In a scene the mark is what it says: the scene was made with that prefab.
+        CHECK(test::unwrap(assetsReferencedBy(AssetType::Scene, serializeScene(fixture.world, fixture.components),
+                                              fixture.components)) == std::vector<Uuid>{outer, cube, inner, sphere});
+    }
+
+    TEST_CASE("what is no scene, no prefab or of another type of asset is refused") {
+        Fixture fixture;
+        const auto refusal = [&](AssetType type, std::string_view text) {
+            const Result<std::vector<Uuid>> read =
+                assetsReferencedBy(type, test::unwrap(parseJson(text)), fixture.components);
+            REQUIRE_FALSE(read.has_value());
+            return read.error();
+        };
+        CHECK(refusal(AssetType::Scene, R"({"format": "cordite.material", "version": 1})").code ==
+              ErrorCode::ParseError);
+        CHECK(refusal(AssetType::Scene, R"({"format": "cordite.scene", "version": 99, "entities": []})").code ==
+              ErrorCode::VersionMismatch);
+        const Error noEntities = refusal(AssetType::Scene, R"({"format": "cordite.scene", "version": 1})");
+        CHECK(noEntities.code == ErrorCode::ParseError);
+        CHECK(noEntities.message.find("'entities'") != std::string::npos);
+        CHECK(refusal(AssetType::Scene, R"({"format": "cordite.scene", "version": 1, "entities": {}})").code ==
+              ErrorCode::ParseError);
+        CHECK(refusal(AssetType::Scene, "[]").code == ErrorCode::ParseError);
+        CHECK(refusal(AssetType::Prefab, R"({"format": "cordite.prefab", "version": 1, "entities": []})").code ==
+              ErrorCode::ParseError);
+        // A scene document is no prefab.
+        CHECK(refusal(AssetType::Prefab, R"({"format": "cordite.scene", "version": 1, "entities": []})").code ==
+              ErrorCode::ParseError);
+        const Error material = refusal(AssetType::Material, R"({"format": "cordite.material", "version": 1})");
+        CHECK(material.code == ErrorCode::InvalidArgument);
+        CHECK(material.message == "a material has no entities to refer to assets with");
     }
 }
