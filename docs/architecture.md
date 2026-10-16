@@ -6,11 +6,11 @@ derived from it are in [AGENTS.md](../AGENTS.md).
 ## Shape of the engine
 
 Cordite is a set of static libraries, one per module, that are linked into two kinds of
-executable: the editor, used to build games, and the runtime, which runs an exported
+executable: the editor, used to build games, and the player, which runs an exported
 game and contains no editing code.
 
 ```
-            editor (executable)          runtime (executable)
+       cordite-editor (executable)    cordite-player (executable)
                       \                    /
                        +---- engine modules (static libraries) ----+
                        |  engine                                   |
@@ -40,14 +40,11 @@ of slowly turning the code base into a ball of mud.
 | `scripting` | `core`, `math`, `platform`, `assets`, `world`, `physics`, `audio` | Gameplay scripts: `ScriptRuntime` is the Lua state they run in and what keeps a script that is wrong from being more than an error - limits on instructions, memory and nesting, a build of Lua without what reaches the machine, an environment for every chunk - with the catalogue of the functions scripts are given, and the conversion of values between JSON and Lua. The `Script` component names a script for an entity; `ScriptSystem` gives each such entity an instance and calls it. What scripts call is in the `Script...Api.cpp` sources, one per subject: entities, the world and its hierarchy and transforms, components (through the reflection), vectors and rotations, the controls of the game, the simulation. |
 | `rhi` | `core`, `math`, `platform` | The GPU: Vulkan instance and device creation, the NVRHI device the renderer programs against, the swapchain, and texture readback. The only module that calls Vulkan. |
 | `shaders` | `core` | What a shader *is* to the engine: requests and their permutation keys, compiled binaries, the on-disk cache, and the `ShaderLibrary` that resolves a request from memory, disk or a compiler. |
-| `shader_compiler` | `core`, `shaders` | The Slang-based implementation of `IShaderCompiler`. Kept separate so exported games do not link a compiler. |
+| `shader_compiler` | `core`, `shaders` | The Slang-based implementation of `IShaderCompiler`, and the cache of the engine's shaders compiled ahead that an exported game has instead (`EngineShaderCache`). Kept separate so exported games do not link a compiler. |
 | `renderer` | `core`, `math`, `assets`, `world`, `animation`, `rhi`, `shaders` | Drawing: the scene renderer and its passes (depth, G-buffer, deferred lighting, forward, debug views), the GPU copies of assets it draws with, the targets of a view, the components that make an entity visible or make it a light, the lights of a world sorted into the clusters of a view, the environment that surrounds a world made ready to light it, ambient occlusion worked out from the screen; the view a camera gives, debug line drawing, and the `ShaderManager` that turns shader binaries into GPU shader objects. |
 | `ui` | `core`, `math`, `platform`, `rhi`, `shaders`, `renderer` | The immediate-mode user interface: the Dear ImGui context, its input, and the renderer that draws it with NVRHI; its typefaces and icons, compiled in, and its themes. |
-| `engine` | all of the above | `Engine`: creates and owns the subsystems, the assets, the world and the interface, and runs the frame loop. Also what needs several of the modules below at once: projects, placing a model in a world, checking the assets a scene refers to. |
-| `editor` | `engine` and below | The editor: the scene document, undoable actions, the command registry, the panels, and `EditorApp`. Not part of exported games. |
-
-Further modules (audio) are added by the later milestones and will be listed here as
-they land.
+| `engine` | all of the above but `shader_compiler` | `Engine`: creates and owns the subsystems, the assets, the world and the interface, and runs the frame loop. Also what needs several of the modules below at once: projects, a game made of a project (`Game`, which the player runs), placing a model in a world, checking the assets a scene refers to. |
+| `editor` | `engine` and below, `shader_compiler` | The editor: the scene document, undoable actions, the command registry, the panels, `EditorApp`, and making a game of a project (`GameExport`). Not part of exported games. |
 
 ### A frame
 
@@ -1966,3 +1963,70 @@ doctest stringifies values by calling an unqualified `toString`, which finds any
 overload in the value's namespace by argument-dependent lookup and then fails to
 compile because the return type is not doctest's string. Using a different verb avoids
 the collision without wrapping every enum in the tests.
+
+### A game has its shaders compiled, and no compiler
+
+The engine compiles a shader the first time it is asked for, and keeps it in a cache -
+which is what an editor wants, where shaders are edited while it runs. A game that is
+handed to people wants neither the compiler nor the sources: Slang is a library of tens of
+megabytes, compiling every permutation takes seconds that a player would wait through at
+the start, and a shader that does not compile on a player's machine is a bug nobody can
+fix there. So the engine does not link the compiler at all. Whoever has one gives it to
+the engine (`EngineDesc::shaderCompiler`, which the editor fills in); an engine without
+one reads every shader from its cache, trusting what is there - no sources to compare
+with, no compiler version to check - and fails with the name of a shader it does not
+find.
+
+What a game needs in that cache is known before it runs: the engine names every
+permutation of its shaders that it can ask for (`engineShaderRequests`), and a test drives
+the renderer through every debug view and quality and holds what it asked for to that list,
+both ways. An export compiles the list (`compileEngineShaders`) into the cache of the game.
+
+### A game is a directory: its program, its project and its assets, as they are
+
+An exported game is the project as the editor has it - the project file, the asset
+directory with the `.meta` files that hold the ids - beside a program that plays it,
+`cordite-player` under the name of the game. The assets are not packed into an archive of
+a format of their own: the game reads them with the code the editor reads them with, which
+the tests already hold, and a second reader of a second format would be one more thing to
+get wrong. Handing the game out is putting the directory into whatever archive a
+distribution channel takes.
+
+The player links the engine and nothing of the editor. It needs no file of the build
+either: the C runtime is linked in, Vulkan is loaded from the system when the program
+starts, the shaders are compiled in its cache. A test exports the showcase and plays it
+from where it was put.
+
+An export writes, last, a record that it made the directory (`.cordite/export.json`), with
+the name of the program. Exporting into the same directory again - which is what people do
+while they work on a game - replaces what the record names and nothing else: a file that
+somebody put beside the game stays, and a directory that holds anything without such a
+record is refused, so that an export never deletes what it did not write. The record is
+read as anything in a file is: a program that is no plain name in the directory makes it no
+record.
+
+### The notices of the libraries go with the program
+
+Nearly every library the engine is made of - MIT, BSD, zlib, Apache, the OFL of the
+typefaces - asks for its notice to accompany a copy. The build copies them into `licenses/`
+beside the programs, with the list of them (`cmake/CorditeLicenses.cmake`), as it copies the
+shaders, and an export ships that directory with the game. Two libraries keep their notices
+in a header rather than a file, Lua and MikkTSpace; those are in `cmake/licenses/` as the
+headers word them. A library that the engine starts to link adds its notice in the same
+change; configuring fails when a notice that the list names is not where it says.
+
+### The editor and the player have no console of their own
+
+On Windows a program is built either for the console or for windows, and one built for the
+console opens a console window as soon as it is started from Explorer - beside a game that
+somebody double-clicked, or beside an editor opened by a project file. Both programs are
+built for windows (`WINDOWED`), with `main` as their entry point all the same. Such a
+program writes nowhere unless it is given somewhere: the pipes and files that tests,
+scripts and Git Bash give it stay where they are, and what would go to a console goes to
+the terminal that started it, if any (`attachToParentConsole`). A failure that a person
+could otherwise only read in a log - a game that cannot start because the machine has no
+Vulkan driver - is said in a dialog (`showErrorDialog`), which a headless run never opens.
+
+The price is PowerShell, which waits for such a program only while it reads what the
+program writes: `dev.ps1 run` reads it, and a person who starts one by hand pipes it into
+`Out-Host`.
