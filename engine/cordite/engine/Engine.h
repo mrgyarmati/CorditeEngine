@@ -180,6 +180,11 @@ enum class WorldClock : uint8_t {
     Stopped,
 };
 
+/// Where the engine's shader sources are: `requested`, which must be there, or by default a
+/// `shaders` directory beside the program - the repository's, in development builds. Fails
+/// with NotFound, naming where they were looked for.
+[[nodiscard]] Result<std::filesystem::path> engineShaderDirectory(const std::filesystem::path& requested = {});
+
 class Engine {
 public:
     [[nodiscard]] static Result<std::unique_ptr<Engine>> create(const EngineDesc& desc);

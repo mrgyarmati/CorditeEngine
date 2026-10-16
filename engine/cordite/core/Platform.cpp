@@ -32,6 +32,14 @@ std::optional<std::filesystem::path> rootedPathOf(const std::optional<std::strin
 
 } // namespace
 
+std::string executableFileName(std::string_view name) {
+#if CORDITE_PLATFORM_WINDOWS
+    return std::string(name) + ".exe";
+#else
+    return std::string(name);
+#endif
+}
+
 std::filesystem::path executablePath() {
 #if CORDITE_PLATFORM_WINDOWS
     // GetModuleFileNameW truncates silently, so grow the buffer until the path fits.

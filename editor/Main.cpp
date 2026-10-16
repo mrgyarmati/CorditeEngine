@@ -13,6 +13,10 @@
 ///
 ///     cordite-editor samples/showcase/project.cordite
 ///
+/// And it makes a game of a project, opening no editor, no window and no GPU device:
+///
+///     cordite-editor --project samples/showcase --export out/Showcase
+///
 /// The outcome of a script is written to standard output as JSON (or to the file given
 /// with --exec-output); everything else the editor has to say goes to standard error.
 
@@ -25,6 +29,8 @@
 #include "cordite/editor/EditorApp.h"
 #include "cordite/editor/EditorPreferences.h"
 #include "cordite/editor/FileAssociation.h"
+#include "cordite/editor/GameExport.h"
+#include "cordite/engine/Project.h"
 
 #include <CLI/CLI.hpp>
 
@@ -58,6 +64,8 @@ struct Options {
     std::string scene;
     std::string script;
     std::string scriptOutput;
+    /// Where to make a game of the project, instead of opening the editor.
+    std::string exportTo;
     std::string screenshot;
     std::string adapter;
     std::string logLevel = "info";
@@ -115,6 +123,23 @@ void associateProjectFiles() {
                      pathToUtf8(projects.program));
 }
 
+/// Makes a game of the project the options name, in --export.
+int exportProject(const Options& options) {
+    using namespace cordite;
+    const Result<Project> project =
+        loadProject(pathFromUtf8(options.project.empty() ? options.projectFile : options.project));
+    if (!project) {
+        CORDITE_LOG_CRITICAL("Editor", "cannot export: {}", project.error().describe());
+        return kExitFailure;
+    }
+    const Result<GameExport> made = exportGame(*project, {.destination = pathFromUtf8(options.exportTo)});
+    if (!made) {
+        CORDITE_LOG_CRITICAL("Editor", "cannot export: {}", made.error().describe());
+        return kExitFailure;
+    }
+    return kExitSuccess;
+}
+
 int run(const Options& options) {
     using namespace cordite;
 
@@ -124,6 +149,9 @@ int run(const Options& options) {
         CORDITE_LOG_WARN("Editor", "{}", status.error().message);
     }
     CORDITE_LOG_INFO("Editor", "{} editor {}", kEngineName, kEngineVersion);
+    if (!options.exportTo.empty()) {
+        return exportProject(options);
+    }
 
     EditorAppDesc desc;
     desc.engine.headless = options.headless;
@@ -240,8 +268,26 @@ int parseAndRun(int argc, char** argv) {
     app.add_option("--log-level", options.logLevel, "Minimum severity to log")
         ->check(CLI::IsMember({"trace", "debug", "info", "warn", "error", "critical", "off"}));
 
+    app.add_option("--export", options.exportTo,
+                   "Make a game of the project in this directory and exit, without opening the editor: its "
+                   "program, its assets and the engine's shaders, compiled. A game that was exported there "
+                   "before is replaced")
+        ->excludes("--exec")
+        ->excludes("--scene")
+        ->excludes("--frames")
+        ->excludes("--screenshot");
+
     CLI11_PARSE(app, argc, argv);
 
+    if (!options.exportTo.empty()) {
+        // Nobody waits at a dialog for an export either.
+        cordite::suppressErrorDialogs();
+        if (options.project.empty() && options.projectFile.empty()) {
+            CORDITE_LOG_ERROR("Editor", "--export needs a project: --project, or a project.cordite");
+            return kExitFailure;
+        }
+        return run(options);
+    }
     if (options.headless) {
         // Nobody is there to dismiss a dialog; a fatal error must end the process.
         cordite::suppressErrorDialogs();

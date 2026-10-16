@@ -64,6 +64,9 @@ add_custom_target(cordite_engine_shaders ALL
     VERBATIM)
 set_target_properties(cordite_engine_shaders PROPERTIES FOLDER "Cordite/Build")
 
+# So do the notices of the libraries they are made of (cordite_licenses).
+include(CorditeLicenses)
+
 if(CORDITE_BUILD_TESTS)
     add_subdirectory(tests)
 endif()

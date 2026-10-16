@@ -7,3 +7,6 @@ cordite_add_executable(cordite-player
     LIBRARIES
         cordite::engine
         CLI11::CLI11)
+
+# What it is made of goes with it: an export ships these notices beside it.
+add_dependencies(cordite-player cordite_licenses)

@@ -52,7 +52,8 @@ Read this file before changing anything. Task-specific walkthroughs live in
 ./scripts/dev.ps1 run -Target cordite-editor -- --project samples/showcase
 ./scripts/dev.ps1 run -Target cordite-editor -- --headless --validation --project samples/showcase --exec tests/data/editor-smoke.json --frames 3 --screenshot out.png
 ./scripts/dev.ps1 run -Target cordite-sample-assets -- samples/showcase/assets   # regenerate the showcase's textures, models and sounds
-./scripts/dev.ps1 run -Target cordite-player -- --game <dir>   # play a game: a project whose .cordite/shaders holds the engine's shaders compiled
+./scripts/dev.ps1 run -Target cordite-editor -- --project samples/showcase --export out/Showcase   # make a game of a project
+./scripts/dev.ps1 run -Target cordite-player -- --game out/Showcase   # play it (or run out/Showcase/Showcase.exe)
 ```
 
 `dev.ps1` loads the MSVC environment itself, so it works from any shell. It requires
@@ -138,7 +139,7 @@ by accident.
 | `renderer` | `core`, `math`, `assets`, `world`, `animation`, `rhi`, `shaders` | The scene renderer and what it is made of: GPU copies of assets, the mesh passes, the G-buffer and its lighting, the lights of a world and the clusters they are sorted into, their shadow maps and the atlas those share, what finishes the picture (exposure, bloom, tone mapping, grading), the environment (the sky and what it lights), ambient occlusion from the screen, fog, the debug views, scene targets, the `MeshRenderer`, `Light`, `AmbientLight`, `Environment`, `Fog` and `PostProcess` components; camera views, debug lines, GPU timing, GPU shader management |
 | `ui` | `core`, `math`, `platform`, `rhi`, `shaders`, `renderer` | The immediate-mode interface: the Dear ImGui context and its NVRHI renderer; its typefaces and icons, compiled in; its themes, and the widgets it draws the same way everywhere |
 | `engine` | all of the above but `shader_compiler` | `Engine`: owns the subsystems, the assets, the world and the interface, and runs the frame loop; projects; a game made of a project (`Game`); placing models; checking the assets a scene uses |
-| `editor` | `engine` and below, `shader_compiler` | The editor: the scene document, undoable actions, scene and asset commands, panels, `EditorApp` (not linked into exported games) |
+| `editor` | `engine` and below, `shader_compiler` | The editor: the scene document, undoable actions, scene and asset commands, panels, `EditorApp`; making a game of a project (`GameExport`) (not linked into exported games) |
 
 `cordite-editor` (in `editor/`) is a thin `main` around `EditorApp`. Everything else,
 including what tests need to drive the editor, is in the `editor` module.
@@ -146,6 +147,20 @@ including what tests need to drive the editor, is in the `editor` module.
 project's start scene played with its controls, by an engine without a shader compiler,
 on the engine's shaders compiled ahead into the project's cache. It links nothing of the
 editor.
+
+**A game is exported** (`project.export`, File > Export game, `cordite-editor --project P
+--export DIR`; `exportGame` in `editor/GameExport.h`): its program - `cordite-player`
+under the name of the game - the project file, the assets with their .meta files, the
+engine's shaders compiled into the game's cache, `licenses/`, and last a record that an
+export made the directory (`.cordite/export.json`). Exported there again, what the record
+names is replaced and nothing else; a directory that holds what no export made is
+refused. `licenses/` is the notice of every library the program is made of, which the
+build copies beside the player (`cmake/CorditeLicenses.cmake`; Lua and MikkTSpace keep
+theirs in a header, so theirs are in `cmake/licenses/`): a library that the engine starts
+to link adds its notice there in the same change. The game runs on the kind of system
+that exported it, with the player of the editor's build: a game to be shipped is exported
+by a `Release` build. `export_smoke` exports the showcase and plays it from where it was
+put, with nothing of the build beside it.
 
 Rules that keep the architecture honest:
 

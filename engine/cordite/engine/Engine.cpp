@@ -36,7 +36,9 @@ constexpr double kMaxFrameSeconds = 0.25;
 /// that the loop does not spin at full speed.
 constexpr std::chrono::milliseconds kMinimizedFrameDelay(10);
 
-Result<std::filesystem::path> locateShaderDirectory(const std::filesystem::path& requested) {
+} // namespace
+
+Result<std::filesystem::path> engineShaderDirectory(const std::filesystem::path& requested) {
     if (!requested.empty()) {
         if (!directoryExists(requested)) {
             return makeError(ErrorCode::NotFound, "shader directory {} does not exist", pathToUtf8(requested));
@@ -60,8 +62,6 @@ Result<std::filesystem::path> locateShaderDirectory(const std::filesystem::path&
     return makeError(ErrorCode::NotFound, "cannot find the engine's shaders; expected a directory at {}",
                      pathToUtf8(candidates.back()));
 }
-
-} // namespace
 
 struct Engine::Impl {
     EngineDesc desc;
@@ -160,7 +160,7 @@ Status Engine::Impl::initialize() {
 
     ShaderLibraryDesc libraryDesc;
     if (desc.shaderCompiler) {
-        CORDITE_TRY_ASSIGN(const std::filesystem::path shaderDirectory, locateShaderDirectory(desc.shaderDirectory));
+        CORDITE_TRY_ASSIGN(const std::filesystem::path shaderDirectory, engineShaderDirectory(desc.shaderDirectory));
         CORDITE_TRY_ASSIGN(shaderCompiler, desc.shaderCompiler(shaderDirectory));
         libraryDesc.sourceRoots = {shaderDirectory};
         libraryDesc.compiler = shaderCompiler.get();

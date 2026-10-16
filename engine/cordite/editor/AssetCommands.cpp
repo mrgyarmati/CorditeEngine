@@ -456,7 +456,7 @@ Status registerAssetCommands(CommandRegistry& commands, EditorContext& context) 
                        "that is not there, is a directory, is among the assets already or is no kind of asset, "
                        "for two files that would go to one place, for a place that holds a file, and for a glTF "
                        "file whose files would land outside the assets. Returns where each file went, and the "
-                       "assets they are. Files are no part of the document: edit.undo does not take them away.",
+                       "assets they are. Files are no part of the document: editor.undo does not take them away.",
         .parameters = {{"files", Type::Array, "The paths of the files: absolute, or from where the editor runs."},
                        {"to", Type::String,
                         "The directory of the assets they go into, with forward slashes: \"props/crates\". The "

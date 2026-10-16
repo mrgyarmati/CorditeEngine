@@ -196,6 +196,7 @@ cordite_add_test_suite(editor
         unit/editor/EditorPreferencesTests.cpp
         unit/editor/EditorToolbarTests.cpp
         unit/editor/FileAssociationTests.cpp
+        unit/editor/GameExportTests.cpp
         unit/editor/GizmoTests.cpp
         unit/editor/InputCommandsTests.cpp
         unit/editor/ScriptCommandsTests.cpp
@@ -211,6 +212,7 @@ cordite_add_test_suite(editor
 cordite_add_test_suite(engine
     SOURCES
         support/SkinnedModelSupport.h
+        unit/engine/EngineShaderDirectoryTests.cpp
         unit/engine/ModelInstanceTests.cpp
         unit/engine/ProjectTests.cpp
         unit/engine/SceneAssetsTests.cpp
@@ -307,6 +309,19 @@ cordite_configure_gpu_test(editor_smoke "gpu")
 # the editor. That it plays a game is tested where a game is made of a project: export.
 add_test(NAME player_starts COMMAND cordite-player --version)
 set_tests_properties(player_starts PROPERTIES PASS_REGULAR_EXPRESSION "[0-9]+\\.[0-9]+")
+
+# A game made of the showcase by the editor, as a person makes one, played from where it
+# was put: what it needs and was not given is found here.
+add_test(NAME export_smoke
+    COMMAND ${CMAKE_COMMAND}
+        "-DEDITOR=$<TARGET_FILE:cordite-editor>"
+        "-DPROJECT=${PROJECT_SOURCE_DIR}/samples/showcase"
+        "-DDESTINATION=${PROJECT_BINARY_DIR}/test-tmp/export-smoke"
+        "-DPROGRAM=Showcase$<TARGET_FILE_SUFFIX:cordite-player>"
+        "-DSCREENSHOT=${PROJECT_BINARY_DIR}/test-tmp/export-smoke.png"
+        -P "${PROJECT_SOURCE_DIR}/cmake/RunExportedGame.cmake")
+set_tests_properties(export_smoke PROPERTIES LABELS "gpu" TIMEOUT 300)
+cordite_configure_gpu_test(export_smoke "gpu")
 
 cordite_add_layering_test()
 

@@ -39,6 +39,8 @@ cordite_add_module(editor
         EditorToolbar.h
         FileAssociation.cpp
         FileAssociation.h
+        GameExport.cpp
+        GameExport.h
         Gizmo.cpp
         Gizmo.h
         HierarchyPanel.cpp

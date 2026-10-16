@@ -18,6 +18,17 @@ TEST_SUITE("Platform") {
         CHECK(executableDirectory() == path.parent_path());
     }
 
+    TEST_CASE("a program is called by its name and what programs end with on the system") {
+        // The test binary itself is named so.
+        CHECK(executablePath().filename() == pathFromUtf8(executableFileName("cordite_core_tests")));
+#if CORDITE_PLATFORM_WINDOWS
+        CHECK(executableFileName("Depot") == "Depot.exe");
+        CHECK(executableFileName("Café 2") == "Café 2.exe");
+#else
+        CHECK(executableFileName("Depot") == "Depot");
+#endif
+    }
+
     TEST_CASE("environmentVariable returns nullopt for unset variables") {
         CHECK_FALSE(environmentVariable("CORDITE_TEST_VARIABLE_THAT_IS_NEVER_SET").has_value());
         // PATH exists on every supported platform.

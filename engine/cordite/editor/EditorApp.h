@@ -189,6 +189,8 @@ private:
         None,
         Open,
         SaveAs,
+        /// Where a game of the project goes.
+        ExportGame,
     };
 
     std::optional<Project> m_project;

@@ -39,6 +39,10 @@ bool isDebuggerPresent();
 /// @endcode
 void suppressErrorDialogs();
 
+/// The file name of a program called `name` on this system: "name.exe" on Windows, the
+/// name itself elsewhere.
+[[nodiscard]] std::string executableFileName(std::string_view name);
+
 /// Returns the value of an environment variable, or nullopt when it is not set.
 std::optional<std::string> environmentVariable(std::string_view name);
 

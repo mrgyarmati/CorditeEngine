@@ -7,6 +7,7 @@
 #include "cordite/assets/Primitives.h"
 #include "cordite/core/FileSystem.h"
 #include "cordite/core/Log.h"
+#include "cordite/core/Platform.h"
 #include "cordite/core/Uuid.h"
 #include "cordite/editor/AssetBrowser.h"
 #include "cordite/editor/AssetPreview.h"
@@ -2378,6 +2379,32 @@ TEST_SUITE("EditorApp") {
         }
     }
 
+    TEST_CASE("a game is made of the project by command, and not of a scene that is not saved") {
+        const TempDirectory directory;
+        // Without a project there is nothing to make a game of.
+        {
+            const std::unique_ptr<EditorApp> bare = createEditor(headlessDesc(UVec2(640, 360)));
+            CHECK(refusal(*bare, "project.export", R"({"path": "anywhere"})").code == ErrorCode::InvalidState);
+        }
+        EditorAppDesc desc = headlessDesc(UVec2(640, 360));
+        desc.project = showcaseProject();
+        const std::unique_ptr<EditorApp> editor = createEditor(desc);
+        Json parameters = Json::object();
+        parameters["path"] = pathToUtf8(directory.path() / "Showcase");
+        // What is not saved would not be in it.
+        run(*editor, "entity.create", R"({"name": "Unsaved"})");
+        CHECK(refusal(*editor, "project.export", parameters.dump()).message.find("not saved") != std::string::npos);
+        run(*editor, "editor.undo");
+        // With the shaders this editor compiles its own from.
+        const Json made = run(*editor, "project.export", parameters.dump());
+        CHECK(made["program"] ==
+              pathToUtf8(directory.path() / "Showcase" / pathFromUtf8(executableFileName("Showcase"))));
+        CHECK(made["files"].get<uint64_t>() > 100);
+        CHECK(fileExists(directory.path() / "Showcase" / "project.cordite"));
+        CHECK(fileExists(directory.path() / "Showcase" / "licenses" / "THIRD-PARTY.md"));
+        checkNoValidationIssues(editor->engine().graphics());
+    }
+
     TEST_CASE("the application adds its commands to the catalogue") {
         const std::unique_ptr<EditorApp> editor = createEditor(headlessDesc(UVec2(640, 360)));
         for (const char* name :
@@ -2385,7 +2412,7 @@ TEST_SUITE("EditorApp") {
               "editor.focusPanel", "editor.theme",       "assets.browse",     "viewport.lookAt",  "viewport.frame",
               "viewport.camera",   "viewport.debugView", "viewport.gizmo",    "entity.create",    "scene.save",
               "play.start",        "play.stop",          "play.pause",        "play.resume",      "play.step",
-              "play.status",       "asset.move",         "asset.import",      "asset.preview"}) {
+              "play.status",       "asset.move",         "asset.import",      "asset.preview",    "project.export"}) {
             CAPTURE(name);
             const CommandDesc* command = editor->commands().find(name);
             REQUIRE(command != nullptr);

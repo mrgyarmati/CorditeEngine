@@ -11,6 +11,7 @@
 #include "cordite/editor/EditorFeedback.h"
 #include "cordite/editor/EditorPreferences.h"
 #include "cordite/editor/EditorToolbar.h"
+#include "cordite/editor/GameExport.h"
 #include "cordite/editor/InputCommands.h"
 #include "cordite/editor/PhysicsCommands.h"
 #include "cordite/editor/ScriptCommands.h"
@@ -27,6 +28,7 @@
 #include <filesystem>
 #include <limits>
 #include <span>
+#include <system_error>
 #include <utility>
 
 namespace cordite {
@@ -125,6 +127,17 @@ void buildDefaultLayout(ImGuiID dockSpaceId) {
     ImGui::DockBuilderDockWindow(ConsolePanel::kWindowId, bottom);
     ImGui::DockBuilderDockWindow(ViewportPanel::kWindowId, center);
     ImGui::DockBuilderFinish(dockSpaceId);
+}
+
+/// Where a game of a project goes unless the person says otherwise: beside the project,
+/// named after its directory - "showcase game" beside "showcase".
+std::filesystem::path defaultGameDirectory(const std::filesystem::path& project) {
+    std::error_code error;
+    std::filesystem::path directory = std::filesystem::weakly_canonical(project, error);
+    if (error || directory.filename().empty()) {
+        directory = project;
+    }
+    return directory.parent_path() / pathFromUtf8(pathToUtf8(directory.filename()) + " game");
 }
 
 } // namespace
@@ -807,6 +820,43 @@ Json EditorApp::describePlay() const {
 
 Status EditorApp::registerProjectCommands() {
     CORDITE_TRY(m_commands.add({
+        .name = "project.export",
+        .description = "Makes a game of the project: a directory with its program - cordite-player, under the "
+                       "name of the game - the project file, the assets with their ids, the engine's shaders "
+                       "compiled, and the notices of the software the program is made of; what a person plays "
+                       "without the editor. It runs on the kind of system that exported it. Refused while the "
+                       "scene is played, and when it has changes that are not saved: they would not be in the "
+                       "game. Returns the program, and how many files and bytes were written.",
+        .parameters = {{"path", Type::String,
+                        "The directory the game goes into, outside the project: not there yet, empty, or one "
+                        "that a game was exported into - that game is replaced, and nothing else there."}},
+        .handler = [this](const Json& parameters) -> Result<Json> {
+            if (!m_project) {
+                return makeError(ErrorCode::InvalidState, "there is no project to make a game of: open one");
+            }
+            if (m_context->isPlaying()) {
+                return makeError(ErrorCode::InvalidState, "the scene is being played: stop it first");
+            }
+            if (m_context->hasUnsavedChanges()) {
+                return makeError(ErrorCode::InvalidState,
+                                 "the scene has changes that are not saved, and would not be in the game: save it");
+            }
+            // The sources this editor compiles its own shaders from.
+            const std::vector<std::filesystem::path>& sources = m_engine->shaders().sourceRoots();
+            CORDITE_TRY_ASSIGN(
+                const GameExport made,
+                exportGame(*m_project,
+                           {.destination = pathFromUtf8(parameters.at("path").get<std::string>()),
+                            .shaderDirectory = sources.empty() ? std::filesystem::path() : sources.front()}));
+            Json result = Json::object();
+            result["program"] = pathToUtf8(made.program);
+            result["files"] = made.files;
+            result["bytes"] = made.bytes;
+            return result;
+        },
+    }));
+
+    CORDITE_TRY(m_commands.add({
         .name = "asset.preview",
         .description = "Draws a picture of an asset as the Assets panel shows it - a mesh as it is, a material on a "
                        "ball, a model or a prefab as it is placed, whole, from in front and above - and saves it "
@@ -858,7 +908,7 @@ Status EditorApp::registerProjectCommands() {
             "leave them behind in another directory, and a texture that a glTF file names by where it is. "
             "Returns `mentions`: lines of scripts, scenes and prefabs, and values in the open scene, that "
             "still name it by where it was - those follow by hand. Files are no part of the document: "
-            "edit.undo does not move it back.",
+            "editor.undo does not move it back.",
         .parameters = {{"asset", Type::String, "The asset whose file moves: its id, or where it is."},
                        {"to", Type::String,
                         "Where the file goes, inside the asset directory, with forward slashes: "
@@ -1159,6 +1209,11 @@ void EditorApp::drawMainMenu() {
         }
         if (ImGui::MenuItem("Save as...")) {
             m_fileDialog = FileDialog::SaveAs;
+            m_openFileDialog = true;
+        }
+        ImGui::Separator();
+        if (ImGui::MenuItem("Export game...", nullptr, false, m_project.has_value() && !m_context->isPlaying())) {
+            m_fileDialog = FileDialog::ExportGame;
             m_openFileDialog = true;
         }
         ImGui::Separator();
@@ -1473,7 +1528,9 @@ void EditorApp::drawAssetMenu() {
 void EditorApp::drawFileDialog() {
     if (m_openFileDialog) {
         m_openFileDialog = false;
-        m_fileDialogPath = pathToUtf8(m_context->scenePath());
+        m_fileDialogPath = m_fileDialog == FileDialog::ExportGame && m_project
+                               ? pathToUtf8(defaultGameDirectory(m_project->directory))
+                               : pathToUtf8(m_context->scenePath());
         ImGui::OpenPopup(kFileDialogId);
     }
 
@@ -1483,7 +1540,18 @@ void EditorApp::drawFileDialog() {
     }
 
     const bool isOpen = m_fileDialog == FileDialog::Open;
-    ImGui::TextUnformatted(isOpen ? "Scene file to open:" : "Save the scene as:");
+    const bool isExport = m_fileDialog == FileDialog::ExportGame;
+    // What the dialog asks, and what its button does.
+    const char* prompt = "Save the scene as:";
+    const char* action = "Save";
+    if (isOpen) {
+        prompt = "Scene file to open:";
+        action = "Open";
+    } else if (isExport) {
+        prompt = "Make the game in:";
+        action = "Export";
+    }
+    ImGui::TextUnformatted(prompt);
     ImGui::SetNextItemWidth(-std::numeric_limits<float>::min());
     if (ImGui::IsWindowAppearing()) {
         ImGui::SetKeyboardFocusHere();
@@ -1492,15 +1560,22 @@ void EditorApp::drawFileDialog() {
 
     const bool hasPath = !trim(m_fileDialogPath).empty();
     ImGui::BeginDisabled(!hasPath);
-    const bool confirmed = ImGui::Button(isOpen ? "Open" : "Save") || (entered && hasPath);
+    const bool confirmed = ImGui::Button(action) || (entered && hasPath);
     ImGui::EndDisabled();
     ImGui::SameLine();
     const bool cancelled = ImGui::Button("Cancel");
 
     if (confirmed) {
         const std::filesystem::path path = pathFromUtf8(trim(m_fileDialogPath));
-        // The dialog closes either way; a failure is shown in the console.
-        reportIfFailed(isOpen ? m_context->openScene(path) : m_context->saveScene(path));
+        if (isExport) {
+            // Between frames, as a command: it compiles the engine's shaders, and says so.
+            Json parameters = Json::object();
+            parameters["path"] = pathToUtf8(path);
+            m_submittedLines.push_back(fmt::format("project.export {}", parameters.dump()));
+        } else {
+            // The dialog closes either way; a failure is shown in the console.
+            reportIfFailed(isOpen ? m_context->openScene(path) : m_context->saveScene(path));
+        }
     }
     if (confirmed || cancelled) {
         m_fileDialog = FileDialog::None;
