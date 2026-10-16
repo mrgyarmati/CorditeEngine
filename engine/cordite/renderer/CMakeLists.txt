@@ -36,6 +36,10 @@ cordite_add_module(renderer
         GpuTimer.h
         LightClusters.cpp
         LightClusters.h
+        LightShaftPass.cpp
+        LightShaftPass.h
+        LightShafts.cpp
+        LightShafts.h
         MeshDrawList.cpp
         MeshDrawList.h
         MeshPass.cpp

@@ -171,6 +171,7 @@ SceneRenderStatistics& SceneRenderStatistics::operator+=(const SceneRenderStatis
     environmentBytes = std::max(environmentBytes, other.environmentBytes);
     ambientOcclusionBytes = std::max(ambientOcclusionBytes, other.ambientOcclusionBytes);
     depthOfFieldBytes = std::max(depthOfFieldBytes, other.depthOfFieldBytes);
+    lightShaftBytes = std::max(lightShaftBytes, other.lightShaftBytes);
     shadowPass += other.shadowPass;
     depthPass += other.depthPass;
     basePass += other.basePass;
@@ -217,6 +218,7 @@ Result<std::unique_ptr<SceneRenderer>> SceneRenderer::create(nvrhi::IDevice* dev
     CORDITE_TRY_ASSIGN(ShadowAtlas shadows, ShadowAtlas::create(device, shaders, materialLayout, jointLayout));
     CORDITE_TRY_ASSIGN(EnvironmentMaps environments, EnvironmentMaps::create(device, shaders, assets));
     CORDITE_TRY_ASSIGN(AmbientOcclusionPass occlusion, AmbientOcclusionPass::create(device, shaders, viewLayout));
+    CORDITE_TRY_ASSIGN(LightShaftPass lightShafts, LightShaftPass::create(device, shaders, viewLayout));
     CORDITE_TRY_ASSIGN(DepthOfFieldPass depthOfField, DepthOfFieldPass::create(device, shaders, viewLayout));
     CORDITE_TRY_ASSIGN(PostProcessPass postProcess, PostProcessPass::create(device, shaders));
 
@@ -231,6 +233,7 @@ Result<std::unique_ptr<SceneRenderer>> SceneRenderer::create(nvrhi::IDevice* dev
                   .shadows = std::move(shadows),
                   .environments = std::move(environments),
                   .occlusion = std::move(occlusion),
+                  .lightShafts = std::move(lightShafts),
                   .depthOfField = std::move(depthOfField),
                   .postProcess = std::move(postProcess)};
     return std::unique_ptr<SceneRenderer>(new SceneRenderer(device, std::move(resources), std::move(viewBindings),
@@ -452,6 +455,7 @@ void SceneRenderer::render(nvrhi::ICommandList* commandList, const World& world,
     // The look the scene asks for where the view is from: what its picture is finished
     // with, and what its screen effects are like.
     const bool needsLook = isFinishedPicture(settings, debugView) || debugView == RenderDebugView::Focus ||
+                           debugView == RenderDebugView::LightShafts ||
                            settings.screenEffectsQuality != ScreenEffectsQuality::Off;
     PostProcessSettings look;
     if (settings.postProcess) {
@@ -537,12 +541,13 @@ void SceneRenderer::render(nvrhi::ICommandList* commandList, const World& world,
                                                              m_drawList.blendedBatches(), meshBindings);
         }
     }
-    finishPicture(commandList, targets, viewBindings, look, settings, debugView);
+    finishPicture(commandList, targets, viewBindings, view, look, settings, debugView);
 
     m_statistics.views = 1;
     m_statistics.shadowAtlasBytes = m_passes.shadows.byteSize();
     m_statistics.ambientOcclusionBytes = targets.tracedOcclusionBytes();
     m_statistics.depthOfFieldBytes = targets.depthOfFieldBytes();
+    m_statistics.lightShaftBytes = targets.lightShaftBytes();
     m_statistics.meshes = m_statistics.shadowPass;
     m_statistics.meshes += m_statistics.depthPass;
     m_statistics.meshes += m_statistics.basePass;
@@ -551,10 +556,14 @@ void SceneRenderer::render(nvrhi::ICommandList* commandList, const World& world,
 }
 
 void SceneRenderer::finishPicture(nvrhi::ICommandList* commandList, SceneTargets& targets,
-                                  nvrhi::IBindingSet* viewBindings, const PostProcessSettings& look,
-                                  const SceneRenderSettings& settings, RenderDebugView debugView) {
+                                  nvrhi::IBindingSet* viewBindings, const CameraView& view,
+                                  const PostProcessSettings& look, const SceneRenderSettings& settings,
+                                  RenderDebugView debugView) {
     const bool isFinished = isFinishedPicture(settings, debugView);
     const bool showsFocus = debugView == RenderDebugView::Focus;
+    // The light of the sun scattered in the air is part of the light of the scene: the
+    // depth of field blurs it as it blurs the rest.
+    drawLightShafts(commandList, targets, viewBindings, view, look, isFinished, debugView);
     // Depth of field blurs the light of the scene before it is finished, so that bloom
     // and exposure see the blur - or shows where it does, in a debug view of its own.
     if ((isFinished && hasDepthOfField(look)) || showsFocus) {
@@ -580,6 +589,28 @@ void SceneRenderer::finishPicture(nvrhi::ICommandList* commandList, SceneTargets
         targets.releaseAliased();
         m_passes.encode.draw(commandList, targets.sceneColor(), targets.displayFramebuffer());
         ++m_statistics.screenPasses;
+    }
+}
+
+void SceneRenderer::drawLightShafts(nvrhi::ICommandList* commandList, SceneTargets& targets,
+                                    nvrhi::IBindingSet* viewBindings, const CameraView& view,
+                                    const PostProcessSettings& look, bool isFinished, RenderDebugView debugView) {
+    const bool showsShafts = debugView == RenderDebugView::LightShafts;
+    const std::optional<SceneSun>& sun = m_lights.sun();
+    uint32_t passes = 0;
+    if (sun && ((isFinished && hasLightShafts(look)) || showsShafts)) {
+        passes = m_passes.lightShafts.draw(commandList, targets, viewBindings, look,
+                                           {.view = view, .sun = *sun, .showShafts = showsShafts});
+        m_statistics.screenPasses += passes;
+    }
+    if (passes == 0) {
+        // A view that has none gives back what they were worked out in - and shows none
+        // in their debug view.
+        targets.releaseLightShafts();
+        if (showsShafts) {
+            commandList->clearTextureFloat(targets.sceneColor(), nvrhi::AllSubresources,
+                                           nvrhi::Color(0.0f, 0.0f, 0.0f, 1.0f));
+        }
     }
 }
 

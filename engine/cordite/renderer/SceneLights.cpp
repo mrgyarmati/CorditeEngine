@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <optional>
 #include <span>
 
 namespace cordite {
@@ -41,10 +42,27 @@ float resolutionScaleOf(ShadowResolution resolution) {
     return 1.0f;
 }
 
+/// The sun among `lights`: the brightest light that shines from one direction; of
+/// several that are as bright, the first. (The shadows find theirs the same way, among
+/// the lights that cast any: ShadowPlan.cpp.)
+std::optional<SceneSun> findSun(std::span<const SceneLight> lights) {
+    std::optional<SceneSun> sun;
+    float brightest = 0.0f;
+    for (const SceneLight& light : lights) {
+        const float brightness = std::max({light.color.r, light.color.g, light.color.b});
+        if (light.type == GpuLightType::Directional && std::isfinite(brightness) && brightness > brightest) {
+            brightest = brightness;
+            // What makeSceneLight() multiplied in is taken out again.
+            sun = SceneSun{.towards = -light.direction, .color = light.color / kPi};
+        }
+    }
+    return sun;
+}
+
 /// The fog of a world: that of the enabled Fog whose entity has the lowest id - which
 /// of several is not left to the order they are stored in - at the height of that
-/// entity. `lights` are the lights of the same world, among which its sun is found.
-FogSettings findFog(const World& world, std::span<const SceneLight> lights) {
+/// entity. `sun` is the sun of the same world.
+FogSettings findFog(const World& world, const std::optional<SceneSun>& sun) {
     FogSettings fog;
     Uuid chosen;
     const auto fogs = world.registry().view<const FogComponent, const WorldTransform>();
@@ -67,19 +85,10 @@ FogSettings findFog(const World& world, std::span<const SceneLight> lights) {
         }
     }
 
-    // Its sun is the brightest light that shines from one direction; of several that
-    // are as bright, the first. (The shadows find theirs the same way, among the
-    // lights that cast any: ShadowPlan.cpp.) A fog without a sun has none of its
-    // light to throw on.
-    float brightest = 0.0f;
-    for (const SceneLight& light : lights) {
-        const float brightness = std::max({light.color.r, light.color.g, light.color.b});
-        if (light.type == GpuLightType::Directional && std::isfinite(brightness) && brightness > brightest) {
-            brightest = brightness;
-            fog.towardsSun = -light.direction;
-        }
-    }
-    if (brightest <= 0.0f) {
+    // A fog without a sun has none of its light to throw on.
+    if (sun) {
+        fog.towardsSun = sun->towards;
+    } else {
         fog.sunColor = Vec3(0.0f);
     }
     return sanitized(fog);
@@ -119,6 +128,7 @@ void SceneLights::collect(const World& world, const SceneLightsDesc& desc) {
     m_groundColor = Vec3(0.0f);
     m_environment = {};
     m_fog = {};
+    m_sun.reset();
     m_isDefault = false;
 
     // Found in whatever order the components are stored in, which depends on what the
@@ -185,9 +195,10 @@ void SceneLights::collect(const World& world, const SceneLightsDesc& desc) {
         m_isDefault = true;
     }
 
-    // The fog, once the lights are known: one of them may be its sun - the stand-in
-    // for a sun as well.
-    m_fog = findFog(world, m_lights);
+    // The sun and the fog, once the lights are known: the stand-in may be the sun as
+    // well.
+    m_sun = findSun(m_lights);
+    m_fog = findFog(world, m_sun);
 }
 
 } // namespace cordite

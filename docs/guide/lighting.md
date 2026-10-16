@@ -91,6 +91,7 @@ of the **PostProcess** component:
 | Grading | `temperature`, `tint`, `contrast`, `saturation`, `lift`, `gamma`, `gain`, and a color lookup table (`colorLut`, `colorLutIntensity`) |
 | Lens | `vignette`, `chromaticAberration`, `filmGrain` |
 | Depth of field | `focusDistance`, `focusRange`, `focusTransition`, `nearBlur`, `farBlur`, `blurSize` |
+| Light shafts | `lightShaftIntensity`, `lightShaftThreshold`, `lightShaftLength` |
 | Ambient occlusion | `ambientOcclusionIntensity`, `ambientOcclusionRadius`, `ambientOcclusionBias` |
 | Anti-aliasing | how far the smoothing follows edges |
 
@@ -118,6 +119,16 @@ that camera, its focus included. The Depth of field render view shows how blurre
 pixel is: red in front of the focus, blue behind, black where it is sharp. Glass and other
 translucent surfaces are blurred as much as what is behind them.
 
+**Light shafts** are the light of the sun streaming past what stands in its way, when the
+camera looks towards it: streaks that fan out from the sun, and shadows of whatever is in
+front of it. The sun is the brightest directional light of the scene. `lightShaftIntensity`
+is how much light they add (0, the default, is none, and costs nothing);
+`lightShaftThreshold` lets the bright parts of an image of the sky add to them besides the
+sun's own light; `lightShaftLength` is how far they reach across the picture. With the sun
+behind the camera there are none, and a camera without perspective has none. The Light
+shafts render view shows them alone. Give a volume indoors an intensity of 0, and the
+shafts stay outside.
+
 A color lookup table is an image of N times N by N pixels - N slices side by side - that
 holds the colors you want in place of a neutral table's. Grade a screenshot in an image
 editor together with a neutral table, and use the graded table.
@@ -134,8 +145,9 @@ stays the same at every quality; only detail and cost change.
 View > Render view shows the channels of the renderer instead of the finished picture: base
 color, normals, roughness, metallic, specular, occlusion, emissive, depth, how many lights
 each pixel has, the shadow cascades, ambient occlusion, fog, lighting only, reflections,
-wireframe, overdraw and depth of field (`viewport.debugView` for scripts and agents). Use them to find out
-why something looks the way it does - a wrong normal map, a light with too small a range, a
-surface outside every cascade. View > Statistics shows what a frame costs: the time on the
-processor and on the GPU, draw calls, triangles, lights and shadow maps, and what meshes and
-textures take of the GPU's memory (`editor.statistics` returns the same).
+wireframe, overdraw, depth of field and light shafts (`viewport.debugView` for scripts and
+agents). Use them to find out why something looks the way it does - a wrong normal map, a
+light with too small a range, a surface outside every cascade. View > Statistics shows what
+a frame costs: the time on the processor and on the GPU, draw calls, triangles, lights and
+shadow maps, and what meshes and textures take of the GPU's memory (`editor.statistics`
+returns the same).

@@ -290,6 +290,64 @@ uint64_t SceneTargets::depthOfFieldBytes() const {
     return uint64_t{desc.width} * desc.height * 8 * 2;
 }
 
+Status SceneTargets::prepareLightShafts(nvrhi::IDevice* device) {
+    CORDITE_ASSERT(isValid() && device != nullptr, "light shafts need valid targets and a device");
+    if (!isValid() || device == nullptr) {
+        return makeError(ErrorCode::InvalidArgument, "light shafts need valid targets and a device");
+    }
+    if (m_lightShafts[0] && m_lightShafts[1]) {
+        return {};
+    }
+    releaseLightShafts();
+
+    // A texel for every block of four pixels, the last of which may hang over the edge.
+    const UVec2 size = (m_size + UVec2(1)) / 2u;
+    std::array<nvrhi::TextureHandle, 2> images;
+    std::array<nvrhi::FramebufferHandle, 2> framebuffers;
+    for (size_t index = 0; index < images.size(); ++index) {
+        images[index] = createTexture(device, size, nvrhi::Format::RGBA16_FLOAT,
+                                      m_debugName + (index == 0 ? " light shafts" : " light shafts blurred"),
+                                      nvrhi::ResourceStates::ShaderResource);
+        if (images[index]) {
+            framebuffers[index] = device->createFramebuffer(nvrhi::FramebufferDesc().addColorAttachment(images[index]));
+        }
+        if (!framebuffers[index]) {
+            return makeError(ErrorCode::DeviceError,
+                             "cannot create the {}x{} images the light shafts of '{}' are "
+                             "worked out in",
+                             size.x, size.y, m_debugName);
+        }
+    }
+    m_lightShafts = std::move(images);
+    m_lightShaftFramebuffers = std::move(framebuffers);
+    return {};
+}
+
+void SceneTargets::releaseLightShafts() {
+    // What a command list on its way still draws into is kept alive by that list.
+    m_lightShaftFramebuffers = {};
+    m_lightShafts = {};
+}
+
+nvrhi::ITexture* SceneTargets::lightShaftImage(uint32_t index) const {
+    CORDITE_ASSERT(index < 2, "there are two images of the light shafts, not {}", index + 1);
+    return index < 2 ? m_lightShafts[index].Get() : nullptr;
+}
+
+nvrhi::IFramebuffer* SceneTargets::lightShaftFramebuffer(uint32_t index) const {
+    CORDITE_ASSERT(index < 2, "there are two images of the light shafts, not {}", index + 1);
+    return index < 2 ? m_lightShaftFramebuffers[index].Get() : nullptr;
+}
+
+uint64_t SceneTargets::lightShaftBytes() const {
+    if (!m_lightShafts[0] || !m_lightShafts[1]) {
+        return 0;
+    }
+    // Two images of four half floats a texel.
+    const nvrhi::TextureDesc& desc = m_lightShafts[0]->getDesc();
+    return uint64_t{desc.width} * desc.height * 8 * 2;
+}
+
 nvrhi::ITexture* SceneTargets::bloomLevel(uint32_t level) const {
     CORDITE_ASSERT(level < m_bloomLevelCount, "there is no bloom level {}", level);
     return level < m_bloomLevelCount ? m_bloom[level].Get() : nullptr;

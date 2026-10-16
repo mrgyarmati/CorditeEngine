@@ -8,19 +8,22 @@
 /// The renderer computes light without an upper limit; a display has one. Finishing a
 /// picture is, in this order:
 ///
-/// 1. the lens: depth of field blurs what is not at the focus distance (focusBlur()) -
-///    worked out before the rest, into the light of the scene, by DepthOfFieldPass - and
+/// 1. the air: light shafts carry the light of the sun towards the viewer, past what
+///    stands in its way (LightShafts.h) - worked out before the rest, into the light of
+///    the scene, by LightShaftPass;
+/// 2. the lens: depth of field blurs what is not at the focus distance (focusBlur()) -
+///    worked out into the light of the scene as well, by DepthOfFieldPass - and
 ///    chromatic aberration parts the colors towards the corners;
-/// 2. bloom: light that is brighter than the threshold spills over what is around it;
-/// 3. exposure: all of it is made brighter or darker, by a fixed amount or by what the
+/// 3. bloom: light that is brighter than the threshold spills over what is around it;
+/// 4. exposure: all of it is made brighter or darker, by a fixed amount or by what the
 ///    picture as a whole needs;
-/// 4. white balance, and the vignette that darkens the corners;
-/// 5. tone mapping: the unlimited range is bent into the range of a display;
-/// 6. grading: saturation, contrast, lift / gamma / gain, and a lookup table that can
+/// 5. white balance, and the vignette that darkens the corners;
+/// 6. tone mapping: the unlimited range is bent into the range of a display;
+/// 7. grading: saturation, contrast, lift / gamma / gain, and a lookup table that can
 ///    hold any change of color an image editor can make;
-/// 7. the encoding a screen expects;
-/// 8. anti-aliasing: the steps of slanted edges are smoothed, from the picture itself;
-/// 9. film grain - last, or the smoothing would take every grain for an edge.
+/// 8. the encoding a screen expects;
+/// 9. anti-aliasing: the steps of slanted edges are smoothed, from the picture itself;
+/// 10. film grain - last, or the smoothing would take every grain for an edge.
 ///
 /// PostProcessSettings holds the numbers of all that. A scene sets them with
 /// PostProcess components (RenderComponents.h, ScenePostProcess.h), which say where they
@@ -227,6 +230,17 @@ struct PostProcessSettings {
     /// Depth of field: how wide the most blur is - the radius of the circle a point
     /// becomes - as a share of the height of the picture, up to 0.03.
     float blurSize = 0.01f;
+
+    /// Light shafts: how much light the shafts of the sun add, along rays from where it
+    /// is in the picture, past what stands in its way (LightShafts.h): 0 none - which
+    /// costs nothing - up to 4.
+    float lightShaftIntensity = 0.0f;
+    /// Light shafts: the light of the sky brighter than this - a sun in an image of the
+    /// sky - feeds them besides the sun's own, as much as it is brighter. Up to 64.
+    float lightShaftThreshold = 1.0f;
+    /// Light shafts: how far they reach, as a share of the way from a pixel to the sun in
+    /// the picture: 0 not at all, 1 all the way.
+    float lightShaftLength = 0.5f;
 };
 
 /// `settings` with every number inside the range it is documented for, and "not a
@@ -251,6 +265,9 @@ struct PostProcessSettings {
 /// Whether `settings` blur anything at all: depth of field that is not there costs
 /// nothing.
 [[nodiscard]] bool hasDepthOfField(const PostProcessSettings& settings);
+
+/// Whether `settings` ask for light shafts at all - they cost nothing otherwise.
+[[nodiscard]] bool hasLightShafts(const PostProcessSettings& settings);
 
 /// What `stops` of exposure multiply light by: two to the power of them.
 [[nodiscard]] float exposureScale(float stops);

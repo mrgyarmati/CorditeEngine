@@ -47,6 +47,7 @@ TEST_SUITE("RenderDebugView") {
         CHECK(nameOf(RenderDebugView::Wireframe) == "wireframe");
         CHECK(nameOf(RenderDebugView::Overdraw) == "overdraw");
         CHECK(nameOf(RenderDebugView::Focus) == "focus");
+        CHECK(nameOf(RenderDebugView::LightShafts) == "lightShafts");
 
         CHECK(displayNameOf(RenderDebugView::None) == "Lit");
         CHECK(displayNameOf(RenderDebugView::LightingOnly) == "Lighting only");
@@ -54,7 +55,8 @@ TEST_SUITE("RenderDebugView") {
         CHECK(displayNameOf(RenderDebugView::AmbientOcclusion) == "Ambient occlusion");
         CHECK(displayNameOf(RenderDebugView::Fog) == "Fog");
         CHECK(displayNameOf(RenderDebugView::Focus) == "Depth of field");
-        CHECK(kRenderDebugViews.size() == 18);
+        CHECK(displayNameOf(RenderDebugView::LightShafts) == "Light shafts");
+        CHECK(kRenderDebugViews.size() == 19);
     }
 
     TEST_CASE("a view is found by its name, whatever the case, and nothing else is") {
@@ -86,6 +88,7 @@ TEST_SUITE("RenderDebugView") {
         CHECK_FALSE(isDrawnFromGBuffer(RenderDebugView::Wireframe));
         CHECK_FALSE(isDrawnFromGBuffer(RenderDebugView::Overdraw));
         CHECK_FALSE(isDrawnFromGBuffer(RenderDebugView::Focus));
+        CHECK_FALSE(isDrawnFromGBuffer(RenderDebugView::LightShafts));
 
         // The shader that draws them tells them apart by these numbers.
         CHECK(static_cast<int>(RenderDebugView::BaseColor) == 1);

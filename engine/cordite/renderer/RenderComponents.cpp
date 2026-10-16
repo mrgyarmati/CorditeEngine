@@ -386,6 +386,24 @@ TypeInfo describePostProcess() {
                    .minimum = 0.0,
                    .maximum = 0.03,
                    .step = 0.001})
+        .property("lightShaftIntensity", &Component::lightShaftIntensity,
+                  {.description = "Light shafts: how much light the shafts of the sun add, along rays from where it "
+                                  "is in the picture past what stands in its way; 0 none",
+                   .minimum = 0.0,
+                   .maximum = 4.0,
+                   .step = 0.01})
+        .property("lightShaftThreshold", &Component::lightShaftThreshold,
+                  {.description = "Light shafts: the light of the sky brighter than this - a sun in an image of the "
+                                  "sky - feeds them besides the sun's own",
+                   .minimum = 0.0,
+                   .maximum = 64.0,
+                   .step = 0.1})
+        .property("lightShaftLength", &Component::lightShaftLength,
+                  {.description = "Light shafts: how far they reach, as a share of the way from a pixel to the sun "
+                                  "in the picture",
+                   .minimum = 0.0,
+                   .maximum = 1.0,
+                   .step = 0.01})
         .build();
 }
 

@@ -307,12 +307,12 @@ Vulkan directly. Step-by-step guide for adding a pass:
   texture before the widget that shows it, never after.
 - **Meshes are drawn by `SceneRenderer`**, into a `SceneTargets` per view, in this
   order: shadow maps, depth pre-pass, base pass (fills the G-buffer), ambient occlusion,
-  deferred lighting, forward pass, depth of field, post-processing. Solid surfaces -
-  opaque and masked - go through the G-buffer; only translucent ones are drawn forward.
-  Front faces wind counter-clockwise; depth is reversed. Draws that share mesh, submesh
-  and material are instanced, and sorted by the serial numbers of their GPU resources,
-  never by address, so that two runs issue the same draw calls in the same order
-  (`MeshDrawList`).
+  deferred lighting, forward pass, light shafts, depth of field, post-processing. Solid
+  surfaces - opaque and masked - go through the G-buffer; only translucent ones are
+  drawn forward. Front faces wind counter-clockwise; depth is reversed. Draws that share
+  mesh, submesh and material are instanced, and sorted by the serial numbers of their
+  GPU resources, never by address, so that two runs issue the same draw calls in the
+  same order (`MeshDrawList`).
 - **A pass that draws meshes is a `MeshPassDesc`**, not a new class: `MeshPass` owns
   what such passes share. All of them use the one vertex shader in
   `passes/MeshVertex.slang`. That is not a convenience: the base pass keeps only pixels
@@ -470,6 +470,21 @@ Vulkan directly. Step-by-step guide for adding a pass:
   change both. It is part of finishing: a picture that is not finished has none, and a
   scene without `nearBlur` or `farBlur` pays nothing for it. Translucent surfaces are not
   in the depth buffer, and are blurred as what is behind them.
+- **Light shafts are the sky around the sun, blurred towards it** (`LightShaftPass`,
+  `passes/LightShafts.slang`), and added to the light of the scene before the depth of
+  field: what a pixel where nothing was drawn gives them is the sun's own color and what
+  of the sky is brighter than a threshold, as much as the pixel looks at the sun (a cone
+  of about twelve degrees, `lightShaftSource`), at most four times white - a sun in an
+  image of the sky is tens of thousands of times as bright, and spread over the picture
+  it would be all there is. Everything that was drawn gives nothing, and is what casts
+  the shadows in them. Three passes blur that towards the sun's point in the picture,
+  eight taps each, eight times as far apart as in the pass before, and a fifth adds it.
+  The sun is `SceneLights::sun()` - the brightest directional light, the one the fog
+  glows towards - and its point `sunScreenPoint`, which projects the direction, not a
+  point far away. With the sun behind the view, or a view without perspective, there are
+  none, and no pass is drawn; towards ninety degrees they fade (`lightShaftFade`). The
+  arithmetic is written down twice, in `LightShafts.cpp` and `common/LightShafts.slang`:
+  change both.
 - **A test that says what a pixel must be draws a picture that is not finished**
   (`PostProcessQuality::Off`, which `SceneFixture::flatSettings()` asks for): the light
   as it was worked out, encoded and nothing else. Debug views are never finished
@@ -529,8 +544,9 @@ Vulkan directly. Step-by-step guide for adding a pass:
   something to look at: a channel, a mask, a count. A view of the G-buffer is a `case`
   in `passes/DebugView.slang`; one that is not drawn from the G-buffer is drawn by the
   pass it is about, in a mode of its own - lighting only and reflections by the lighting,
-  the focus by the depth of field, over the lit picture. The editor's menu and
-  `viewport.debugView` list them all from `kRenderDebugViews`.
+  the focus by the depth of field, over the lit picture, and the light shafts by
+  theirs, alone over black. The editor's menu and `viewport.debugView` list them all
+  from `kRenderDebugViews`.
 - **Uploads go through `RenderResources`.** It records them on a command list of its
   own, created with `setEnableImmediateExecution(false)` - NVRHI allows only one
   immediate command list to be open at a time, and the frame's is. That list is dropped
@@ -1846,3 +1862,8 @@ body explaining what changed and why. One logical change per commit.
   because the failed link took its `.ilk` with it and the next one starts from nothing.
   Build the target once more before looking for the cause in the code, and run a
   `verify` that failed that way again from the start.
+- `doctest::Approx(x).epsilon(e)` allows a difference of `e` times one plus the larger of
+  the two numbers: its scale is one unless it is told otherwise. For numbers below one
+  that is an absolute tolerance of about `e`, not a share: `Approx(0.35).epsilon(0.1)`
+  passed 0.49, and a test that was there to catch a missing factor of 0.7 did not. Write
+  the tolerance itself - `CHECK(std::abs(a - b) < 0.03f)` - or say `.scale(0)`.

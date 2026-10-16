@@ -299,6 +299,15 @@ TEST_SUITE("PostProcessSettings") {
         CHECK_FALSE(hasDepthOfField(look));
     }
 
+    TEST_CASE("light shafts are there when they add light and reach somewhere") {
+        PostProcessSettings look;
+        CHECK_FALSE(hasLightShafts(look));
+        look.lightShaftIntensity = 0.5f;
+        CHECK(hasLightShafts(look));
+        look.lightShaftLength = 0.0f;
+        CHECK_FALSE(hasLightShafts(look));
+    }
+
     TEST_CASE("settings are brought into their ranges, and what is not a number becomes the default") {
         const PostProcessSettings defaults;
         // What is in range is left alone.
@@ -341,6 +350,9 @@ TEST_SUITE("PostProcessSettings") {
         wild.nearBlur = 3.0f;
         wild.farBlur = -1.0f;
         wild.blurSize = 0.5f;
+        wild.lightShaftIntensity = 9.0f;
+        wild.lightShaftThreshold = -2.0f;
+        wild.lightShaftLength = std::numeric_limits<float>::quiet_NaN();
         const PostProcessSettings tamed = sanitized(wild);
         CHECK(tamed.exposure == 16.0f);
         CHECK(tamed.autoExposureMinimum == 2.0f);
@@ -367,6 +379,9 @@ TEST_SUITE("PostProcessSettings") {
         CHECK(tamed.nearBlur == 1.0f);
         CHECK(tamed.farBlur == 0.0f);
         CHECK(tamed.blurSize == kMaxBlurSize);
+        CHECK(tamed.lightShaftIntensity == 4.0f);
+        CHECK(tamed.lightShaftThreshold == 0.0f);
+        CHECK(tamed.lightShaftLength == defaults.lightShaftLength);
 
         const float notANumber = std::numeric_limits<float>::quiet_NaN();
         PostProcessSettings broken;
@@ -473,6 +488,9 @@ TEST_SUITE("PostProcessSettings") {
         from.nearBlur = 0.0f;
         from.farBlur = 1.0f;
         from.blurSize = 0.02f;
+        from.lightShaftIntensity = 0.0f;
+        from.lightShaftThreshold = 1.0f;
+        from.lightShaftLength = 0.2f;
         PostProcessSettings to;
         to.exposureMode = ExposureMode::Automatic;
         to.exposure = 1.0f;
@@ -490,6 +508,9 @@ TEST_SUITE("PostProcessSettings") {
         to.nearBlur = 1.0f;
         to.farBlur = 0.0f;
         to.blurSize = 0.0f;
+        to.lightShaftIntensity = 2.0f;
+        to.lightShaftThreshold = 5.0f;
+        to.lightShaftLength = 0.6f;
 
         const PostProcessSettings start = blend(from, to, 0.0f);
         CHECK(start.exposure == -1.0f);
@@ -512,6 +533,9 @@ TEST_SUITE("PostProcessSettings") {
         CHECK(quarter.nearBlur == doctest::Approx(0.25f));
         CHECK(quarter.farBlur == doctest::Approx(0.75f));
         CHECK(quarter.blurSize == doctest::Approx(0.015f));
+        CHECK(quarter.lightShaftIntensity == doctest::Approx(0.5f));
+        CHECK(quarter.lightShaftThreshold == doctest::Approx(2.0f));
+        CHECK(quarter.lightShaftLength == doctest::Approx(0.3f));
         CHECK(quarter.exposureMode == ExposureMode::Manual);
         CHECK(quarter.toneMapper == ToneMapper::Filmic);
 

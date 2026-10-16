@@ -472,6 +472,54 @@ TEST_SUITE("SceneLights") {
         CHECK(lights.fog().sunColor == Vec3(0.0f));
     }
 
+    TEST_CASE("the sun of a world is its brightest directional light, as bright as a person set it") {
+        World world;
+        SceneLights lights;
+        // A world without a light from one direction has none.
+        addLight(world, "Lamp", {.type = LightType::Point, .intensity = 50.0f});
+        world.updateWorldTransforms();
+        lights.collect(world);
+        CHECK_FALSE(lights.sun().has_value());
+
+        const Vec3 along = glm::normalize(Vec3(1.0f, -1.0f, -2.0f));
+        const Entity sun = addLight(
+            world, "Sun", {.type = LightType::Directional, .color = Vec3(1.0f, 0.5f, 0.25f), .intensity = 3.0f},
+            {.rotation = lookRotation(along)});
+        world.updateWorldTransforms();
+        lights.collect(world);
+        REQUIRE(lights.sun().has_value());
+        CHECK_NEAR(lights.sun()->towards, -along, 1.0e-6f);
+        // Not pi times as bright, as the lights are handed to the shaders.
+        CHECK_NEAR(lights.sun()->color, Vec3(3.0f, 1.5f, 0.75f), 1.0e-6f);
+
+        // Of two as bright, the one whose entity comes first in the order of ids; a
+        // brighter one, wherever it comes.
+        const Entity twin = addLight(
+            world, "Twin", {.type = LightType::Directional, .color = Vec3(1.0f, 0.5f, 0.25f), .intensity = 3.0f},
+            {.rotation = lookRotation(Vec3(0.0f, -1.0f, 0.0f), Vec3(0.0f, 0.0f, -1.0f))});
+        world.updateWorldTransforms();
+        lights.collect(world);
+        const bool sunFirst = world.id(sun) < world.id(twin);
+        CHECK_NEAR(lights.sun()->towards, sunFirst ? -along : Vec3(0.0f, 1.0f, 0.0f), 1.0e-6f);
+        world.tryGet<LightComponent>(twin)->intensity = 4.0f;
+        lights.collect(world);
+        CHECK_NEAR(lights.sun()->towards, Vec3(0.0f, 1.0f, 0.0f), 1.0e-6f);
+        CHECK(lights.fog().towardsSun == lights.sun()->towards);
+
+        // Switched off, or dark, a light is no sun.
+        world.setEnabled(twin, false);
+        world.tryGet<LightComponent>(sun)->intensity = 0.0f;
+        lights.collect(world);
+        CHECK_FALSE(lights.sun().has_value());
+
+        // The stand-in key light of an editor is the sun of a world without lights.
+        World empty;
+        lights.collect(empty, {.defaultLighting = true});
+        REQUIRE(lights.sun().has_value());
+        CHECK_NEAR(lights.sun()->towards, -glm::normalize(Vec3(-0.45f, -0.80f, -0.40f)), 1.0e-6f);
+        CHECK_NEAR(lights.sun()->color, Vec3(2.75f, 2.60f, 2.40f) / kPi, 1.0e-6f);
+    }
+
     TEST_CASE("a fog's numbers reach the renderer as numbers, in their ranges") {
         World world;
         const Entity mist = world.createEntity("Mist");

@@ -218,6 +218,7 @@ void runScenario(const std::string& name, bool withShadows) {
     checkBudget(budgets, "shadowAtlasBytes", static_cast<double>(statistics.scene.shadowAtlasBytes));
     checkBudget(budgets, "ambientOcclusionBytes", static_cast<double>(statistics.scene.ambientOcclusionBytes));
     checkBudget(budgets, "depthOfFieldBytes", static_cast<double>(statistics.scene.depthOfFieldBytes));
+    checkBudget(budgets, "lightShaftBytes", static_cast<double>(statistics.scene.lightShaftBytes));
 
     REQUIRE(budgets.contains("milliseconds"));
     const Json& timeBudgets = budgets["milliseconds"];

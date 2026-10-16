@@ -218,6 +218,24 @@ public:
     /// The memory of those images, in bytes: nothing when there are none.
     [[nodiscard]] uint64_t depthOfFieldBytes() const;
 
+    /// Makes sure there are the two images the light shafts are worked out in
+    /// (LightShaftPass): each half as wide and as high as the view - rounded up - in light
+    /// without an upper limit. Fails when the device cannot create them; the targets then
+    /// hold neither.
+    [[nodiscard]] Status prepareLightShafts(nvrhi::IDevice* device);
+
+    /// Lets go of those images: for a view that has no light shafts any more.
+    void releaseLightShafts();
+
+    /// One of the two images prepareLightShafts() made, 0 or 1, and the framebuffer that
+    /// draws into it. Null before that call and after releaseLightShafts().
+    [[nodiscard]] nvrhi::ITexture* lightShaftImage(uint32_t index) const;
+
+    [[nodiscard]] nvrhi::IFramebuffer* lightShaftFramebuffer(uint32_t index) const;
+
+    /// The memory of those images, in bytes: nothing when there are none.
+    [[nodiscard]] uint64_t lightShaftBytes() const;
+
     /// Scene color alone: what the passes that read the depth as a texture draw into,
     /// the lighting first of all.
     [[nodiscard]] nvrhi::IFramebuffer* lightingFramebuffer() const { return m_lightingFramebuffer; }
@@ -255,6 +273,7 @@ private:
     nvrhi::TextureHandle m_aliased;
     nvrhi::TextureHandle m_depthOfFieldSource;
     nvrhi::TextureHandle m_depthOfFieldBlur;
+    std::array<nvrhi::TextureHandle, 2> m_lightShafts;
     std::array<nvrhi::TextureHandle, kMaxBloomLevels> m_bloom;
     std::array<nvrhi::FramebufferHandle, kMaxBloomLevels> m_bloomFramebuffers;
     uint32_t m_bloomLevelCount = 0;
@@ -274,6 +293,7 @@ private:
     nvrhi::FramebufferHandle m_aliasedFramebuffer;
     nvrhi::FramebufferHandle m_depthOfFieldSourceFramebuffer;
     nvrhi::FramebufferHandle m_depthOfFieldBlurFramebuffer;
+    std::array<nvrhi::FramebufferHandle, 2> m_lightShaftFramebuffers;
     nvrhi::FramebufferHandle m_overlayFramebuffer;
 };
 

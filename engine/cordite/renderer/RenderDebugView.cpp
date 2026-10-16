@@ -42,6 +42,8 @@ std::string_view nameOf(RenderDebugView view) {
             return "overdraw";
         case RenderDebugView::Focus:
             return "focus";
+        case RenderDebugView::LightShafts:
+            return "lightShafts";
     }
     return "unknown";
 }
@@ -84,6 +86,8 @@ std::string_view displayNameOf(RenderDebugView view) {
             return "Overdraw";
         case RenderDebugView::Focus:
             return "Depth of field";
+        case RenderDebugView::LightShafts:
+            return "Light shafts";
     }
     return "Unknown";
 }

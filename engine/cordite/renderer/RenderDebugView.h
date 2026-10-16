@@ -75,15 +75,19 @@ enum class RenderDebugView : uint8_t {
     /// is sharp, red in front of that and blue behind, as much as it is blurred. Drawn by
     /// the depth of field over the lit picture, also where the scene has none.
     Focus,
+    /// The light the shafts of the sun add to each pixel, alone (LightShaftPass): black
+    /// where they add none, and everywhere in a scene without them.
+    LightShafts,
 };
 
-inline constexpr std::array<RenderDebugView, 18> kRenderDebugViews = {
-    RenderDebugView::None,       RenderDebugView::BaseColor,      RenderDebugView::Normals,
-    RenderDebugView::Roughness,  RenderDebugView::Metallic,       RenderDebugView::Specular,
-    RenderDebugView::Occlusion,  RenderDebugView::Emissive,       RenderDebugView::Depth,
-    RenderDebugView::LightCount, RenderDebugView::ShadowCascades, RenderDebugView::AmbientOcclusion,
-    RenderDebugView::Fog,        RenderDebugView::LightingOnly,   RenderDebugView::Reflections,
-    RenderDebugView::Wireframe,  RenderDebugView::Overdraw,       RenderDebugView::Focus,
+inline constexpr std::array<RenderDebugView, 19> kRenderDebugViews = {
+    RenderDebugView::None,        RenderDebugView::BaseColor,      RenderDebugView::Normals,
+    RenderDebugView::Roughness,   RenderDebugView::Metallic,       RenderDebugView::Specular,
+    RenderDebugView::Occlusion,   RenderDebugView::Emissive,       RenderDebugView::Depth,
+    RenderDebugView::LightCount,  RenderDebugView::ShadowCascades, RenderDebugView::AmbientOcclusion,
+    RenderDebugView::Fog,         RenderDebugView::LightingOnly,   RenderDebugView::Reflections,
+    RenderDebugView::Wireframe,   RenderDebugView::Overdraw,       RenderDebugView::Focus,
+    RenderDebugView::LightShafts,
 };
 
 /// The name used in files and by tools: "none", "baseColor", "lightingOnly", "reflections", ...

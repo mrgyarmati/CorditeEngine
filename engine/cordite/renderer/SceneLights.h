@@ -27,6 +27,7 @@
 #include "cordite/world/World.h"
 
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <utility>
 #include <vector>
@@ -52,6 +53,16 @@ struct SceneEnvironment {
     float rotation = 0.0f;
     /// Whether it is drawn as the sky.
     bool visible = false;
+};
+
+/// The sun of a world, as the renderer works with it.
+struct SceneSun {
+    /// Unit vector towards the sun: the opposite of the way its light shines.
+    Vec3 towards{0.0f, 1.0f, 0.0f};
+    /// How bright it is as a person set it - the color of its Light times the intensity -
+    /// without the conversion of the file comment: what it lights a white, matte surface
+    /// that faces it to.
+    Vec3 color{0.0f};
 };
 
 /// A light as the renderer works with it: `placement` is the world matrix of its
@@ -90,6 +101,12 @@ public:
     /// Fog, clear air.
     [[nodiscard]] const FogSettings& fog() const { return m_fog; }
 
+    /// The sun: the brightest of the directional lights - of those that are equally
+    /// bright, the first in the order of their entities' ids - which may be the
+    /// stand-in of SceneLightsDesc::defaultLighting. None without a directional light
+    /// that gives off any light. The fog glows towards it, and light shafts come from it.
+    [[nodiscard]] const std::optional<SceneSun>& sun() const { return m_sun; }
+
     /// True when the lights are the stand-ins of SceneLightsDesc::defaultLighting.
     [[nodiscard]] bool isDefault() const { return m_isDefault; }
 
@@ -103,6 +120,7 @@ private:
     Vec3 m_groundColor{0.0f};
     SceneEnvironment m_environment;
     FogSettings m_fog;
+    std::optional<SceneSun> m_sun;
     bool m_isDefault = false;
 };
 

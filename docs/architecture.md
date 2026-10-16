@@ -899,8 +899,10 @@ Three things are decided differently from the textbook form:
   the sun - the brightest directional light - that falls off with a power of the
   cosine. A sun that is seen through haze has a glow around it, and that is most of
   what light in fog looks like outdoors. Lamps that light the fog around them, and
-  shafts of light between shadows, need the fog sampled along the ray; that is a
-  different effect, and when it comes it adds to this one.
+  shafts of light between the shadows inside a fog, need the fog sampled along the
+  ray; that is a different effect, and when it comes it adds to this one. The light
+  shafts there are come from the sky around the sun, blurred towards it in the picture
+  (below), and need no fog.
 
 The sky is behind all the fog there is. A line of sight that climbs comes out of a
 fog that thins out, and the sky shows through the more the steeper the line is; a
@@ -1155,6 +1157,34 @@ What it does not do: the circles are discs of even light, not the shapes of a le
 blades; a translucent surface is not in the depth buffer and is blurred as what is
 behind it; and a blur of a texel or two is made of few texels, which shows less as a
 blur than as a softening.
+
+### Light shafts are the sky around the sun, blurred towards it
+
+The look the engine is after has the sun streaming past what stands in its way. Light
+scattered by the air towards the viewer would be worked out properly by following every
+line of sight through the shadows of the sun - a volume, and a pass that marches through
+it. What is done instead is the way of the engines this one takes its look from: the
+sky around the sun is blurred along the lines towards the sun's point in the picture, and
+what was drawn in front of the sky blocks it on the way, which is where the shadows in
+the shafts come from (K. Mitchell, 2007). It needs the picture, the depth and where the
+sun is - no shadow maps, no volume - and it is right where it is seen most, looking
+towards the sun past the edge of something.
+
+What feeds the blur is the sun's own light, as the Light component gives it, and the part
+of the sky that is brighter than a threshold, both as much as the pixel looks at the sun:
+a scene with a plain background has shafts from its sun, and one with an image of the sky
+gets the glare of the sun in the image as well. It is held to four times white: a sun in a
+photograph of the sky is tens of thousands of times as bright as white, and blurred over
+the picture it would be all there is. The cone around the sun is fixed, about twelve
+degrees to half, so that bright clouds away from the sun do not send shafts in towards it;
+a setting for it would be one more number with no look behind it.
+
+They are added to the light of the scene before the depth of field, which then blurs them
+with the rest; and they are not in the light of anything, so nothing is lit by them and
+no shadow map is read. Without perspective every line of sight is parallel, and there is
+no point in the picture for them to come from: orthographic views have none. Nor do views
+that have the sun behind them; towards ninety degrees they fade, so that turning a camera
+does not make them jump.
 
 ### Not finishing a picture is a quality
 

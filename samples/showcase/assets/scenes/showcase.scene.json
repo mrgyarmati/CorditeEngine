@@ -1391,8 +1391,9 @@
                 // A PostProcess component on a camera is that camera's own: it applies to
                 // what is seen through it, after everything the scene says (see "Look"
                 // below), and to no other view. A map is no photograph: no curve
-                // ("linear" cuts off what is brighter than white), no bloom, no grade, and
-                // no depth of field - nothing is blurred in front or behind.
+                // ("linear" cuts off what is brighter than white), no bloom, no grade, no
+                // depth of field - nothing is blurred in front or behind - and no light
+                // shafts.
                 "PostProcess": {
                     "global": true,
                     "priority": 0,
@@ -1428,7 +1429,10 @@
                     "focusTransition": 5.0,
                     "nearBlur": 0.0,
                     "farBlur": 0.0,
-                    "blurSize": 0.01
+                    "blurSize": 0.01,
+                    "lightShaftIntensity": 0.0,
+                    "lightShaftThreshold": 1.0,
+                    "lightShaftLength": 0.5
                 }
             }
         },
@@ -1593,6 +1597,12 @@
             // the background softens to six tenths of the most blur, which "blurSize"
             // makes six thousandths of the height of the picture; what is nearer than
             // three metres blurs too, to half of it.
+            //
+            // Light shafts: looking towards the sun, its light streams past whatever stands
+            // in the way - from the sun's own light, and from what of the sky is more than
+            // twice as bright as white - over six tenths of the way across the picture. The
+            // main camera has the sun behind it; turn the editor's camera towards the sun
+            // (View > Render view > Light shafts shows them alone).
             "id": "10000000-0000-4000-8000-000000000025",
             "name": "Grade",
             "enabled": true,
@@ -1634,7 +1644,10 @@
                     "focusTransition": 15.0,
                     "nearBlur": 0.5,
                     "farBlur": 0.6,
-                    "blurSize": 0.006
+                    "blurSize": 0.006,
+                    "lightShaftIntensity": 0.4,
+                    "lightShaftThreshold": 2.0,
+                    "lightShaftLength": 0.6
                 }
             }
         },
@@ -1687,7 +1700,10 @@
                     "focusTransition": 10.0,
                     "nearBlur": 0.5,
                     "farBlur": 0.8,
-                    "blurSize": 0.006
+                    "blurSize": 0.006,
+                    "lightShaftIntensity": 0.3,
+                    "lightShaftThreshold": 2.0,
+                    "lightShaftLength": 0.5
                 }
             }
         }

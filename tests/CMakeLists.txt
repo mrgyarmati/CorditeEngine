@@ -160,6 +160,7 @@ cordite_add_test_suite(renderer
         unit/renderer/EnvironmentLightTests.cpp
         unit/renderer/FogTests.cpp
         unit/renderer/LightClustersTests.cpp
+        unit/renderer/LightShaftsTests.cpp
         unit/renderer/PostProcessSettingsTests.cpp
         unit/renderer/RenderComponentsTests.cpp
         unit/renderer/RenderDebugViewTests.cpp
@@ -253,6 +254,7 @@ cordite_add_test_suite(render
         render/GameTests.cpp
         render/GpuTimerTests.cpp
         render/GraphicsDeviceTests.cpp
+        render/LightShaftTests.cpp
         render/PostProcessTests.cpp
         render/PropertyEditorTests.cpp
         render/ReferenceDocsTests.cpp

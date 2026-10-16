@@ -66,6 +66,7 @@
 #include "cordite/renderer/DisplayEncodePass.h"
 #include "cordite/renderer/EnvironmentMaps.h"
 #include "cordite/renderer/LightClusters.h"
+#include "cordite/renderer/LightShaftPass.h"
 #include "cordite/renderer/MeshDrawList.h"
 #include "cordite/renderer/MeshPass.h"
 #include "cordite/renderer/PostProcessPass.h"
@@ -243,6 +244,11 @@ struct SceneRenderStatistics {
     /// (SceneTargets::prepareDepthOfField). Over the views of a frame it is the largest
     /// of them.
     uint64_t depthOfFieldBytes = 0;
+    /// The memory of the two images the light shafts of the view are worked out in, in
+    /// bytes: four half floats for every block of four pixels, twice
+    /// (SceneTargets::prepareLightShafts). Over the views of a frame it is the largest of
+    /// them.
+    uint64_t lightShaftBytes = 0;
 
     /// What each of the passes that draw meshes did. A debug view that draws the meshes
     /// itself - wireframe, overdraw - counts as the forward pass.
@@ -303,6 +309,7 @@ private:
         ShadowAtlas shadows;
         EnvironmentMaps environments;
         AmbientOcclusionPass occlusion;
+        LightShaftPass lightShafts;
         DepthOfFieldPass depthOfField;
         PostProcessPass postProcess;
     };
@@ -343,12 +350,21 @@ private:
     /// shadow in the light it belongs to.
     void drawShadows(nvrhi::ICommandList* commandList, const ShadowSettings& settings);
 
-    /// Makes the display image of `targets` of the light in their scene color: blurred
-    /// where it is out of focus, and finished with `look` - or only encoded, in a debug
-    /// view and where `settings` ask for no finishing. In the debug view of the depth of
-    /// field, how blurred each pixel is takes the place of the light first.
+    /// Makes the display image of `targets` of the light in their scene color, seen from
+    /// `view`: with the shafts of the sun added, blurred where it is out of focus, and
+    /// finished with `look` - or only encoded, in a debug view and where `settings` ask for
+    /// no finishing. In the debug views of the light shafts and of the depth of field, what
+    /// they are about takes the place of the light first.
     void finishPicture(nvrhi::ICommandList* commandList, SceneTargets& targets, nvrhi::IBindingSet* viewBindings,
-                       const PostProcessSettings& look, const SceneRenderSettings& settings, RenderDebugView debugView);
+                       const CameraView& view, const PostProcessSettings& look, const SceneRenderSettings& settings,
+                       RenderDebugView debugView);
+
+    /// Adds the light shafts of the scene's sun to the scene color of `targets`, as `look`
+    /// says, or - in their debug view - puts them in its place; gives back the images they
+    /// are worked out in when the view has none.
+    void drawLightShafts(nvrhi::ICommandList* commandList, SceneTargets& targets, nvrhi::IBindingSet* viewBindings,
+                         const CameraView& view, const PostProcessSettings& look, bool isFinished,
+                         RenderDebugView debugView);
 
     nvrhi::IDevice* m_device;
     std::unique_ptr<RenderResources> m_resources;

@@ -188,6 +188,9 @@ inline Json describeScene(const SceneRenderStatistics& statistics) {
     Json focus = Json::object();
     focus["bytes"] = statistics.depthOfFieldBytes;
     scene["depthOfField"] = std::move(focus);
+    Json shafts = Json::object();
+    shafts["bytes"] = statistics.lightShaftBytes;
+    scene["lightShafts"] = std::move(shafts);
     return scene;
 }
 

@@ -38,6 +38,8 @@
         // The two images the depth of field is worked out in: a texel for every four
         // pixels, four half floats each.
         "depthOfFieldBytes": 2073600,
+        // The main camera has the sun behind it: no light shafts.
+        "lightShaftBytes": 0,
         // The lights in view, and the entries of the cluster lists they are in: how
         // many clusters the lamps of the showcase reach, all of them together. The
         // light at the sentry's post is among them also while it is dark: a script
@@ -115,8 +117,9 @@
         // says nothing: bloom, the final pass and the smoothing of its edges.
         "screenPasses": 14,
         "ambientOcclusionBytes": 518400,
-        // A scene that says nothing has no depth of field.
+        // A scene that says nothing has no depth of field, and no light shafts.
         "depthOfFieldBytes": 0,
+        "lightShaftBytes": 0,
         "triangles": 340000,
         // Most of the lights are in view. The entries of the cluster lists say how well
         // they are told apart: the number goes up when lights are put into the lists of
@@ -150,6 +153,7 @@
         "screenPasses": 14,
         "ambientOcclusionBytes": 518400,
         "depthOfFieldBytes": 0,
+        "lightShaftBytes": 0,
         "triangles": 800000,
         "lights": 600,
         "lightListEntries": 22500,

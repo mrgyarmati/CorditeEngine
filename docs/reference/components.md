@@ -219,6 +219,9 @@ How the picture is finished - exposure, bloom, tone mapping, grading - everywher
 | `nearBlur` | float | `0.0` | 0.0 to 1.0 | Depth of field: the most blur in front of what is sharp, as a share of the blur size: 0 none, 1 all of it |
 | `farBlur` | float | `0.0` | 0.0 to 1.0 | Depth of field: the most blur behind what is sharp, and where nothing was drawn, as a share of the blur size: 0 none, 1 all of it |
 | `blurSize` | float | `0.01` | 0.0 to 0.03 | Depth of field: the radius of the circle a point becomes at the most blur, as a share of the height of the picture |
+| `lightShaftIntensity` | float | `0.0` | 0.0 to 4.0 | Light shafts: how much light the shafts of the sun add, along rays from where it is in the picture past what stands in its way; 0 none |
+| `lightShaftThreshold` | float | `1.0` | 0.0 to 64.0 | Light shafts: the light of the sky brighter than this - a sun in an image of the sky - feeds them besides the sun's own |
+| `lightShaftLength` | float | `0.5` | 0.0 to 1.0 | Light shafts: how far they reach, as a share of the way from a pixel to the sun in the picture |
 
 ## PrefabInstance
 

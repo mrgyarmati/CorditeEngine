@@ -205,6 +205,7 @@ TEST_SUITE("Performance") {
         checkBudget(budgets, "environmentBytes", static_cast<double>(statistics.scene.environmentBytes));
         checkBudget(budgets, "ambientOcclusionBytes", static_cast<double>(statistics.scene.ambientOcclusionBytes));
         checkBudget(budgets, "depthOfFieldBytes", static_cast<double>(statistics.scene.depthOfFieldBytes));
+        checkBudget(budgets, "lightShaftBytes", static_cast<double>(statistics.scene.lightShaftBytes));
         checkBudget(budgets, "meshBytes", static_cast<double>(statistics.resources.meshBytes));
         checkBudget(budgets, "textureBytes", static_cast<double>(statistics.resources.textureBytes));
 

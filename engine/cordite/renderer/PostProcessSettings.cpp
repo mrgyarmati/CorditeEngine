@@ -184,6 +184,9 @@ PostProcessSettings sanitized(const PostProcessSettings& settings) {
     result.nearBlur = within(settings.nearBlur, 0.0f, 1.0f, defaults.nearBlur);
     result.farBlur = within(settings.farBlur, 0.0f, 1.0f, defaults.farBlur);
     result.blurSize = within(settings.blurSize, 0.0f, kMaxBlurSize, defaults.blurSize);
+    result.lightShaftIntensity = within(settings.lightShaftIntensity, 0.0f, 4.0f, defaults.lightShaftIntensity);
+    result.lightShaftThreshold = within(settings.lightShaftThreshold, 0.0f, 64.0f, defaults.lightShaftThreshold);
+    result.lightShaftLength = within(settings.lightShaftLength, 0.0f, 1.0f, defaults.lightShaftLength);
     return result;
 }
 
@@ -221,6 +224,9 @@ PostProcessSettings blend(const PostProcessSettings& from, const PostProcessSett
     result.nearBlur = mix(from.nearBlur, to.nearBlur, t);
     result.farBlur = mix(from.farBlur, to.farBlur, t);
     result.blurSize = mix(from.blurSize, to.blurSize, t);
+    result.lightShaftIntensity = mix(from.lightShaftIntensity, to.lightShaftIntensity, t);
+    result.lightShaftThreshold = mix(from.lightShaftThreshold, to.lightShaftThreshold, t);
+    result.lightShaftLength = mix(from.lightShaftLength, to.lightShaftLength, t);
 
     // Two tables cannot be blended into one without making a third. The same table on
     // both sides blends its intensity; otherwise the one fades out towards the middle
@@ -259,6 +265,10 @@ float focusBlur(const PostProcessSettings& settings, float viewDepth) {
 
 bool hasDepthOfField(const PostProcessSettings& settings) {
     return (settings.nearBlur > 0.0f || settings.farBlur > 0.0f) && settings.blurSize > 0.0f;
+}
+
+bool hasLightShafts(const PostProcessSettings& settings) {
+    return settings.lightShaftIntensity > 0.0f && settings.lightShaftLength > 0.0f;
 }
 
 float exposureScale(float stops) {
