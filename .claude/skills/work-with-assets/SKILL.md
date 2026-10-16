@@ -49,8 +49,12 @@ move them with it.** Never copy a `.meta` to make a new asset, and never edit an
 
 ## Add an asset to a project
 
-1. Put the file under `assets/`.
-2. In a running editor: `asset.refresh`. Otherwise it is found at the next start.
+1. Put the file under `assets/`. From a running editor, drop it onto the window from a
+   file manager - it goes beside the asset chosen in the Assets panel - or ask
+   `asset.import {"files": ["<path>"], "to": "<directory>"}`; a `.gltf` brings its
+   `.bin` and the images it names along.
+2. In a running editor, a file put there by hand: `asset.refresh`. Otherwise it is found
+   at the next start.
 3. `asset.list` shows it with its id; `asset.get {"asset": "<path>"}` shows what is in
    it and what its importer left out (`warnings`).
 4. Commit the file and its `.meta`.

@@ -1,5 +1,6 @@
 #include "cordite/editor/AssetBrowser.h"
 
+#include "cordite/core/FileSystem.h"
 #include "cordite/core/Json.h"
 #include "cordite/core/StringUtils.h"
 #include "cordite/engine/SceneAssets.h"
@@ -285,6 +286,28 @@ std::string dropTarget(const AssetInfo& asset, const AssetBrowserRow& row) {
     const std::string_view name =
         slash == std::string::npos ? std::string_view(asset.path) : std::string_view(asset.path).substr(slash + 1);
     return fmt::format("{}/{}", row.path, name);
+}
+
+std::string importDirectory(const AssetBrowser& browser, const AssetDatabase& database) {
+    const AssetInfo* chosen = database.find(browser.selection());
+    if (chosen == nullptr || chosen->isBuiltin()) {
+        return {};
+    }
+    const size_t slash = chosen->path.rfind('/');
+    return slash == std::string::npos ? std::string() : chosen->path.substr(0, slash);
+}
+
+std::string importAssetsCommand(std::span<const std::filesystem::path> files, std::string_view to) {
+    Json paths = Json::array();
+    for (const std::filesystem::path& file : files) {
+        paths.push_back(pathToUtf8(file));
+    }
+    Json parameters = Json::object();
+    parameters["files"] = std::move(paths);
+    if (!to.empty()) {
+        parameters["to"] = to;
+    }
+    return fmt::format("asset.import {}", parameters.dump());
 }
 
 std::string openSceneCommand(const AssetInfo& scene) {

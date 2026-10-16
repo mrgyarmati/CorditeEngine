@@ -23,36 +23,6 @@
 namespace cordite {
 namespace {
 
-/// Checks that `to` says a place inside the asset directory as references do: relative,
-/// with forward slashes, without parts that leave or skip a directory, and without parts
-/// that the database does not read.
-Status checkMoveTarget(std::string_view to) {
-    if (to.empty()) {
-        return makeError(ErrorCode::InvalidArgument, "say where the file is to go");
-    }
-    // A colon is a drive on Windows, or a stream of a file that nobody would see.
-    if (to.starts_with('/') || to.find('\\') != std::string_view::npos || to.find(':') != std::string_view::npos) {
-        return makeError(ErrorCode::InvalidArgument,
-                         "'{}' is no place inside the asset directory: give a relative path with forward slashes", to);
-    }
-    size_t begin = 0;
-    while (begin <= to.size()) {
-        const size_t end = std::min(to.find('/', begin), to.size());
-        const std::string_view part = to.substr(begin, end - begin);
-        if (part.empty() || part == "." || part == "..") {
-            return makeError(ErrorCode::InvalidArgument, "'{}' has a part that is {}", to,
-                             part.empty() ? std::string("empty") : fmt::format("'{}'", part));
-        }
-        if (part.starts_with('.')) {
-            return makeError(ErrorCode::InvalidArgument,
-                             "'{}' has a part that begins with a dot, '{}', and what is there is never read for assets",
-                             to, part);
-        }
-        begin = end + 1;
-    }
-    return {};
-}
-
 /// The directory of a reference: what comes before its last slash; empty at the top.
 std::string_view directoryOf(std::string_view reference) {
     const size_t slash = reference.rfind('/');
@@ -228,6 +198,35 @@ std::vector<EntityMention> findEntityMentions(const EditorContext& context, std:
 
 } // namespace
 
+Status checkAssetPath(std::string_view path) {
+    if (path.empty()) {
+        return makeError(ErrorCode::InvalidArgument, "say where the file is to go");
+    }
+    // A colon is a drive on Windows, or a stream of a file that nobody would see.
+    if (path.starts_with('/') || path.find('\\') != std::string_view::npos ||
+        path.find(':') != std::string_view::npos) {
+        return makeError(ErrorCode::InvalidArgument,
+                         "'{}' is no place inside the asset directory: give a relative path with forward slashes",
+                         path);
+    }
+    size_t begin = 0;
+    while (begin <= path.size()) {
+        const size_t end = std::min(path.find('/', begin), path.size());
+        const std::string_view part = path.substr(begin, end - begin);
+        if (part.empty() || part == "." || part == "..") {
+            return makeError(ErrorCode::InvalidArgument, "'{}' has a part that is {}", path,
+                             part.empty() ? std::string("empty") : fmt::format("'{}'", part));
+        }
+        if (part.starts_with('.')) {
+            return makeError(ErrorCode::InvalidArgument,
+                             "'{}' has a part that begins with a dot, '{}', and what is there is never read for assets",
+                             path, part);
+        }
+        begin = end + 1;
+    }
+    return {};
+}
+
 Result<AssetMove> moveAsset(EditorContext& context, Uuid id, std::string to) {
     AssetManager& assets = context.assets();
     const AssetDatabase& database = assets.database();
@@ -243,7 +242,7 @@ Result<AssetMove> moveAsset(EditorContext& context, Uuid id, std::string to) {
         return makeError(ErrorCode::InvalidArgument, "{} is inside {}: move that file", asset->reference(),
                          asset->path);
     }
-    CORDITE_TRY(checkMoveTarget(to));
+    CORDITE_TRY(checkAssetPath(to));
     // What the asset is, kept: reading the assets again leaves `asset` pointing nowhere.
     const std::string from = asset->path;
     if (to == from) {

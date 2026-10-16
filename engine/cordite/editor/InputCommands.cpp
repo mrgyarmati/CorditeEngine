@@ -21,7 +21,9 @@ namespace {
 using Type = CommandParameterType;
 
 /// What a call of input.inject is about: one of these, and no more.
-constexpr std::array<std::string_view, 5> kInjected = {"key", "mouseButton", "mouseMove", "scroll", "gamepad"};
+constexpr std::array<std::string_view, 6> kInjected = {"key", "mouseButton", "mouseMove", "scroll", "gamepad", "drop"};
+/// The most files one drop names: more than a hand carries.
+constexpr size_t kMostDroppedFiles = 1024;
 /// The furthest a pointer is put, and the most a wheel is turned in one call: beyond
 /// any screen, and a number that the arithmetic of an interface survives.
 constexpr double kFurthestPointer = 1000000.0;
@@ -85,13 +87,31 @@ Result<GamepadState> gamepadParameter(const Json& parameters) {
     return state;
 }
 
+/// The files of a drop: their paths, one at least.
+Result<std::vector<std::filesystem::path>> dropParameter(const Json& parameters) {
+    const Json& drop = parameters.at("drop");
+    if (drop.empty() || drop.size() > kMostDroppedFiles) {
+        return makeError(ErrorCode::InvalidArgument, "'drop' names from 1 to {} files, not {}", kMostDroppedFiles,
+                         drop.size());
+    }
+    std::vector<std::filesystem::path> files;
+    for (const Json& file : drop) {
+        if (!file.is_string() || file.get_ref<const std::string&>().empty()) {
+            return makeError(ErrorCode::InvalidArgument, "'drop' is a list of the paths of files, and {} is none",
+                             file.dump());
+        }
+        files.push_back(pathFromUtf8(file.get_ref<const std::string&>()));
+    }
+    return files;
+}
+
 Result<Json> inject(Input& input, const Json& parameters) {
     const auto given =
         std::ranges::count_if(kInjected, [&](std::string_view name) { return parameters.contains(name); });
     if (given != 1) {
         return makeError(ErrorCode::InvalidArgument,
-                         "one thing is injected at a time: a 'key', a 'mouseButton', a 'mouseMove', a 'scroll' or a "
-                         "'gamepad'");
+                         "one thing is injected at a time: a 'key', a 'mouseButton', a 'mouseMove', a 'scroll', a "
+                         "'gamepad' or a 'drop'");
     }
     if (parameters.contains("key")) {
         const auto& name = parameters.at("key").get_ref<const std::string&>();
@@ -115,6 +135,9 @@ Result<Json> inject(Input& input, const Json& parameters) {
     } else if (parameters.contains("scroll")) {
         CORDITE_TRY_ASSIGN(const Vec2 turned, pairParameter(parameters, "scroll", kFurthestPointer));
         input.injectScroll(turned);
+    } else if (parameters.contains("drop")) {
+        CORDITE_TRY_ASSIGN(const std::vector<std::filesystem::path> files, dropParameter(parameters));
+        input.injectDrop(files);
     } else {
         const auto index = parameters.at("gamepad").get<int64_t>();
         if (index < 0 || index >= static_cast<int64_t>(Input::kMaxGamepads)) {
@@ -181,7 +204,8 @@ Status registerInputCommands(CommandRegistry& commands, Input& input, InputActio
     return commands.add({
         .name = "input.inject",
         .description = "Does what a hand does, one thing at a time: presses or lets go of a key or a mouse button, "
-                       "moves the pointer, turns the wheel, or sets what a gamepad is like. The next frame sees it "
+                       "moves the pointer, turns the wheel, sets what a gamepad is like, or drops files onto the "
+                       "window - which the editor brings into the assets. The next frame sees it "
                        "- the interface of the editor as well as the actions of the game. A key or a button stays "
                        "down until it is let go of.",
         .parameters =
@@ -196,7 +220,8 @@ Status registerInputCommands(CommandRegistry& commands, Input& input, InputActio
               R"(The names of the gamepad buttons that are held, such as ["A"]; none when left out.)", false},
              {"axes", Type::Object,
               R"(How far sticks and triggers are pushed, by name: {"LeftX": 0.5}; at rest when left out.)", false},
-             {"connected", Type::Boolean, "False unplugs the gamepad. Defaults to true.", false}},
+             {"connected", Type::Boolean, "False unplugs the gamepad. Defaults to true.", false},
+             {"drop", Type::Array, "The paths of files dropped onto the window from outside.", false}},
         .handler = [&input](const Json& parameters) -> Result<Json> { return inject(input, parameters); },
     });
 }

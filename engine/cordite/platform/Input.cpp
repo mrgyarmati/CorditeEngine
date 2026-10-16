@@ -46,6 +46,7 @@ void Input::beginFrame() {
     m_mouseDelta = Vec2(0.0f);
     m_scrollDelta = Vec2(0.0f);
     m_text.clear();
+    m_droppedFiles.clear();
     m_events.clear();
 }
 
@@ -209,6 +210,10 @@ void Input::injectText(uint32_t codepoint) {
     event.codepoint = codepoint;
     event.modifiers = modifiers();
     m_events.push_back(event);
+}
+
+void Input::injectDrop(std::span<const std::filesystem::path> files) {
+    m_droppedFiles.insert(m_droppedFiles.end(), files.begin(), files.end());
 }
 
 void Input::injectGamepad(uint32_t index, const GamepadState* state) {

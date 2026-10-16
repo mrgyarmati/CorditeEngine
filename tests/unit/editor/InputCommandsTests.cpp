@@ -138,12 +138,26 @@ TEST_SUITE("InputCommands") {
         // Unplugged, it is not there.
         fixture.run("input.inject", R"({"gamepad": 1, "connected": false})");
         CHECK_FALSE(fixture.input.isGamepadConnected(1));
+
+        // Files are dropped onto the window, as a file manager drops them.
+        fixture.run("input.inject", R"({"drop": ["C:/Downloads/crate.glb", "rust.png"]})");
+        REQUIRE(fixture.input.droppedFiles().size() == 2);
+        CHECK(fixture.input.droppedFiles()[0] == pathFromUtf8("C:/Downloads/crate.glb"));
+        CHECK(fixture.input.droppedFiles()[1] == pathFromUtf8("rust.png"));
     }
 
     TEST_CASE("input.inject refuses what no hand can do") {
         InputFixture fixture;
         CHECK(fixture.fail("input.inject").message == "input.inject: one thing is injected at a time: a 'key', a "
-                                                      "'mouseButton', a 'mouseMove', a 'scroll' or a 'gamepad'");
+                                                      "'mouseButton', a 'mouseMove', a 'scroll', a 'gamepad' or a "
+                                                      "'drop'");
+        CHECK(fixture.fail("input.inject", R"({"drop": []})").message ==
+              "input.inject: 'drop' names from 1 to 1024 files, not 0");
+        CHECK(fixture.fail("input.inject", R"({"drop": ["a.png", 3]})").message ==
+              "input.inject: 'drop' is a list of the paths of files, and 3 is none");
+        CHECK(fixture.fail("input.inject", R"({"drop": [""]})").code == ErrorCode::InvalidArgument);
+        CHECK(fixture.fail("input.inject", R"({"drop": ["a.png"], "scroll": [0, 1]})").code ==
+              ErrorCode::InvalidArgument);
         CHECK(fixture.fail("input.inject", R"({"key": "Space", "mouseButton": "Left", "down": true})").code ==
               ErrorCode::InvalidArgument);
         CHECK(fixture.fail("input.inject", R"({"down": true})").code == ErrorCode::InvalidArgument);

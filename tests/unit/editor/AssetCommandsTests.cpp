@@ -1389,6 +1389,56 @@ TEST_SUITE("AssetCommands") {
         CHECK(dropTarget(*database.find(builtinMeshId(BuiltinMesh::Cube)), rowOf("textures")).empty());
     }
 
+    TEST_CASE("files are brought in by command, and what is dropped goes where the chosen asset is") {
+        AssetFixture fixture;
+        const TempDirectory downloads;
+        const Image image = unwrap(Image::create(2, 2, ImageFormat::Rgba8));
+        REQUIRE(image.savePng(downloads.path() / "rust.png").has_value());
+        // What it was called by in another project.
+        REQUIRE(
+            writeTextFile(downloads.path() / "rust.png.meta",
+                          R"({"format": "cordite.asset", "version": 1, "id": "22222222-2222-4222-8222-222222222222"})")
+                .has_value());
+
+        // Where a drop goes: the directory of the chosen asset, or the top.
+        CHECK(importDirectory(fixture.browser, fixture.assets->database()).empty());
+        fixture.run("assets.browse", R"({"select": "models/cart.gltf#mesh/0"})");
+        CHECK(importDirectory(fixture.browser, fixture.assets->database()) == "models");
+        fixture.run("assets.browse", fmt::format(R"({{"select": "{}"}})", builtinMeshId(BuiltinMesh::Cube).toString()));
+        CHECK(importDirectory(fixture.browser, fixture.assets->database()).empty());
+        fixture.run("assets.browse", R"({"select": "textures/wall.png"})");
+        const std::string directory = importDirectory(fixture.browser, fixture.assets->database());
+        CHECK(directory == "textures");
+
+        const std::vector<std::filesystem::path> dropped = {downloads.path() / "rust.png"};
+        const std::string line = importAssetsCommand(dropped, directory);
+        Json expected = Json::object();
+        expected["files"] = Json::array({pathToUtf8(dropped[0])});
+        expected["to"] = "textures";
+        CHECK(line == "asset.import " + expected.dump());
+        CHECK(importAssetsCommand(dropped, "") ==
+              fmt::format("asset.import {{\"files\":{}}}", expected["files"].dump()));
+
+        const Json imported = fixture.run("asset.import", line.substr(std::string_view("asset.import ").size()));
+        REQUIRE(imported["files"].size() == 1);
+        CHECK(imported["files"][0]["path"] == "textures/rust.png");
+        CHECK(imported["files"][0]["type"] == "texture");
+        // The .meta stayed behind: in this project the file is new, with an id of its own.
+        CHECK_FALSE(fileExists(fixture.root / "textures" / "rust.png.meta"));
+        CHECK(imported["files"][0]["id"] == fixture.id("textures/rust.png"));
+        CHECK(imported["files"][0]["id"] != "22222222-2222-4222-8222-222222222222");
+        CHECK(imported["problems"].empty());
+        CHECK(fixture.fail("asset.import", line.substr(std::string_view("asset.import ").size())).code ==
+              ErrorCode::AlreadyExists);
+        CHECK(fixture.fail("asset.import", R"({"files": [3]})").code == ErrorCode::InvalidArgument);
+        Json many = Json::object();
+        many["files"] = Json::array();
+        for (int index = 0; index < 1025; ++index) {
+            many["files"].push_back("x.png");
+        }
+        CHECK(fixture.fail("asset.import", many.dump()).message.find("1024 files") != std::string::npos);
+    }
+
     TEST_CASE("the entities that use an asset are found in the order of the hierarchy, and selected by a line") {
         AssetFixture fixture;
         const std::string body = fixture.id("models/cart.gltf#mesh/0");

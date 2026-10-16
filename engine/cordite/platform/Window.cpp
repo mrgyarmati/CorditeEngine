@@ -1,6 +1,7 @@
 #include "cordite/platform/Window.h"
 
 #include "cordite/core/Assert.h"
+#include "cordite/core/FileSystem.h"
 #include "cordite/core/Log.h"
 
 #define GLFW_INCLUDE_NONE
@@ -11,6 +12,9 @@
 #include <array>
 #include <atomic>
 #include <bit>
+#include <filesystem>
+#include <span>
+#include <vector>
 
 namespace cordite {
 namespace {
@@ -194,6 +198,15 @@ struct Window::Impl {
     }
 
     static void onCharacter(GLFWwindow* window, unsigned int codepoint) { from(window).input.injectText(codepoint); }
+
+    static void onDrop(GLFWwindow* window, int count, const char** paths) {
+        // GLFW names the files in UTF-8 on every platform.
+        std::vector<std::filesystem::path> files;
+        for (const char* path : std::span(paths, static_cast<size_t>(std::max(count, 0)))) {
+            files.push_back(pathFromUtf8(path));
+        }
+        from(window).input.injectDrop(files);
+    }
 
     static void onFocus(GLFWwindow* window, int focused) {
         if (focused == GLFW_FALSE) {
@@ -398,6 +411,7 @@ Result<std::unique_ptr<Window>> WindowSystem::createWindow(const WindowDesc& des
     glfwSetCursorPosCallback(handle, &Window::Impl::onCursorPosition);
     glfwSetScrollCallback(handle, &Window::Impl::onScroll);
     glfwSetCharCallback(handle, &Window::Impl::onCharacter);
+    glfwSetDropCallback(handle, &Window::Impl::onDrop);
     glfwSetWindowFocusCallback(handle, &Window::Impl::onFocus);
 
     return std::unique_ptr<Window>(new Window(std::move(impl)));

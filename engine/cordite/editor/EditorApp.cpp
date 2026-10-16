@@ -22,6 +22,7 @@
 
 #include <algorithm>
 #include <array>
+#include <filesystem>
 #include <limits>
 #include <span>
 #include <utility>
@@ -207,6 +208,7 @@ Result<bool> EditorApp::runFrame() {
     if (!keepRunning) {
         return false;
     }
+    importDroppedFiles();
     // The scene is a document here, not a game that runs: nothing in it plays on, and
     // what is animated is shown at the times its animators hold - until it is played.
     m_engine->updateWorld(m_play->clock());
@@ -835,6 +837,15 @@ Status EditorApp::registerProjectCommands() {
             return result;
         },
     });
+}
+
+void EditorApp::importDroppedFiles() {
+    // Run before the next frame, as what is typed in the console is: the assets are read again.
+    const std::span<const std::filesystem::path> dropped = m_engine->input().droppedFiles();
+    if (!dropped.empty()) {
+        m_submittedLines.push_back(
+            importAssetsCommand(dropped, importDirectory(m_assets.browser(), m_context->assets().database())));
+    }
 }
 
 Status EditorApp::registerPlayCommands() {

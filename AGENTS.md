@@ -657,6 +657,12 @@ Step-by-step guide: [work-with-assets](.claude/skills/work-with-assets/SKILL.md)
   scripts, scenes and prefabs, and the values in the open scene, that still name the old
   path: those are changed by hand. It takes the id by value - the assets are read again
   on the way, and an `AssetInfo` does not outlive that. Directories do not move yet.
+- **A file from elsewhere is brought in by a copy** (`asset.import`,
+  `editor/AssetImport.h`, or dropped onto the editor's window - into the directory of
+  the asset chosen in the browser): a glTF file brings what it names by where it is,
+  to the same places beside it, and a .meta beside a file stays behind - in this
+  project the file is new. Everything is checked before the first copy, and a copy
+  that fails takes the others back.
 - **The showcase's textures, models and sounds are generated**, by `tools/sample-assets`.
   Change the generator, run it, look at the result, commit both. Its materials, its
   prefab and its scene are written by hand, with comments: they are the reference for
@@ -1019,7 +1025,8 @@ Step-by-step guide: [work-with-assets](.claude/skills/work-with-assets/SKILL.md)
   stick and the keys beside it do not add up to twice the speed.
 - **Whatever a hand can do, `input.inject` can**, between frames - which is how tests
   and agents press keys. It reaches `Engine::input()`, so the editor's interface
-  sees it as well.
+  sees it as well. That includes dropping files onto the window from a file manager
+  (`Input::droppedFiles()`, for one frame), which the editor imports.
 - **The showcase binds every kind of control**: the `samples` test fails for a kind
   of binding that its input map does not use.
 

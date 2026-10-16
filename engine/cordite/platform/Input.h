@@ -1,7 +1,7 @@
 #pragma once
 
 /// @file
-/// Keyboard, mouse and gamepad state for one window.
+/// Keyboard, mouse and gamepad state for one window, and the files dropped onto it.
 ///
 /// Input is updated once per frame: WindowSystem::pollEvents() calls beginFrame() and
 /// then delivers the operating system's events. Between two polls the state is constant,
@@ -24,6 +24,7 @@
 #include <array>
 #include <bitset>
 #include <cstdint>
+#include <filesystem>
 #include <span>
 #include <string>
 #include <string_view>
@@ -99,6 +100,10 @@ public:
     /// Characters typed during this frame, as UTF-8.
     [[nodiscard]] std::string_view text() const { return m_text; }
 
+    /// Files dropped onto the window from outside during this frame - from a file manager -
+    /// as the operating system named them, in the order they came.
+    [[nodiscard]] std::span<const std::filesystem::path> droppedFiles() const { return m_droppedFiles; }
+
     /// Every event of this frame, in order.
     [[nodiscard]] std::span<const InputEvent> events() const { return m_events; }
 
@@ -117,6 +122,8 @@ public:
     void injectText(uint32_t codepoint);
     /// Connects a gamepad with the given state, or disconnects it with nullptr.
     void injectGamepad(uint32_t index, const GamepadState* state);
+    /// Files dropped onto the window, added to what droppedFiles() lists this frame.
+    void injectDrop(std::span<const std::filesystem::path> files);
 
     /// Releases every held key and mouse button, generating the matching up events. Call
     /// when the window loses focus so nothing stays stuck down.
@@ -143,6 +150,7 @@ private:
     bool m_hasMousePosition = false;
 
     std::string m_text;
+    std::vector<std::filesystem::path> m_droppedFiles;
     std::vector<InputEvent> m_events;
 
     std::array<GamepadState, kMaxGamepads> m_gamepads{};

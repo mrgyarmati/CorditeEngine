@@ -2135,6 +2135,39 @@ TEST_SUITE("EditorApp") {
         checkNoValidationIssues(editor->engine().graphics());
     }
 
+    TEST_CASE("files dropped onto the editor are brought into the assets, where the chosen asset is") {
+        const TempDirectory directory;
+        const Project project = unwrap(createProject(directory.path() / "project", "Dropping"));
+        const Image image = unwrap(Image::create(2, 2, ImageFormat::Rgba8));
+        REQUIRE(ensureDirectory(project.assetDirectory() / "textures").has_value());
+        REQUIRE(image.savePng(project.assetDirectory() / "textures" / "wall.png").has_value());
+        REQUIRE(image.savePng(directory.path() / "rust.png").has_value());
+        REQUIRE(image.savePng(directory.path() / "moss.png").has_value());
+        EditorAppDesc desc = headlessDesc(UVec2(640, 360));
+        desc.project = project.directory;
+        const std::unique_ptr<EditorApp> editor = createEditor(desc);
+        const auto drop = [&](const std::filesystem::path& file) {
+            Json files = Json::object();
+            files["drop"] = Json::array({pathToUtf8(file)});
+            run(*editor, "input.inject", files.dump());
+            REQUIRE(editor->runFrames(2).has_value());
+        };
+
+        // Nothing chosen: to the top.
+        drop(directory.path() / "rust.png");
+        CHECK(run(*editor, "asset.get", R"({"asset": "rust.png"})")["type"] == "texture");
+        // Beside what is chosen.
+        run(*editor, "assets.browse", R"({"select": "textures/wall.png"})");
+        drop(directory.path() / "moss.png");
+        CHECK(run(*editor, "asset.get", R"({"asset": "textures/moss.png"})")["type"] == "texture");
+        drop(directory.path() / "rust.png");
+        CHECK(fileExists(project.assetDirectory() / "textures" / "rust.png"));
+        // Once more, onto a place that holds it now: that is said, and the editor goes on.
+        drop(directory.path() / "rust.png");
+        CHECK(run(*editor, "asset.list", R"({"type": "texture"})")["assets"].size() == 4);
+        checkNoValidationIssues(editor->engine().graphics());
+    }
+
     TEST_CASE("the application adds its commands to the catalogue") {
         const std::unique_ptr<EditorApp> editor = createEditor(headlessDesc(UVec2(640, 360)));
         for (const char* name :
@@ -2142,7 +2175,7 @@ TEST_SUITE("EditorApp") {
               "editor.focusPanel", "editor.theme",       "assets.browse",     "viewport.lookAt",  "viewport.frame",
               "viewport.camera",   "viewport.debugView", "viewport.gizmo",    "entity.create",    "scene.save",
               "play.start",        "play.stop",          "play.pause",        "play.resume",      "play.step",
-              "play.status",       "asset.move"}) {
+              "play.status",       "asset.move",         "asset.import"}) {
             CAPTURE(name);
             const CommandDesc* command = editor->commands().find(name);
             REQUIRE(command != nullptr);

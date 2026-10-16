@@ -1,11 +1,15 @@
 #include "cordite/platform/Input.h"
 
+#include "cordite/core/FileSystem.h"
+
 #include "support/MathTestSupport.h"
 #include "support/TestSupport.h"
 
+#include <filesystem>
 #include <iterator>
 #include <limits>
 #include <string>
+#include <vector>
 
 using namespace cordite;
 
@@ -188,6 +192,23 @@ TEST_SUITE("Input") {
 
         input.beginFrame();
         CHECK(input.text().empty());
+    }
+
+    TEST_CASE("files dropped onto the window are listed for the frame they came in") {
+        Input input;
+        input.beginFrame();
+        CHECK(input.droppedFiles().empty());
+        const std::vector<std::filesystem::path> first = {pathFromUtf8("C:/Downloads/crate.glb"),
+                                                          pathFromUtf8("rust.png")};
+        input.injectDrop(first);
+        const std::vector<std::filesystem::path> second = {pathFromUtf8("/home/me/hop.wav")};
+        input.injectDrop(second);
+        CHECK(std::vector<std::filesystem::path>(input.droppedFiles().begin(), input.droppedFiles().end()) ==
+              std::vector<std::filesystem::path>{first[0], first[1], second[0]});
+        // A drop is no key and no character: no event of its own.
+        CHECK(input.events().empty());
+        input.beginFrame();
+        CHECK(input.droppedFiles().empty());
     }
 
     TEST_CASE("invalid code points are not turned into text") {

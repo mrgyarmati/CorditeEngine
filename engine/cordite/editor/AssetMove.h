@@ -85,6 +85,13 @@ struct AssetMove {
 /// id or a path that belonged to them would not outlive that.
 [[nodiscard]] Result<AssetMove> moveAsset(EditorContext& context, Uuid id, std::string to);
 
+/// Checks that `path` names a place inside the asset directory as references do: relative,
+/// with forward slashes, and without a colon - a drive on Windows, or a stream of a file
+/// that nobody would see. Fails with InvalidArgument for one that is empty, and for a part
+/// that is empty, "." or "..", or begins with a dot: directories of that kind are never
+/// read for assets.
+[[nodiscard]] Status checkAssetPath(std::string_view path);
+
 /// What moveAsset() did, as `asset.move` returns it: the id, `from`, `to`, and `mentions` -
 /// lines of files (`file`, `line`, `text`), then values in the open scene (`entity`, `id`,
 /// `component`, `property`).

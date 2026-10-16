@@ -154,6 +154,8 @@ private:
     [[nodiscard]] Status registerApplicationCommands();
     [[nodiscard]] Status registerPlayCommands();
     [[nodiscard]] Status registerProjectCommands();
+    /// Asks for files dropped onto the window from outside to be brought into the assets.
+    void importDroppedFiles();
     /// Draws the interface in a theme from the next frame on, and remembers it in the
     /// preferences, if there is a file for them.
     void chooseTheme(UiTheme theme);

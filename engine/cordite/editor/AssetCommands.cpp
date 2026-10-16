@@ -11,6 +11,7 @@
 #include "cordite/core/FileSystem.h"
 #include "cordite/core/Json.h"
 #include "cordite/core/StringUtils.h"
+#include "cordite/editor/AssetImport.h"
 #include "cordite/editor/EditorActions.h"
 #include "cordite/engine/SceneAssets.h"
 #include "cordite/math/MathJson.h"
@@ -24,6 +25,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <filesystem>
 #include <memory>
 #include <optional>
 #include <string>
@@ -37,6 +39,9 @@ using Type = CommandParameterType;
 
 /// What `assets.browse` calls the assets of every type.
 constexpr const char* kEveryType = "all";
+
+/// The most files `asset.import` brings in at once: more than a hand drops.
+constexpr size_t kMostImportedFiles = 1024;
 
 constexpr const char* kAssetReference =
     "An asset: its id, or its path within the asset directory, followed by '#' and its place in the file for an "
@@ -438,6 +443,53 @@ Status registerAssetCommands(CommandRegistry& commands, EditorContext& context) 
             result["usedInScene"] = describeUsesInScene(context, asset->id);
             result["warnings"] = asset->warnings;
             CORDITE_TRY_ASSIGN(result["content"], describeContent(context.assets(), context.components(), *asset));
+            return result;
+        },
+    }));
+
+    CORDITE_TRY(commands.add({
+        .name = "asset.import",
+        .description = "Brings files from elsewhere into the assets: copies them into a directory of the asset "
+                       "directory under their own names - a glTF file with the buffers and images it names by "
+                       "where they are, to the same places beside it - and reads the assets again. They get ids "
+                       "of their own; a .meta beside them stays behind. Refused, copying nothing, for a file "
+                       "that is not there, is a directory, is among the assets already or is no kind of asset, "
+                       "for two files that would go to one place, for a place that holds a file, and for a glTF "
+                       "file whose files would land outside the assets. Returns where each file went, and the "
+                       "assets they are. Files are no part of the document: edit.undo does not take them away.",
+        .parameters = {{"files", Type::Array, "The paths of the files: absolute, or from where the editor runs."},
+                       {"to", Type::String,
+                        "The directory of the assets they go into, with forward slashes: \"props/crates\". The "
+                        "top when left out.",
+                        false}},
+        .handler = [&context](const Json& parameters) -> Result<Json> {
+            const Json& listed = parameters.at("files");
+            if (listed.size() > kMostImportedFiles) {
+                return makeError(ErrorCode::InvalidArgument, "{} files are brought in at once at most, not {}",
+                                 kMostImportedFiles, listed.size());
+            }
+            std::vector<std::filesystem::path> files;
+            for (const Json& file : listed) {
+                if (!file.is_string()) {
+                    return makeError(ErrorCode::InvalidArgument, "'files' is a list of paths, and {} is none",
+                                     file.dump());
+                }
+                files.push_back(pathFromUtf8(file.get_ref<const std::string&>()));
+            }
+            CORDITE_TRY_ASSIGN(const AssetImport imported,
+                               importAssets(context, files, jsonGetOr<std::string>(parameters, "to", "")));
+            const AssetDatabase& database = context.assets().database();
+            Json brought = Json::array();
+            for (const std::string& file : imported.files) {
+                // A buffer beside a glTF file is no asset: it is said where it went, and no more.
+                const AssetInfo* asset = database.findByReference(file);
+                Json entry = asset != nullptr ? describeAsset(*asset) : Json::object();
+                entry["path"] = file;
+                brought.push_back(std::move(entry));
+            }
+            Json result = Json::object();
+            result["files"] = std::move(brought);
+            result["problems"] = describeProblems(database);
             return result;
         },
     }));

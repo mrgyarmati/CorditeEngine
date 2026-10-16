@@ -26,6 +26,7 @@
 #include "cordite/editor/EditorContext.h"
 
 #include <cstdint>
+#include <filesystem>
 #include <functional>
 #include <optional>
 #include <set>
@@ -167,5 +168,14 @@ private:
 /// project - an asset, or what the engine has built in - or holds the file already, and
 /// for an asset that has no file of its own to move: one that is built in or inside a file.
 [[nodiscard]] std::string dropTarget(const AssetInfo& asset, const AssetBrowserRow& row);
+
+/// Where files dropped onto the editor from outside are brought in: the directory of the
+/// asset that is chosen in the browser - of its file, for one inside a file - or the top,
+/// when nothing is chosen or what is chosen is built in.
+[[nodiscard]] std::string importDirectory(const AssetBrowser& browser, const AssetDatabase& database);
+
+/// What the editor asks for when files are dropped onto it, as a line for the console:
+/// `asset.import`, with their paths and the directory they go into, empty for the top.
+[[nodiscard]] std::string importAssetsCommand(std::span<const std::filesystem::path> files, std::string_view to);
 
 } // namespace cordite
