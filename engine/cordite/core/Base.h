@@ -2,6 +2,18 @@
 
 /// @file
 /// Platform detection and small utility macros shared by every engine module.
+///
+/// @code
+/// class Window {
+/// public:
+///     ~Window();
+///     CORDITE_NON_MOVABLE(Window);   // copying and moving are deleted both
+/// };
+///
+/// #if CORDITE_PLATFORM_WINDOWS
+/// // ... what only Windows does, in a .cpp file
+/// #endif
+/// @endcode
 
 #include <cstddef>
 #include <cstdint>

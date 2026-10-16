@@ -1473,8 +1473,9 @@ with CTest under the module name. See the skills
 - Test files are named `<Thing>Tests.cpp` and live in `tests/unit/<module>/`.
 - Some suites are not tied to one module: `samples` keeps the showcase project loading
   and complete, `editor_smoke` runs the real editor executable with a command script,
-  `module_layering` checks the include rules, and `test_sources` and `assets_listed`
-  keep the tests themselves in order (see the next point but one).
+  `module_layering` checks the include rules, `document_links` that every relative link
+  of the Markdown of the repository leads to a file that is there, and `test_sources`
+  and `assets_listed` keep the tests themselves in order (see the next point but one).
 - Rendering is tested with numbers before pictures. A test that can state what a pixel
   must be does so: `SceneRendererTests` with flat emissive materials, an orthographic
   camera and no light; `SceneLightingTests` with a white, matte wall and lights whose
@@ -1558,7 +1559,7 @@ short, before every commit:
 2. You have re-read the whole diff as a reviewer: design, correctness, error paths,
    lifetime, thread safety, input validation, naming, documentation, tests.
 3. Documentation that the change makes stale is updated in the same commit
-   (`AGENTS.md`, `docs/`, header comments, skills).
+   (`AGENTS.md`, `docs/` - the user guide in `docs/guide` too - header comments, skills).
 
 `verify` lints only changed files. Before a commit that touches widely included
 headers, also run the full `./scripts/dev.ps1 tidy`.

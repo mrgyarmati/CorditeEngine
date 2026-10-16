@@ -2,7 +2,12 @@
 
 /// @file
 /// Compact encodings shared between the CPU and shaders. The shader versions live in
-/// shaders/common/Encoding.slang and must stay in sync with these.
+/// shaders/common/GBuffer.slang and must stay in sync with these.
+///
+/// @code
+/// const Vec2 stored = encodeOctahedral(normal);   // two values in [0, 1]
+/// const Vec3 back = decodeOctahedral(stored);     // normal again, to the precision kept
+/// @endcode
 
 #include "cordite/math/Math.h"
 

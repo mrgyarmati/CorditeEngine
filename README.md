@@ -224,6 +224,13 @@ console panel of the interactive editor. `--help` lists every command-line optio
 
 ## Documentation
 
+- [docs/guide](docs/guide/README.md) - **making games with Cordite**: from building the
+  engine to an exported game, the editor, assets, materials, light, physics, sound,
+  animation, scripting and automation.
+- [docs/reference](docs/reference) - every component, script function, editor command and
+  control name, written by the engine itself.
+- [docs/learning.md](docs/learning.md) - **learning from Cordite**: a route through the code,
+  from the build system to an exported game, with what to read and what to try at each stop.
 - [AGENTS.md](AGENTS.md) - how to work in this repository: commands, coding standards,
   testing and review rules. Written for both people and AI agents.
 - [docs/architecture.md](docs/architecture.md) - module map, conventions and the

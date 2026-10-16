@@ -6,6 +6,11 @@
 /// Cordite uses glm for vectors, matrices and quaternions and adds its own geometric
 /// types on top.
 ///
+/// @code
+/// const Quat turned = glm::angleAxis(toRadians(90.0f), kWorldUp);
+/// const Vec3 ahead = turned * kWorldForward;   // -Z turned a quarter left: -X
+/// @endcode
+///
 /// Conventions (every module relies on these):
 /// - Right-handed world space, +Y up, metres. An object with identity rotation faces -Z.
 /// - Matrices are column-major and transform column vectors: `world = parent * local`.

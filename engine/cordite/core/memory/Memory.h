@@ -2,6 +2,12 @@
 
 /// @file
 /// Low-level memory helpers shared by the allocators.
+///
+/// @code
+/// static_assert(alignUp(13, 8) == 16);
+/// void* block = alignedAllocate(4 * kKibibyte, 64);   // nullptr when out of memory
+/// alignedFree(block);
+/// @endcode
 
 #include <cstddef>
 

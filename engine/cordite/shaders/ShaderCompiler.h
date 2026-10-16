@@ -7,6 +7,18 @@
 /// module. Keeping the interface here lets exported games, which ship precompiled
 /// shaders, link the shader library without linking a compiler; tests use it to
 /// substitute a fake compiler.
+///
+/// @code
+/// class CountingCompiler final : public IShaderCompiler {
+/// public:
+///     std::string version() const override { return "counting-1"; }
+///     Result<ShaderBinary> compile(const ShaderRequest& request) override {
+///         ++compilations;
+///         return ShaderBinary{};
+///     }
+///     int compilations = 0;
+/// };
+/// @endcode
 
 #include "cordite/core/Result.h"
 #include "cordite/shaders/ShaderTypes.h"

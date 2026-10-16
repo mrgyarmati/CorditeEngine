@@ -348,6 +348,12 @@ endif()
 
 cordite_add_layering_test()
 
+# The links between the documents of the repository - the guide, the reference, AGENTS.md,
+# the skills - lead somewhere.
+add_test(NAME document_links
+    COMMAND ${CMAKE_COMMAND} "-DROOT=${PROJECT_SOURCE_DIR}" -P "${PROJECT_SOURCE_DIR}/cmake/CheckDocumentLinks.cmake")
+set_tests_properties(document_links PROPERTIES LABELS "lint")
+
 # Rejects tests that are written in a way that crashes as soon as doctest is asked to
 # list the assertions that pass; see the script.
 add_test(NAME test_sources

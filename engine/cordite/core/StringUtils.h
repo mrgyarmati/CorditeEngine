@@ -3,6 +3,14 @@
 /// @file
 /// Small string helpers. All functions treat text as ASCII-compatible UTF-8 and only
 /// classify ASCII characters, so they are locale-independent.
+///
+/// @code
+/// for (const std::string_view part : split("a, b,,c", ',')) {
+///     const std::string_view word = trim(part);   // "a", "b", "", "c"
+/// }
+/// const bool same = equalsIgnoreCase("Space", "SPACE");          // true
+/// const std::string path = replaceAll("a\\b\\c", "\\", "/");      // "a/b/c"
+/// @endcode
 
 #include <string>
 #include <string_view>
