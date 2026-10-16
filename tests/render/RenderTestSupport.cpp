@@ -2,6 +2,7 @@
 
 #include "cordite/core/FileSystem.h"
 #include "cordite/core/Platform.h"
+#include "cordite/shader_compiler/EngineShaderCache.h"
 
 #include <optional>
 #include <string>
@@ -27,6 +28,18 @@ bool shouldUpdateReferences() {
 
 std::filesystem::path shaderDirectory() {
     return sourceDirectory() / "shaders";
+}
+
+const std::filesystem::path& compiledShaderCache() {
+    // Compiling every permutation takes seconds; once a run is enough.
+    static const TempDirectory directory;
+    static const bool compiled = [] {
+        const Status status = compileEngineShaders(shaderDirectory(), directory.path() / "shaders");
+        REQUIRE_MESSAGE(status.has_value(), errorOf(status));
+        return true;
+    }();
+    static_cast<void>(compiled);
+    return directory.path();
 }
 
 std::unique_ptr<GraphicsDevice> createTestDevice() {

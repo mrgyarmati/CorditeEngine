@@ -4,6 +4,8 @@ cordite_add_module(engine
         Engine.h
         EngineComponents.cpp
         EngineComponents.h
+        Game.cpp
+        Game.h
         ModelInstance.cpp
         ModelInstance.h
         Project.cpp

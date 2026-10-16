@@ -18,10 +18,12 @@
 
 #include <fmt/format.h>
 
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -39,8 +41,17 @@ enum class LogLevel : uint8_t {
     Off,
 };
 
+/// Every level, from the one that logs the most to the one that logs nothing.
+inline constexpr std::array<LogLevel, 7> kLogLevels = {LogLevel::Trace, LogLevel::Debug, LogLevel::Info,
+                                                       LogLevel::Warn,  LogLevel::Error, LogLevel::Critical,
+                                                       LogLevel::Off};
+
 /// Returns the lowercase name of a level, e.g. "warn".
 std::string_view nameOf(LogLevel level);
+
+/// The level that nameOf() calls `name`, or nullopt when no level is called that: the case
+/// counts, and "Warn" is none.
+[[nodiscard]] std::optional<LogLevel> logLevelFromName(std::string_view name);
 
 struct LogMessage {
     LogLevel level = LogLevel::Info;

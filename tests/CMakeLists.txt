@@ -244,6 +244,7 @@ cordite_add_test_suite(render
         render/EnvironmentTests.cpp
         render/FogTests.cpp
         render/FramePacerTests.cpp
+        render/GameTests.cpp
         render/GpuTimerTests.cpp
         render/GraphicsDeviceTests.cpp
         render/PostProcessTests.cpp
@@ -301,6 +302,11 @@ add_test(NAME editor_smoke
     WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}")
 set_tests_properties(editor_smoke PROPERTIES LABELS "gpu" TIMEOUT 120)
 cordite_configure_gpu_test(editor_smoke "gpu")
+
+# The program of a game starts, and says what it is: it links the engine and nothing of
+# the editor. That it plays a game is tested where a game is made of a project: export.
+add_test(NAME player_starts COMMAND cordite-player --version)
+set_tests_properties(player_starts PROPERTIES PASS_REGULAR_EXPRESSION "[0-9]+\\.[0-9]+")
 
 cordite_add_layering_test()
 

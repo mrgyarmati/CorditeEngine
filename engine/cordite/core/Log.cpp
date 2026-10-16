@@ -89,6 +89,15 @@ std::string_view nameOf(LogLevel level) {
     return "info";
 }
 
+std::optional<LogLevel> logLevelFromName(std::string_view name) {
+    for (const LogLevel level : kLogLevels) {
+        if (nameOf(level) == name) {
+            return level;
+        }
+    }
+    return std::nullopt;
+}
+
 Status Log::initialize(const LogConfig& config) {
     std::vector<spdlog::sink_ptr> sinks;
     if (config.console) {

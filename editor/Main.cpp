@@ -63,17 +63,6 @@ struct Options {
     std::string logLevel = "info";
 };
 
-cordite::LogLevel parseLogLevel(const std::string& name) {
-    for (const cordite::LogLevel level :
-         {cordite::LogLevel::Trace, cordite::LogLevel::Debug, cordite::LogLevel::Info, cordite::LogLevel::Warn,
-          cordite::LogLevel::Error, cordite::LogLevel::Critical, cordite::LogLevel::Off}) {
-        if (cordite::nameOf(level) == name) {
-            return level;
-        }
-    }
-    return cordite::LogLevel::Info;
-}
-
 /// Runs the script file and writes its outcome. Returns false when the script could not
 /// be run or one of its steps failed.
 bool runScriptFile(cordite::EditorApp& editor, const Options& options) {
@@ -130,7 +119,7 @@ int run(const Options& options) {
     using namespace cordite;
 
     LogConfig logConfig;
-    logConfig.level = parseLogLevel(options.logLevel);
+    logConfig.level = cordite::logLevelFromName(options.logLevel).value_or(cordite::LogLevel::Info);
     if (const Status status = Log::initialize(logConfig); !status) {
         CORDITE_LOG_WARN("Editor", "{}", status.error().message);
     }

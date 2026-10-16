@@ -5,6 +5,8 @@
 #include "support/TestSupport.h"
 
 #include <atomic>
+#include <cstddef>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -165,5 +167,20 @@ TEST_SUITE("Log") {
         CHECK(nameOf(LogLevel::Error) == "error");
         CHECK(nameOf(LogLevel::Critical) == "critical");
         CHECK(nameOf(LogLevel::Off) == "off");
+    }
+
+    TEST_CASE("a level is found by its name, and by nothing else") {
+        // Every level, in the order of the enumeration.
+        for (size_t index = 0; index < kLogLevels.size(); ++index) {
+            CHECK(kLogLevels[index] == static_cast<LogLevel>(index));
+        }
+        CHECK(kLogLevels.back() == LogLevel::Off);
+        for (const LogLevel level : kLogLevels) {
+            CHECK(logLevelFromName(nameOf(level)) == level);
+        }
+        for (const std::string_view name : {"", "Warn", "INFO", "warning", " info", "info "}) {
+            CAPTURE(name);
+            CHECK_FALSE(logLevelFromName(name).has_value());
+        }
     }
 }

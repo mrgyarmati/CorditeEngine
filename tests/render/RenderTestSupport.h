@@ -29,6 +29,11 @@ namespace cordite::test {
 /// The engine's shader sources in the repository.
 std::filesystem::path shaderDirectory();
 
+/// A cache directory with the engine's shaders compiled ahead into it (`<it>/shaders`,
+/// compileEngineShaders()), as a game that is exported has them: compiled the first time a
+/// test asks for it, and kept until the tests end.
+const std::filesystem::path& compiledShaderCache();
+
 /// Creates a headless device with validation on. Fails the test when the machine has no
 /// usable GPU.
 std::unique_ptr<GraphicsDevice> createTestDevice();

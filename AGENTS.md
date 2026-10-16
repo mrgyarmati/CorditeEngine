@@ -52,6 +52,7 @@ Read this file before changing anything. Task-specific walkthroughs live in
 ./scripts/dev.ps1 run -Target cordite-editor -- --project samples/showcase
 ./scripts/dev.ps1 run -Target cordite-editor -- --headless --validation --project samples/showcase --exec tests/data/editor-smoke.json --frames 3 --screenshot out.png
 ./scripts/dev.ps1 run -Target cordite-sample-assets -- samples/showcase/assets   # regenerate the showcase's textures, models and sounds
+./scripts/dev.ps1 run -Target cordite-player -- --game <dir>   # play a game: a project whose .cordite/shaders holds the engine's shaders compiled
 ```
 
 `dev.ps1` loads the MSVC environment itself, so it works from any shell. It requires
@@ -93,6 +94,7 @@ in that configuration.
 cmake/                 Build helpers: dependencies, compiler options, module/test macros
 engine/cordite/<mod>/  Engine modules (static libraries), one directory each
 editor/                The cordite-editor executable (a thin main around the editor module)
+player/                The cordite-player executable: the program of a game (a thin main around Game)
 tools/                 Development tools, such as the generator of the showcase's textures, models and sounds
 shaders/               Engine shader sources (Slang): common/ is shared code, materials/ what a surface is,
                        passes/ one file per pass, ui/ the interface
@@ -135,11 +137,15 @@ by accident.
 | `shader_compiler` | `core`, `shaders` | Slang to SPIR-V compiler, and the cache of the engine's shaders compiled ahead that an exported game ships (`EngineShaderCache.h`); not linked into exported games |
 | `renderer` | `core`, `math`, `assets`, `world`, `animation`, `rhi`, `shaders` | The scene renderer and what it is made of: GPU copies of assets, the mesh passes, the G-buffer and its lighting, the lights of a world and the clusters they are sorted into, their shadow maps and the atlas those share, what finishes the picture (exposure, bloom, tone mapping, grading), the environment (the sky and what it lights), ambient occlusion from the screen, fog, the debug views, scene targets, the `MeshRenderer`, `Light`, `AmbientLight`, `Environment`, `Fog` and `PostProcess` components; camera views, debug lines, GPU timing, GPU shader management |
 | `ui` | `core`, `math`, `platform`, `rhi`, `shaders`, `renderer` | The immediate-mode interface: the Dear ImGui context and its NVRHI renderer; its typefaces and icons, compiled in; its themes, and the widgets it draws the same way everywhere |
-| `engine` | all of the above but `shader_compiler` | `Engine`: owns the subsystems, the assets, the world and the interface, and runs the frame loop; projects; placing models; checking the assets a scene uses |
+| `engine` | all of the above but `shader_compiler` | `Engine`: owns the subsystems, the assets, the world and the interface, and runs the frame loop; projects; a game made of a project (`Game`); placing models; checking the assets a scene uses |
 | `editor` | `engine` and below, `shader_compiler` | The editor: the scene document, undoable actions, scene and asset commands, panels, `EditorApp` (not linked into exported games) |
 
 `cordite-editor` (in `editor/`) is a thin `main` around `EditorApp`. Everything else,
 including what tests need to drive the editor, is in the `editor` module.
+`cordite-player` (in `player/`) is a thin `main` around `Game` (`engine/Game.h`): a
+project's start scene played with its controls, by an engine without a shader compiler,
+on the engine's shaders compiled ahead into the project's cache. It links nothing of the
+editor.
 
 Rules that keep the architecture honest:
 
@@ -1733,3 +1739,8 @@ body explaining what changed and why. One logical change per commit.
   `std::initializer_list<T>{{.member = ...}, {...}}` when `T` holds a vector:
   designated initializers without the name of their type, inside a braced list. Make
   it a `const std::vector<T>` of `T{.member = ...}` first, and loop over that.
+- MSVC's incremental linker sometimes stops with LNK1163 ("invalid selection for COMDAT
+  section") on objects that are fine: the same target links when it is built again,
+  because the failed link took its `.ilk` with it and the next one starts from nothing.
+  Build the target once more before looking for the cause in the code, and run a
+  `verify` that failed that way again from the start.
