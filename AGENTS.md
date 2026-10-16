@@ -1484,10 +1484,13 @@ panels, EditorApp    the interface, built on the three layers above
   (`EditorAppDesc::watchAssets`, on unless it is headless): a `DirectoryWatcher` looks at
   them on a thread of its own, and a file that was added, removed or written queues
   `asset.refresh` before the next frame - which is also how a scene that is played gets
-  the new text of a script. What the editor writes itself (`EditorContext::saveCount`) or
-  has just read again (`AssetDatabase::revision`, with the .meta files that writes) is
-  taken for no change. A refresh reads everything again, as the button does. Batch runs
-  and tests leave it off: they see the files as their commands leave them.
+  the new text of a script. A file whose name ends in .tmp is on its way to being
+  written - an atomic write renames such a sibling - and is not looked at, or a look
+  between the two takes it for a file that came and went. What the editor writes itself
+  (`EditorContext::saveCount`) or has just read again (`AssetDatabase::revision`, with the
+  .meta files that writes) is taken for no change. A refresh reads everything again, as
+  the button does. Batch runs and tests leave it off: they see the files as their
+  commands leave them.
 - **The interface is Dear ImGui**, reached through the `ui` module. It runs without a
   window too, with the pointer fed from `Engine::input()`, so interface code is covered
   by headless tests.

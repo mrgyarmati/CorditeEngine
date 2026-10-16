@@ -25,7 +25,10 @@ std::map<std::string, FileStamp> stampFiles(const std::filesystem::path& directo
             }
             continue;
         }
-        if (!entry->is_regular_file(statusError)) {
+        // A file whose name ends in .tmp is on its way to being written: writeBinaryFile()
+        // writes such a sibling and renames it, and a look between the two would take it
+        // for a file that came and went.
+        if (!entry->is_regular_file(statusError) || pathToUtf8(entry->path().filename()).ends_with(".tmp")) {
             continue;
         }
         FileStamp stamp;

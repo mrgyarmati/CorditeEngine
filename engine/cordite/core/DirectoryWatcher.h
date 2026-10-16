@@ -40,8 +40,10 @@ struct FileStamp {
 };
 
 /// The files under `directory` - not those in directories whose names begin with a dot, as
-/// the assets do not count them either - by their paths relative to it, with forward
-/// slashes. What cannot be read is left out; a directory that is not there has no files.
+/// the assets do not count them either, nor files whose names end in .tmp, which are on
+/// their way to being written (writeBinaryFile() writes such a sibling and renames it) - by
+/// their paths relative to it, with forward slashes. What cannot be read is left out; a
+/// directory that is not there has no files.
 [[nodiscard]] std::map<std::string, FileStamp> stampFiles(const std::filesystem::path& directory);
 
 /// The paths that one of two lists of files has and the other has not, or both have with

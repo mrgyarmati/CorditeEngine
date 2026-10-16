@@ -20,7 +20,7 @@ namespace {
 using Paths = std::vector<std::string>;
 
 /// What a watcher gathers within a generous time: it looks on a thread of its own.
-Paths changesWithin(DirectoryWatcher& watcher, std::chrono::seconds limit = std::chrono::seconds(10)) {
+Paths changesWithin(DirectoryWatcher& watcher, std::chrono::milliseconds limit = std::chrono::seconds(10)) {
     const auto end = std::chrono::steady_clock::now() + limit;
     Paths changes;
     while (changes.empty() && std::chrono::steady_clock::now() < end) {
@@ -40,6 +40,8 @@ TEST_SUITE("DirectoryWatcher") {
         REQUIRE(writeTextFile(directory.path() / ".cache" / "c.bin", "not counted").has_value());
         REQUIRE(writeTextFile(directory.path() / "scripts" / ".notes" / "d.txt", "not counted").has_value());
         REQUIRE(writeTextFile(directory.path() / ".hidden-file", "a file, and counted").has_value());
+        // What an atomic write leaves for a moment before it renames it.
+        REQUIRE(writeTextFile(directory.path() / "scripts" / "b.lua.0aedd5c8.tmp", "not counted").has_value());
         REQUIRE(ensureDirectory(directory.path() / "empty").has_value());
 
         const auto files = stampFiles(directory.path());
@@ -103,6 +105,17 @@ TEST_SUITE("DirectoryWatcher") {
         watcher.rebaseline();
         CHECK(watcher.takeChanges().empty());
         CHECK(changesWithin(watcher, std::chrono::seconds(1)).empty());
+    }
+
+    TEST_CASE("a file on its way to being written is no change, and the file it becomes is") {
+        const TempDirectory directory;
+        DirectoryWatcher watcher({.directory = directory.path(), .interval = std::chrono::milliseconds(10)});
+        CHECK(watcher.takeChanges().empty());
+        const std::filesystem::path temporary = directory.path() / "kept.txt.0aedd5c8.tmp";
+        REQUIRE(writeTextFile(temporary, "on its way").has_value());
+        CHECK(changesWithin(watcher, std::chrono::milliseconds(300)).empty());
+        std::filesystem::rename(temporary, directory.path() / "kept.txt");
+        CHECK(changesWithin(watcher) == Paths{"kept.txt"});
     }
 
     TEST_CASE("a watcher of a directory that is not there sees it come") {
