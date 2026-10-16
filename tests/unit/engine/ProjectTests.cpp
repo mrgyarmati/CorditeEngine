@@ -191,6 +191,24 @@ TEST_SUITE("Project") {
         CHECK(saved.error().code == ErrorCode::InvalidArgument);
     }
 
+    TEST_CASE("the name of a game is made fit to name files and directories") {
+        CHECK(gameFileName("Showcase") == "Showcase");
+        CHECK(gameFileName("  Depot: the Game!  ") == "Depot the Game");
+        CHECK(gameFileName("Café-Bar_2") == "Café-Bar_2");
+        CHECK(gameFileName("") == "Game");
+        CHECK(gameFileName("?*/") == "Game");
+        // What Windows keeps for its devices is no name for a file, whatever the case.
+        CHECK(gameFileName("con") == "Game");
+        CHECK(gameFileName("Lpt1") == "Game");
+        CHECK(gameFileName("COM0") == "Game");
+        CHECK(gameFileName("com¹") == "Game");
+        CHECK(gameFileName("Console") == "Console");
+        CHECK(gameFileName("COM10") == "COM10");
+        // Nor is a directory beside the program of a game, where programs have no ending.
+        CHECK(gameFileName("Assets") == "Game");
+        CHECK(gameFileName("licenses.") == "Game");
+    }
+
     TEST_CASE("the settings are described for tools") {
         const TypeInfo& type = projectSettingsTypeInfo();
         CHECK(type.properties().size() == 3);

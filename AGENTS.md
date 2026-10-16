@@ -163,6 +163,18 @@ that exported it, with the player of the editor's build: a game to be shipped is
 by a `Release` build. `export_smoke` exports the showcase and plays it from where it was
 put, with nothing of the build beside it.
 
+**A game that someone plays has their settings** (`engine/GameSettings.h`): the whole
+screen or a window and its size, vsync, the quality of the pictures, the volumes - in
+`settings.json` under the name of the game (`gameFileName`) in the player's configuration
+directory, read as strictly as a scene. `Game::create` reads the file it is given
+(`GameDesc::settingsFile`): none there yet, it plays with the defaults and writes them,
+for the player to change; one that cannot be read is said, left alone and replaced by the
+defaults for that start. What the command line says (`GameDesc::overrides`) wins for one
+start and is never written. The defaults are an engine's own, so a game without settings
+and one with a fresh file are the same game. `cordite-player` uses the game's own file
+only with a window: a run nobody watches - a test, `--headless` - must not change what a
+person chose, and names a file of its own with `--settings` when it wants one.
+
 Rules that keep the architecture honest:
 
 - A lower module never knows about a higher one. If `core` needs something from the

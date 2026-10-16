@@ -1957,6 +1957,18 @@ What is left out is left out on purpose for now: no Doppler effect - sources and
 the listener have no velocity - no cones, no reverberation, nothing in the way of a
 sound.
 
+### Settings are the player's file, not the project's
+
+What a person chooses about a game they play - the window, vsync, the quality of the
+pictures, the volumes - is theirs: it is kept where their system keeps such things, under
+the name of the game, and not beside the game, which an export replaces and which may sit
+where nobody may write. It is a file, read as strictly as a scene and written with every
+member, rather than a menu: a game has no interface of its own yet, and a file the game
+writes the first time is something a person can find and change, and that a menu can later
+read and write. The command line wins over it for one start and is never written into it,
+so that a test or a shortcut that asks for a window of some size does not change what the
+person chose; and a game run without a window reads none at all unless it is told which.
+
 ### A preview is beside the world, not on a bus of it
 
 The Assets panel plays a sound for whoever is at the editor while the scene is not

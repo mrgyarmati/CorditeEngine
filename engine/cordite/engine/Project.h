@@ -92,4 +92,12 @@ struct Project {
 /// directory holds a project already.
 [[nodiscard]] Result<Project> createProject(const std::filesystem::path& directory, std::string name);
 
+/// The name of a game as files and directories may be named: the letters, digits, spaces,
+/// dashes and underscores of `projectName` - letters of every alphabet - without blanks at
+/// the ends. "Game" when nothing is left of it, or what is left is what Windows keeps for a
+/// device ("con", "lpt1") or names a directory beside the program of a game ("assets",
+/// "licenses"), in any case. The program of an exported game is called so, and so is the
+/// directory of the settings of the person who plays it.
+[[nodiscard]] std::string gameFileName(std::string_view projectName);
+
 } // namespace cordite

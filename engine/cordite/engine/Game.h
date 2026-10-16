@@ -7,10 +7,12 @@
 /// engine's shaders, compiled (compileEngineShaders()) - what an export writes.
 /// Game::create() reads the project, makes an engine of it on that cache, gives the engine
 /// the controls of the project and puts in its start scene; runFrame() plays a frame.
-/// cordite-player is a thin main around it.
+/// cordite-player is a thin main around it. A game that someone plays has their settings
+/// (GameSettings.h): the program names the file, the game reads it as it starts.
 ///
 /// @code
-/// CORDITE_TRY_ASSIGN(const std::unique_ptr<Game> game, Game::create({.directory = gameDirectory}));
+/// CORDITE_TRY_ASSIGN(const std::unique_ptr<Game> game,
+///                    Game::create({.directory = gameDirectory, .settingsFile = gameSettingsFile("Depot")}));
 /// while (true) {
 ///     CORDITE_TRY_ASSIGN(const bool keepRunning, game->runFrame());
 ///     if (!keepRunning) {
@@ -22,10 +24,12 @@
 #include "cordite/core/Base.h"
 #include "cordite/core/Result.h"
 #include "cordite/engine/Engine.h"
+#include "cordite/engine/GameSettings.h"
 #include "cordite/engine/Project.h"
 
 #include <filesystem>
 #include <memory>
+#include <optional>
 
 namespace cordite {
 
@@ -39,6 +43,20 @@ struct GameDesc {
     /// into its assets. Without a `shaderCompiler`, which a game is not given, its shaders
     /// come from its cache alone.
     EngineDesc engine;
+
+    /// The file in which the person who plays keeps their settings - usually the game's own
+    /// (gameSettingsFile()). Given one, the game reads it as it starts: when there is no
+    /// such file yet it plays with the defaults and writes them into it, for the player to
+    /// change; when the file cannot be read it plays with the defaults, says why, and
+    /// leaves the file as it is. The settings then decide over `engine` whether the window
+    /// fills the screen, its size, and vsync, and over the engine the quality of its
+    /// pictures and the volumes of its sound. Empty for none, which is what a game that
+    /// runs unattended is given: it is made as `engine` says.
+    std::filesystem::path settingsFile;
+
+    /// What wins, for this start, over the settings of the file - or over `engine`, without
+    /// one - and is not written into the file: what the command line said.
+    GameSettingsOverrides overrides;
 };
 
 class Game {
@@ -60,11 +78,16 @@ public:
 
     [[nodiscard]] const Project& project() const { return m_project; }
 
+    /// The settings the game started with: those of its file, with the overrides. None for
+    /// a game without a settings file.
+    [[nodiscard]] const std::optional<GameSettings>& settings() const { return m_settings; }
+
 private:
     Game() = default;
 
     Project m_project;
     std::unique_ptr<Engine> m_engine;
+    std::optional<GameSettings> m_settings;
 };
 
 } // namespace cordite

@@ -8,6 +8,14 @@
 ///     cordite-player
 ///     cordite-player --game path/to/game --headless --frames 120 --fixed-time-step 0.0166667 --screenshot out.png
 ///
+/// With a window it plays with the settings of the person who plays it (GameSettings.h):
+/// settings.json in a directory named after the game in their configuration directory -
+/// written with the defaults the first time, for them to change - or the file --settings
+/// names. What its options say of the window, vsync and the quality of the pictures wins
+/// over that file for one start, and is not written into it. Without a window it reads no
+/// settings unless --settings names a file: a run that nobody watches must not change what
+/// a person chose.
+///
 /// Exit status: 0 the game ran, 1 it could not run, 2 the GPU validation layers reported
 /// issues. What it has to say goes to standard error.
 
@@ -17,12 +25,16 @@
 #include "cordite/core/Platform.h"
 #include "cordite/core/Version.h"
 #include "cordite/engine/Game.h"
+#include "cordite/engine/GameSettings.h"
+#include "cordite/engine/Project.h"
+#include "cordite/renderer/SceneRenderer.h"
 
 #include <CLI/CLI.hpp>
 #include <fmt/format.h>
 
 #include <cstdint>
 #include <exception>
+#include <filesystem>
 #include <string>
 #include <utility>
 
@@ -34,12 +46,17 @@ constexpr int kExitValidationIssues = 2;
 
 struct Options {
     std::string game;
+    std::string settings;
     bool headless = false;
     bool validation = false;
     bool noVsync = false;
     bool fullscreen = false;
+    bool windowed = false;
     uint32_t width = 1280;
     uint32_t height = 720;
+    std::string quality;
+    /// What of the above was given, to win over the settings of the person who plays.
+    cordite::GameSettingsOverrides overrides;
     /// Zero plays until the window is closed.
     uint64_t frames = 0;
     double fixedTimeStep = 0.0;
@@ -55,6 +72,29 @@ void tellPlayer(const std::string& message) {
     cordite::showErrorDialog(cordite::pathToUtf8(cordite::executablePath().stem()), message);
 }
 
+/// Where the settings of the person who plays are kept: the file --settings names, or the
+/// game's own in their configuration directory. None without a window, unless --settings
+/// names one.
+std::filesystem::path settingsFileOf(const Options& options, const std::filesystem::path& gameDirectory) {
+    if (!options.settings.empty()) {
+        return cordite::pathFromUtf8(options.settings);
+    }
+    if (options.headless) {
+        return {};
+    }
+    // The name of the game says where. What is wrong with a directory that is no game,
+    // Game::create() says.
+    const cordite::Result<cordite::Project> project = cordite::loadProject(gameDirectory);
+    if (!project) {
+        return {};
+    }
+    std::filesystem::path file = cordite::gameSettingsFile(project->settings.name);
+    if (file.empty()) {
+        CORDITE_LOG_WARN("Game", "this system names no directory for settings: the game plays with the defaults");
+    }
+    return file;
+}
+
 int run(const Options& options) {
     cordite::LogConfig logConfig;
     logConfig.level = cordite::logLevelFromName(options.logLevel).value_or(cordite::LogLevel::Info);
@@ -67,15 +107,12 @@ int run(const Options& options) {
     desc.directory = options.game.empty() ? cordite::executableDirectory() : cordite::pathFromUtf8(options.game);
     desc.engine.headless = options.headless;
     desc.engine.validation = options.validation;
-    desc.engine.vsync = !options.noVsync;
-    desc.engine.window.width = options.width;
-    desc.engine.window.height = options.height;
-    desc.engine.window.fullscreen = options.fullscreen;
-    desc.engine.renderSize = {options.width, options.height};
     desc.engine.fixedTimeStep = options.fixedTimeStep;
     desc.engine.preferredAdapter = options.adapter;
     // Without a window nobody listens: what would be heard is mixed into memory.
     desc.engine.audio.output = options.headless ? cordite::AudioOutput::Offline : cordite::AudioOutput::Device;
+    desc.settingsFile = settingsFileOf(options, desc.directory);
+    desc.overrides = options.overrides;
 
     cordite::Result<std::unique_ptr<cordite::Game>> game = cordite::Game::create(std::move(desc));
     if (!game) {
@@ -134,10 +171,16 @@ int parseAndRun(int argc, char** argv) {
     app.add_flag("--headless", options.headless, "Play without a window, drawing offscreen");
     app.add_flag("--validation", options.validation,
                  "Enable the GPU validation layers; exits with status 2 if they report anything");
+    app.add_option("--settings", options.settings,
+                   "The file of the player's settings. By default the game's own in the configuration directory of "
+                   "the person who plays, and none with --headless");
     app.add_flag("--no-vsync", options.noVsync, "Do not wait for the display refresh");
-    app.add_flag("--fullscreen", options.fullscreen, "Fill the screen");
+    CLI::Option* fullscreen = app.add_flag("--fullscreen", options.fullscreen, "Fill the screen");
+    app.add_flag("--windowed", options.windowed, "Play in a window")->excludes(fullscreen);
     app.add_option("--width", options.width, "Window or offscreen width in pixels")->check(CLI::Range(1u, 16384u));
     app.add_option("--height", options.height, "Window or offscreen height in pixels")->check(CLI::Range(1u, 16384u));
+    app.add_option("--quality", options.quality, "What a picture may cost")
+        ->check(CLI::IsMember({"low", "medium", "high"}));
     app.add_option("--frames", options.frames, "Exit after this many frames (0 = play until the window is closed)");
     app.add_option("--fixed-time-step", options.fixedTimeStep,
                    "Advance time by this many seconds per frame instead of using the clock")
@@ -148,6 +191,23 @@ int parseAndRun(int argc, char** argv) {
         ->check(CLI::IsMember({"trace", "debug", "info", "warn", "error", "critical", "off"}));
 
     CLI11_PARSE(app, argc, argv);
+
+    // What was said wins over the settings; what was not said leaves them as they are.
+    if (options.fullscreen || options.windowed) {
+        options.overrides.fullscreen = options.fullscreen;
+    }
+    if (app.count("--width") > 0) {
+        options.overrides.width = options.width;
+    }
+    if (app.count("--height") > 0) {
+        options.overrides.height = options.height;
+    }
+    if (options.noVsync) {
+        options.overrides.vsync = false;
+    }
+    if (!options.quality.empty()) {
+        options.overrides.quality = cordite::renderQualityFromName(options.quality);
+    }
 
     if (options.headless) {
         // Nobody is there to dismiss a dialog; a fatal error must end the process.

@@ -215,6 +215,7 @@ cordite_add_test_suite(engine
     SOURCES
         support/SkinnedModelSupport.h
         unit/engine/EngineShaderDirectoryTests.cpp
+        unit/engine/GameSettingsTests.cpp
         unit/engine/ModelInstanceTests.cpp
         unit/engine/ProjectTests.cpp
         unit/engine/SceneAssetsTests.cpp

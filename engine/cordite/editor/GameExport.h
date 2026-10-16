@@ -51,11 +51,8 @@ struct GameExport {
     uint64_t bytes = 0;
 };
 
-/// The file name of the program of a game called `projectName`: its letters, digits,
-/// spaces, dashes and underscores - letters of every alphabet - without blanks at the ends,
-/// with what a program is called on this system ("Showcase.exe" on Windows). "Game" when
-/// nothing is left of the name, or what is left is what Windows keeps for a device ("con",
-/// "lpt1") or names a directory beside the program ("assets", "licenses"), in any case.
+/// The file name of the program of a game called `projectName`: gameFileName(), as a
+/// program is called on this system ("Showcase.exe" on Windows).
 [[nodiscard]] std::string gameProgramName(std::string_view projectName);
 
 /// Writes the game of `project` into `desc.destination` - see the file comment - and checks

@@ -4,14 +4,10 @@
 #include "cordite/core/Json.h"
 #include "cordite/core/Log.h"
 #include "cordite/core/Platform.h"
-#include "cordite/core/StringUtils.h"
 #include "cordite/core/Version.h"
 #include "cordite/engine/Engine.h"
 #include "cordite/shader_compiler/EngineShaderCache.h"
 
-#include <algorithm>
-#include <array>
-#include <cctype>
 #include <cstdint>
 #include <optional>
 #include <system_error>
@@ -20,15 +16,6 @@
 
 namespace cordite {
 namespace {
-
-/// Names that no program of a game may have, whatever their case: what Windows keeps for
-/// devices - a file of such a name is no file there, with any ending - and the directories
-/// of a game beside its program, which on systems where programs have no ending would be
-/// the same name.
-constexpr std::array<std::string_view, 32> kTakenNames = {
-    "con",  "prn",  "aux",  "nul",  "com0", "com1", "com2", "com3", "com4",   "com5",    "com6",
-    "com7", "com8", "com9", "com¹", "com²", "com³", "lpt0", "lpt1", "lpt2",   "lpt3",    "lpt4",
-    "lpt5", "lpt6", "lpt7", "lpt8", "lpt9", "lpt¹", "lpt²", "lpt³", "assets", "licenses"};
 
 /// What an export writes down of itself, in the cache directory of the game: that the
 /// directory is a game it made, which another export may replace, and what its program is.
@@ -232,19 +219,7 @@ Status writeGame(const Project& project, const GameExportDesc& desc, const std::
 } // namespace
 
 std::string gameProgramName(std::string_view projectName) {
-    std::string name;
-    for (const char character : projectName) {
-        const auto byte = static_cast<unsigned char>(character);
-        // Letters of other alphabets are bytes above 127 in UTF-8, and welcome.
-        if (byte >= 0x80 || std::isalnum(byte) != 0 || character == ' ' || character == '-' || character == '_') {
-            name += character;
-        }
-    }
-    name = std::string(trim(name));
-    if (name.empty() || std::ranges::find(kTakenNames, toLowerAscii(name)) != kTakenNames.end()) {
-        name = "Game";
-    }
-    return executableFileName(name);
+    return executableFileName(gameFileName(projectName));
 }
 
 Result<GameExport> exportGame(const Project& project, const GameExportDesc& desc) {

@@ -1,7 +1,10 @@
 #include "cordite/engine/Game.h"
 
+#include "cordite/audio/AudioSystem.h"
 #include "cordite/core/FileSystem.h"
+#include "cordite/engine/GameSettings.h"
 #include "cordite/engine/Project.h"
+#include "cordite/renderer/SceneRenderer.h"
 
 #include "render/RenderTestSupport.h"
 #include "support/TestSupport.h"
@@ -77,6 +80,90 @@ TEST_SUITE("Game") {
         CHECK(game->engine().shaders().stats().compilations == 0);
         CHECK_FALSE(std::filesystem::exists(pathFromUtf8(pathToUtf8(scene) + ".meta")));
         test::checkNoValidationIssues(game->engine().graphics());
+    }
+
+    TEST_CASE("a game plays with the settings of the person who plays, and writes the defaults when there are none") {
+        const TempDirectory directory;
+        const std::filesystem::path file = directory.path() / "player" / "settings.json";
+        GameDesc desc = showcaseGame(test::compiledShaderCache());
+        desc.settingsFile = file;
+        {
+            // None yet: the defaults - what a game without settings has - and a file with
+            // every one of them in it, to change.
+            const std::unique_ptr<Game> game = unwrap(Game::create(desc));
+            REQUIRE(game->settings().has_value());
+            CHECK(*game->settings() == GameSettings{});
+            CHECK(unwrap(loadGameSettings(file)) == GameSettings{});
+            CHECK(game->engine().renderSize() == UVec2(GameSettings{}.width, GameSettings{}.height));
+            CHECK(renderQualityOf(game->engine().renderSettings()) == GameSettings{}.quality);
+        }
+
+        // Changed by the person, between two starts: the next start takes it.
+        GameSettings chosen;
+        chosen.width = 400;
+        chosen.height = 240;
+        chosen.quality = RenderQuality::Low;
+        chosen.masterVolume = 0.5f;
+        chosen.musicVolume = 0.25f;
+        chosen.voiceVolume = 0.0f;
+        REQUIRE(saveGameSettings(file, chosen).has_value());
+        {
+            const std::unique_ptr<Game> game = unwrap(Game::create(desc));
+            Engine& engine = game->engine();
+            CHECK(*game->settings() == chosen);
+            CHECK(engine.renderSize() == UVec2(400, 240));
+            CHECK(renderQualityOf(engine.renderSettings()) == RenderQuality::Low);
+            CHECK(engine.audio().masterVolume() == 0.5f);
+            CHECK(engine.audio().volume(AudioBus::Music) == 0.25f);
+            CHECK(engine.audio().volume(AudioBus::Voice) == 0.0f);
+            CHECK(engine.audio().volume(AudioBus::Effects) == 1.0f);
+        }
+
+        // What the command line says wins for one start, and is not written.
+        desc.overrides = {.width = 320, .quality = RenderQuality::High};
+        {
+            const std::unique_ptr<Game> game = unwrap(Game::create(desc));
+            CHECK(game->engine().renderSize() == UVec2(320, 240));
+            CHECK(renderQualityOf(game->engine().renderSettings()) == RenderQuality::High);
+            CHECK(game->engine().audio().volume(AudioBus::Music) == 0.25f);
+        }
+        CHECK(unwrap(loadGameSettings(file)) == chosen);
+    }
+
+    TEST_CASE("settings that cannot be read are said and left alone, and the game plays with the defaults") {
+        const TempDirectory directory;
+        GameDesc desc = showcaseGame(test::compiledShaderCache());
+        desc.settingsFile = directory.path() / "settings.json";
+        const std::string broken = R"({"format": "cordite.settings", "version": 1, "musicVolume": 2})";
+        REQUIRE(writeTextFile(desc.settingsFile, broken).has_value());
+        {
+            const test::LogCapture log;
+            const std::unique_ptr<Game> game = unwrap(Game::create(desc));
+            CHECK(*game->settings() == GameSettings{});
+            CHECK(log.contains("the settings of the game cannot be read, and the defaults are used"));
+            CHECK(log.contains("musicVolume"));
+        }
+        CHECK(unwrap(readTextFile(desc.settingsFile)) == broken);
+
+        // Nowhere to write them: the game plays all the same, and says so.
+        REQUIRE(writeTextFile(directory.path() / "taken", "a file, where a directory would be").has_value());
+        desc.settingsFile = directory.path() / "taken" / "settings.json";
+        {
+            const test::LogCapture log;
+            const std::unique_ptr<Game> game = unwrap(Game::create(desc));
+            CHECK(*game->settings() == GameSettings{});
+            CHECK(log.contains("the settings of the game could not be written"));
+        }
+    }
+
+    TEST_CASE("a game without settings is made as it is told, with what the command line says over it") {
+        GameDesc desc = showcaseGame(test::compiledShaderCache());
+        desc.overrides = {.height = 200, .quality = RenderQuality::Low};
+        const std::unique_ptr<Game> game = unwrap(Game::create(desc));
+        CHECK_FALSE(game->settings().has_value());
+        CHECK(game->engine().renderSize() == UVec2(320, 200));
+        CHECK(renderQualityOf(game->engine().renderSettings()) == RenderQuality::Low);
+        CHECK(game->engine().audio().masterVolume() == 1.0f);
     }
 
     TEST_CASE("what is no game, or cannot start, is refused") {

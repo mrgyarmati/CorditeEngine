@@ -4,9 +4,11 @@
 #include "cordite/core/Document.h"
 #include "cordite/core/FileSystem.h"
 #include "cordite/core/Json.h"
+#include "cordite/core/StringUtils.h"
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <utility>
 
 namespace cordite {
@@ -16,6 +18,15 @@ constexpr DocumentFormat kProjectFormat{.name = "cordite.project", .version = 1,
 constexpr std::array<std::string_view, 2> kHeaderMembers = {"format", "version"};
 /// What the project file was called before it opened with a double click.
 constexpr std::string_view kEarlierProjectFileName = "cordite.project.json";
+
+/// Names that no file of a game may have, whatever their case: what Windows keeps for
+/// devices - a file of such a name is no file there, with any ending - and the directories
+/// of a game beside its program, which on systems where programs have no ending would be
+/// the same name.
+constexpr std::array<std::string_view, 32> kTakenNames = {
+    "con",  "prn",  "aux",  "nul",  "com0", "com1", "com2", "com3", "com4",   "com5",    "com6",
+    "com7", "com8", "com9", "com¹", "com²", "com³", "lpt0", "lpt1", "lpt2",   "lpt3",    "lpt4",
+    "lpt5", "lpt6", "lpt7", "lpt8", "lpt9", "lpt¹", "lpt²", "lpt³", "assets", "licenses"};
 
 TypeInfo describeProjectSettings() {
     return TypeBuilder<ProjectSettings>("Project")
@@ -123,6 +134,22 @@ Result<Project> loadProject(const std::filesystem::path& path) {
         return fail(valid.error());
     }
     return project;
+}
+
+std::string gameFileName(std::string_view projectName) {
+    std::string name;
+    for (const char character : projectName) {
+        const auto byte = static_cast<unsigned char>(character);
+        // Letters of other alphabets are bytes above 127 in UTF-8, and welcome.
+        if (byte >= 0x80 || std::isalnum(byte) != 0 || character == ' ' || character == '-' || character == '_') {
+            name += character;
+        }
+    }
+    name = std::string(trim(name));
+    if (name.empty() || std::ranges::find(kTakenNames, toLowerAscii(name)) != kTakenNames.end()) {
+        return "Game";
+    }
+    return name;
 }
 
 Status saveProject(const Project& project) {

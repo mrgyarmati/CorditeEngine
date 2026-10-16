@@ -36,18 +36,56 @@ for Linux. For a game to be shipped, export with the `Release` build of the edit
 program is the one built beside the editor, and only `Release` leaves out the engine's
 internal checks.
 
+## The settings of the person who plays
+
+A game keeps what the person who plays it chose in a file of their own: `settings.json`, in
+a directory named after the game in their settings directory - `%APPDATA%\My Game` on
+Windows, `~/Library/Application Support/My Game` on macOS, `~/.config/My Game` on Linux.
+The first time the game starts it writes the defaults there; whatever is changed in the file
+is what the next start takes:
+
+```json
+{
+    "format": "cordite.settings",
+    "version": 1,
+    "fullscreen": false,
+    "width": 1280,
+    "height": 720,
+    "vsync": true,
+    "quality": "medium",
+    "masterVolume": 1.0,
+    "effectsVolume": 1.0,
+    "musicVolume": 1.0,
+    "ambienceVolume": 1.0,
+    "voiceVolume": 1.0,
+    "interfaceVolume": 1.0
+}
+```
+
+`quality` is `low`, `medium` or `high`: what shadows, ambient occlusion and the smoothing of
+edges may cost. Volumes go from 0, nothing, to 1, as the sounds were made; each one is a bus
+of the audio (see [Audio](audio.md)), and `masterVolume` is over all of them. A file that
+cannot be read - a value out of its range, a name spelled wrong - is left as it is, and the
+game plays with the defaults; its log says what is wrong.
+
+The settings are the player's, not the game's: they are not in the game's directory, an
+export does not touch them, and two copies of a game share them.
+
 ## Running a game from a terminal
 
-The program takes options, for testing and for players who want them:
+The program takes options, for testing and for players who want them. Those that the
+settings have too win over the settings for that start, and are not written into them:
 
 | Option | Does |
 |--------|------|
-| `--fullscreen` | Fill the screen |
+| `--fullscreen`, `--windowed` | Fill the screen, or play in a window |
 | `--width`, `--height` | The size of the window, in pixels |
 | `--no-vsync` | Do not wait for the display |
+| `--quality low` | What a picture may cost: `low`, `medium` or `high` |
+| `--settings FILE` | Keep the settings in another file |
 | `--adapter NAME` | Prefer the GPU whose name contains this |
 | `--game DIR` | Play the game in another directory |
-| `--headless --frames N --screenshot out.png` | Play N frames without a window and save the last one |
+| `--headless --frames N --screenshot out.png` | Play N frames without a window and save the last one; no settings are read or written unless `--settings` names a file |
 | `--log-level debug` | Say more (`trace`, `debug`, `info`, `warn`, `error`, `critical`, `off`) |
 
 ## Licenses

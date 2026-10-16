@@ -64,19 +64,8 @@ TEST_SUITE("GameExport") {
     TEST_CASE("the program of a game is named after it, as files may be named") {
         CHECK(gameProgramName("Showcase") == executableFileName("Showcase"));
         CHECK(gameProgramName("  Depot: the Game!  ") == executableFileName("Depot the Game"));
-        CHECK(gameProgramName("Café-Bar_2") == executableFileName("Café-Bar_2"));
-        CHECK(gameProgramName("") == executableFileName("Game"));
-        CHECK(gameProgramName("?*/") == executableFileName("Game"));
-        // What Windows keeps for its devices is no name for a file, whatever the case.
+        // As gameFileName() has it (ProjectTests), and what a program is called here.
         CHECK(gameProgramName("con") == executableFileName("Game"));
-        CHECK(gameProgramName("Lpt1") == executableFileName("Game"));
-        CHECK(gameProgramName("COM0") == executableFileName("Game"));
-        CHECK(gameProgramName("com¹") == executableFileName("Game"));
-        CHECK(gameProgramName("Console") == executableFileName("Console"));
-        CHECK(gameProgramName("COM10") == executableFileName("COM10"));
-        // Nor is a directory beside the program, where programs have no ending.
-        CHECK(gameProgramName("Assets") == executableFileName("Game"));
-        CHECK(gameProgramName("licenses.") == executableFileName("Game"));
     }
 
     TEST_CASE("a game is its program, its project, its assets, its shaders compiled and its notices") {

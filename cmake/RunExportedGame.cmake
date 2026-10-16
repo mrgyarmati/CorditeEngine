@@ -23,9 +23,12 @@ set(game "${DESTINATION}/${PROGRAM}")
 if(NOT EXISTS "${game}")
     message(FATAL_ERROR "the export did not write ${game}")
 endif()
+# The settings of a person who plays, kept away from the game, which an export replaces.
+set(settings "${DESTINATION}-settings/settings.json")
+file(REMOVE_RECURSE "${DESTINATION}-settings")
 execute_process(
     COMMAND "${game}" --headless --validation --frames 60 --fixed-time-step 0.0166667 --width 640 --height 360
-        --screenshot "${SCREENSHOT}"
+        --settings "${settings}" --screenshot "${SCREENSHOT}"
     WORKING_DIRECTORY "${DESTINATION}"
     RESULT_VARIABLE played)
 if(NOT played EQUAL 0)
@@ -33,4 +36,12 @@ if(NOT played EQUAL 0)
 endif()
 if(NOT EXISTS "${SCREENSHOT}")
     message(FATAL_ERROR "the game did not save its last frame")
+endif()
+# Written the first time, with the defaults: what the command line said was for one start.
+if(NOT EXISTS "${settings}")
+    message(FATAL_ERROR "the game did not write the settings of its player to ${settings}")
+endif()
+file(READ "${settings}" written)
+if(NOT written MATCHES "\"format\": \"cordite.settings\"" OR NOT written MATCHES "\"width\": 1280")
+    message(FATAL_ERROR "the game did not write the default settings:\n${written}")
 endif()
