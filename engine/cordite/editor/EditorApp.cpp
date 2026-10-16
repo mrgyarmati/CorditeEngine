@@ -5,6 +5,7 @@
 #include "cordite/core/StringUtils.h"
 #include "cordite/editor/AssetCommands.h"
 #include "cordite/editor/AssetMove.h"
+#include "cordite/editor/AssetPreview.h"
 #include "cordite/editor/EditorActions.h"
 #include "cordite/editor/EditorCommands.h"
 #include "cordite/editor/EditorFeedback.h"
@@ -33,6 +34,8 @@ namespace {
 using Type = CommandParameterType;
 
 constexpr const char* kEditorName = "Cordite Editor";
+/// The sides of a picture that asset.preview draws when it is not told, in pixels.
+constexpr int64_t kPreviewSize = 256;
 constexpr const char* kFileDialogId = "Scene file";
 /// The windows that are closed until someone asks for them, as editor.showPanel names them.
 constexpr const char* kStatisticsPanelName = "statistics";
@@ -798,6 +801,45 @@ Json EditorApp::describePlay() const {
 }
 
 Status EditorApp::registerProjectCommands() {
+    CORDITE_TRY(m_commands.add({
+        .name = "asset.preview",
+        .description = "Draws a picture of an asset as the Assets panel shows it - a mesh as it is, a material on a "
+                       "ball, a model or a prefab as it is placed, whole, from in front and above - and saves it "
+                       "as a PNG file. A texture is its own picture: its file. Returns the path and the size.",
+        .parameters = {{"asset", Type::String, "The asset: its id, or where it is."},
+                       {"path", Type::String, "Where to save the picture. Missing directories are made."},
+                       {"size", Type::Integer,
+                        fmt::format("The sides of the square picture, in pixels, from {} to {}. Defaults to {}.",
+                                    AssetPreview::kMinSize, AssetPreview::kMaxSize, kPreviewSize),
+                        false}},
+        .handler = [this](const Json& parameters) -> Result<Json> {
+            CORDITE_TRY_ASSIGN(const AssetInfo* asset,
+                               m_context->resolveAsset(parameters.at("asset").get<std::string>()));
+            if (!AssetPreview::isDrawn(asset->type)) {
+                return makeError(
+                    ErrorCode::InvalidArgument, "{} is {}, {}", asset->reference(), withArticle(asset->type),
+                    asset->type == AssetType::Texture ? "whose file is its picture" : "which has no picture");
+            }
+            const auto size = jsonGetOr<int64_t>(parameters, "size", kPreviewSize);
+            if (size < AssetPreview::kMinSize || size > AssetPreview::kMaxSize) {
+                return makeError(ErrorCode::OutOfRange, "'size' is from {} to {} pixels, not {}",
+                                 AssetPreview::kMinSize, AssetPreview::kMaxSize, size);
+            }
+            const Uuid id = asset->id;
+            CORDITE_TRY_ASSIGN(const Image image, previewImage(id, static_cast<uint32_t>(size)));
+            const std::filesystem::path path = pathFromUtf8(parameters.at("path").get<std::string>());
+            if (const std::filesystem::path directory = path.parent_path(); !directory.empty()) {
+                CORDITE_TRY(ensureDirectory(directory));
+            }
+            CORDITE_TRY(image.savePng(path));
+            Json result = Json::object();
+            result["path"] = pathToUtf8(path);
+            result["width"] = image.width();
+            result["height"] = image.height();
+            return result;
+        },
+    }));
+
     // Here and not with the other commands of assets: the project names its start scene by
     // where it is, and the application is what has the project.
     return m_commands.add({
@@ -837,6 +879,25 @@ Status EditorApp::registerProjectCommands() {
             return result;
         },
     });
+}
+
+Result<Image> EditorApp::previewImage(const Uuid& asset, uint32_t size) {
+    if (m_engine->isFrameOpen()) {
+        return makeError(ErrorCode::InvalidState, "a picture of an asset cannot be drawn during a frame");
+    }
+    // With a command list of its own, as the viewport is captured, and a preview of its
+    // own: the panel's shows what is chosen there.
+    nvrhi::IDevice* device = m_engine->graphics().device();
+    const nvrhi::CommandListHandle commandList = device->createCommandList();
+    AssetPreview preview;
+    commandList->open();
+    const Status shown = preview.show(m_engine->sceneRenderer(), device, commandList, m_context->assets(),
+                                      m_context->components(), asset, size, m_viewport->shadowQuality());
+    commandList->close();
+    CORDITE_TRY(shown);
+    device->executeCommandList(commandList);
+    CORDITE_TRY_ASSIGN(TexturePixels pixels, readTexture(m_engine->graphics(), preview.picture()));
+    return Image::fromPixels(pixels.width, pixels.height, ImageFormat::Rgba8, std::move(pixels.data));
 }
 
 void EditorApp::importDroppedFiles() {
@@ -961,7 +1022,7 @@ void EditorApp::drawInterface() {
         console != nullptr && console->DockId != 0) {
         ImGui::SetNextWindowDockID(console->DockId, ImGuiCond_FirstUseEver);
     }
-    m_assets.draw(*m_context, m_submittedLines);
+    m_assets.draw(*m_engine, *m_context, m_viewport->shadowQuality(), m_submittedLines);
     drawFileDialog();
     // What the user asked for and did not get is said in the console, which may be behind
     // the assets: it comes to the front for it.

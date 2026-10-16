@@ -76,6 +76,7 @@ Do not guess command or property names; ask the editor.
 | `editor.state` | Scene file, unsaved changes, what undo and redo would do, the selection |
 | `asset.list` | Every asset with its id, type, name and path; optionally of one type |
 | `asset.get` | One asset: what it needs (`dependencies`), what needs it (`usedBy`) and where the open scene refers to it (`usedInScene`), import warnings, and its content (size, properties, nodes) |
+| `asset.preview` | Save a picture of a mesh, a material (on a ball), a model or a prefab, as the Assets panel draws it (`{"asset": ..., "path": "out/crate.png", "size": 256}`): how to look at an asset without a window |
 | `asset.import` | Bring files from elsewhere into the assets (`{"files": ["C:/Downloads/crate.glb"], "to": "props"}`): copies, a glTF file with the files it names; new ids. Not undoable |
 | `asset.move` | Rename or move the file of an asset, with its .meta (`{"asset": ..., "to": "textures/brick.png"}`); returns `mentions`, what still names the old path. Not undoable |
 | `assets.browse` | What the Assets panel lists, as rows with their depth: directories, files, what is inside files. With `type`, `search`, `select`, `open` or `close` it sets that first |

@@ -10,6 +10,8 @@ cordite_add_module(editor
         AssetImport.h
         AssetMove.cpp
         AssetMove.h
+        AssetPreview.cpp
+        AssetPreview.h
         ColliderOutlines.cpp
         ColliderOutlines.h
         StatisticsPanel.cpp

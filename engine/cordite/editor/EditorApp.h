@@ -141,6 +141,8 @@ public:
 
     [[nodiscard]] ViewportPanel& viewport() { return *m_viewport; }
 
+    [[nodiscard]] const AssetBrowserPanel& assetBrowser() const { return m_assets; }
+
     /// Playing the scene where it is edited: start it, hold it, stop it. Start and stop
     /// between frames, never during one - which is where commands run.
     [[nodiscard]] PlayMode& play() { return *m_play; }
@@ -156,6 +158,8 @@ private:
     [[nodiscard]] Status registerProjectCommands();
     /// Asks for files dropped onto the window from outside to be brought into the assets.
     void importDroppedFiles();
+    /// A picture of an asset, drawn between frames: what asset.preview saves.
+    [[nodiscard]] Result<Image> previewImage(const Uuid& asset, uint32_t size);
     /// Draws the interface in a theme from the next frame on, and remembers it in the
     /// preferences, if there is a file for them.
     void chooseTheme(UiTheme theme);

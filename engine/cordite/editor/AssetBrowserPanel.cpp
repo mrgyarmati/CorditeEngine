@@ -4,6 +4,7 @@
 #include "cordite/editor/EditorActions.h"
 #include "cordite/editor/EditorIcons.h"
 #include "cordite/editor/PropertyEditor.h"
+#include "cordite/ui/UiSystem.h"
 #include "cordite/ui/UiWidgets.h"
 
 #include <fmt/format.h>
@@ -24,6 +25,10 @@ constexpr float kTypeFilterWidth = 130.0f;
 constexpr float kSearchWidth = 220.0f;
 constexpr float kTypeColumnWidth = 90.0f;
 constexpr float kMoveFieldWidth = 420.0f;
+/// The most of the width of the panel that the picture beside the rows takes, and the
+/// least it is drawn at, in units of the interface.
+constexpr float kPictureShare = 0.4f;
+constexpr float kSmallestPicture = 32.0f;
 
 /// Rows of assets to go to: a click chooses one in the browser. An id that is no asset is
 /// said to be missing, and is nowhere to go.
@@ -184,7 +189,8 @@ RowClick drawRow(const EditorContext& context, const AssetBrowserRow& row, bool 
 
 } // namespace
 
-void AssetBrowserPanel::draw(EditorContext& context, std::vector<std::string>& submittedLines) {
+void AssetBrowserPanel::draw(Engine& engine, EditorContext& context, ShadowQuality shadows,
+                             std::vector<std::string>& submittedLines) {
     // The rows scroll, in a region of their own; the window around them does not.
     static const std::string kName = windowName(icons::kFolder, "Assets");
     if (ImGui::Begin(kName.c_str(), nullptr, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
@@ -202,15 +208,63 @@ void AssetBrowserPanel::draw(EditorContext& context, std::vector<std::string>& s
         // The rows, and below them - under a separator - a line for the asset that is
         // chosen, which stays where it is however many rows there are.
         const float footerHeight = ImGui::GetFrameHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y + 1.0f;
-        if (ImGui::BeginChild("rows", ImVec2(0.0f, -footerHeight))) {
+        // Beside the rows, a picture of the chosen asset, when it has one: square, as high as
+        // the rows are, and no wider than a share of the panel.
+        const AssetInfo* chosen = database.find(m_browser.selection());
+        const ImVec2 room = ImGui::GetContentRegionAvail();
+        const float pictureWidth = chosen != nullptr && AssetPreview::hasPicture(chosen->type)
+                                       ? std::floor(std::min(room.y - footerHeight, room.x * kPictureShare))
+                                       : 0.0f;
+        const bool pictured = pictureWidth >= kSmallestPicture;
+        const float besideRows = pictured ? pictureWidth + ImGui::GetStyle().ItemSpacing.x : 0.0f;
+        if (ImGui::BeginChild("rows", ImVec2(-besideRows, -footerHeight))) {
             drawRows(context, submittedLines);
         }
         ImGui::EndChild();
+        if (pictured) {
+            ImGui::SameLine();
+            // It does not scroll: a scroll bar that came and went would change its size, and ask
+            // for a picture of another.
+            if (ImGui::BeginChild("picture", ImVec2(0.0f, -footerHeight), ImGuiChildFlags_None,
+                                  ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
+                drawPicture(engine, context, shadows, *chosen);
+            }
+            ImGui::EndChild();
+        }
         ImGui::Separator();
         drawSelection(context, submittedLines);
         drawMoveDialog(context, submittedLines);
     }
     ImGui::End();
+}
+
+void AssetBrowserPanel::drawPicture(Engine& engine, EditorContext& context, ShadowQuality shadows,
+                                    const AssetInfo& asset) {
+    const ImVec2 room = ImGui::GetContentRegionAvail();
+    const float side = std::floor(std::min(room.x, room.y));
+    // Drawn in the pixels of the display, of which a unit of the interface may be more than one.
+    const float pixels =
+        std::clamp(side * ImGui::GetIO().DisplayFramebufferScale.y, static_cast<float>(AssetPreview::kMinSize),
+                   static_cast<float>(AssetPreview::kMaxSize));
+    if (const Status shown =
+            m_preview.show(engine.sceneRenderer(), engine.graphics().device(), engine.commandList(), context.assets(),
+                           context.components(), asset.id, static_cast<uint32_t>(pixels), shadows);
+        !shown) {
+        // Asked once: show() answers as it did until something changes.
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextDisabled("No picture: %s", shown.error().message.c_str());
+        ImGui::PopTextWrapPos();
+        return;
+    }
+    nvrhi::ITexture* picture = m_preview.picture();
+    ImVec2 extent(side, side);
+    if (!AssetPreview::isDrawn(asset.type)) {
+        // A texture keeps its proportions.
+        const nvrhi::TextureDesc& desc = picture->getDesc();
+        const float aspect = static_cast<float>(desc.width) / static_cast<float>(std::max(desc.height, 1u));
+        extent = aspect >= 1.0f ? ImVec2(side, std::floor(side / aspect)) : ImVec2(std::floor(side * aspect), side);
+    }
+    ImGui::Image(UiSystem::textureId(picture), extent);
 }
 
 void AssetBrowserPanel::drawToolbar(const AssetDatabase& database, std::vector<std::string>& submittedLines) {

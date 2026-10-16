@@ -663,6 +663,14 @@ Step-by-step guide: [work-with-assets](.claude/skills/work-with-assets/SKILL.md)
   to the same places beside it, and a .meta beside a file stays behind - in this
   project the file is new. Everything is checked before the first copy, and a copy
   that fails takes the others back.
+- **A picture of an asset is drawn by the scene renderer** (`AssetPreview`,
+  `asset.preview`), in a world of its own: a mesh as it is, a material on a ball, a
+  model or a prefab as placed, whole, in an editor's stand-in light and the finishing
+  of `PostProcessSettings` at its defaults - so it looks like what the renderer makes
+  of the asset, and changes with it. It is drawn with the shadow quality of the
+  viewport: the renderer has one atlas, and makes it anew whenever its size changes.
+  A texture is its own picture. A preview draws when what it is asked for changes,
+  and remembers a failure, so that it can be asked in every frame.
 - **The showcase's textures, models and sounds are generated**, by `tools/sample-assets`.
   Change the generator, run it, look at the result, commit both. Its materials, its
   prefab and its scene are written by hand, with comments: they are the reference for

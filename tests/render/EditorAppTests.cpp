@@ -2,16 +2,19 @@
 
 #include "cordite/animation/AnimationComponents.h"
 #include "cordite/assets/AssetDatabase.h"
+#include "cordite/assets/GltfExporter.h"
 #include "cordite/assets/ImageCompare.h"
 #include "cordite/assets/Primitives.h"
 #include "cordite/core/FileSystem.h"
 #include "cordite/core/Log.h"
 #include "cordite/core/Uuid.h"
 #include "cordite/editor/AssetBrowser.h"
+#include "cordite/editor/AssetPreview.h"
 #include "cordite/editor/EditorPreferences.h"
 #include "cordite/editor/Gizmo.h"
 #include "cordite/engine/Project.h"
 #include "cordite/platform/InputMap.h"
+#include "cordite/rhi/TextureReadback.h"
 #include "cordite/world/SceneSerializer.h"
 
 #include "render/RenderTestSupport.h"
@@ -2168,6 +2171,165 @@ TEST_SUITE("EditorApp") {
         checkNoValidationIssues(editor->engine().graphics());
     }
 
+    TEST_CASE("a picture of an asset is drawn by command, and beside the rows of the Assets panel") {
+        const TempDirectory directory;
+        const Project project = unwrap(createProject(directory.path() / "project", "Pictures"));
+        const std::filesystem::path assets = project.assetDirectory();
+        REQUIRE(writeTextFile(assets / "materials" / "red.material.json",
+                              R"({"format": "cordite.material", "version": 1, "baseColor": [1, 0, 0, 1]})")
+                    .has_value());
+        REQUIRE(writeTextFile(assets / "scripts" / "door.lua", "return {}\n").has_value());
+        // Red, all of it: what the picture of it must hold.
+        std::vector<std::byte> redPixels;
+        for (int pixel = 0; pixel < 8; ++pixel) {
+            redPixels.insert(redPixels.end(), {std::byte{255}, std::byte{0}, std::byte{0}, std::byte{255}});
+        }
+        const Image texture = unwrap(Image::fromPixels(4, 2, ImageFormat::Rgba8, std::move(redPixels)));
+        REQUIRE(texture.savePng(assets / "textures" / "wide.png").has_value());
+        GltfDocument model;
+        model.meshes.push_back({.mesh = makeBox()});
+        model.nodes.push_back({.name = "Box", .mesh = 0});
+        model.roots = {0};
+        REQUIRE(exportGltf(model, assets / "models" / "box.glb").has_value());
+        // Twenty metres across, a long way from where the camera of a picture would be
+        // without looking: it is seen whole all the same.
+        model.meshes[0].mesh = makeBox(Vec3(20.0f));
+        model.nodes[0].transform.position = Vec3(100.0f, 0.0f, -50.0f);
+        REQUIRE(exportGltf(model, assets / "models" / "big.glb").has_value());
+        REQUIRE(writeTextFile(assets / "materials" / "broken.material.json", "not json").has_value());
+        // Large enough for the panel to have room for a picture beside its rows.
+        EditorAppDesc desc = headlessDesc(UVec2(1280, 720));
+        desc.project = project.directory;
+        const std::unique_ptr<EditorApp> editor = createEditor(desc);
+        // A prefab, made as a person makes one.
+        run(*editor, "entity.create",
+            fmt::format(R"({{"name": "Post", "components": {{"MeshRenderer": {{"mesh": "{}"}}}}}})",
+                        builtinMeshId(BuiltinMesh::Cylinder).toString()));
+        run(*editor, "prefab.create", R"({"entity": "Post", "path": "prefabs/post.prefab.json"})");
+
+        const std::filesystem::path file = directory.path() / "pictures" / "picture.png";
+        const auto picture = [&](std::string_view asset, int64_t size) {
+            Json parameters = Json::object();
+            parameters["asset"] = asset;
+            parameters["path"] = pathToUtf8(file);
+            parameters["size"] = size;
+            const Json saved = run(*editor, "asset.preview", parameters.dump());
+            CHECK(saved["width"] == size);
+            CHECK(saved["height"] == size);
+            return unwrap(Image::load(file));
+        };
+        // Something in the middle, against a background that is the same in every corner -
+        // but for the dither of a finished picture, a level at the most.
+        const auto drawsSomething = [](const Image& image) {
+            const uint32_t last = image.width() - 1;
+            const Vec4 corner = image.pixel(0, 0);
+            for (const Vec4& other : {image.pixel(last, 0), image.pixel(0, last), image.pixel(last, last)}) {
+                CHECK(glm::length(Vec3(other) - Vec3(corner)) < 2.5f / 255.0f);
+            }
+            const Vec4 middle = image.pixel(last / 2, last / 2);
+            CHECK(glm::length(Vec3(middle) - Vec3(corner)) > 0.05f);
+            return middle;
+        };
+        drawsSomething(picture(builtinMeshId(BuiltinMesh::Cube).toString(), 64));
+        drawsSomething(picture("models/box.glb", 48));
+        drawsSomething(picture("models/big.glb", 48));
+        drawsSomething(picture("prefabs/post.prefab.json", 32));
+        // What hangs under something is placed by it: a beam eight times as long as it is
+        // thick, lying along the X axis of a parent that is turned upright, is drawn standing.
+        run(*editor, "entity.create",
+            R"({"name": "Tower", "components": {"Transform": {"rotation": [0, 0, 0.7071068, 0.7071068]}}})");
+        run(*editor, "entity.create",
+            fmt::format(
+                R"({{"name": "Beam", "parent": "Tower", "components": {{"Transform": {{"scale": [8, 1, 1]}}, "MeshRenderer": {{"mesh": "{}"}}}}}})",
+                builtinMeshId(BuiltinMesh::Cube).toString()));
+        run(*editor, "prefab.create", R"({"entity": "Tower", "path": "prefabs/tower.prefab.json"})");
+        const Image tower = picture("prefabs/tower.prefab.json", 64);
+        const Vec3 background(tower.pixel(0, 0));
+        uint32_t across = 0;
+        uint32_t down = 0;
+        for (uint32_t step = 0; step < 64; ++step) {
+            across += glm::length(Vec3(tower.pixel(step, 32)) - background) > 0.05f ? 1 : 0;
+            down += glm::length(Vec3(tower.pixel(32, step)) - background) > 0.05f ? 1 : 0;
+        }
+        CHECK(down > 2 * across);
+        // A material is drawn on a ball, and is seen to be red.
+        const Vec4 red = drawsSomething(picture("materials/red.material.json", 64));
+        CHECK(red.r > red.g + 0.1f);
+        CHECK(red.r > red.b + 0.1f);
+
+        // A texture is its own picture; a script has none; sizes have their limits.
+        const auto refused = [&](std::string_view asset, int64_t size) {
+            Json parameters = Json::object();
+            parameters["asset"] = asset;
+            parameters["path"] = pathToUtf8(file);
+            parameters["size"] = size;
+            return refusal(*editor, "asset.preview", parameters.dump());
+        };
+        CHECK(refused("textures/wide.png", 64).message.find("whose file is its picture") != std::string::npos);
+        CHECK(refused("scripts/door.lua", 64).message.find("which has no picture") != std::string::npos);
+        CHECK(refused("models/box.glb", 8).code == ErrorCode::OutOfRange);
+        CHECK(refused("models/box.glb", 4096).code == ErrorCode::OutOfRange);
+
+        // The panel draws what is chosen, and a texture as it is.
+        const AssetPreview& preview = editor->assetBrowser().preview();
+        run(*editor, "editor.focusPanel", R"({"panel": "assets"})");
+        run(*editor, "assets.browse", R"({"select": "materials/red.material.json"})");
+        REQUIRE(editor->runFrames(2).has_value());
+        CHECK(preview.asset() == unwrap(editor->context().resolveAsset("materials/red.material.json"))->id);
+        CHECK(preview.picture() != nullptr);
+        // Asked in every frame, it draws once - and again when the assets are read again.
+        const uint64_t made = preview.attempts();
+        REQUIRE(editor->runFrames(3).has_value());
+        CHECK(preview.attempts() == made);
+        run(*editor, "asset.refresh");
+        REQUIRE(editor->runFrames(2).has_value());
+        CHECK(preview.attempts() == made + 1);
+        // What cannot be pictured is tried once, not in every frame.
+        run(*editor, "assets.browse", R"({"select": "materials/broken.material.json"})");
+        REQUIRE(editor->runFrames(3).has_value());
+        CHECK(preview.picture() == nullptr);
+        CHECK(preview.attempts() == made + 2);
+        run(*editor, "assets.browse", R"({"select": "textures/wide.png"})");
+        // In the very frame it is first shown, it is on the GPU: the scene of that frame was
+        // drawn before the panel asked for it, and sent nothing of it.
+        REQUIRE(editor->runFrames(1).has_value());
+        REQUIRE(preview.picture() != nullptr);
+        const TexturePixels shown = unwrap(readTexture(editor->engine().graphics(), preview.picture()));
+        REQUIRE(shown.data.size() >= 4);
+        CHECK(shown.data[0] == std::byte{255});
+        CHECK(shown.data[1] == std::byte{0});
+        CHECK(shown.data[2] == std::byte{0});
+        CHECK(preview.picture()->getDesc().width == 4);
+        CHECK(preview.picture()->getDesc().height == 2);
+        // What has no picture leaves the last one as it was.
+        run(*editor, "assets.browse", R"({"select": "scripts/door.lua"})");
+        REQUIRE(editor->runFrames(2).has_value());
+        CHECK(preview.picture()->getDesc().width == 4);
+
+        // Asked directly, a preview refuses what it cannot picture, and draws nothing for it.
+        AssetPreview direct;
+        Engine& engine = editor->engine();
+        nvrhi::IDevice* device = engine.graphics().device();
+        const nvrhi::CommandListHandle commandList = device->createCommandList();
+        commandList->open();
+        const auto refusal = [&](const Uuid& asset, uint32_t size) {
+            const Status shown = direct.show(engine.sceneRenderer(), device, commandList, editor->context().assets(),
+                                             editor->context().components(), asset, size, ShadowQuality::Medium);
+            REQUIRE_FALSE(shown.has_value());
+            CHECK(direct.picture() == nullptr);
+            return shown.error();
+        };
+        const Uuid cube = builtinMeshId(BuiltinMesh::Cube);
+        CHECK(refusal(cube, AssetPreview::kMinSize - 1).code == ErrorCode::InvalidArgument);
+        CHECK(refusal(cube, AssetPreview::kMaxSize + 1).code == ErrorCode::InvalidArgument);
+        CHECK(refusal(Uuid::generate(), 64).code == ErrorCode::NotFound);
+        const Error script = refusal(unwrap(editor->context().resolveAsset("scripts/door.lua"))->id, 64);
+        CHECK(script.code == ErrorCode::InvalidArgument);
+        CHECK(script.message == "scripts/door.lua is a script, which has no picture");
+        commandList->close();
+        checkNoValidationIssues(editor->engine().graphics());
+    }
+
     TEST_CASE("the application adds its commands to the catalogue") {
         const std::unique_ptr<EditorApp> editor = createEditor(headlessDesc(UVec2(640, 360)));
         for (const char* name :
@@ -2175,7 +2337,7 @@ TEST_SUITE("EditorApp") {
               "editor.focusPanel", "editor.theme",       "assets.browse",     "viewport.lookAt",  "viewport.frame",
               "viewport.camera",   "viewport.debugView", "viewport.gizmo",    "entity.create",    "scene.save",
               "play.start",        "play.stop",          "play.pause",        "play.resume",      "play.step",
-              "play.status",       "asset.move",         "asset.import"}) {
+              "play.status",       "asset.move",         "asset.import",      "asset.preview"}) {
             CAPTURE(name);
             const CommandDesc* command = editor->commands().find(name);
             REQUIRE(command != nullptr);

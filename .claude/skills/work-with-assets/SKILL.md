@@ -56,7 +56,8 @@ move them with it.** Never copy a `.meta` to make a new asset, and never edit an
 2. In a running editor, a file put there by hand: `asset.refresh`. Otherwise it is found
    at the next start.
 3. `asset.list` shows it with its id; `asset.get {"asset": "<path>"}` shows what is in
-   it and what its importer left out (`warnings`).
+   it and what its importer left out (`warnings`), and `asset.preview` saves a picture of
+   a mesh, a material, a model or a prefab - look at it before it goes into a scene.
 4. Commit the file and its `.meta`.
 
 Read `problems` in the result of `asset.list` or `asset.refresh`: a texture a model

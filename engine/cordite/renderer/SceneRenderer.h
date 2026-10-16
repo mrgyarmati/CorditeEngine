@@ -281,6 +281,8 @@ public:
     /// The GPU copies of the assets drawn so far.
     [[nodiscard]] const RenderResources& resources() const { return *m_resources; }
 
+    [[nodiscard]] RenderResources& resources() { return *m_resources; }
+
 private:
     /// The passes of the renderer.
     struct Passes {
