@@ -137,7 +137,7 @@ by accident.
 | `rhi` | `core`, `math`, `platform` | Vulkan device, swapchain and texture readback over NVRHI |
 | `shaders` | `core` | Shader requests and permutation keys, disk cache, `ShaderLibrary` |
 | `shader_compiler` | `core`, `shaders` | Slang to SPIR-V compiler, and the cache of the engine's shaders compiled ahead that an exported game ships (`EngineShaderCache.h`); not linked into exported games |
-| `renderer` | `core`, `math`, `assets`, `world`, `animation`, `rhi`, `shaders` | The scene renderer and what it is made of: GPU copies of assets, the mesh passes, the G-buffer and its lighting, the lights of a world and the clusters they are sorted into, their shadow maps and the atlas those share, what finishes the picture (exposure, bloom, tone mapping, grading), the environment (the sky and what it lights), ambient occlusion from the screen, fog, the debug views, scene targets, the `MeshRenderer`, `Light`, `AmbientLight`, `Environment`, `Fog` and `PostProcess` components; camera views, debug lines, GPU timing, GPU shader management |
+| `renderer` | `core`, `math`, `assets`, `world`, `animation`, `rhi`, `shaders` | The scene renderer and what it is made of: GPU copies of assets, the mesh passes, the G-buffer and its lighting, the lights of a world and the clusters they are sorted into, their shadow maps and the atlas those share, what finishes the picture (exposure, bloom, tone mapping, grading), the environment (the sky and what it lights), ambient occlusion from the screen, fog, decals, the debug views, scene targets, the `MeshRenderer`, `Light`, `AmbientLight`, `Environment`, `Fog`, `Decal` and `PostProcess` components; camera views, debug lines, GPU timing, GPU shader management |
 | `ui` | `core`, `math`, `platform`, `rhi`, `shaders`, `renderer` | The immediate-mode interface: the Dear ImGui context and its NVRHI renderer; its typefaces and icons, compiled in; its themes, and the widgets it draws the same way everywhere |
 | `engine` | all of the above but `shader_compiler` | `Engine`: owns the subsystems, the assets, the world and the interface, and runs the frame loop; projects; a game made of a project (`Game`); placing models; checking the assets a scene uses |
 | `editor` | `engine` and below, `shader_compiler` | The editor: the scene document, undoable actions, scene and asset commands, panels, `EditorApp`; making a game of a project (`GameExport`) (not linked into exported games) |
@@ -306,10 +306,10 @@ Vulkan directly. Step-by-step guide for adding a pass:
   frame's interface has been rendered: ImGui only remembers a pointer. Replace such a
   texture before the widget that shows it, never after.
 - **Meshes are drawn by `SceneRenderer`**, into a `SceneTargets` per view, in this
-  order: shadow maps, depth pre-pass, base pass (fills the G-buffer), ambient occlusion,
-  deferred lighting, forward pass, light shafts, depth of field, post-processing. Solid
-  surfaces - opaque and masked - go through the G-buffer; only translucent ones are
-  drawn forward. Front faces wind counter-clockwise; depth is reversed. Draws that share
+  order: shadow maps, depth pre-pass, base pass (fills the G-buffer), decals, ambient
+  occlusion, deferred lighting, forward pass, light shafts, depth of field,
+  post-processing. Solid surfaces - opaque and masked - go through the G-buffer; only
+  translucent ones are drawn forward. Front faces wind counter-clockwise; depth is reversed. Draws that share
   mesh, submesh and material are instanced, and sorted by the serial numbers of their
   GPU resources, never by address, so that two runs issue the same draw calls in the
   same order (`MeshDrawList`).
@@ -358,6 +358,24 @@ Vulkan directly. Step-by-step guide for adding a pass:
   `GBufferTarget` in `SceneTargets.h`. Change both, and only through
   `encodeGBuffer`/`decodeGBuffer`; `SceneRendererTests` checks every channel through
   the debug views.
+- **Decals are laid onto the G-buffer** (`DecalPass`, `passes/Decal.slang`), after the
+  base pass and before anything reads it. Each is the box of its entity, drawn from
+  inside without the depth test; a pixel finds the surface the depth says is there, and
+  lays the decal's material on where that is inside the box and faces back along the
+  projection (`Decals.h`, written down twice with `common/Decals.slang`: change both).
+  Color, roughness, metal and specular are blended by how much of the material there is -
+  by its alpha mode, as for a mesh - and its light is added; what alpha holds in the
+  targets, the light channels and the occlusion, is kept by the blend. The normals are
+  numbers that cannot be blended: a decal bends them in its shader, reading a copy
+  (`SceneTargets::prepareDecalNormals`) made before the first decal and again before
+  one whose box meets that of a decal since then that bent them; a material without a
+  normal map writes no normals. How far the image moves from one pixel to the next is
+  measured where the line of sight of the next pixel meets the plane of the image, never
+  from the neighbours' depth, which may be something else - and at a slant, that is the
+  difference between the right level of the textures and shimmer (`DecalTests` holds
+  stripes seen at five degrees). A box that mirrors is drawn mirrored back, or its far
+  faces would be culled. Translucent surfaces get none; what decals did is seen in the
+  views of the G-buffer.
 - **Light is computed in one place**, `shadeSurface` (`common/SceneLighting.slang`),
   which the deferred lighting and the forward pass both call: what leaves a surface
   towards the viewer, and what the fog between the two makes of it. Tests render the

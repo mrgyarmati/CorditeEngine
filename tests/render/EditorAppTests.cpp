@@ -807,6 +807,16 @@ TEST_SUITE("EditorApp") {
               uint64_t{(viewportSize.x + 1) / 2} * ((viewportSize.y + 1) / 2) * 4);
         CHECK(scene["depthOfField"]["bytes"] ==
               uint64_t{(viewportSize.x + 1) / 2} * ((viewportSize.y + 1) / 2) * 8 * 2);
+        // The sun is behind the editor's camera: there are no light shafts. The decals of
+        // the showcase are in view - the grime and the warning strip on the floor, the grime
+        // on the wall - and read a copy of the normals as large as the viewport, two 16-bit
+        // numbers a pixel, made again for the grime, which comes to where the strip bent
+        // them.
+        CHECK(scene["lightShafts"]["bytes"] == 0);
+        CHECK(scene["decals"]["count"] == 3);
+        CHECK(scene["decals"]["dropped"] == 0);
+        CHECK(scene["decals"]["normalCopies"] == 2);
+        CHECK(scene["decals"]["bytes"] == uint64_t{viewportSize.x} * viewportSize.y * 4);
         // The atlas of the medium quality: 4096 texels a side, four bytes each.
         CHECK(scene["shadows"]["atlasBytes"] == 67108864);
         // The cube map of the showcase's sky, made in the first frame and in no frame

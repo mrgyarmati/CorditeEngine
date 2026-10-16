@@ -13,7 +13,7 @@ export, in six steps. The other chapters can be read in any order.
 | [The editor](editor.md) | The panels, moving around, selecting, the gizmo, undo, playing a scene |
 | [Projects and assets](assets.md) | The project file, kinds of assets, ids, importing, renaming, the Assets panel |
 | [Scenes, entities and components](scenes.md) | How a scene is made, and which component does what |
-| [Materials](materials.md) | How surfaces respond to light; material files and instances |
+| [Materials](materials.md) | How surfaces respond to light; material files and instances; decals |
 | [Light, shadows and the finished picture](lighting.md) | Lights, shadows, sky, fog, ambient occlusion, post-processing, quality |
 | [Physics](physics.md) | Colliders, rigid bodies, triggers, joints, characters |
 | [Sound](audio.md) | Sound sources, listeners and buses |

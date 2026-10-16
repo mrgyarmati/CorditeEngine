@@ -68,6 +68,44 @@ float evaluateOpacity(float2 uv0, float2 uv1)
     return baseColorTexture.Sample(materialSampler, materialUv(uv0, uv1)).a * baseColor.a;
 }
 
+// What a decal of this material lays on a surface (passes/Decal.slang).
+struct DecalSurface
+{
+    float3 baseColor;
+    // How much of it is laid on, before the decal's own opacity and its fade.
+    float opacity;
+    float roughness;
+    float metallic;
+    float specular;
+    // The normal map's normal, in the frame of the decal's image: x along it, y up it.
+    float3 normal;
+    float3 emissive;
+};
+
+// Evaluates the material as a decal lays it on, at `uv` of the decal's image. The image of
+// a decal is placed by the depth of each pixel, and jumps where that does: `gradientX` and
+// `gradientY` say how far `uv` moves from one pixel to the next, worked out without the
+// neighbouring pixels, and choose what level of the textures is read.
+DecalSurface evaluateDecal(float2 uv, float2 gradientX, float2 gradientY)
+{
+    const float2 at = uv * uvScale + uvOffset;
+    const float2 dx = gradientX * uvScale;
+    const float2 dy = gradientY * uvScale;
+    DecalSurface surface;
+    const float4 color = baseColorTexture.SampleGrad(materialSampler, at, dx, dy) * baseColor;
+    surface.baseColor = color.rgb;
+    surface.opacity = color.a;
+    const float4 metallicRoughness = metallicRoughnessTexture.SampleGrad(materialSampler, at, dx, dy);
+    surface.metallic = saturate(metallicRoughness.b * metallic);
+    surface.roughness = saturate(metallicRoughness.g * roughness);
+    surface.specular = specular;
+    float3 mapped = normalTexture.SampleGrad(materialSampler, at, dx, dy).xyz * 2.0 - 1.0;
+    mapped.xy *= normalScale;
+    surface.normal = normalizeOr(mapped, float3(0.0, 0.0, 1.0));
+    surface.emissive = emissiveTexture.SampleGrad(materialSampler, at, dx, dy).rgb * emissive;
+    return surface;
+}
+
 // Evaluates the material at a point.
 Surface evaluateSurface(SurfaceInput input)
 {

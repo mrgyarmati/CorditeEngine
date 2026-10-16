@@ -37,6 +37,8 @@ constexpr Vec4 kCameraColor(0.75f, 0.78f, 0.85f, 1.0f);
 constexpr Vec4 kLightColor(1.0f, 0.86f, 0.38f, 1.0f);
 /// The box in which a PostProcess component applies.
 constexpr Vec4 kVolumeColor(0.55f, 0.85f, 0.80f, 1.0f);
+/// The box of a decal, and the way it is projected: rose, which no other marker is.
+constexpr Vec4 kDecalColor(1.00f, 0.45f, 0.55f, 1.0f);
 /// The shape something collides with: it is not drawn, and is seen only like this.
 constexpr Vec4 kColliderColor(0.40f, 0.95f, 0.50f, 1.0f);
 /// The shape of a trigger, which stops nothing and notices what moves into it.
@@ -403,6 +405,14 @@ void ViewportPanel::collectLines(EditorContext& context, const CameraView& view)
                     Aabb::fromCenterExtents(Vec3(0.0f), Vec3(0.5f) + Vec3(postProcess->blendDistance) / axes),
                     placement, kVolumeColor);
             }
+        }
+        if (world.tryGet<DecalComponent>(entity) != nullptr) {
+            // The box it lands in, and the way it is projected: from the middle of the face
+            // it sets out from to the middle of the far one.
+            const Vec4 color = selected ? kSelectionColor : kDecalColor;
+            m_sceneLines.box(Aabb::fromCenterExtents(Vec3(0.0f), Vec3(0.5f)), placement, color);
+            m_sceneLines.line(Vec3(placement * Vec4(0.0f, 0.0f, 0.5f, 1.0f)),
+                              Vec3(placement * Vec4(0.0f, 0.0f, -0.5f, 1.0f)), color);
         }
         if (selected) {
             drawSelected(context, entity, placement, shapes, m_selectionLines);

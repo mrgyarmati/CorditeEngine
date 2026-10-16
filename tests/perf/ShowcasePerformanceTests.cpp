@@ -206,6 +206,10 @@ TEST_SUITE("Performance") {
         checkBudget(budgets, "ambientOcclusionBytes", static_cast<double>(statistics.scene.ambientOcclusionBytes));
         checkBudget(budgets, "depthOfFieldBytes", static_cast<double>(statistics.scene.depthOfFieldBytes));
         checkBudget(budgets, "lightShaftBytes", static_cast<double>(statistics.scene.lightShaftBytes));
+        CHECK(statistics.scene.droppedDecals == 0);
+        checkBudget(budgets, "decals", statistics.scene.decals);
+        checkBudget(budgets, "decalNormalCopies", statistics.scene.decalNormalCopies);
+        checkBudget(budgets, "decalBytes", static_cast<double>(statistics.scene.decalBytes));
         checkBudget(budgets, "meshBytes", static_cast<double>(statistics.resources.meshBytes));
         checkBudget(budgets, "textureBytes", static_cast<double>(statistics.resources.textureBytes));
 

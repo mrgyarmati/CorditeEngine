@@ -134,6 +134,8 @@ solid surfaces ──> depth pre-pass ──> depth
                ──> base pass      ──> G-buffer: base color and lighting channels, normal,
                                                roughness / metallic / specular / occlusion,
                                                emissive
+decals + depth + a copy of the normals ──> decal pass ──> G-buffer, laid over: color, normal,
+                                                           roughness / metallic / specular, light
 depth + normals ──> ambient occlusion, traced ──> ambient occlusion: how much light from all around gets through
 image of the sky ──> (when first used) nine spherical harmonics: what it lights matte surfaces with
                  ──> (when first used) a cube map, blurred level by level: what surfaces reflect
@@ -141,6 +143,8 @@ G-buffer + depth + clusters + shadow atlas + environment + ambient occlusion ─
                                                              and the sky, where nothing was drawn;
                                                              all of it seen through the fog
 translucent surfaces + clusters + shadow atlas + environment ──> forward pass ──> scene color, blended over it
+scene color + depth + the sun ──> light shafts ──> scene color, added to
+scene color + depth ──> depth of field ──> scene color, blurred where it is out of focus
 scene color ──> bloom levels, down ──> exposure: how many stops the view adds
                               └────> bloom levels, up again
 scene color + bloom + exposure + lookup table ──> post-processing ──> the finished picture (sRGB, 8 bit)
@@ -162,8 +166,9 @@ that and only encodes the light for a display.
 A scene is lit by components: `Light` (directional, point or spot), `AmbientLight`
 (a sky above and a ground below, as two colors) and `Environment` (an image of
 everything far away, which lights the scene and is its sky). A `Fog` fills its air:
-what is far away is seen through it, the sky included. For every view,
-`SceneLights` gathers the enabled ones, and a `LightClusterBuilder` sorts the point
+what is far away is seen through it, the sky included. `Decal`s lay materials onto what
+is drawn, into the G-buffer, between the base pass and the light. For every view,
+`SceneLights` gathers the enabled lights, and a `LightClusterBuilder` sorts the point
 and spot lights into a grid of
 clusters that fills what the camera sees - 16 columns, 9 rows, 24 slices into the
 depth. Each cluster gets the list of the lights that touch it; a pixel works out which
@@ -1185,6 +1190,41 @@ no shadow map is read. Without perspective every line of sight is parallel, and 
 no point in the picture for them to come from: orthographic views have none. Nor do views
 that have the sun behind them; towards ninety degrees they fade, so that turning a camera
 does not make them jump.
+
+### Decals are laid onto the G-buffer
+
+Grime, cracks and markings change what a surface is - its color, how rough it is, its
+bumps - not what light arrives at it, so they are laid onto the G-buffer, between the base
+pass that fills it and everything that reads it: the ambient occlusion and the lighting
+then treat them as part of the surface, and a decal costs what it covers on the screen,
+not a mesh of its own cut to the shape of what it lands on. Each decal is the box of its
+entity, drawn from inside and over everything, so that a camera in the box still sees
+it; a pixel of the box finds the surface by the depth buffer and lays the material on
+where that surface is inside the box and faces back along the projection, fading as it
+turns away. Translucent surfaces are not in the G-buffer, and get none.
+
+How much of the material is laid on goes by its alpha mode, as for a mesh: a decal
+material is an ordinary material, and one that is opaque covers all of its box. Color,
+roughness, metal and specular are blended by the hardware; what the alpha of those
+targets holds - the light channels, the occlusion - is kept by the blend, and light the
+material gives off is added. The normals are another matter: they are kept as points of
+an unfolded octahedron, and blending two such points gives neither normal. So a decal
+bends the normal in its shader and writes the result, reading the normals from a copy -
+a target cannot be read while it is drawn into. Made once, the copy would hand every
+decal the normals of the base pass, and a decal over another would undo the bumps of the
+first; so it is made again before a decal whose box meets the box of one that bent normals
+since the last copy. Boxes in the world, not rectangles on the screen: two decals whose
+boxes do not meet cannot both cover one point of a surface. A decal whose material has no
+normal map writes no normals and makes no copy stale.
+
+The level of a texture to read is chosen by how far the image moves from one pixel to the
+next, and the usual way to know that - the difference to the neighbouring pixels - jumps
+wherever the neighbour shows something else, which in a decal is every edge of what it
+lands on. Taken at the pixel's own depth instead, it is too small at a slant: on a floor
+seen at a few degrees a step on the screen is a long way along the floor, and the first
+level of the texture is read where a small one belongs, which shimmers. The step is
+therefore measured where the line of sight of the next pixel meets the plane of the image
+through the point the pixel shows.
 
 ### Not finishing a picture is a quality
 

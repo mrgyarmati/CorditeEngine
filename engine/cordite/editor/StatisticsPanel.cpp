@@ -73,6 +73,12 @@ Json describeFrameStatistics(const FrameStatistics& statistics) {
     Json shafts = Json::object();
     shafts["bytes"] = statistics.scene.lightShaftBytes;
     scene["lightShafts"] = std::move(shafts);
+    Json decals = Json::object();
+    decals["count"] = statistics.scene.decals;
+    decals["dropped"] = statistics.scene.droppedDecals;
+    decals["normalCopies"] = statistics.scene.decalNormalCopies;
+    decals["bytes"] = statistics.scene.decalBytes;
+    scene["decals"] = std::move(decals);
     Json passes = Json::object();
     passes["shadow"] = describePass(statistics.scene.shadowPass);
     passes["depth"] = describePass(statistics.scene.depthPass);
@@ -178,6 +184,10 @@ void StatisticsPanel::draw(const FrameStatistics& statistics, bool& open) {
                                : fmt::format("{} (atlas of {:.1f} MiB, {} lights without)", scene.shadowMaps,
                                              atlasMebibytes, scene.lightsWithoutShadows));
 
+        row("Decals", scene.droppedDecals == 0
+                          ? fmt::format("{} ({} copies of the normals)", scene.decals, scene.decalNormalCopies)
+                          : fmt::format("{} ({} copies of the normals, {} left out)", scene.decals,
+                                        scene.decalNormalCopies, scene.droppedDecals));
         row("Environment", scene.environmentBytes == 0
                                ? std::string("none")
                                : fmt::format("{:.1f} MiB of cube maps",

@@ -101,6 +101,11 @@ Result<SceneTargets> SceneTargets::create(nvrhi::IDevice* device, UVec2 size, st
     targets.m_depthFramebuffer =
         device->createFramebuffer(nvrhi::FramebufferDesc().setDepthAttachment(targets.m_depth));
     targets.m_gbufferFramebuffer = device->createFramebuffer(gbufferDesc);
+    nvrhi::FramebufferDesc decalDesc;
+    for (const nvrhi::TextureHandle& texture : targets.m_gbuffer) {
+        decalDesc.addColorAttachment(texture);
+    }
+    targets.m_decalFramebuffer = device->createFramebuffer(decalDesc);
     targets.m_ambientOcclusionFramebuffer =
         device->createFramebuffer(nvrhi::FramebufferDesc().addColorAttachment(targets.m_ambientOcclusion));
     targets.m_lightingFramebuffer =
@@ -111,9 +116,9 @@ Result<SceneTargets> SceneTargets::create(nvrhi::IDevice* device, UVec2 size, st
         device->createFramebuffer(nvrhi::FramebufferDesc().addColorAttachment(targets.m_display));
     targets.m_overlayFramebuffer = device->createFramebuffer(
         nvrhi::FramebufferDesc().addColorAttachment(targets.m_display).setDepthAttachment(targets.m_depth));
-    if (!targets.m_depthFramebuffer || !targets.m_gbufferFramebuffer || !targets.m_ambientOcclusionFramebuffer ||
-        !targets.m_lightingFramebuffer || !targets.m_sceneFramebuffer || !targets.m_displayFramebuffer ||
-        !targets.m_overlayFramebuffer) {
+    if (!targets.m_depthFramebuffer || !targets.m_gbufferFramebuffer || !targets.m_decalFramebuffer ||
+        !targets.m_ambientOcclusionFramebuffer || !targets.m_lightingFramebuffer || !targets.m_sceneFramebuffer ||
+        !targets.m_displayFramebuffer || !targets.m_overlayFramebuffer) {
         return makeError(ErrorCode::DeviceError, "cannot create the framebuffers of '{}'", name);
     }
 
@@ -288,6 +293,34 @@ uint64_t SceneTargets::depthOfFieldBytes() const {
     // Two images of four half floats a texel.
     const nvrhi::TextureDesc& desc = m_depthOfFieldSource->getDesc();
     return uint64_t{desc.width} * desc.height * 8 * 2;
+}
+
+Status SceneTargets::prepareDecalNormals(nvrhi::IDevice* device) {
+    CORDITE_ASSERT(isValid() && device != nullptr, "decals need valid targets and a device");
+    if (!isValid() || device == nullptr) {
+        return makeError(ErrorCode::InvalidArgument, "decals need valid targets and a device");
+    }
+    if (m_decalNormals) {
+        return {};
+    }
+    const nvrhi::Format format = m_gbuffer[static_cast<size_t>(GBufferTarget::Normal)]->getDesc().format;
+    m_decalNormals = createTexture(device, m_size, format, m_debugName + " normals under decals",
+                                   nvrhi::ResourceStates::ShaderResource);
+    if (!m_decalNormals) {
+        return makeError(ErrorCode::DeviceError, "cannot create the {}x{} image the decals of '{}' read normals from",
+                         m_size.x, m_size.y, m_debugName);
+    }
+    return {};
+}
+
+void SceneTargets::releaseDecalNormals() {
+    // What a command list on its way still reads is kept alive by that list.
+    m_decalNormals = nullptr;
+}
+
+uint64_t SceneTargets::decalNormalBytes() const {
+    // Two 16-bit numbers a pixel.
+    return m_decalNormals ? uint64_t{m_size.x} * m_size.y * 4 : 0;
 }
 
 Status SceneTargets::prepareLightShafts(nvrhi::IDevice* device) {

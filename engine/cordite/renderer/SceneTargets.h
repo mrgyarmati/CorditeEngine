@@ -236,6 +236,26 @@ public:
     /// The memory of those images, in bytes: nothing when there are none.
     [[nodiscard]] uint64_t lightShaftBytes() const;
 
+    /// The G-buffer targets without the depth: what decals are drawn into, reading the
+    /// depth as a texture (DecalPass).
+    [[nodiscard]] nvrhi::IFramebuffer* decalFramebuffer() const { return m_decalFramebuffer; }
+
+    /// Makes sure there is an image for the normals of the G-buffer as the base pass left
+    /// them, which decals read while they draw into the normals: as large as the view, of
+    /// the format of GBufferTarget::Normal. Fails when the device cannot create it; the
+    /// targets then hold none.
+    [[nodiscard]] Status prepareDecalNormals(nvrhi::IDevice* device);
+
+    /// Lets go of that image: for a view that has no decals any more.
+    void releaseDecalNormals();
+
+    /// The image prepareDecalNormals() made. Null before that call and after
+    /// releaseDecalNormals().
+    [[nodiscard]] nvrhi::ITexture* decalNormals() const { return m_decalNormals; }
+
+    /// The memory of that image, in bytes: nothing when there is none.
+    [[nodiscard]] uint64_t decalNormalBytes() const;
+
     /// Scene color alone: what the passes that read the depth as a texture draw into,
     /// the lighting first of all.
     [[nodiscard]] nvrhi::IFramebuffer* lightingFramebuffer() const { return m_lightingFramebuffer; }
@@ -271,6 +291,7 @@ private:
     uint32_t m_tracedOcclusionDivisor = 0;
     nvrhi::TextureHandle m_display;
     nvrhi::TextureHandle m_aliased;
+    nvrhi::TextureHandle m_decalNormals;
     nvrhi::TextureHandle m_depthOfFieldSource;
     nvrhi::TextureHandle m_depthOfFieldBlur;
     std::array<nvrhi::TextureHandle, 2> m_lightShafts;
@@ -285,6 +306,7 @@ private:
     uint64_t m_serial = 0;
     nvrhi::FramebufferHandle m_depthFramebuffer;
     nvrhi::FramebufferHandle m_gbufferFramebuffer;
+    nvrhi::FramebufferHandle m_decalFramebuffer;
     nvrhi::FramebufferHandle m_ambientOcclusionFramebuffer;
     nvrhi::FramebufferHandle m_tracedOcclusionFramebuffer;
     nvrhi::FramebufferHandle m_lightingFramebuffer;

@@ -143,6 +143,33 @@ TypeInfo describeEnvironment() {
         .build();
 }
 
+TypeInfo describeDecal() {
+    return TypeBuilder<DecalComponent>("Decal")
+        .property("material", &DecalComponent::material,
+                  {.description = "The material laid on: its color, normal map, roughness, metallic, specular "
+                                  "and light. How much of it there is goes by its alpha mode, as for a mesh: a "
+                                  "blended material's alpha says it",
+                   .semantic = PropertySemantic::AssetReference,
+                   .referenceType = "Material"})
+        .property("opacity", &DecalComponent::opacity,
+                  {.description = "How much of it is laid on: 0 nothing, 1 as its material says",
+                   .minimum = 0.0,
+                   .maximum = 1.0,
+                   .step = 0.01})
+        .property("fadeAngle", &DecalComponent::fadeAngle,
+                  {.description = "Surfaces that turn away from the projection by more than this get none of it; "
+                                  "it fades over the ten degrees before",
+                   .minimum = 10.0,
+                   .maximum = 90.0,
+                   .step = 1.0,
+                   .unit = "deg"})
+        .property("order", &DecalComponent::order,
+                  {.description = "Of decals that overlap, one of a higher order is laid on over one of a lower",
+                   .minimum = -1000.0,
+                   .maximum = 1000.0})
+        .build();
+}
+
 TypeInfo describeFog() {
     return TypeBuilder<FogComponent>("Fog")
         .property("color", &FogComponent::color,
@@ -449,6 +476,10 @@ Status registerRendererComponents(ComponentRegistry& registry) {
         describeFog(), {.description = "Fog: the further away something is, the more of the fog's color is seen in its "
                                        "place. Densest at the height of the entity and below, thinning out above. Of "
                                        "several, the one whose entity has the lowest id is used."}));
+    CORDITE_TRY(registry.add<DecalComponent>(
+        describeDecal(),
+        {.description = "A material laid onto the solid surfaces inside the entity's box, projected along its -Z "
+                        "axis: grime, cracks, rust, markings."}));
     CORDITE_TRY(registry.add<PostProcessComponent>(
         describePostProcess(),
         {.description = "How the picture is finished - exposure, bloom, tone mapping, grading - everywhere, in a "

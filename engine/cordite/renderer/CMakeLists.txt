@@ -14,6 +14,10 @@ cordite_add_module(renderer
         DebugLinePass.h
         DebugViewPass.cpp
         DebugViewPass.h
+        DecalPass.cpp
+        DecalPass.h
+        Decals.cpp
+        Decals.h
         DeferredLightingPass.cpp
         DeferredLightingPass.h
         DepthOfFieldPass.cpp

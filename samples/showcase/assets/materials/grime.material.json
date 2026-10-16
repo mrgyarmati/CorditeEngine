@@ -1,0 +1,19 @@
+// Grime, for decals: oily blotches with rust in them, and a crack. A decal lays as much of
+// a blended material as the alpha of its color says; the image fades out before its
+// edges, so nothing of it shows where the box of a decal ends.
+{
+    "format": "cordite.material",
+    "version": 1,
+    "alphaMode": "blended",
+    "baseColorTexture": "425fe5df-1e87-8153-804f-8c070de1f7f9",
+    // The crack is a groove: a decal bends the normals of what it lands on.
+    "normalTexture": "b935c881-48c2-84f7-91a9-442294c70b18",
+    // Roughness in green; metallic in blue, which is nothing here. A decal does not use
+    // an occlusion texture.
+    "metallicRoughnessTexture": "45258f31-3f37-82a4-a611-82a13ae874c9",
+    "metallic": 1,
+    "roughness": 1,
+    // The image is laid on once, not repeated: what is beyond its edges is the edge.
+    "wrapU": "clamp",
+    "wrapV": "clamp"
+}

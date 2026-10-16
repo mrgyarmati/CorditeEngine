@@ -40,6 +40,13 @@
         "depthOfFieldBytes": 2073600,
         // The main camera has the sun behind it: no light shafts.
         "lightShaftBytes": 0,
+        // The three decals of the showcase are in view: the grime and the warning strip on
+        // the floor, the grime on the wall. The grime comes to where the strip, which is
+        // laid on first, bent the normals: they are copied for it a second time. The copy
+        // is as large as the picture, two 16-bit numbers a pixel.
+        "decals": 3,
+        "decalNormalCopies": 2,
+        "decalBytes": 2073600,
         // The lights in view, and the entries of the cluster lists they are in: how
         // many clusters the lamps of the showcase reach, all of them together. The
         // light at the sentry's post is among them also while it is dark: a script
@@ -88,8 +95,9 @@
         // 1103.
         "audioVoices": 4,
         "soundBytes": 568892,
-        // The image of the sky is 1.4 MiB of this.
-        "textureBytes": 9437184,
+        // The image of the sky is 1.4 MiB of this, the three images of the grime of the
+        // decals 1 MiB.
+        "textureBytes": 10485760,
 
         "milliseconds": {
             "assetIndex": 500,
@@ -117,9 +125,13 @@
         // says nothing: bloom, the final pass and the smoothing of its edges.
         "screenPasses": 14,
         "ambientOcclusionBytes": 518400,
-        // A scene that says nothing has no depth of field, and no light shafts.
+        // A scene that says nothing has no depth of field, and no light shafts; the field
+        // has no decals.
         "depthOfFieldBytes": 0,
         "lightShaftBytes": 0,
+        "decals": 0,
+        "decalNormalCopies": 0,
+        "decalBytes": 0,
         "triangles": 340000,
         // Most of the lights are in view. The entries of the cluster lists say how well
         // they are told apart: the number goes up when lights are put into the lists of
@@ -154,6 +166,9 @@
         "ambientOcclusionBytes": 518400,
         "depthOfFieldBytes": 0,
         "lightShaftBytes": 0,
+        "decals": 0,
+        "decalNormalCopies": 0,
+        "decalBytes": 0,
         "triangles": 800000,
         "lights": 600,
         "lightListEntries": 22500,

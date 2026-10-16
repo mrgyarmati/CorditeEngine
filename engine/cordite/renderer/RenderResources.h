@@ -75,6 +75,9 @@ struct GpuMaterial {
     nvrhi::BindingSetHandle bindings;
     AlphaMode alphaMode = AlphaMode::Opaque;
     bool doubleSided = false;
+    /// Whether the material has a normal texture. A decal of one that has none leaves the
+    /// normals it lands on as they are.
+    bool hasNormalTexture = false;
     /// Counts up with every material created; see GpuMesh::serial.
     uint32_t serial = 0;
 };
@@ -119,6 +122,11 @@ public:
     /// The material for an asset id; the default material when the id is nil or the
     /// material cannot be loaded. The reference is valid until the next beginFrame().
     [[nodiscard]] const GpuMaterial& material(const Uuid& id);
+
+    /// The material for an asset id, or null when the id is nil or the material cannot be
+    /// loaded - which material() reports, once: for what is nothing without its material,
+    /// as a decal. The pointer is valid until the next beginFrame().
+    [[nodiscard]] const GpuMaterial* loadedMaterial(const Uuid& id);
 
     /// The texture of an image asset as the numbers it holds, with no color space
     /// undone: for what is not a material's, such as a lookup table of colors. Null

@@ -205,6 +205,28 @@ SurfacePoint planks(Vec2 uv) {
     return point;
 }
 
+/// Grime for decals: dark, oily blotches with rust in them and a crack wandering through.
+/// It fades out well before the edges of the image, ragged, so that a decal of it has no
+/// border, and the image is never repeated.
+SurfacePoint grime(Vec2 uv) {
+    const float fromMiddle = glm::distance(uv, Vec2(0.5f)) * 2.0f;
+    const float rim =
+        1.0f - glm::smoothstep(0.4f, 0.8f, fromMiddle + 0.3f * (fractalNoise(uv, IVec2(5), 4, 131) - 0.5f));
+    const float blotches = glm::smoothstep(0.38f, 0.62f, fractalNoise(uv, IVec2(6), 5, 137));
+    const float wobble = 0.16f * (fractalNoise(uv, IVec2(4, 1), 4, 149) - 0.5f);
+    const float crack = (1.0f - glm::smoothstep(0.003f, 0.008f, std::abs(uv.y - 0.5f - wobble))) *
+                        (1.0f - glm::smoothstep(0.55f, 0.75f, fromMiddle));
+    const float rust = glm::smoothstep(0.55f, 0.75f, fractalNoise(uv, IVec2(10), 4, 151));
+
+    SurfacePoint point;
+    point.baseColor = glm::mix(Vec3(0.035f, 0.03f, 0.025f), Vec3(0.17f, 0.07f, 0.03f), rust);
+    point.opacity = std::max(rim * (0.55f + 0.45f * blotches), crack);
+    point.height = -0.006f * crack;
+    // Oil is shinier than what it lies on; rust is not.
+    point.roughness = glm::mix(0.28f, 0.6f, rust);
+    return point;
+}
+
 /// Yellow and black warning stripes, chipped where the paint has worn off.
 SurfacePoint hazardPaint(Vec2 uv) {
     const float stripe = glm::smoothstep(0.47f, 0.53f, std::abs(glm::fract((uv.x + uv.y) * 4.0f) * 2.0f - 1.0f));
@@ -947,6 +969,7 @@ Status generate(const std::filesystem::path& assetDirectory) {
     CORDITE_TRY(writeTextures(textureDirectory, "hazard", bake(hazardPaint), false));
     CORDITE_TRY(writeTextures(textureDirectory, "grating", bake(grating), false));
     CORDITE_TRY(writeTextures(textureDirectory, "lamp", bake(lampPanel), true));
+    CORDITE_TRY(writeTextures(textureDirectory, "grime", bake(grime), false));
     CORDITE_TRY(makeGradeLut().savePng(textureDirectory / "grade_lut.png"));
     CORDITE_TRY(makeSky().saveHdr(textureDirectory / "sky.hdr"));
 

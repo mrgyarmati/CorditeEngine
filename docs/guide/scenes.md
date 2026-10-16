@@ -25,6 +25,7 @@ is not drawn, not simulated, its scripts do not run.
 | **Light**, **AmbientLight** | Light. See [Light, shadows and the finished picture](lighting.md). |
 | **Environment** | The sky, and the light from all around. |
 | **Fog** | Haze between the viewer and everything seen. |
+| **Decal** | A material laid onto the surfaces inside the entity's box: grime, cracks, markings. See [Materials](materials.md#decals). |
 | **PostProcess** | How the picture is finished - exposure, bloom, color - everywhere, in a volume, or for one camera. |
 | **Collider**, **RigidBody**, **Joint**, **CharacterController** | Physics. See [Physics](physics.md). |
 | **AudioSource**, **AudioListener** | Sound. See [Sound](audio.md). |

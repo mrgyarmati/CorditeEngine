@@ -128,12 +128,15 @@ this order. Then each step, with its shader in `shaders/`:
 | What is drawn, in how few draw calls | `MeshDrawList.h`, `MeshPass.h` | `passes/MeshVertex.slang` | "Instances are a vertex stream" |
 | Shadow maps, in one atlas | `ShadowPlan.h`, `ShadowAtlas.h` | `common/Shadows.slang` | "All shadow maps of a view share one atlas", "Cascades are spheres, moved in whole texels", "A surface is kept out of its own shadow by where it is looked up" |
 | Depth pre-pass, then the G-buffer | `SceneTargets.h` | `passes/MeshDepth.slang`, `passes/MeshGBuffer.slang`, `common/GBuffer.slang` | "A depth pre-pass, then a base pass on equal depth", "The G-buffer is four targets and depth" |
+| Decals, laid onto the G-buffer | `Decals.h`, `DecalPass.h` | `passes/Decal.slang`, `common/Decals.slang` | "Decals are laid onto the G-buffer" |
 | Ambient occlusion | `AmbientOcclusion.h`, `AmbientOcclusionPass.h` | `passes/AmbientOcclusion.slang`, `common/AmbientOcclusion.slang` | "Ambient occlusion is measured from the surface, in slices" |
 | Lights, sorted into clusters | `LightClusters.h`, `SceneLights.h` | `common/Lights.slang` | "Lights are found through clusters, built on the CPU", "Brightness is set for artists, computed in radiance" |
 | Deferred lighting | `DeferredLightingPass.h` | `passes/DeferredLighting.slang`, `common/SceneLighting.slang`, `common/Brdf.slang` | "Solid surfaces are shaded deferred, translucent ones forward" |
 | The environment | `EnvironmentMaps.h`, `EnvironmentLight.h` | `common/Environment.slang`, `passes/EnvironmentPrefilter.slang` | "An environment is one image, and three things are made of it" |
 | Fog | `Fog.h` | `common/Fog.slang` | "Fog is a formula in the lighting, not a pass" |
 | Translucent surfaces | `MeshDrawList.h` | `passes/MeshForward.slang` | |
+| Light shafts | `LightShafts.h`, `LightShaftPass.h` | `passes/LightShafts.slang`, `common/LightShafts.slang` | "Light shafts are the sky around the sun, blurred towards it" |
+| Depth of field | `DepthOfFieldPass.h`, `PostProcessSettings.h` | `passes/DepthOfField.slang`, `common/DepthOfField.slang` | "Depth of field is gathered at half the size, from light, before the picture is finished" |
 | Finishing the picture | `PostProcessPass.h`, `PostProcessSettings.h` | `passes/Exposure.slang`, `passes/Bloom.slang`, `passes/PostProcess.slang`, `common/ToneMapping.slang`, `passes/AntiAliasing.slang` | "A picture is finished in one pass", "Bloom is a chain of halvings", "Automatic exposure is measured from the bloom", "Edges are smoothed from the finished picture" |
 
 The deepest lesson of the renderer is in how it is tested. A test that can say what a pixel

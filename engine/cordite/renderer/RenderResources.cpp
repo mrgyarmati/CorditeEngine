@@ -444,6 +444,7 @@ Result<GpuMaterial> RenderResources::createMaterial(const MaterialData& material
     }
     gpuMaterial.alphaMode = material.alphaMode;
     gpuMaterial.doubleSided = material.doubleSided;
+    gpuMaterial.hasNormalTexture = !material.normalTexture.isNil();
     gpuMaterial.serial = m_nextSerial++;
     ++m_statistics.materialCount;
     return gpuMaterial;
@@ -467,12 +468,23 @@ const GpuMaterial& RenderResources::material(const Uuid& id) {
         created = tl::unexpected(loaded.error());
     }
     if (!created) {
-        CORDITE_LOG_ERROR("Renderer", "cannot use material {}: {}; the default material is drawn instead", name,
-                          created.error().message);
+        CORDITE_LOG_ERROR("Renderer",
+                          "cannot use material {}: {}; meshes are drawn with the default material instead, and decals "
+                          "not at all",
+                          name, created.error().message);
         // Remembered under its id, so that it is neither loaded nor reported again.
         return m_materials.emplace(id, m_defaultMaterial).first->second;
     }
     return m_materials.emplace(id, std::move(*created)).first->second;
+}
+
+const GpuMaterial* RenderResources::loadedMaterial(const Uuid& id) {
+    if (id.isNil()) {
+        return nullptr;
+    }
+    const GpuMaterial& found = material(id);
+    // What cannot be loaded is remembered as a copy of the default material.
+    return found.serial == m_defaultMaterial.serial ? nullptr : &found;
 }
 
 } // namespace cordite

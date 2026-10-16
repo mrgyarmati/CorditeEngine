@@ -86,6 +86,37 @@ A change to the parent reaches every instance that does not set that value itsel
 - **Blended** surfaces - glass, water, smoke - are drawn after everything solid, sorted back
   to front. They do not cast shadows.
 
+## Decals
+
+A **Decal** component lays a material onto whatever solid surfaces are inside its entity's
+box - grime on a floor, a crack in a wall, rust down a pipe, a painted marking. The box is a
+cube of one metre, scaled, turned and placed by the entity's Transform; the material is
+projected along the entity's -Z axis, the way a light shines, with its image running along
+the entity's X axis and up its Y axis. In the editor, the box is drawn with a line through it
+along the way it is projected.
+
+| Property | Default | Meaning |
+|----------|---------|---------|
+| `material` | none | The material laid on. |
+| `opacity` | `1` | How much of it: 0 nothing, 1 as the material says. |
+| `fadeAngle` | `60` | Surfaces that turn away from the projection by more than this many degrees get none of it; it fades over the ten degrees before. |
+| `order` | `0` | Where decals overlap, the one of the higher order is laid on over the other. |
+
+A decal's material is an ordinary material, and its alpha mode says how much of it is laid
+on, as it does for a mesh: all of an **opaque** one - a square of it - all or nothing of a
+**masked** one, and of a **blended** one as much as the alpha of its base color says, which is
+what most decals want: an image that fades out before its edges, with `wrapU` and `wrapV` set
+to `clamp`. The decal lays on the material's color, roughness, metal and specular, bends the
+normals of what it lands on with the material's normal map, and adds the light it gives off;
+its occlusion texture is not used. `uvScale` and `uvOffset` place the textures in the box as
+they place them on a mesh: a strip of warning paint can repeat its stripes along its length. A decal lands on everything solid in its box, moving or not
+- turn the box and make it shallow where it should not reach the things standing on a floor.
+Glass and other blended surfaces are drawn after decals, and get none.
+
+The `baseColor`, `normals` and `roughness` render views show what decals laid onto the
+surfaces. A view lays on 256 decals at the most; the statistics (View > Statistics, or
+`editor.statistics`) count them.
+
 ## The look of the engine
 
 Cordite's lighting favors strong, readable contrast: high specular response, deep shadows,

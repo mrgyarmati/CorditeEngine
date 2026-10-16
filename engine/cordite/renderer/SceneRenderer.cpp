@@ -164,6 +164,10 @@ SceneRenderStatistics& SceneRenderStatistics::operator+=(const SceneRenderStatis
     lights += other.lights;
     lightListEntries += other.lightListEntries;
     droppedLights += other.droppedLights;
+    decals += other.decals;
+    droppedDecals += other.droppedDecals;
+    decalNormalCopies += other.decalNormalCopies;
+    decalBytes = std::max(decalBytes, other.decalBytes);
     shadowMaps += other.shadowMaps;
     lightsWithoutShadows += other.lightsWithoutShadows;
     shadowAtlasBytes = std::max(shadowAtlasBytes, other.shadowAtlasBytes);
@@ -217,6 +221,7 @@ Result<std::unique_ptr<SceneRenderer>> SceneRenderer::create(nvrhi::IDevice* dev
     CORDITE_TRY_ASSIGN(DisplayEncodePass encode, DisplayEncodePass::create(device, shaders));
     CORDITE_TRY_ASSIGN(ShadowAtlas shadows, ShadowAtlas::create(device, shaders, materialLayout, jointLayout));
     CORDITE_TRY_ASSIGN(EnvironmentMaps environments, EnvironmentMaps::create(device, shaders, assets));
+    CORDITE_TRY_ASSIGN(DecalPass decals, DecalPass::create(device, shaders, viewLayout, materialLayout));
     CORDITE_TRY_ASSIGN(AmbientOcclusionPass occlusion, AmbientOcclusionPass::create(device, shaders, viewLayout));
     CORDITE_TRY_ASSIGN(LightShaftPass lightShafts, LightShaftPass::create(device, shaders, viewLayout));
     CORDITE_TRY_ASSIGN(DepthOfFieldPass depthOfField, DepthOfFieldPass::create(device, shaders, viewLayout));
@@ -232,6 +237,7 @@ Result<std::unique_ptr<SceneRenderer>> SceneRenderer::create(nvrhi::IDevice* dev
                   .encode = std::move(encode),
                   .shadows = std::move(shadows),
                   .environments = std::move(environments),
+                  .decals = std::move(decals),
                   .occlusion = std::move(occlusion),
                   .lightShafts = std::move(lightShafts),
                   .depthOfField = std::move(depthOfField),
@@ -414,6 +420,9 @@ void SceneRenderer::render(nvrhi::ICommandList* commandList, const World& world,
 
     m_resources->beginFrame();
     collectDraws(world, view);
+    // The decals, and what they are drawn with, which goes to the GPU with the rest.
+    m_decals.collect(world);
+    DecalPass::prepare(*m_resources, m_decals.decals());
     // Before anything that uses the new resources is recorded behind them.
     m_resources->flushUploads();
     // The poses, before anything is drawn in them.
@@ -503,6 +512,10 @@ void SceneRenderer::render(nvrhi::ICommandList* commandList, const World& world,
         .view = viewBindings, .instances = m_drawList.instanceBuffer(), .joints = m_palettes.bindings()};
 
     targets.clear(commandList, settings.backgroundColor);
+    if (debugView == RenderDebugView::Wireframe || debugView == RenderDebugView::Overdraw) {
+        // What draws every mesh itself shows no G-buffer, and nothing laid onto one.
+        targets.releaseDecalNormals();
+    }
     if (debugView == RenderDebugView::Wireframe) {
         m_statistics.forwardPass =
             m_passes.wireframe.draw(commandList, targets.sceneFramebuffer(), m_drawList.batches(), meshBindings);
@@ -517,6 +530,8 @@ void SceneRenderer::render(nvrhi::ICommandList* commandList, const World& world,
             m_passes.depth.draw(commandList, targets.depthFramebuffer(), m_drawList.solidBatches(), meshBindings);
         m_statistics.basePass =
             m_passes.base.draw(commandList, targets.gbufferFramebuffer(), m_drawList.solidBatches(), meshBindings);
+        // Laid onto what the base pass left, before anything reads it.
+        drawDecals(commandList, targets, viewBindings, view);
         if (!occlusion.isEnabled()) {
             // A view that is to have none gives back what it was worked out in.
             targets.releaseTracedOcclusion();
@@ -548,6 +563,7 @@ void SceneRenderer::render(nvrhi::ICommandList* commandList, const World& world,
     m_statistics.ambientOcclusionBytes = targets.tracedOcclusionBytes();
     m_statistics.depthOfFieldBytes = targets.depthOfFieldBytes();
     m_statistics.lightShaftBytes = targets.lightShaftBytes();
+    m_statistics.decalBytes = targets.decalNormalBytes();
     m_statistics.meshes = m_statistics.shadowPass;
     m_statistics.meshes += m_statistics.depthPass;
     m_statistics.meshes += m_statistics.basePass;
@@ -589,6 +605,24 @@ void SceneRenderer::finishPicture(nvrhi::ICommandList* commandList, SceneTargets
         targets.releaseAliased();
         m_passes.encode.draw(commandList, targets.sceneColor(), targets.displayFramebuffer());
         ++m_statistics.screenPasses;
+    }
+}
+
+void SceneRenderer::drawDecals(nvrhi::ICommandList* commandList, SceneTargets& targets,
+                               nvrhi::IBindingSet* viewBindings, const CameraView& view) {
+    m_statistics.droppedDecals = m_decals.dropped();
+    if (m_decals.dropped() > 0 && !m_reportedDroppedDecals) {
+        CORDITE_LOG_WARN("Renderer", "too many decals for one view: {} left out (a view holds {})", m_decals.dropped(),
+                         kMaxDecals);
+        m_reportedDroppedDecals = true;
+    }
+    const DecalDrawStatistics drawn =
+        m_passes.decals.draw(commandList, targets, viewBindings, view, *m_resources, m_decals.decals());
+    m_statistics.decals = drawn.decals;
+    m_statistics.decalNormalCopies = drawn.normalCopies;
+    if (m_statistics.decals == 0) {
+        // A view that has none gives back what they read.
+        targets.releaseDecalNormals();
     }
 }
 

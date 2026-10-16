@@ -157,6 +157,7 @@ cordite_add_test_suite(renderer
         unit/renderer/AmbientOcclusionTests.cpp
         unit/renderer/CameraViewTests.cpp
         unit/renderer/DebugDrawTests.cpp
+        unit/renderer/DecalsTests.cpp
         unit/renderer/EnvironmentLightTests.cpp
         unit/renderer/FogTests.cpp
         unit/renderer/LightClustersTests.cpp
@@ -245,6 +246,7 @@ cordite_add_test_suite(render
         render/AmbientOcclusionTests.cpp
         render/AntiAliasingTests.cpp
         render/DebugLineTests.cpp
+        render/DecalTests.cpp
         render/DepthOfFieldTests.cpp
         render/EditorAppTests.cpp
         render/EngineTests.cpp

@@ -120,7 +120,8 @@ Look at the screenshot. Then run `./scripts/dev.ps1 verify` before committing.
 `SceneRenderer.h` is the reference):
 
 ```
-shadow maps -> depth pre-pass -> base pass (G-buffer) -> deferred lighting -> forward pass
+shadow maps -> depth pre-pass -> base pass (G-buffer) -> decals -> ambient occlusion
+            -> deferred lighting -> forward pass -> light shafts -> depth of field
             -> post-processing (or, for a picture that is not finished, display encoding)
 ```
 

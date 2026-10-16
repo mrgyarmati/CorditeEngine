@@ -1123,6 +1123,72 @@
             }
         },
         {
+            // A decal lays a material onto the solid surfaces inside its entity's box - a
+            // cube of one metre, here 2.2 by 2.2 metres across and 0.6 deep - projected
+            // along the entity's -Z axis, here turned to point down at the floor and a
+            // little about. Its image runs along the entity's X axis and up its Y axis. A
+            // surface that turns away from the projection by more than "fadeAngle" degrees
+            // gets none of it, fading over the ten degrees before; "opacity" says how much
+            // of the material is laid on; where decals overlap, the one of the higher
+            // "order" is laid on last. How much of a material there is goes by its alpha
+            // mode, as for a mesh: this one is blended, and the alpha of its color says.
+            "id": "10000000-0000-4000-8000-000000000043",
+            "name": "Grime",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-000000000001",
+            "components": {
+                "Transform": {
+                    "position": [0.4, 0.0, -0.6],
+                    "rotation": [-0.6830127, 0.1830127, 0.1830127, 0.6830127],
+                    "scale": [2.2, 2.2, 0.6]
+                },
+                "Decal": {
+                    "material": "e967ddcf-f70d-8878-bac3-7975b0d5351c",
+                    "opacity": 1.0,
+                    "fadeAngle": 60.0,
+                    "order": 0
+                }
+            }
+        },
+        {
+            // Warning stripes painted on the floor: an opaque material as a decal covers the
+            // whole of its box. Its order is lower than the grime's, which is laid over it
+            // where the two meet.
+            "id": "10000000-0000-4000-8000-000000000044",
+            "name": "Floor marking",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-000000000001",
+            "components": {
+                "Transform": {
+                    "position": [1.0, 0.0, 0.6],
+                    "rotation": [-0.70710677, 0.0, 0.0, 0.70710677],
+                    "scale": [2.0, 0.6, 0.4]
+                },
+                "Decal": {
+                    "material": "c40ceb3a-92fb-8ca6-8c0c-a72bda94bf24",
+                    "opacity": 1.0,
+                    "fadeAngle": 45.0,
+                    "order": -1
+                }
+            }
+        },
+        {
+            // Grime that has run down a panel of the wall, projected into it along -Z.
+            "id": "10000000-0000-4000-8000-000000000045",
+            "name": "Wall grime",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-00000000000b",
+            "components": {
+                "Transform": { "position": [1.2, -0.6, 0.15], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [1.4, 1.4, 0.4] },
+                "Decal": {
+                    "material": "e967ddcf-f70d-8878-bac3-7975b0d5351c",
+                    "opacity": 0.8,
+                    "fadeAngle": 75.0,
+                    "order": 1
+                }
+            }
+        },
+        {
             // Two bollards, placed from a prefab (prefabs/bollard.prefab.json) as
             // asset.instantiate places one: copies of its entities, with ids of their own.
             // The PrefabInstance on the root of each says where it came from, and that is

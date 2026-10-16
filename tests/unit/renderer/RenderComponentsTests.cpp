@@ -40,13 +40,14 @@ struct Components {
 TEST_SUITE("RenderComponents") {
     TEST_CASE("the renderer registers its components under the names scene files use") {
         const Components components;
-        REQUIRE(components.registry.components().size() == 6);
+        REQUIRE(components.registry.components().size() == 7);
         CHECK(components.registry.components()[0]->type.name() == "MeshRenderer");
         CHECK(components.registry.components()[1]->type.name() == "Light");
         CHECK(components.registry.components()[2]->type.name() == "AmbientLight");
         CHECK(components.registry.components()[3]->type.name() == "Environment");
         CHECK(components.registry.components()[4]->type.name() == "Fog");
-        CHECK(components.registry.components()[5]->type.name() == "PostProcess");
+        CHECK(components.registry.components()[5]->type.name() == "Decal");
+        CHECK(components.registry.components()[6]->type.name() == "PostProcess");
         for (const ComponentDescriptor* descriptor : components.registry.components()) {
             CAPTURE(descriptor->type.name());
             CHECK(descriptor->traits.optional);
@@ -327,6 +328,60 @@ TEST_SUITE("RenderComponents") {
             CHECK_FALSE(type.fromJson(&loaded, json(text)).has_value());
             CHECK(loaded.intensity == 2.5f);
             CHECK(loaded.rotationDegrees == -45.0f);
+        }
+    }
+
+    TEST_CASE("a decal is saved as its material, how much of it is laid on, where it fades and its order") {
+        const Components components;
+        const TypeInfo& type = components.type("Decal");
+
+        // A new one has no material yet, and lays all of the one it gets onto what faces
+        // its projection within sixty degrees.
+        const DecalComponent fresh;
+        CHECK(fresh.material.isNil());
+        CHECK(fresh.opacity == 1.0f);
+        CHECK(fresh.fadeAngle == 60.0f);
+        CHECK(fresh.order == 0);
+
+        const DecalComponent decal{.material = *Uuid::parse("9a1d2c3b-4e5f-4a6b-8c7d-0e1f2a3b4c5d"),
+                                   .opacity = 0.5f,
+                                   .fadeAngle = 45.0f,
+                                   .order = -3};
+        const Json saved = type.toJson(&decal);
+        CHECK(saved == json(R"({"material": "9a1d2c3b-4e5f-4a6b-8c7d-0e1f2a3b4c5d", "opacity": 0.5,
+                                "fadeAngle": 45.0, "order": -3})"));
+
+        DecalComponent loaded;
+        REQUIRE(type.fromJson(&loaded, saved).has_value());
+        CHECK(loaded.material == decal.material);
+        CHECK(loaded.opacity == 0.5f);
+        CHECK(loaded.fadeAngle == 45.0f);
+        CHECK(loaded.order == -3);
+
+        // The material is a reference to a material asset, which is what an editor offers
+        // and what a scene is checked for.
+        const PropertyInfo* material = type.findProperty("material");
+        REQUIRE(material != nullptr);
+        CHECK(material->attributes().semantic == PropertySemantic::AssetReference);
+        CHECK(material->attributes().referenceType == "Material");
+
+        for (const char* text : {
+                 R"({"opacity": -0.1})",
+                 R"({"opacity": 1.5})",
+                 R"({"fadeAngle": 5.0})",
+                 R"({"fadeAngle": 91.0})",
+                 R"({"order": 1001})",
+                 R"({"order": -1001})",
+                 R"({"order": 0.5})",
+                 R"({"material": "grime.material.json"})",
+                 R"({"size": [1, 1, 1]})",
+                 R"({"opacity": 0.25, "fadeAngle": 0.0})",
+             }) {
+            CAPTURE(std::string(text));
+            CHECK_FALSE(type.fromJson(&loaded, json(text)).has_value());
+            CHECK(loaded.opacity == 0.5f);
+            CHECK(loaded.fadeAngle == 45.0f);
+            CHECK(loaded.order == -3);
         }
     }
 

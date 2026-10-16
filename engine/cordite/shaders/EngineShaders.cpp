@@ -24,6 +24,8 @@ std::vector<ShaderRequest> engineShaderRequests() {
         {.path = "passes/PostProcess.slang", .entryPoint = "postProcessPixel", .stage = ShaderStage::Pixel},
         {.path = "passes/AntiAliasing.slang", .entryPoint = "antiAliasingPixel", .stage = ShaderStage::Pixel},
         {.path = "passes/DebugView.slang", .entryPoint = "debugViewPixel", .stage = ShaderStage::Pixel},
+        {.path = "passes/Decal.slang", .entryPoint = "decalVertex", .stage = ShaderStage::Vertex},
+        {.path = "passes/Decal.slang", .entryPoint = "decalPixel", .stage = ShaderStage::Pixel},
         {.path = "passes/DepthOfField.slang", .entryPoint = "depthOfFieldPrefilterPixel", .stage = ShaderStage::Pixel},
         {.path = "passes/DepthOfField.slang", .entryPoint = "depthOfFieldGatherPixel", .stage = ShaderStage::Pixel},
         {.path = "passes/DepthOfField.slang", .entryPoint = "depthOfFieldCompositePixel", .stage = ShaderStage::Pixel},

@@ -103,6 +103,17 @@ The shape of the entity for collisions. Alone, it stands still; with a RigidBody
 | `friction` | float | `0.5` | 0.0 to 4.0 | How much the surface resists sliding: 0 ice, 1 rubber. Of two that touch, the geometric mean counts |
 | `restitution` | float | `0.0` | 0.0 to 1.0 | How much speed is kept in a bounce: 0 none, 1 all of it. Of two that touch, the larger counts |
 
+## Decal
+
+A material laid onto the solid surfaces inside the entity's box, projected along its -Z axis: grime, cracks, rust, markings.
+
+| Property | Kind | Default | Values | Meaning |
+|---|---|---|---|---|
+| `material` | asset (Material) | `null` |  | The material laid on: its color, normal map, roughness, metallic, specular and light. How much of it there is goes by its alpha mode, as for a mesh: a blended material's alpha says it |
+| `opacity` | float | `1.0` | 0.0 to 1.0 | How much of it is laid on: 0 nothing, 1 as its material says |
+| `fadeAngle` | float | `60.0` | 10.0 to 90.0; deg | Surfaces that turn away from the projection by more than this get none of it; it fades over the ten degrees before |
+| `order` | int | `0` | -1000.0 to 1000.0 | Of decals that overlap, one of a higher order is laid on over one of a lower |
+
 ## Environment
 
 Everything far away, as an image that lights the scene and is its sky. Of several, the one whose entity has the lowest id is used.

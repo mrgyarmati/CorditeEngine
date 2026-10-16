@@ -219,6 +219,10 @@ void runScenario(const std::string& name, bool withShadows) {
     checkBudget(budgets, "ambientOcclusionBytes", static_cast<double>(statistics.scene.ambientOcclusionBytes));
     checkBudget(budgets, "depthOfFieldBytes", static_cast<double>(statistics.scene.depthOfFieldBytes));
     checkBudget(budgets, "lightShaftBytes", static_cast<double>(statistics.scene.lightShaftBytes));
+    CHECK(statistics.scene.droppedDecals == 0);
+    checkBudget(budgets, "decals", statistics.scene.decals);
+    checkBudget(budgets, "decalNormalCopies", statistics.scene.decalNormalCopies);
+    checkBudget(budgets, "decalBytes", static_cast<double>(statistics.scene.decalBytes));
 
     REQUIRE(budgets.contains("milliseconds"));
     const Json& timeBudgets = budgets["milliseconds"];

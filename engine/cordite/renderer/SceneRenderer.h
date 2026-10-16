@@ -21,15 +21,18 @@
 ///
 /// The passes of a view, in order:
 ///
-/// | Pass              | Draws                                    | Into                 |
-/// |-------------------|------------------------------------------|----------------------|
-/// | Shadow pass       | What casts shadows, as the lights see it | the shadow atlas     |
-/// | Depth pre-pass    | Solid surfaces: opaque and masked        | depth                |
-/// | Base pass         | The same, where they are the nearest     | the G-buffer         |
-/// | Ambient occlusion | Two triangles (AmbientOcclusionPass.h)   | ambient occlusion    |
-/// | Deferred lighting | One triangle over the whole target       | scene color          |
-/// | Forward pass      | Translucent surfaces, far to near        | scene color, over it |
-/// | Post-processing   | A few triangles (PostProcessPass.h)      | the display image    |
+/// | Pass              | Draws                                    | Into                  |
+/// |-------------------|------------------------------------------|-----------------------|
+/// | Shadow pass       | What casts shadows, as the lights see it | the shadow atlas      |
+/// | Depth pre-pass    | Solid surfaces: opaque and masked        | depth                 |
+/// | Base pass         | The same, where they are the nearest     | the G-buffer          |
+/// | Decals            | The box of each decal (DecalPass.h)      | the G-buffer, over it |
+/// | Ambient occlusion | Two triangles (AmbientOcclusionPass.h)   | ambient occlusion     |
+/// | Deferred lighting | One triangle over the whole target       | scene color           |
+/// | Forward pass      | Translucent surfaces, far to near        | scene color, over it  |
+/// | Light shafts      | A few triangles (LightShaftPass.h)       | scene color, added    |
+/// | Depth of field    | A few triangles (DepthOfFieldPass.h)     | scene color           |
+/// | Post-processing   | A few triangles (PostProcessPass.h)      | the display image     |
 ///
 /// Scene color is light, without an upper limit; post-processing makes the picture of
 /// it that a screen shows, as the PostProcess components of the world say
@@ -45,6 +48,8 @@
 /// maps in an atlas (ShadowPlan.h), drawn anew for every view. Its Environment is the
 /// image of everything far away: it lights every surface, and the deferred lighting
 /// draws it as the sky where nothing else was drawn (EnvironmentMaps.h).
+/// Its Decal components lay materials onto what the base pass left in the G-buffer,
+/// before anything reads it (Decals.h, DecalPass.h).
 ///
 /// A skinned mesh is drawn in a pose: that of its own entity, or of the nearest entity
 /// above it that has one (SkeletonPoseComponent, which AnimationSystem works out from an
@@ -61,6 +66,8 @@
 #include "cordite/renderer/AmbientOcclusionPass.h"
 #include "cordite/renderer/CameraView.h"
 #include "cordite/renderer/DebugViewPass.h"
+#include "cordite/renderer/DecalPass.h"
+#include "cordite/renderer/Decals.h"
 #include "cordite/renderer/DeferredLightingPass.h"
 #include "cordite/renderer/DepthOfFieldPass.h"
 #include "cordite/renderer/DisplayEncodePass.h"
@@ -213,6 +220,19 @@ struct SceneRenderStatistics {
     /// kMaxLocalLights).
     uint32_t droppedLights = 0;
 
+    /// The decals laid onto the G-buffer: those in view whose material could be used.
+    uint32_t decals = 0;
+    /// Decals left out because a view can only hold so many (kMaxDecals).
+    uint32_t droppedDecals = 0;
+    /// How often the normals of the G-buffer were copied for the decals to read: once for
+    /// a view with decals, and again for each decal that comes to where one since bent
+    /// them (DecalPass).
+    uint32_t decalNormalCopies = 0;
+    /// The memory of the copy of the normals the decals read, in bytes
+    /// (SceneTargets::prepareDecalNormals). Over the views of a frame it is the largest of
+    /// them.
+    uint64_t decalBytes = 0;
+
     /// The shadow maps drawn: one for a spot light, six for a point light, one for
     /// each cascade of the sun.
     uint32_t shadowMaps = 0;
@@ -308,6 +328,7 @@ private:
         DisplayEncodePass encode;
         ShadowAtlas shadows;
         EnvironmentMaps environments;
+        DecalPass decals;
         AmbientOcclusionPass occlusion;
         LightShaftPass lightShafts;
         DepthOfFieldPass depthOfField;
@@ -359,6 +380,11 @@ private:
                        const CameraView& view, const PostProcessSettings& look, const SceneRenderSettings& settings,
                        RenderDebugView debugView);
 
+    /// Lays the decals of the scene that `view` sees onto what the base pass left in the
+    /// G-buffer of `targets`; gives back what they read when none are drawn.
+    void drawDecals(nvrhi::ICommandList* commandList, SceneTargets& targets, nvrhi::IBindingSet* viewBindings,
+                    const CameraView& view);
+
     /// Adds the light shafts of the scene's sun to the scene color of `targets`, as `look`
     /// says, or - in their debug view - puts them in its place; gives back the images they
     /// are worked out in when the view has none.
@@ -384,10 +410,12 @@ private:
 
     /// The lights of the view being drawn. Members so that their memory is reused.
     SceneLights m_lights;
+    SceneDecals m_decals;
     LightClusterBuilder m_clusterBuilder;
     LightClusters m_clusters;
     /// So that lights that were left out are reported once, not every frame.
     bool m_reportedDroppedLights = false;
+    bool m_reportedDroppedDecals = false;
 
     /// The shadow maps of the view being drawn, and a draw list for each of them: a
     /// list owns the buffer its instances are in.

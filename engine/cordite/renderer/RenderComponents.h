@@ -183,6 +183,27 @@ struct EnvironmentComponent {
     bool visible = true;
 };
 
+/// A decal: a material laid onto whatever solid surfaces are inside the box of the entity
+/// - a cube of one metre about its origin, scaled, turned and placed by its transform -
+/// projected along the entity's -Z axis, as a light shines and a camera looks. Its image
+/// runs from the top-left corner of the box's +Z face: across along +X, down along -Y.
+/// Decals.h says how it lands; DecalPass draws it into the G-buffer.
+struct DecalComponent {
+    /// The material laid on: its base color, normal map, roughness, metallic, specular and
+    /// the light it gives off. How much of it there is goes by its alpha mode, as for a
+    /// mesh: all of an opaque one, all or nothing of a masked one by its cutoff, and of a
+    /// blended one what its alpha says. Nil lays nothing on.
+    Uuid material;
+    /// How much of it is laid on: 0 nothing, 1 as its material says.
+    float opacity = 1.0f;
+    /// Surfaces that turn away from the projection by more than this many degrees get none
+    /// of it, and it fades over the ten degrees before. From 10 to 90.
+    float fadeAngle = 60.0f;
+    /// Of decals that overlap, one of a higher order is laid on after - over - one of a
+    /// lower; of the same order, by the ids of their entities.
+    int32_t order = 0;
+};
+
 /// Air that is not clear: haze, mist, smoke that hangs low. The further away something
 /// is, the less of its light arrives, and the more of the fog's own color is seen in
 /// its place - of the sky too, which is furthest of all. Surfaces are in the fog
