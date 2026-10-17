@@ -40,6 +40,8 @@ using Type = CommandParameterType;
 constexpr const char* kEditorName = "Cordite Editor";
 /// The sides of a picture that asset.preview draws when it is not told, in pixels.
 constexpr int64_t kPreviewSize = 256;
+/// The largest error a level of detail may be allowed in the viewport, in pixels.
+constexpr float kMaxLodErrorPixels = 64.0f;
 constexpr const char* kFileDialogId = "Scene file";
 /// The windows that are closed until someone asks for them, as editor.showPanel names them.
 constexpr const char* kStatisticsPanelName = "statistics";
@@ -593,7 +595,9 @@ Status EditorApp::registerApplicationCommands() {
                        "occlusion (\"off\" draws none; \"low\" and \"medium\" work it out for one pixel in "
                        "four, \"high\" for every pixel) - and \"postProcess\" the finishing of the picture "
                        "alone (\"off\" shows the light as the renderer worked it out, without exposure, bloom, "
-                       "tone mapping or grading). \"antiAliasing\" says how the steps of slanted edges are "
+                       "tone mapping or grading), and \"lodErrorPixels\" how large the error of a level of "
+                       "detail may look, in pixels (a preset sets 2, 1 and a half; 0 draws every mesh at its "
+                       "finest). \"antiAliasing\" says how the steps of slanted edges are "
                        "smoothed in a finished picture: \"fxaa\" from the picture itself, \"off\" not at all; "
                        "no preset changes it. Returns what is now in use and all there is to choose from; "
                        "without parameters it changes nothing. A game sets its own quality; this is the "
@@ -605,6 +609,10 @@ Status EditorApp::registerApplicationCommands() {
                         "The quality of what is worked out from the screen; applied after the preset.", false},
                        {"postProcess", Type::String,
                         "The quality of the finishing of the picture; applied after the preset.", false},
+                       {"lodErrorPixels", Type::Number,
+                        "How large the error of a level of detail may look, in pixels, from 0 to 64; applied "
+                        "after the preset.",
+                        false},
                        {"antiAliasing", Type::String, "How edges are smoothed: \"fxaa\" or \"off\".", false}},
         .handler = [this](const Json& parameters) -> Result<Json> {
             // All of them are checked before any of them is applied.
@@ -612,6 +620,7 @@ Status EditorApp::registerApplicationCommands() {
             wanted.shadowQuality = m_viewport->shadowQuality();
             wanted.screenEffectsQuality = m_viewport->screenEffectsQuality();
             wanted.postProcessQuality = m_viewport->postProcessQuality();
+            wanted.lodErrorPixels = m_viewport->lodErrorPixels();
             if (const auto name = jsonGetOr<std::string>(parameters, "preset", ""); !name.empty()) {
                 const std::optional<RenderQuality> preset = renderQualityFromName(name);
                 if (!preset) {
@@ -650,6 +659,14 @@ Status EditorApp::registerApplicationCommands() {
                 }
                 wanted.postProcessQuality = *quality;
             }
+            if (parameters.contains("lodErrorPixels")) {
+                const auto pixels = jsonGetOr<float>(parameters, "lodErrorPixels", wanted.lodErrorPixels);
+                if (!(pixels >= 0.0f && pixels <= kMaxLodErrorPixels)) {
+                    return makeError(ErrorCode::OutOfRange, "'lodErrorPixels' must be between 0 and {}, got {}",
+                                     kMaxLodErrorPixels, pixels);
+                }
+                wanted.lodErrorPixels = pixels;
+            }
             wanted.antiAliasing = m_viewport->antiAliasing();
             if (const auto name = jsonGetOr<std::string>(parameters, "antiAliasing", ""); !name.empty()) {
                 const std::optional<AntiAliasing> antiAliasing = antiAliasingFromName(name);
@@ -664,6 +681,7 @@ Status EditorApp::registerApplicationCommands() {
             m_viewport->setShadowQuality(wanted.shadowQuality);
             m_viewport->setScreenEffectsQuality(wanted.screenEffectsQuality);
             m_viewport->setPostProcessQuality(wanted.postProcessQuality);
+            m_viewport->setLodErrorPixels(wanted.lodErrorPixels);
             m_viewport->setAntiAliasing(wanted.antiAliasing);
 
             Json result = Json::object();
@@ -672,6 +690,7 @@ Status EditorApp::registerApplicationCommands() {
             result["shadows"] = nameOf(wanted.shadowQuality);
             result["effects"] = nameOf(wanted.screenEffectsQuality);
             result["postProcess"] = nameOf(wanted.postProcessQuality);
+            result["lodErrorPixels"] = jsonFromFloat(wanted.lodErrorPixels);
             result["antiAliasing"] = nameOf(wanted.antiAliasing);
             result["presets"] = Json::array();
             for (const RenderQuality quality : kRenderQualities) {
@@ -1505,6 +1524,7 @@ void EditorApp::drawViewMenu() {
         current.shadowQuality = m_viewport->shadowQuality();
         current.screenEffectsQuality = m_viewport->screenEffectsQuality();
         current.postProcessQuality = m_viewport->postProcessQuality();
+        current.lodErrorPixels = m_viewport->lodErrorPixels();
         const std::optional<RenderQuality> preset = renderQualityOf(current);
         for (const RenderQuality quality : kRenderQualities) {
             const std::string label(displayNameOf(quality));
@@ -1513,6 +1533,7 @@ void EditorApp::drawViewMenu() {
                 m_viewport->setShadowQuality(current.shadowQuality);
                 m_viewport->setScreenEffectsQuality(current.screenEffectsQuality);
                 m_viewport->setPostProcessQuality(current.postProcessQuality);
+                m_viewport->setLodErrorPixels(current.lodErrorPixels);
             }
         }
         ImGui::Separator();

@@ -1315,18 +1315,42 @@ TEST_SUITE("EditorApp") {
         // Every preset draws without complaint, and the picture is nearly the same at
         // each: the same shadows with softer or sharper edges, the same look worked out
         // more or less finely.
-        for (const char* preset : {"low", "high", "medium"}) {
+        for (const auto [preset, lodErrorPixels] :
+             std::initializer_list<std::pair<const char*, float>>{{"low", 2.0f}, {"high", 0.5f}, {"medium", 1.0f}}) {
             CAPTURE(preset);
             answer = run(*editor, "viewport.quality", fmt::format(R"({{"preset": "{}"}})", preset));
             CHECK(answer["preset"] == std::string(preset));
             CHECK(answer["shadows"] == std::string(preset));
             CHECK(answer["effects"] == std::string(preset));
             CHECK(answer["postProcess"] == std::string(preset));
+            CHECK(answer["lodErrorPixels"] == lodErrorPixels);
+            CHECK(editor->viewport().lodErrorPixels() == lodErrorPixels);
+            // Asked again, the viewport is still at the preset: it keeps every part of it.
+            CHECK(run(*editor, "viewport.quality")["preset"] == std::string(preset));
             const Image shown = unwrap(editor->captureViewport(UVec2(320, 180)));
             const ImageComparison difference =
                 unwrap(compareImages(medium, shown, {.channelTolerance = 24, .maxDifferingRatio = 0.03}));
             CHECK(difference.matches);
         }
+
+        // The levels of detail are drawn as the viewport allows: everything at its finest
+        // when it allows no error, coarser when it allows much - which no preset does.
+        const auto meshesAtFinest = [&] {
+            REQUIRE(editor->runFrames(1).has_value());
+            return run(*editor, "editor.statistics")["scene"]["lods"][0].get<uint32_t>();
+        };
+        answer = run(*editor, "viewport.quality", R"({"lodErrorPixels": 0})");
+        CHECK(answer["lodErrorPixels"] == 0.0f);
+        CHECK(answer["preset"].is_null());
+        const uint32_t allFinest = meshesAtFinest();
+        run(*editor, "viewport.quality", R"({"lodErrorPixels": 32})");
+        CHECK(meshesAtFinest() < allFinest);
+        for (const char* wrong : {R"({"lodErrorPixels": -1})", R"({"lodErrorPixels": 65})"}) {
+            CAPTURE(std::string(wrong));
+            CHECK_FALSE(editor->commands().execute("viewport.quality", json(wrong)).has_value());
+        }
+        CHECK(editor->viewport().lodErrorPixels() == 32.0f);
+        run(*editor, "viewport.quality", R"({"preset": "medium"})");
 
         // A picture that is not finished is the light as the renderer worked it out: no
         // exposure, no curve, no grade - a different picture altogether.

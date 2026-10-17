@@ -111,6 +111,12 @@ public:
 
     void setPostProcessQuality(PostProcessQuality quality) { m_postProcessQuality = quality; }
 
+    /// How large the error of a level of detail may look in the viewport's picture, in
+    /// pixels (SceneRenderSettings::lodErrorPixels): part of the quality, like the above.
+    [[nodiscard]] float lodErrorPixels() const { return m_lodErrorPixels; }
+
+    void setLodErrorPixels(float pixels) { m_lodErrorPixels = pixels; }
+
     /// How the edges of the finished picture are smoothed in the viewport.
     [[nodiscard]] AntiAliasing antiAliasing() const { return m_antiAliasing; }
 
@@ -213,6 +219,7 @@ private:
     ShadowQuality m_shadowQuality = ShadowQuality::Medium;
     ScreenEffectsQuality m_screenEffectsQuality = ScreenEffectsQuality::Medium;
     PostProcessQuality m_postProcessQuality = PostProcessQuality::Medium;
+    float m_lodErrorPixels = 1.0f;
     AntiAliasing m_antiAliasing = AntiAliasing::Fxaa;
     bool m_showColliders = false;
     ViewportCamera m_viewCamera = ViewportCamera::Editor;
