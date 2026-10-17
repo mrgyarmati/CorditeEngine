@@ -270,9 +270,14 @@ public:
     /// picture but belongs in the scene, such as debug lines and editor gizmos.
     [[nodiscard]] nvrhi::IFramebuffer* overlayFramebuffer() const { return m_overlayFramebuffer; }
 
-    /// Fills scene color with `background` (linear), depth with "far" and the G-buffer
-    /// with zeros. The command list must be open.
+    /// Fills scene color with `background` (linear) and depth with "far". The command list
+    /// must be open, and must then draw into both: a command list keeps alive what it
+    /// draws into, reads or copies, not what it only clears - targets that are replaced
+    /// before it has run would be destroyed in use.
     void clear(nvrhi::ICommandList* commandList, const Vec3& background) const;
+
+    /// Fills the G-buffer with zeros: for a frame that then draws into it, as clear() says.
+    void clearGBuffer(nvrhi::ICommandList* commandList) const;
 
     /// Replaces the textures with ones of a new size. Does nothing when the size is
     /// unchanged. The old textures stay alive until the GPU has finished with them;

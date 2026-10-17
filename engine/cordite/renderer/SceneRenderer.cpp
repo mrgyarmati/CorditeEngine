@@ -520,12 +520,15 @@ void SceneRenderer::render(nvrhi::ICommandList* commandList, const World& world,
         m_statistics.forwardPass =
             m_passes.wireframe.draw(commandList, targets.sceneFramebuffer(), m_drawList.batches(), meshBindings);
     } else if (debugView == RenderDebugView::Overdraw) {
-        // Counted from black, whatever the background is.
+        // Counted from black, whatever the background is. Into scene color and depth,
+        // though no depth is tested: what the command list draws into, it keeps alive.
         commandList->clearTextureFloat(targets.sceneColor(), nvrhi::AllSubresources,
                                        nvrhi::Color(0.0f, 0.0f, 0.0f, 1.0f));
         m_statistics.forwardPass =
-            m_passes.overdraw.draw(commandList, targets.lightingFramebuffer(), m_drawList.batches(), meshBindings);
+            m_passes.overdraw.draw(commandList, targets.sceneFramebuffer(), m_drawList.batches(), meshBindings);
     } else {
+        // Only here: a view that draws no G-buffer must not clear it either (clear()).
+        targets.clearGBuffer(commandList);
         m_statistics.depthPass =
             m_passes.depth.draw(commandList, targets.depthFramebuffer(), m_drawList.solidBatches(), meshBindings);
         m_statistics.basePass =

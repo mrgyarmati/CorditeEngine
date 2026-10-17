@@ -1174,6 +1174,30 @@ TEST_SUITE("SceneRenderer") {
         checkNoValidationIssues(*scene.context.graphics);
     }
 
+    TEST_CASE("the targets of a view can go as soon as it is drawn, whatever it showed") {
+        // A command list keeps alive what it draws into, but not what it only clears: a
+        // view that cleared targets it then did not draw into had them destroyed in use
+        // when it was given others at once - as an editor does when its viewport changes
+        // size for a picture.
+        SceneFixture scene;
+        scene.writeFlatMaterial("red", kRed);
+        scene.open();
+        scene.add(BuiltinMesh::Cube, scene.material("red"));
+        const CameraView view = scene.orthographicView(Vec3(0.0f, 0.0f, 5.0f), Vec3(0.0f), 2.0f);
+        for (const RenderDebugView debugView : kRenderDebugViews) {
+            CAPTURE(std::string(nameOf(debugView)));
+            SceneRenderSettings settings = SceneFixture::flatSettings();
+            settings.debugView = debugView;
+            scene.world.updateWorldTransforms();
+            recordAndExecute(scene.context, [&](nvrhi::ICommandList* commandList) {
+                scene.renderer->render(commandList, scene.world, view, scene.targets, settings);
+            });
+            // Replaced at once, without waiting for the GPU.
+            scene.targets = unwrap(SceneTargets::create(scene.context.device(), UVec2(64), "Test"));
+            checkNoValidationIssues(*scene.context.graphics);
+        }
+    }
+
     TEST_CASE("one renderer serves several views of different sizes") {
         SceneFixture scene;
         scene.writeFlatMaterial("red", kRed);

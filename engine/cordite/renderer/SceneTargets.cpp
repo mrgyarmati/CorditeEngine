@@ -396,17 +396,24 @@ void SceneTargets::clear(nvrhi::ICommandList* commandList, const Vec3& backgroun
     if (!isValid() || commandList == nullptr) {
         return;
     }
+    commandList->clearTextureFloat(m_sceneColor, nvrhi::AllSubresources,
+                                   nvrhi::Color(background.r, background.g, background.b, 1.0f));
+    // Reversed-Z: 0 is the far plane.
+    const float farDepth = 0.0f;
+    commandList->clearDepthStencilTexture(m_depth, nvrhi::AllSubresources, true, farDepth, false, 0);
+}
+
+void SceneTargets::clearGBuffer(nvrhi::ICommandList* commandList) const {
+    CORDITE_ASSERT(isValid() && commandList != nullptr, "clearGBuffer needs valid targets and a command list");
+    if (!isValid() || commandList == nullptr) {
+        return;
+    }
     // The G-buffer is only ever read where something was drawn, but a pixel that was
     // not written although it should have been then shows as black rather than as
     // whatever the last frame left there.
     for (const nvrhi::TextureHandle& texture : m_gbuffer) {
         commandList->clearTextureFloat(texture, nvrhi::AllSubresources, nvrhi::Color(0.0f));
     }
-    commandList->clearTextureFloat(m_sceneColor, nvrhi::AllSubresources,
-                                   nvrhi::Color(background.r, background.g, background.b, 1.0f));
-    // Reversed-Z: 0 is the far plane.
-    const float farDepth = 0.0f;
-    commandList->clearDepthStencilTexture(m_depth, nvrhi::AllSubresources, true, farDepth, false, 0);
 }
 
 Status SceneTargets::resize(nvrhi::IDevice* device, UVec2 size) {

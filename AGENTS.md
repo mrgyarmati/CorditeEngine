@@ -1817,7 +1817,11 @@ body explaining what changed and why. One logical change per commit.
   released before the GPU has run that list is destroyed in use, which validation
   reports and a test that draws a few frames first never sees. Fill such a texture
   with `writeTexture`. The test fixtures take their GPU objects down without waiting
-  and check validation after, to catch the next one.
+  and check validation after, to catch the next one. The same holds for the targets of
+  a view: a frame clears only what it then draws into (`SceneTargets::clear` and
+  `clearGBuffer`), or a viewport that changes size - for a picture of another size -
+  destroys what the frame only cleared; the wireframe and overdraw views did, and
+  `SceneRendererTests` replaces the targets after every debug view to keep it so.
 - A depth buffer is read at the middles of pixels, which are seldom where a walk
   across the screen wants them. Ambient occlusion that takes them as if they were
   finds a floor seen at a low angle standing in its own light - by four percent at six
