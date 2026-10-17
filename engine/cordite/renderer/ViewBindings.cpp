@@ -224,6 +224,7 @@ void ViewBindings::update(nvrhi::ICommandList* commandList, const SceneView& vie
     ViewConstants constants{};
     constants.viewProjection = view.camera.viewProjection;
     constants.inverseViewProjection = view.camera.inverseViewProjection;
+    constants.previousViewProjection = view.previousViewProjection.value_or(view.camera.viewProjection);
     constants.cameraPosition = view.camera.position;
     constants.orthographic = view.camera.orthographic ? 1.0f : 0.0f;
     constants.cameraForward = normalizeOr(view.camera.forward, kWorldForward);

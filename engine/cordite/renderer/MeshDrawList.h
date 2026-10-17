@@ -33,6 +33,7 @@
 #include <nvrhi/nvrhi.h>
 
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <vector>
 
@@ -54,6 +55,13 @@ struct MeshDraw {
     uint32_t palette = kNoPalette;
     /// The level of detail to draw (GpuMesh::rangeOf()): 0 for the mesh itself.
     uint32_t lod = 0;
+    /// Where the mesh was placed when the view was last drawn, for its motion vectors
+    /// (MotionVectors.h). None takes `localToWorld` for it: what has no past did not move.
+    std::optional<Mat4> previousToWorld;
+    /// Where the joint matrices of the pose it was in then begin, as `palette` says where
+    /// those of its pose now do: kNoPalette takes `palette` for it - a pose that has not
+    /// changed, or has no past.
+    uint32_t previousPalette = kNoPalette;
 };
 
 // What a batch needs of the pipeline that draws it: the bits of MeshBatch::variant.
@@ -106,10 +114,12 @@ public:
     [[nodiscard]] std::span<const MeshBatch> batches() const { return m_batches; }
 
     /// One entry per instance, kMeshInstanceStride bytes each: the three rows of the
-    /// 3x4 matrix that places it, as three float4, and a fourth float4 with what else
-    /// differs between instances - its lighting channels in x, and in y where its
-    /// joint matrices begin (MeshDraw::palette; zero without). Null while the list is
-    /// empty.
+    /// 3x4 matrix that places it, as three float4; a fourth float4 with what else
+    /// differs between instances - its lighting channels in x, in y where its joint
+    /// matrices begin (MeshDraw::palette; zero without), in z its level of detail, and in
+    /// w where the joint matrices of its pose before begin (MeshDraw::previousPalette);
+    /// and the three rows of the matrix that placed it before (MeshDraw::previousToWorld).
+    /// Null while the list is empty.
     [[nodiscard]] nvrhi::IBuffer* instanceBuffer() const { return m_instanceBuffer; }
 
 private:
@@ -121,6 +131,6 @@ private:
 };
 
 /// The stride of MeshDrawList::instanceBuffer() in bytes.
-inline constexpr uint32_t kMeshInstanceStride = 64;
+inline constexpr uint32_t kMeshInstanceStride = 112;
 
 } // namespace cordite

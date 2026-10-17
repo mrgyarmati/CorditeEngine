@@ -1,6 +1,7 @@
 #include "cordite/renderer/SceneTargets.h"
 
 #include "cordite/core/Assert.h"
+#include "cordite/renderer/MotionBlur.h"
 
 #include <algorithm>
 #include <array>
@@ -84,18 +85,24 @@ Result<SceneTargets> SceneTargets::create(nvrhi::IDevice* device, UVec2 size, st
                                          nvrhi::ResourceStates::ShaderResource);
     targets.m_depth =
         createTexture(device, size, nvrhi::Format::D32, name + " depth", nvrhi::ResourceStates::DepthWrite);
+    targets.m_motion =
+        createTexture(device, size, nvrhi::Format::RG16_FLOAT, name + " motion", nvrhi::ResourceStates::ShaderResource);
     targets.m_display = createTexture(device, size, nvrhi::Format::RGBA8_UNORM, name + " display",
                                       nvrhi::ResourceStates::ShaderResource);
     targets.m_ambientOcclusion = createTexture(device, size, nvrhi::Format::R8_UNORM, name + " ambient occlusion",
                                                nvrhi::ResourceStates::ShaderResource);
-    if (!created || !targets.m_sceneColor || !targets.m_depth || !targets.m_display || !targets.m_ambientOcclusion) {
+    if (!created || !targets.m_sceneColor || !targets.m_depth || !targets.m_motion || !targets.m_display ||
+        !targets.m_ambientOcclusion) {
         return makeError(ErrorCode::DeviceError, "cannot create the {}x{} textures of '{}'", size.x, size.y, name);
     }
 
+    // The base pass writes the motion vectors after the G-buffer; decals change the
+    // G-buffer alone.
     nvrhi::FramebufferDesc gbufferDesc;
     for (const nvrhi::TextureHandle& texture : targets.m_gbuffer) {
         gbufferDesc.addColorAttachment(texture);
     }
+    gbufferDesc.addColorAttachment(targets.m_motion);
     gbufferDesc.setDepthAttachment(targets.m_depth);
 
     targets.m_depthFramebuffer =
@@ -295,6 +302,70 @@ uint64_t SceneTargets::depthOfFieldBytes() const {
     return uint64_t{desc.width} * desc.height * 8 * 2;
 }
 
+Status SceneTargets::prepareMotionBlur(nvrhi::IDevice* device) {
+    CORDITE_ASSERT(isValid() && device != nullptr, "motion blur needs valid targets and a device");
+    if (!isValid() || device == nullptr) {
+        return makeError(ErrorCode::InvalidArgument, "motion blur needs valid targets and a device");
+    }
+    if (m_motionBlurSource && m_motionBlurTiles[0] && m_motionBlurTiles[1]) {
+        return {};
+    }
+    releaseMotionBlur();
+
+    nvrhi::TextureHandle source =
+        createTexture(device, m_size, nvrhi::Format::RGBA16_FLOAT, m_debugName + " before motion blur",
+                      nvrhi::ResourceStates::ShaderResource);
+    // A texel for every tile, the last of which may hang over the edge.
+    const uint32_t radius = motionBlurRadius(m_size.y);
+    const UVec2 tileCount = (m_size + UVec2(radius - 1)) / radius;
+    std::array<nvrhi::TextureHandle, 2> tiles;
+    std::array<nvrhi::FramebufferHandle, 2> framebuffers;
+    for (size_t index = 0; index < tiles.size(); ++index) {
+        tiles[index] = createTexture(device, tileCount, nvrhi::Format::RG16_FLOAT,
+                                     m_debugName + (index == 0 ? " motion blur tiles" : " motion blur neighbours"),
+                                     nvrhi::ResourceStates::ShaderResource);
+        if (tiles[index]) {
+            framebuffers[index] = device->createFramebuffer(nvrhi::FramebufferDesc().addColorAttachment(tiles[index]));
+        }
+    }
+    if (!source || !framebuffers[0] || !framebuffers[1]) {
+        return makeError(ErrorCode::DeviceError,
+                         "cannot create the images the motion blur of the {}x{} '{}' is worked out in", m_size.x,
+                         m_size.y, m_debugName);
+    }
+    m_motionBlurSource = std::move(source);
+    m_motionBlurTiles = std::move(tiles);
+    m_motionBlurTileFramebuffers = std::move(framebuffers);
+    return {};
+}
+
+void SceneTargets::releaseMotionBlur() {
+    // What a command list on its way still draws into is kept alive by that list.
+    m_motionBlurTileFramebuffers = {};
+    m_motionBlurTiles = {};
+    m_motionBlurSource = nullptr;
+}
+
+nvrhi::ITexture* SceneTargets::motionBlurTiles(uint32_t index) const {
+    CORDITE_ASSERT(index < 2, "there are two images of the tiles of the motion blur, not {}", index + 1);
+    return index < 2 ? m_motionBlurTiles[index].Get() : nullptr;
+}
+
+nvrhi::IFramebuffer* SceneTargets::motionBlurTileFramebuffer(uint32_t index) const {
+    CORDITE_ASSERT(index < 2, "there are two images of the tiles of the motion blur, not {}", index + 1);
+    return index < 2 ? m_motionBlurTileFramebuffers[index].Get() : nullptr;
+}
+
+uint64_t SceneTargets::motionBlurBytes() const {
+    if (!m_motionBlurSource || !m_motionBlurTiles[0] || !m_motionBlurTiles[1]) {
+        return 0;
+    }
+    // The copy of the picture, four half floats a pixel, and two images of two half
+    // floats a tile.
+    const nvrhi::TextureDesc& tiles = m_motionBlurTiles[0]->getDesc();
+    return uint64_t{m_size.x} * m_size.y * 8 + uint64_t{tiles.width} * tiles.height * 4 * 2;
+}
+
 Status SceneTargets::prepareDecalNormals(nvrhi::IDevice* device) {
     CORDITE_ASSERT(isValid() && device != nullptr, "decals need valid targets and a device");
     if (!isValid() || device == nullptr) {
@@ -414,6 +485,7 @@ void SceneTargets::clearGBuffer(nvrhi::ICommandList* commandList) const {
     for (const nvrhi::TextureHandle& texture : m_gbuffer) {
         commandList->clearTextureFloat(texture, nvrhi::AllSubresources, nvrhi::Color(0.0f));
     }
+    commandList->clearTextureFloat(m_motion, nvrhi::AllSubresources, nvrhi::Color(0.0f));
 }
 
 Status SceneTargets::resize(nvrhi::IDevice* device, UVec2 size) {

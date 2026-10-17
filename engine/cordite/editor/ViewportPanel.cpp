@@ -425,7 +425,7 @@ void ViewportPanel::collectLines(EditorContext& context, const CameraView& view)
 }
 
 Status ViewportPanel::render(nvrhi::IDevice* device, nvrhi::ICommandList* commandList, EditorContext& context,
-                             UVec2 size, float deltaSeconds, double timeSeconds) {
+                             UVec2 size, float deltaSeconds, double timeSeconds, WorldClock clock) {
     if (!m_targets.isValid()) {
         CORDITE_TRY_ASSIGN(m_targets, SceneTargets::create(device, size, "Viewport"));
     } else {
@@ -446,13 +446,18 @@ Status ViewportPanel::render(nvrhi::IDevice* device, nvrhi::ICommandList* comman
         m_gridLines.clear();
         m_sceneLines.clear();
         m_selectionLines.clear();
-        // Cleared and lit as the game is, by what the game says and by nothing else.
+        // Cleared and lit as the game is, by what the game says and by nothing else -
+        // and blurred where it moves while its time passes: an edit is no motion.
         settings.backgroundColor = m_gameSettings->backgroundColor;
         settings.viewEntity = world.id(gameCamera);
+        settings.motionBlur = clock == WorldClock::Running;
     } else {
         m_view = m_camera.view(aspect);
         collectLines(context, m_view);
         settings.backgroundColor = srgbToLinear(kBackgroundColor);
+        // The editor's camera moves to look around, not as part of the scene: what it
+        // passes is not blurred.
+        settings.motionBlur = false;
     }
     settings.debugView = m_debugView;
     settings.shadowQuality = m_shadowQuality;
@@ -557,7 +562,7 @@ Entity ViewportPanel::pick(EditorContext& context, Vec2 pixel) const {
     return hitEntity;
 }
 
-void ViewportPanel::draw(Engine& engine, EditorContext& context) {
+void ViewportPanel::draw(Engine& engine, EditorContext& context, WorldClock clock) {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
     static const std::string kName = windowName(icons::kViewport, "Viewport");
     const bool visible = ImGui::Begin(kName.c_str());
@@ -573,7 +578,7 @@ void ViewportPanel::draw(Engine& engine, EditorContext& context) {
 
         if (available.x >= 1.0f && available.y >= 1.0f &&
             reportIfFailed(render(engine.graphics().device(), engine.commandList(), context, size,
-                                  engine.deltaSeconds(), engine.timeSeconds()))) {
+                                  engine.deltaSeconds(), engine.timeSeconds(), clock))) {
             const ImVec2 origin = ImGui::GetCursorScreenPos();
             ImGui::Image(UiSystem::textureId(m_targets.display()), available);
             hovered = ImGui::IsItemHovered();

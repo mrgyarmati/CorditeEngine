@@ -342,7 +342,8 @@ Result<Image> EditorApp::captureViewport(UVec2 size) {
     const nvrhi::CommandListHandle commandList = device->createCommandList();
     commandList->open();
     // A picture of this moment: no time has passed since the viewport was last drawn.
-    const Status rendered = m_viewport->render(device, commandList, *m_context, size, 0.0f, m_engine->timeSeconds());
+    const Status rendered =
+        m_viewport->render(device, commandList, *m_context, size, 0.0f, m_engine->timeSeconds(), WorldClock::Stopped);
     commandList->close();
     CORDITE_TRY(rendered);
     device->executeCommandList(commandList);
@@ -727,8 +728,10 @@ Status EditorApp::registerApplicationCommands() {
             "(shadowCascades: red, green, blue, yellow from the nearest on; grey where the sun "
             "casts none), how much of the light from all around gets to each surface past what "
             "stands around it (ambientOcclusion: white is all of it), how much of each pixel "
-            "is fog (fog: white where nothing shows through), the light without the "
-            "materials (lightingOnly), what the surroundings "
+            "is fog (fog: white where nothing shows through), how far and which way each pixel "
+            "moved since the picture before (motion: black where nothing moved, red to the right, "
+            "yellow-green up, cyan to the left, blue-purple down, brighter the further), the "
+            "light without the materials (lightingOnly), what the surroundings "
             "give every surface to reflect, each of them made a perfect mirror (reflections), the "
             "edges of the triangles (wireframe), how often each pixel is drawn (overdraw), how "
             "blurred each pixel is by the depth of field (focus: black where it is sharp, red in "
@@ -1256,7 +1259,7 @@ void EditorApp::drawInterface() {
     }
     ImGui::DockSpaceOverViewport(dockSpaceId, ImGui::GetMainViewport());
 
-    m_viewport->draw(*m_engine, *m_context);
+    m_viewport->draw(*m_engine, *m_context, m_play->clock());
     m_hierarchy.draw(*m_context);
     m_inspector.draw(*m_context);
     m_console.draw(m_submittedLines);

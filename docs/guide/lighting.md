@@ -92,6 +92,7 @@ of the **PostProcess** component:
 | Lens | `vignette`, `chromaticAberration`, `filmGrain` |
 | Depth of field | `focusDistance`, `focusRange`, `focusTransition`, `nearBlur`, `farBlur`, `blurSize` |
 | Light shafts | `lightShaftIntensity`, `lightShaftThreshold`, `lightShaftLength` |
+| Motion blur | `motionBlur` |
 | Ambient occlusion | `ambientOcclusionIntensity`, `ambientOcclusionRadius`, `ambientOcclusionBias` |
 | Anti-aliasing | how far the smoothing follows edges |
 
@@ -129,6 +130,20 @@ behind the camera there are none, and a camera without perspective has none. The
 shafts render view shows them alone. Give a volume indoors an intensity of 0, and the
 shafts stay outside.
 
+**Motion blur** smears what moves while the shutter of the camera is open along the way
+it goes: a figure that runs past, a turning camera's view of the world, the swing of a
+crane. `motionBlur` is how much of the time between two pictures the shutter is open -
+0, the default, is none and costs nothing; 0.5 is what a film camera does; 1 the most.
+Everything moves in it as it moves on the screen: what the camera follows stays sharp,
+and the background it passes blurs. A blur is never longer than a fortieth of the
+picture either way. When the camera cuts - to another camera, or jumps more than ten
+metres or turns more than 45 degrees between two pictures - the first picture of the new
+shot is not blurred. What moves while no time passes - an edit in the editor - is no
+motion, and is not blurred either. The editor's own camera never blurs; play the scene to
+see it, and the game's camera blurs while the game's time passes. The Motion render view
+shows how far, and which way, each pixel moved. Glass and other translucent surfaces
+blur as what is behind them.
+
 A color lookup table is an image of N times N by N pixels - N slices side by side - that
 holds the colors you want in place of a neutral table's. Grade a screenshot in an image
 editor together with a neutral table, and use the graded table.
@@ -146,7 +161,8 @@ also change to their coarser levels of detail sooner.
 View > Render view shows the channels of the renderer instead of the finished picture: base
 color, normals, roughness, metallic, specular, occlusion, emissive, depth, how many lights
 each pixel has, the shadow cascades, ambient occlusion, fog, lighting only, reflections,
-wireframe, overdraw, depth of field, light shafts and levels of detail (`viewport.debugView`
+wireframe, overdraw, depth of field, light shafts, levels of detail and motion
+(`viewport.debugView`
 for scripts and agents). Use them to find out why something looks the way it does - a wrong normal map, a
 light with too small a range, a surface outside every cascade. View > Statistics shows what
 a frame costs: the time on the processor and on the GPU, draw calls, triangles, lights and

@@ -448,6 +448,13 @@ TypeInfo describePostProcess() {
                    .minimum = 0.0,
                    .maximum = 1.0,
                    .step = 0.01})
+        .property("motionBlur", &Component::motionBlur,
+                  {.description = "Motion blur: how much of the way each pixel went since the picture before is "
+                                  "smeared along - the share of the time between two pictures the shutter is open; "
+                                  "0 none, 0.5 a film camera's",
+                   .minimum = 0.0,
+                   .maximum = 1.0,
+                   .step = 0.01})
         .build();
 }
 

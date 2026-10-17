@@ -32,6 +32,8 @@ std::string_view nameOf(RenderDebugView view) {
             return "ambientOcclusion";
         case RenderDebugView::Fog:
             return "fog";
+        case RenderDebugView::Motion:
+            return "motion";
         case RenderDebugView::LightingOnly:
             return "lightingOnly";
         case RenderDebugView::Reflections:
@@ -78,6 +80,8 @@ std::string_view displayNameOf(RenderDebugView view) {
             return "Ambient occlusion";
         case RenderDebugView::Fog:
             return "Fog";
+        case RenderDebugView::Motion:
+            return "Motion";
         case RenderDebugView::LightingOnly:
             return "Lighting only";
         case RenderDebugView::Reflections:

@@ -164,6 +164,8 @@ cordite_add_test_suite(renderer
         unit/renderer/LevelOfDetailTests.cpp
         unit/renderer/LightClustersTests.cpp
         unit/renderer/LightShaftsTests.cpp
+        unit/renderer/MotionBlurTests.cpp
+        unit/renderer/MotionVectorsTests.cpp
         unit/renderer/PostProcessSettingsTests.cpp
         unit/renderer/RenderComponentsTests.cpp
         unit/renderer/RenderDebugViewTests.cpp
@@ -260,6 +262,8 @@ cordite_add_test_suite(render
         render/GraphicsDeviceTests.cpp
         render/LevelOfDetailTests.cpp
         render/LightShaftTests.cpp
+        render/MotionBlurTests.cpp
+        render/MotionVectorTests.cpp
         render/PostProcessTests.cpp
         render/PropertyEditorTests.cpp
         render/ReferenceDocsTests.cpp
@@ -282,8 +286,9 @@ cordite_add_test_suite(render
     LABELS
         gpu
     # Every rendering feature adds to this suite, and each of its tests starts a device
-    # and a renderer of its own: in a Debug build it runs for more than five minutes.
-    TIMEOUT 900)
+    # and a renderer of its own: in a Debug build it runs for more than five minutes, and
+    # beside the other suites, in any build, for close to fifteen.
+    TIMEOUT 1500)
 
 # Measures what the scenarios cost - the showcase, a scene full of lights - writes it to
 # tests/perf/output/ and checks it against tests/perf/budgets.json. See the comment at

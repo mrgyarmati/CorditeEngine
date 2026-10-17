@@ -12,6 +12,7 @@
 #include "common/Fullscreen.slang"
 #include "common/GBuffer.slang"
 #include "common/Lights.slang"
+#include "common/Motion.slang"
 #include "common/View.slang"
 
 // Matches RenderDebugView in engine/cordite/renderer/RenderDebugView.h, for the views
@@ -28,6 +29,11 @@ static const uint kViewLightCount = 9;
 static const uint kViewShadowCascades = 10;
 static const uint kViewAmbientOcclusion = 11;
 static const uint kViewFog = 12;
+static const uint kViewMotion = 13;
+
+// How long a motion is shown at its brightest, in pixels: kMotionDebugFullLength in
+// engine/cordite/renderer/MotionVectors.h.
+static const float kMotionDebugFullLength = 16.0;
 
 cbuffer DebugViewConstants : register(b0, space1)
 {
@@ -43,12 +49,32 @@ Texture2D<float4> gbufferParameters : register(t2, space1);
 Texture2D<float4> gbufferEmissive : register(t3, space1);
 Texture2D<float4> sceneDepth : register(t4, space1);
 Texture2D<float4> ambientOcclusion : register(t5, space1);
+Texture2D<float4> motionVectors : register(t6, space1);
 
 // A number that is to be seen as it is, in the color the display encoding turns back
 // into it.
 float3 asShown(float3 value)
 {
     return srgbToLinear(saturate(value));
+}
+
+// The color of a motion vector, as light: black for none; the hue is which way it went -
+// red to the right, yellow-green up, cyan to the left, blue-purple down - and the
+// brightness how far, all of it at kMotionDebugFullLength pixels. The same arithmetic as
+// motionDebugColor() in engine/cordite/renderer/MotionVectors.cpp.
+float3 motionDebugColor(float2 motion)
+{
+    // In pixels, and with y up, as angles are counted.
+    const float2 pixels = float2(motion.x * targetSize.x, -motion.y * targetSize.y);
+    const float distance = length(pixels);
+    if (!(distance > 0.0) || !isfinite(distance))
+    {
+        return float3(0.0, 0.0, 0.0);
+    }
+    const float hue = frac(atan2(pixels.y, pixels.x) / (2.0 * kPi));
+    const float3 color = saturate(float3(abs(hue * 6.0 - 3.0) - 1.0, 2.0 - abs(hue * 6.0 - 2.0),
+                                         2.0 - abs(hue * 6.0 - 4.0)));
+    return color * min(distance / kMotionDebugFullLength, 1.0);
 }
 
 [shader("pixel")]
@@ -73,6 +99,13 @@ float4 debugViewPixel(FullscreenVaryings input) : SV_Target0
             amount = fogAmount(viewerOf(position), position);
         }
         return float4(asShown(float3(amount)), 1.0);
+    }
+    if (view == kViewMotion)
+    {
+        // Where nothing was drawn the sky is seen, which moves as the camera turns.
+        const float2 motion = depth <= 0.0 ? motionOfSky(input.position.xy * inverseTargetSize)
+                                           : motionVectors.Load(pixel).xy;
+        return float4(motionDebugColor(motion), 1.0);
     }
     // Where nothing was drawn, the background shows.
     if (depth <= 0.0)

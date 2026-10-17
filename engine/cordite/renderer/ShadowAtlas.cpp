@@ -131,6 +131,7 @@ MeshPassStatistics ShadowAtlas::draw(nvrhi::ICommandList* commandList, const Sha
     // view matters to a pass that writes depth alone.
     ViewConstants constants{};
     constants.viewProjection = view.viewProjection;
+    constants.previousViewProjection = view.viewProjection;
     commandList->writeBuffer(m_constants, &constants, sizeof(constants));
 
     const auto left = static_cast<float>(view.tileOrigin.x);

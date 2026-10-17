@@ -39,9 +39,10 @@
         // Passes over the whole picture: the two of the ambient occlusion, the lighting,
         // the three of the depth of field, and what finishes the picture as the scene
         // says - five levels of bloom down and up, the automatic exposure, the final pass
-        // and the smoothing of its edges - for each view; and the five of the light shafts
-        // of the capture, which looks towards the sun.
-        "screenPasses": 41,
+        // and the smoothing of its edges - for each view; the three of the motion blur, for
+        // each view too, which goes on from the frame before; and the five of the light
+        // shafts of the capture, which looks towards the sun.
+        "screenPasses": 47,
         // The image the ambient occlusion is worked out in: at medium quality a texel
         // for one pixel in four of the 960 by 540 the tests draw, two half floats each.
         "ambientOcclusionBytes": 518400,
@@ -51,6 +52,10 @@
         // The main camera has the sun behind it, the capture does not: its light shafts are
         // worked out at half its size, four half floats a texel, in two images.
         "lightShaftBytes": 147456,
+        // The motion blur of each view: a copy of the picture, four half floats a pixel,
+        // and two images of two half floats for every tile of a fortieth of the height a
+        // side - fourteen pixels for the main camera - of which the larger counts.
+        "motionBlurBytes": 4170000,
         // The three decals of the showcase are in view: the grime and the warning strip on
         // the floor, the grime on the wall. The grime comes to where the strip, which is
         // laid on first, bent the normals: they are copied for it a second time. The copy
@@ -147,8 +152,9 @@
         "lightShaftBytes": 0,
         "decals": 0,
         "decalNormalCopies": 0,
-        "captures": 0,
         "decalBytes": 0,
+        "captures": 0,
+        "motionBlurBytes": 0,
         // The balls of the field are drawn at coarser levels of detail the further they are.
         "triangles": 60000,
         // Most of the lights are in view. The entries of the cluster lists say how well
@@ -186,8 +192,9 @@
         "lightShaftBytes": 0,
         "decals": 0,
         "decalNormalCopies": 0,
-        "captures": 0,
         "decalBytes": 0,
+        "captures": 0,
+        "motionBlurBytes": 0,
         // The shadow maps draw the balls at the levels the camera sees them at.
         "triangles": 145000,
         "lights": 600,

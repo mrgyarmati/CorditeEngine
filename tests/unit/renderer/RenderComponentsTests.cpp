@@ -586,6 +586,7 @@ TEST_SUITE("RenderComponents") {
         component.lightShaftIntensity = 0.75f;
         component.lightShaftThreshold = 8.0f;
         component.lightShaftLength = 0.625f;
+        component.motionBlur = 0.375f;
 
         const Json saved = type.toJson(&component);
         CHECK(saved == json(R"({
@@ -602,7 +603,8 @@ TEST_SUITE("RenderComponents") {
             "ambientOcclusionIntensity": 1.5, "ambientOcclusionRadius": 0.75, "ambientOcclusionBias": 4.0,
             "focusDistance": 12.5, "focusRange": 1.5, "focusTransition": 6.0,
             "nearBlur": 0.25, "farBlur": 0.75, "blurSize": 0.015625,
-            "lightShaftIntensity": 0.75, "lightShaftThreshold": 8.0, "lightShaftLength": 0.625
+            "lightShaftIntensity": 0.75, "lightShaftThreshold": 8.0, "lightShaftLength": 0.625,
+            "motionBlur": 0.375
         })"));
 
         PostProcessComponent loaded;

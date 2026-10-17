@@ -157,21 +157,23 @@ TEST_SUITE("Engine") {
             const std::unique_ptr<Engine> engine = createEngine(desc);
             runFrames(*engine, 1);
             // The fullscreen triangle, the test pattern, the blit and the two interface
-            // shaders; of the scene renderer the mesh vertex shader in its two forms - for
-            // meshes as they are and for skinned ones - the pixel shaders of its six mesh
-            // passes, the lighting in its three forms, the debug view, the display
-            // encoding, what makes the cube map of an environment, the two of the decals, the
-            // two of the ambient occlusion, the three of the light shafts, the three of the
-            // depth of field, and the six that finish the picture: three for the bloom, one
-            // for the exposure, the last pass and the anti-aliasing.
-            CHECK(engine->shaders().stats().compilations == 35);
+            // shaders; of the scene renderer the mesh vertex shader in its four forms - for
+            // meshes as they are and for skinned ones, and each of those also working out
+            // where a vertex was, for the depth pre-pass and the base pass - the pixel
+            // shaders of its six mesh passes and the masked depth of the pre-pass, the
+            // lighting in its three forms, the debug view, the display encoding, what makes
+            // the cube map of an environment, the two of the decals, the two of the ambient
+            // occlusion, the three of the light shafts, the three of the depth of field, the
+            // three of the motion blur, and the six that finish the picture: three for the
+            // bloom, one for the exposure, the last pass and the anti-aliasing.
+            CHECK(engine->shaders().stats().compilations == 41);
             CHECK(engine->shaders().stats().diskHits == 0);
         }
 
         const std::unique_ptr<Engine> engine = createEngine(desc);
         runFrames(*engine, 1);
         CHECK(engine->shaders().stats().compilations == 0);
-        CHECK(engine->shaders().stats().diskHits == 35);
+        CHECK(engine->shaders().stats().diskHits == 41);
         checkNoValidationIssues(engine->graphics());
     }
 

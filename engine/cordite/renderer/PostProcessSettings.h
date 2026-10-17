@@ -241,6 +241,12 @@ struct PostProcessSettings {
     /// Light shafts: how far they reach, as a share of the way from a pixel to the sun in
     /// the picture: 0 not at all, 1 all the way.
     float lightShaftLength = 0.5f;
+
+    /// Motion blur: how much of the way each pixel went since the picture before is
+    /// smeared along (MotionBlur.h) - the share of the time between two pictures that the
+    /// shutter of a camera is open: 0 none, which costs nothing; 0.5 a film camera's; up
+    /// to 1.
+    float motionBlur = 0.0f;
 };
 
 /// `settings` with every number inside the range it is documented for, and "not a
@@ -268,6 +274,9 @@ struct PostProcessSettings {
 
 /// Whether `settings` ask for light shafts at all - they cost nothing otherwise.
 [[nodiscard]] bool hasLightShafts(const PostProcessSettings& settings);
+
+/// Whether `settings` blur what moves at all - motion blur costs nothing otherwise.
+[[nodiscard]] bool hasMotionBlur(const PostProcessSettings& settings);
 
 /// What `stops` of exposure multiply light by: two to the power of them.
 [[nodiscard]] float exposureScale(float stops);
@@ -312,6 +321,9 @@ struct PostProcessQualitySettings {
     /// Depth of field: how many points of the picture each point of the blur is made of -
     /// 16, 32 or 64. The fewer, the coarser a wide blur.
     uint32_t depthOfFieldTaps = 32;
+    /// Motion blur: how many points of the picture, along the way it went, each pixel is
+    /// blurred from - 8, 12 or 16. The fewer, the grainier a long blur.
+    uint32_t motionBlurSamples = 12;
 
     bool operator==(const PostProcessQualitySettings&) const = default;
 };

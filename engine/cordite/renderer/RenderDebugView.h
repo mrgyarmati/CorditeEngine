@@ -60,6 +60,11 @@ enum class RenderDebugView : uint8_t {
     /// How much of each pixel is fog: white where nothing shows through it. The sky
     /// and the background are in it too; translucent surfaces are left out.
     Fog,
+    /// How far, and which way, what each pixel shows moved since the view was last drawn
+    /// (MotionVectors.h): black where nothing moved; the color says which way - red to
+    /// the right, yellow-green up, cyan to the left, blue-purple down - and the
+    /// brightness how far, all of it at 16 pixels. The sky moves as the camera turns.
+    Motion,
 
     /// The light alone: every surface a plain matte grey. Translucent surfaces are left out.
     LightingOnly,
@@ -83,27 +88,14 @@ enum class RenderDebugView : uint8_t {
     Lod,
 };
 
-inline constexpr std::array<RenderDebugView, 20> kRenderDebugViews = {
-    RenderDebugView::None,
-    RenderDebugView::BaseColor,
-    RenderDebugView::Normals,
-    RenderDebugView::Roughness,
-    RenderDebugView::Metallic,
-    RenderDebugView::Specular,
-    RenderDebugView::Occlusion,
-    RenderDebugView::Emissive,
-    RenderDebugView::Depth,
-    RenderDebugView::LightCount,
-    RenderDebugView::ShadowCascades,
-    RenderDebugView::AmbientOcclusion,
-    RenderDebugView::Fog,
-    RenderDebugView::LightingOnly,
-    RenderDebugView::Reflections,
-    RenderDebugView::Wireframe,
-    RenderDebugView::Overdraw,
-    RenderDebugView::Focus,
-    RenderDebugView::LightShafts,
-    RenderDebugView::Lod,
+inline constexpr std::array<RenderDebugView, 21> kRenderDebugViews = {
+    RenderDebugView::None,        RenderDebugView::BaseColor,      RenderDebugView::Normals,
+    RenderDebugView::Roughness,   RenderDebugView::Metallic,       RenderDebugView::Specular,
+    RenderDebugView::Occlusion,   RenderDebugView::Emissive,       RenderDebugView::Depth,
+    RenderDebugView::LightCount,  RenderDebugView::ShadowCascades, RenderDebugView::AmbientOcclusion,
+    RenderDebugView::Fog,         RenderDebugView::Motion,         RenderDebugView::LightingOnly,
+    RenderDebugView::Reflections, RenderDebugView::Wireframe,      RenderDebugView::Overdraw,
+    RenderDebugView::Focus,       RenderDebugView::LightShafts,    RenderDebugView::Lod,
 };
 
 /// The name used in files and by tools: "none", "baseColor", "lightingOnly", "reflections", ...
@@ -116,9 +108,9 @@ std::string_view displayNameOf(RenderDebugView view);
 [[nodiscard]] std::optional<RenderDebugView> renderDebugViewFromName(std::string_view name);
 
 /// True for the views that are drawn from the G-buffer and the depth, in place of the
-/// lighting: BaseColor to Fog.
+/// lighting: BaseColor to Motion.
 [[nodiscard]] constexpr bool isDrawnFromGBuffer(RenderDebugView view) {
-    return view >= RenderDebugView::BaseColor && view <= RenderDebugView::Fog;
+    return view >= RenderDebugView::BaseColor && view <= RenderDebugView::Motion;
 }
 
 } // namespace cordite

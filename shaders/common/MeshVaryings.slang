@@ -20,4 +20,11 @@ struct MeshVaryings
     nointerpolation uint lightChannels : LIGHTCHANNELS;
     // The level of detail the instance is drawn at: 0 for the mesh itself.
     nointerpolation uint lod : LODLEVEL;
+#if defined(MOTION)
+    // Where the point is in the clip space of the view, and where it was in the clip space
+    // of the view as that was last drawn (common/Motion.slang). The first is not
+    // SV_Position: interpolated alike, the two come out the same where nothing moved.
+    float4 currentClipPosition : CURRENTPOSITION;
+    float4 previousClipPosition : PREVIOUSPOSITION;
+#endif
 };

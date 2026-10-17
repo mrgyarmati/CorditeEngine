@@ -1492,8 +1492,8 @@
                 // what is seen through it, after everything the scene says (see "Look"
                 // below), and to no other view. A map is no photograph: no curve
                 // ("linear" cuts off what is brighter than white), no bloom, no grade, no
-                // depth of field - nothing is blurred in front or behind - and no light
-                // shafts.
+                // depth of field - nothing is blurred in front or behind - no light shafts
+                // and no motion blur.
                 "PostProcess": {
                     "global": true,
                     "priority": 0,
@@ -1532,7 +1532,8 @@
                     "blurSize": 0.01,
                     "lightShaftIntensity": 0.0,
                     "lightShaftThreshold": 1.0,
-                    "lightShaftLength": 0.5
+                    "lightShaftLength": 0.5,
+                    "motionBlur": 0.0
                 }
             }
         },
@@ -1745,6 +1746,12 @@
             // twice as bright as white - over six tenths of the way across the picture. The
             // main camera has the sun behind it; turn the editor's camera towards the sun
             // (View > Render view > Light shafts shows them alone).
+            //
+            // Motion blur: what moves while the shutter is open - half the time between two
+            // pictures, as a film camera's is - is smeared along the way it went: the sentry
+            // on its round, the swinging cable of the hoist, what falls - while the scene
+            // plays: an edit is no motion, and the editor's own camera does not blur (View >
+            // Render view > Motion shows how far each pixel went).
             "id": "10000000-0000-4000-8000-000000000025",
             "name": "Grade",
             "enabled": true,
@@ -1789,7 +1796,8 @@
                     "blurSize": 0.006,
                     "lightShaftIntensity": 0.4,
                     "lightShaftThreshold": 2.0,
-                    "lightShaftLength": 0.6
+                    "lightShaftLength": 0.6,
+                    "motionBlur": 0.5
                 }
             }
         },
@@ -1845,7 +1853,8 @@
                     "blurSize": 0.006,
                     "lightShaftIntensity": 0.3,
                     "lightShaftThreshold": 2.0,
-                    "lightShaftLength": 0.5
+                    "lightShaftLength": 0.5,
+                    "motionBlur": 0.0
                 }
             }
         }

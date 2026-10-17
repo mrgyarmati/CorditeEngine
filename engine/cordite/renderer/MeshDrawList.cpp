@@ -11,16 +11,22 @@ namespace cordite {
 namespace {
 
 /// What differs between two draws of the same mesh: the rows of the 3x4 matrix that
-/// places it in the world, its lighting channels, and for a skinned mesh its pose. Read
-/// by the vertex shader as per-instance attributes.
+/// places it in the world, its lighting channels, for a skinned mesh its pose, and where
+/// it was before - placed and posed - for its motion. Read by the vertex shader as
+/// per-instance attributes.
 struct InstanceData {
     Vec4 row0;
     Vec4 row1;
     Vec4 row2;
     /// x: the lighting channels, as a number. y: where the joint matrices of the
     /// instance begin, as a number; zero for an instance that is not skinned. z: the
-    /// level of detail it is drawn at, for the debug view of them.
+    /// level of detail it is drawn at, for the debug view of them. w: where the joint
+    /// matrices of its pose before begin.
     Vec4 parameters;
+    /// The rows of the matrix that placed it before.
+    Vec4 previousRow0;
+    Vec4 previousRow1;
+    Vec4 previousRow2;
 };
 
 static_assert(sizeof(InstanceData) == kMeshInstanceStride, "must match the instance attributes of the mesh passes");
@@ -127,15 +133,25 @@ void MeshDrawList::build(nvrhi::ICommandList* commandList, std::span<const MeshD
 
     std::vector<InstanceData> instances;
     instances.reserve(sorted.size());
+    // glm stores columns; the shader wants rows.
+    const auto rowOf = [](const Mat4& matrix, int row) {
+        return Vec4(matrix[0][row], matrix[1][row], matrix[2][row], matrix[3][row]);
+    };
     for (const SortedDraw& entry : sorted) {
-        const Mat4& matrix = entry.draw->localToWorld;
-        // glm stores columns; the shader wants rows.
-        instances.push_back({Vec4(matrix[0][0], matrix[1][0], matrix[2][0], matrix[3][0]),
-                             Vec4(matrix[0][1], matrix[1][1], matrix[2][1], matrix[3][1]),
-                             Vec4(matrix[0][2], matrix[1][2], matrix[2][2], matrix[3][2]),
-                             Vec4(static_cast<float>(entry.draw->lightChannels & 0xFFu),
-                                  isSkinned(*entry.draw) ? static_cast<float>(entry.draw->palette) : 0.0f,
-                                  static_cast<float>(levelOf(*entry.draw)), 0.0f)});
+        const MeshDraw& draw = *entry.draw;
+        const bool skinned = isSkinned(draw);
+        const uint32_t previousPalette = draw.previousPalette != kNoPalette ? draw.previousPalette : draw.palette;
+        const Mat4& previousToWorld = draw.previousToWorld.value_or(draw.localToWorld);
+        instances.push_back(
+            {.row0 = rowOf(draw.localToWorld, 0),
+             .row1 = rowOf(draw.localToWorld, 1),
+             .row2 = rowOf(draw.localToWorld, 2),
+             .parameters =
+                 Vec4(static_cast<float>(draw.lightChannels & 0xFFu), skinned ? static_cast<float>(draw.palette) : 0.0f,
+                      static_cast<float>(levelOf(draw)), skinned ? static_cast<float>(previousPalette) : 0.0f),
+             .previousRow0 = rowOf(previousToWorld, 0),
+             .previousRow1 = rowOf(previousToWorld, 1),
+             .previousRow2 = rowOf(previousToWorld, 2)});
     }
 
     const size_t capacity =

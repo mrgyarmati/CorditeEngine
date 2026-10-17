@@ -71,7 +71,8 @@ TEST_SUITE("PostProcessSettings") {
                                          .antiAliasingSteps = 5,
                                          .antiAliasingEdgeThreshold = 0.25f,
                                          .antiAliasingEdgeMinimum = 0.0833f,
-                                         .depthOfFieldTaps = 16});
+                                         .depthOfFieldTaps = 16,
+                                         .motionBlurSamples = 8});
         CHECK(postProcessSettingsFor(PostProcessQuality::Medium) ==
               PostProcessQualitySettings{.bloomFirstLevel = 0,
                                          .bloomLevels = 5,
@@ -79,7 +80,8 @@ TEST_SUITE("PostProcessSettings") {
                                          .antiAliasingSteps = 8,
                                          .antiAliasingEdgeThreshold = 0.166f,
                                          .antiAliasingEdgeMinimum = 0.0625f,
-                                         .depthOfFieldTaps = 32});
+                                         .depthOfFieldTaps = 32,
+                                         .motionBlurSamples = 12});
         CHECK(postProcessSettingsFor(PostProcessQuality::High) ==
               PostProcessQualitySettings{.bloomFirstLevel = 0,
                                          .bloomLevels = 7,
@@ -87,7 +89,8 @@ TEST_SUITE("PostProcessSettings") {
                                          .antiAliasingSteps = 12,
                                          .antiAliasingEdgeThreshold = 0.125f,
                                          .antiAliasingEdgeMinimum = 0.0312f,
-                                         .depthOfFieldTaps = 64});
+                                         .depthOfFieldTaps = 64,
+                                         .motionBlurSamples = 16});
         // The higher the quality, the further an edge is followed and the fainter the
         // edges that are looked at; an edge always has to be something.
         PostProcessQualitySettings before = postProcessSettingsFor(PostProcessQuality::Low);
@@ -98,6 +101,7 @@ TEST_SUITE("PostProcessSettings") {
             CHECK(settings.antiAliasingEdgeMinimum < before.antiAliasingEdgeMinimum);
             CHECK(settings.antiAliasingEdgeMinimum > 0.0f);
             CHECK(settings.depthOfFieldTaps > before.depthOfFieldTaps);
+            CHECK(settings.motionBlurSamples > before.motionBlurSamples);
             before = settings;
         }
         // What the defaults of the struct are, a medium quality is.

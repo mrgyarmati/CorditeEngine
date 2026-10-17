@@ -336,9 +336,18 @@ Vulkan directly. Step-by-step guide for adding a pass:
   - positions, normals, tangents - is the code of every mesh. The attributes of
   `MeshVertexInput` are listed in the same order in `MeshPass.cpp`; the two of the
   skin come last, so that the others have the same places in both versions.
+- **The depth pre-pass and the base pass are compiled with `MOTION`, both of them**
+  (`MeshPassDesc::motion`), for the reason above: the base pass writes motion vectors,
+  and the pre-pass must run the very code that works out positions there. `MOTION`
+  adds where the instance was when the view was last drawn - three more rows of its
+  matrix, after `PARAMETERS` and before the skin - and works out where each vertex was
+  with the same arithmetic as where it is: what did not move has a motion of exactly
+  nothing.
 - **The joint matrices of a view are one buffer** (`SkinPalettes`): every pose that
   something is drawn in adds its matrices once, and an instance carries where they
-  begin (`MeshDraw::palette`, `parameters.y` of the instance). So figures in poses of
+  begin (`MeshDraw::palette`, `parameters.y` of the instance) - and where those of the
+  pose it was in when the view was last drawn begin, where that was another
+  (`MeshDraw::previousPalette`, `parameters.w`). So figures in poses of
   their own are still instances of one mesh, in one draw call - shadows included.
   **A palette must never point past its pose:** `SceneRenderer::poseFor` gives a draw
   one only when the pose has a matrix for every joint the mesh follows
@@ -360,12 +369,24 @@ Vulkan directly. Step-by-step guide for adding a pass:
   environment of `common/Environment.slang` at `t5`, `t6`, `s1` and `s2`), space 1 the
   material's in a mesh pass (`materials/Material.slang`; call `evaluateSurface`, never
   sample material textures directly) or the G-buffer's in a pass that reads it
-  (`GBufferBindings`: its four targets, the depth, and the ambient occlusion at `t5`).
+  (`GBufferBindings`: its four targets, the depth, the ambient occlusion at `t5` and
+  the motion vectors at `t6`).
   The C++ side of the constants is `ViewConstants.h`.
 - **The G-buffer layout is written down twice**: `common/GBuffer.slang` and
   `GBufferTarget` in `SceneTargets.h`. Change both, and only through
   `encodeGBuffer`/`decodeGBuffer`; `SceneRendererTests` checks every channel through
   the debug views.
+- **Motion vectors say how far each pixel moved since the view was last drawn**
+  (`MotionVectors.h`, `common/Motion.slang`), in parts of the picture, from where it
+  was to where it is. The base pass writes them for solid surfaces into a target of
+  their own beside the G-buffer (`SceneTargets::motion()`: decals do not change them),
+  from where each entity placed its mesh then, the pose each figure was in then, and the
+  view-projection then (`previousViewProjection` of the view's constants). A view
+  remembers all of that in its targets (`MotionHistory`), by the ids of the entities,
+  and forgets it when its camera cuts to another shot - another entity, a jump, a sharp
+  turn or zoom (`isCameraCut`) - and when it changes its size: then nothing moved.
+  Where nothing was drawn the sky is seen, which moves as the camera turns and not as
+  it goes (`motionOfSky`). Translucent surfaces have the motion of what is behind them.
 - **A scene capture draws a camera of the scene into a render target**
   (`SceneRenderer::renderCaptures`, called by `Engine::drawWorld` and the editor's
   viewport before their own view): each `SceneCapture` is a view of its own, through the
@@ -507,6 +528,25 @@ Vulkan directly. Step-by-step guide for adding a pass:
   change both. It is part of finishing: a picture that is not finished has none, and a
   scene without `nearBlur` or `farBlur` pays nothing for it. Translucent surfaces are not
   in the depth buffer, and are blurred as what is behind them.
+- **Motion blur smears what moved along its motion vectors, after the depth of field and
+  before the rest of finishing** (`MotionBlurPass`, `passes/MotionBlur.slang`): the
+  reconstruction filter of McGuire et al. Three passes - the longest blur of each tile of
+  the picture (a tile is the longest blur there may be, a fortieth of the height:
+  `motionBlurRadius`), the longest of each tile and the tiles around it, and every pixel
+  taken from points along that, from a copy of the picture made before. A point counts
+  as far as what is in front moves over what is behind, what is behind shows through
+  what moves in front of it, and what moves alike reaches each other (`motionBlurWeight`).
+  The arithmetic is written down twice, in `MotionBlur.cpp` and in
+  `common/MotionBlur.slang`, and `MotionBlurTests` holds the GPU's picture of a moving
+  bar against the first, pixel for pixel: change both. Where nothing near a pixel moved
+  by half a pixel it keeps its color to the bit; a picture that goes on from none - the
+  first of a view, the first after a cut - is not blurred at all. How much is the
+  scene's (`PostProcess.motionBlur`, the share of the time the shutter is open); whether
+  at all is the view's (`SceneRenderSettings::motionBlur`): a game's view and a scene
+  capture blur, the editor's own camera does not, and the editor's view through the
+  game's camera only while the game's time passes (`ViewportPanel::render`, given the
+  play clock). A picture drawn when no time has passed (`deltaSeconds` 0) has nothing
+  moving in it: what changed since was an edit or a jump, not a motion.
 - **Light shafts are the sky around the sun, blurred towards it** (`LightShaftPass`,
   `passes/LightShafts.slang`), and added to the light of the scene before the depth of
   field: what a pixel where nothing was drawn gives them is the sun's own color and what
@@ -537,8 +577,9 @@ Vulkan directly. Step-by-step guide for adding a pass:
   itself turned round (`AntiAliasingTests`). It is a switch of the view, like the
   debug view; how far it follows edges goes by the `PostProcessQuality`.
 - **What lasts from one frame to the next belongs to the view**, which is its
-  `SceneTargets`: the exposure a view has got used to is kept there, and is gone when
-  the view changes its size. What a pass keeps for a view - `PostProcessPass` its
+  `SceneTargets`: the exposure a view has got used to is kept there, and so is what it
+  remembers of its last picture for the motion of the next (`MotionHistory`); both are
+  gone when the view changes its size. What a pass keeps for a view - `PostProcessPass` its
   binding sets - goes by `SceneTargets::serial()`, and is dropped when that has not
   been drawn for a while. That is for what costs nothing to keep. An image as large as
   the view is one of the view's targets, made when it is first needed

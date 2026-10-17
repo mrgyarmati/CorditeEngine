@@ -28,6 +28,7 @@
 /// | G-buffer 2      | RGBA8_UNORM   | Roughness, metallic, specular, occlusion            |
 /// | G-buffer 3      | R11G11B10F    | Emissive light                                      |
 /// | depth           | D32           | Reversed depth: 1 at the near plane, 0 far away     |
+/// | motion          | RG16_FLOAT    | How far each pixel moved since the last picture     |
 /// | ambient occl.   | R8_UNORM      | How much of the light from all around gets through  |
 /// | traced occl.    | RG16_FLOAT    | The same before it is smoothed, and the depth; made |
 /// |                 |               | when ambient occlusion is first drawn, at its size  |
@@ -36,15 +37,18 @@
 /// | exposure, twice | R16_FLOAT     | One texel: the stops automatic exposure adds        |
 /// | display         | RGBA8_UNORM   | sRGB-encoded color, as a screen expects it          |
 ///
-/// The shader side of the G-buffer is shaders/common/GBuffer.slang. The ambient
+/// The shader side of the G-buffer is shaders/common/GBuffer.slang. The motion vectors
+/// are written by the base pass beside it (MotionVectors.h). The ambient
 /// occlusion is what AmbientOcclusionPass makes of the depth and the normals, for the
 /// lighting to read; it means something in a frame in which that pass ran. The bloom levels and
-/// the exposure are what PostProcessPass works with. The exposure is the one thing here
-/// that lasts from frame to frame: a view gets used to light slowly, so each frame
-/// starts from the exposure of the one before.
+/// the exposure are what PostProcessPass works with. Two things here last from frame to
+/// frame: the exposure - a view gets used to light slowly, so each frame starts from the
+/// exposure of the one before - and what the view remembers of its last picture, for the
+/// motion of the next (motionHistory()).
 
 #include "cordite/core/Result.h"
 #include "cordite/math/Math.h"
+#include "cordite/renderer/MotionVectors.h"
 
 #include <nvrhi/nvrhi.h>
 
@@ -103,6 +107,18 @@ public:
 
     [[nodiscard]] nvrhi::ITexture* depth() const { return m_depth; }
 
+    /// How far, and which way, what each pixel shows moved since the view was last drawn
+    /// (MotionVectors.h), as two half floats: what the base pass writes for the solid
+    /// surfaces it draws, and leaves at nothing where nothing was drawn.
+    [[nodiscard]] nvrhi::ITexture* motion() const { return m_motion; }
+
+    /// What the view remembers of the last time it was drawn, for the motion of the next
+    /// picture (MotionVectors.h). Like the exposure, it is gone when the view changes its
+    /// size.
+    [[nodiscard]] MotionHistory& motionHistory() { return m_motionHistory; }
+
+    [[nodiscard]] const MotionHistory& motionHistory() const { return m_motionHistory; }
+
     /// How much of the light from all around reaches what each pixel shows: 1 all of
     /// it, 0 none. It holds what AmbientOcclusionPass last drew; a view that does not
     /// draw it tells its passes not to read it (SceneView::ambientOcclusion).
@@ -152,7 +168,8 @@ public:
     /// Depth alone: what the depth pre-pass draws into.
     [[nodiscard]] nvrhi::IFramebuffer* depthFramebuffer() const { return m_depthFramebuffer; }
 
-    /// The G-buffer targets with depth: what the base pass draws into.
+    /// The G-buffer targets, then the motion vectors, with depth: what the base pass draws
+    /// into.
     [[nodiscard]] nvrhi::IFramebuffer* gbufferFramebuffer() const { return m_gbufferFramebuffer; }
 
     /// The ambient occlusion alone.
@@ -236,6 +253,29 @@ public:
     /// The memory of those images, in bytes: nothing when there are none.
     [[nodiscard]] uint64_t lightShaftBytes() const;
 
+    /// Makes sure there are the images motion blur is worked out in (MotionBlurPass): a
+    /// copy of the scene color, for the last of its passes to read while it draws over it,
+    /// and two images of the longest blur of each tile of the picture - a texel for every
+    /// motionBlurRadius() pixels each way, rounded up - in pixels, as two half floats.
+    /// Fails when the device cannot create them; the targets then hold none.
+    [[nodiscard]] Status prepareMotionBlur(nvrhi::IDevice* device);
+
+    /// Lets go of those images: for a view that has no motion blur any more.
+    void releaseMotionBlur();
+
+    /// The copy of the picture prepareMotionBlur() made. Null before that call and after
+    /// releaseMotionBlur().
+    [[nodiscard]] nvrhi::ITexture* motionBlurSource() const { return m_motionBlurSource; }
+
+    /// One of the two images of tiles prepareMotionBlur() made, 0 or 1, and the framebuffer
+    /// that draws into it. Null before that call and after releaseMotionBlur().
+    [[nodiscard]] nvrhi::ITexture* motionBlurTiles(uint32_t index) const;
+
+    [[nodiscard]] nvrhi::IFramebuffer* motionBlurTileFramebuffer(uint32_t index) const;
+
+    /// The memory of those images, in bytes: nothing when there are none.
+    [[nodiscard]] uint64_t motionBlurBytes() const;
+
     /// The G-buffer targets without the depth: what decals are drawn into, reading the
     /// depth as a texture (DecalPass).
     [[nodiscard]] nvrhi::IFramebuffer* decalFramebuffer() const { return m_decalFramebuffer; }
@@ -276,7 +316,8 @@ public:
     /// before it has run would be destroyed in use.
     void clear(nvrhi::ICommandList* commandList, const Vec3& background) const;
 
-    /// Fills the G-buffer with zeros: for a frame that then draws into it, as clear() says.
+    /// Fills the G-buffer and the motion vectors with zeros: for a frame that then draws
+    /// into them, as clear() says.
     void clearGBuffer(nvrhi::ICommandList* commandList) const;
 
     /// Replaces the textures with ones of a new size. Does nothing when the size is
@@ -290,6 +331,8 @@ private:
     std::array<nvrhi::TextureHandle, kGBufferTargetCount> m_gbuffer;
     nvrhi::TextureHandle m_sceneColor;
     nvrhi::TextureHandle m_depth;
+    nvrhi::TextureHandle m_motion;
+    MotionHistory m_motionHistory;
     nvrhi::TextureHandle m_ambientOcclusion;
     nvrhi::TextureHandle m_tracedOcclusion;
     /// The divisor m_tracedOcclusion was made for.
@@ -300,6 +343,9 @@ private:
     nvrhi::TextureHandle m_depthOfFieldSource;
     nvrhi::TextureHandle m_depthOfFieldBlur;
     std::array<nvrhi::TextureHandle, 2> m_lightShafts;
+    nvrhi::TextureHandle m_motionBlurSource;
+    std::array<nvrhi::TextureHandle, 2> m_motionBlurTiles;
+    std::array<nvrhi::FramebufferHandle, 2> m_motionBlurTileFramebuffers;
     std::array<nvrhi::TextureHandle, kMaxBloomLevels> m_bloom;
     std::array<nvrhi::FramebufferHandle, kMaxBloomLevels> m_bloomFramebuffers;
     uint32_t m_bloomLevelCount = 0;

@@ -73,17 +73,22 @@ public:
     [[nodiscard]] static Result<std::unique_ptr<ViewportPanel>> create(Engine& engine);
 
     /// Draws the panel as its own window, renders the scene into it and handles the
-    /// pointer and the keyboard. Only during a frame.
-    void draw(Engine& engine, EditorContext& context);
+    /// pointer and the keyboard. Only during a frame. `clock` says whether time passes
+    /// for the world in it, as Engine::updateWorld was told (see render()).
+    void draw(Engine& engine, EditorContext& context, WorldClock clock);
 
     /// Renders the scene into targets() at the given size in pixels, without any
     /// interface around it. The command list must be open, and the world transforms up
     /// to date. The targets are replaced when the size differs from the last call, so
     /// nothing that still refers to their textures may be pending. `deltaSeconds` is
     /// how long ago the viewport was last drawn - nothing, for a second picture of the
-    /// same moment - and `timeSeconds` the time: see SceneRenderSettings.
+    /// same moment - and `timeSeconds` the time: see SceneRenderSettings. `clock` says
+    /// whether time passes for the world: what moves is blurred, through the camera of
+    /// the game, only while it does - an edit is no motion. The editor's own camera never
+    /// blurs.
     [[nodiscard]] Status render(nvrhi::IDevice* device, nvrhi::ICommandList* commandList, EditorContext& context,
-                                UVec2 size, float deltaSeconds = 0.0f, double timeSeconds = 0.0);
+                                UVec2 size, float deltaSeconds = 0.0f, double timeSeconds = 0.0,
+                                WorldClock clock = WorldClock::Stopped);
 
     /// What render() drew into. The display image holds the finished picture.
     [[nodiscard]] const SceneTargets& targets() const { return m_targets; }

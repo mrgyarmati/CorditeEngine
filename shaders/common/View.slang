@@ -15,6 +15,9 @@ cbuffer ViewConstants : register(b0, space0)
     // out with the second where a pixel is in the world.
     float4x4 viewProjection;
     float4x4 inverseViewProjection;
+    // The world to clip space as the view was when it was last drawn: the same as
+    // viewProjection where it goes on from no picture before (common/Motion.slang).
+    float4x4 previousViewProjection;
     float3 cameraPosition;
     // 1 for a camera without perspective, which sees everything from the same direction.
     float orthographic;

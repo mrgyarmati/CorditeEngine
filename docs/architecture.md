@@ -680,8 +680,10 @@ draws one surface both ways and compares the pictures.
 
 Fourteen bytes a pixel, plus depth. Emissive has a target of its own rather than being
 added to the scene color by the base pass, so that it stays a thing that can be looked
-at and that later passes can tell from reflected light. Motion vectors will join when
-something needs them (temporal anti-aliasing, motion blur); nothing does yet.
+at and that later passes can tell from reflected light. The motion vectors the base
+pass writes as well are in a target beside the G-buffer, not in it: decals, which
+change what a surface is made of, do not change where it went (see "Motion blur is
+made of motion vectors" below).
 
 ### A depth pre-pass, then a base pass on equal depth
 
@@ -1162,6 +1164,52 @@ What it does not do: the circles are discs of even light, not the shapes of a le
 blades; a translucent surface is not in the depth buffer and is blurred as what is
 behind it; and a blur of a texel or two is made of few texels, which shows less as a
 blur than as a softening.
+
+### Motion blur is made of motion vectors
+
+A camera's shutter is open for a while, and what moves meanwhile is smeared along the
+way it went. To smear it, a picture has to know for every pixel how far, and which
+way, what it shows went since the picture before: its motion vector. The base pass
+works them out with the positions, from where every vertex is and where it was - the
+placement of its entity then, the pose of its figure then, the camera then - and writes
+them beside the G-buffer. That is why the base pass and the depth pre-pass are both
+compiled with `MOTION`: the base pass keeps only the depth the pre-pass wrote, and the
+two must run the same code. What did not move goes through the same arithmetic twice
+and comes out the same to the bit, so its motion is exactly nothing - which is what
+lets a still picture stay sharp to the last bit, not merely nearly.
+
+Where things were is remembered by the view, in its targets, by the ids of entities:
+the view is what knows when it was last drawn. A capture that draws one picture a second
+blurs a second's motion; a view whose camera cut to another shot - another entity, a
+jump, a sharp turn or zoom - remembers nothing, and its next picture is still. So is a
+picture drawn when no time has passed since the last: what changed in between - an edit
+in the editor, a second picture of the same moment - happened in no time, which is a
+jump, not a motion. Only the
+camera's motion is worked out without the base pass: the sky, which nothing draws, moves
+as the camera turns and not as it goes, since it is infinitely far away - its directions
+are projected as points that far, with a fourth number of zero.
+
+The blur is the reconstruction filter of McGuire, Hennessy, Bukowski and Osman (2012),
+which engines of the look this one takes after made common. Each pixel is blurred along
+the longest motion near it, which tiles of the picture find first - so that a still
+background next to a moving thing is reached by its blur - and it takes in a point of
+that line as far as what is in front moves over what is behind, what is behind shows
+through what moves, and what moves alike reaches each other. Gathering along one line
+from a copy of the picture is cheap, and the depth keeps a sharp thing in front sharp
+against a blurred background, and the reverse. The points are spread a little
+differently from pixel to pixel, which turns the steps a long blur would show between
+them into grain; the noise that spreads them is part of the arithmetic written down
+twice, so tests can hold the GPU's picture against the CPU's, pixel for pixel.
+
+It is done to the light, after the depth of field and before bloom and exposure, as the
+depth of field is, and for the same reason. The editor's own camera does not blur: it
+moves to look around, and a person who flies through a scene wants to see it. Through
+the game's camera the editor blurs only while the game's time passes, as the game would.
+
+What it does not do: a translucent surface has no motion of its own and blurs as what is
+behind it; a blur is at most a fortieth of the picture either way, which a very fast
+motion is cut down to; and something that moved further than that in one frame -
+teleported - is blurred for one frame at the longest, unless the camera cut.
 
 ### Light shafts are the sky around the sun, blurred towards it
 

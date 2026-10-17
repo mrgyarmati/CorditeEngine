@@ -233,6 +233,7 @@ How the picture is finished - exposure, bloom, tone mapping, grading - everywher
 | `lightShaftIntensity` | float | `0.0` | 0.0 to 4.0 | Light shafts: how much light the shafts of the sun add, along rays from where it is in the picture past what stands in its way; 0 none |
 | `lightShaftThreshold` | float | `1.0` | 0.0 to 64.0 | Light shafts: the light of the sky brighter than this - a sun in an image of the sky - feeds them besides the sun's own |
 | `lightShaftLength` | float | `0.5` | 0.0 to 1.0 | Light shafts: how far they reach, as a share of the way from a pixel to the sun in the picture |
+| `motionBlur` | float | `0.0` | 0.0 to 1.0 | Motion blur: how much of the way each pixel went since the picture before is smeared along - the share of the time between two pictures the shutter is open; 0 none, 0.5 a film camera's |
 
 ## PrefabInstance
 

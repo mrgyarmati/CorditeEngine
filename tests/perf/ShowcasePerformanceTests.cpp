@@ -212,6 +212,7 @@ TEST_SUITE("Performance") {
         checkBudget(budgets, "ambientOcclusionBytes", static_cast<double>(statistics.scene.ambientOcclusionBytes));
         checkBudget(budgets, "depthOfFieldBytes", static_cast<double>(statistics.scene.depthOfFieldBytes));
         checkBudget(budgets, "lightShaftBytes", static_cast<double>(statistics.scene.lightShaftBytes));
+        checkBudget(budgets, "motionBlurBytes", static_cast<double>(statistics.scene.motionBlurBytes));
         CHECK(statistics.scene.droppedDecals == 0);
         checkBudget(budgets, "captures", statistics.scene.captures);
         checkBudget(budgets, "decals", statistics.scene.decals);

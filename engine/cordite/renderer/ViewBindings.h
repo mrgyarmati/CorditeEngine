@@ -50,12 +50,17 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 
 namespace cordite {
 
 /// A view of a scene, as its passes need to know it. All colors are linear.
 struct SceneView {
     CameraView camera;
+    /// The world to clip space as the view was when it was last drawn, for its motion
+    /// vectors (MotionVectors.h): none for a view that goes on from no picture, which then
+    /// has nothing moving in it.
+    std::optional<Mat4> previousViewProjection;
     /// The size of the target in pixels.
     UVec2 targetSize{1, 1};
     /// Ambient light arriving from above and from below.

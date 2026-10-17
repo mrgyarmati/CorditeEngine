@@ -139,6 +139,7 @@ this order. Then each step, with its shader in `shaders/`:
 | Translucent surfaces | `MeshDrawList.h` | `passes/MeshForward.slang` | |
 | Light shafts | `LightShafts.h`, `LightShaftPass.h` | `passes/LightShafts.slang`, `common/LightShafts.slang` | "Light shafts are the sky around the sun, blurred towards it" |
 | Depth of field | `DepthOfFieldPass.h`, `PostProcessSettings.h` | `passes/DepthOfField.slang`, `common/DepthOfField.slang` | "Depth of field is gathered at half the size, from light, before the picture is finished" |
+| Motion vectors and motion blur | `MotionVectors.h`, `MotionBlur.h`, `MotionBlurPass.h` | `common/Motion.slang`, `passes/MeshVertex.slang` (`MOTION`), `passes/MotionBlur.slang`, `common/MotionBlur.slang` | "Motion blur is made of motion vectors" |
 | Finishing the picture | `PostProcessPass.h`, `PostProcessSettings.h` | `passes/Exposure.slang`, `passes/Bloom.slang`, `passes/PostProcess.slang`, `common/ToneMapping.slang`, `passes/AntiAliasing.slang` | "A picture is finished in one pass", "Bloom is a chain of halvings", "Automatic exposure is measured from the bloom", "Edges are smoothed from the finished picture" |
 
 The deepest lesson of the renderer is in how it is tested. A test that can say what a pixel

@@ -10,9 +10,13 @@
 #include "cordite/world/Components.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
+#include <span>
 #include <utility>
+#include <vector>
 
 namespace cordite {
 namespace {
@@ -28,6 +32,8 @@ MeshPassDesc depthPassDesc() {
     desc.debugName = "Depth pre-pass";
     desc.maskedPixelShader = pixelShader("passes/MeshDepth.slang", "meshDepthMaskedPixel");
     desc.depth = MeshPassDepth::TestAndWrite;
+    // The same code as the base pass, whose depth test asks for these positions exactly.
+    desc.motion = true;
     return desc;
 }
 
@@ -37,6 +43,8 @@ MeshPassDesc basePassDesc() {
     desc.debugName = "Base pass";
     desc.pixelShader = pixelShader("passes/MeshGBuffer.slang", "meshGBufferPixel");
     desc.depth = MeshPassDepth::Equal;
+    // It writes the motion vectors, from where each vertex was and is.
+    desc.motion = true;
     return desc;
 }
 
@@ -93,6 +101,52 @@ DeferredLightingMode lightingModeOf(RenderDebugView debugView) {
         return DeferredLightingMode::Reflections;
     }
     return DeferredLightingMode::Lit;
+}
+
+/// Where the entity `id` placed its mesh in the picture `before` - what a view remembers
+/// of its last one - or none: an entity that has no past did not move. A placement that
+/// is not made of numbers is none, too: what moves from nowhere has no motion to tell.
+std::optional<Mat4> placementBefore(const MotionHistory* before, const Uuid& id) {
+    const Mat4* found = before != nullptr ? before->placementOf(id) : nullptr;
+    if (found == nullptr) {
+        return std::nullopt;
+    }
+    const Mat4& placement = *found;
+    for (int column = 0; column < 4; ++column) {
+        for (int row = 0; row < 4; ++row) {
+            if (!std::isfinite(placement[column][row])) {
+                return std::nullopt;
+            }
+        }
+    }
+    return placement;
+}
+
+/// What the targets of a view remember of its last picture, where `view` drawn with
+/// `settings` goes on from it; null where nothing in the picture can have moved - where it
+/// does not go on from one before (MotionVectors.h), and where no time has passed since,
+/// which makes a change a jump, not a motion: an edit, a second picture of one moment.
+const MotionHistory* historyToGoOn(const SceneTargets& targets, const CameraView& view,
+                                   const SceneRenderSettings& settings) {
+    const MotionHistory& history = targets.motionHistory();
+    return settings.deltaSeconds > 0.0f && history.continuesWith(view, settings.viewEntity) ? &history : nullptr;
+}
+
+/// The world to clip space of the picture `before`, or none for a picture that goes on
+/// from none.
+std::optional<Mat4> viewProjectionBefore(const MotionHistory* before) {
+    return before != nullptr ? std::optional<Mat4>(before->view.viewProjection) : std::nullopt;
+}
+
+/// The joint matrices of the pose of the entity `owner` in the picture `before`, where they
+/// are another pose than `skinning` with as many joints - a skeleton that was replaced in
+/// between has no motion to tell of - or null.
+const std::vector<Mat4>* changedPoseOf(const MotionHistory* before, const Uuid& owner, std::span<const Mat4> skinning) {
+    const std::vector<Mat4>* found = before != nullptr ? before->poseOf(owner) : nullptr;
+    if (found == nullptr || found->size() != skinning.size() || std::ranges::equal(*found, skinning)) {
+        return nullptr;
+    }
+    return found;
 }
 
 } // namespace
@@ -194,6 +248,7 @@ SceneRenderStatistics& SceneRenderStatistics::operator+=(const SceneRenderStatis
     ambientOcclusionBytes = std::max(ambientOcclusionBytes, other.ambientOcclusionBytes);
     depthOfFieldBytes = std::max(depthOfFieldBytes, other.depthOfFieldBytes);
     lightShaftBytes = std::max(lightShaftBytes, other.lightShaftBytes);
+    motionBlurBytes = std::max(motionBlurBytes, other.motionBlurBytes);
     shadowPass += other.shadowPass;
     depthPass += other.depthPass;
     basePass += other.basePass;
@@ -244,6 +299,7 @@ Result<std::unique_ptr<SceneRenderer>> SceneRenderer::create(nvrhi::IDevice* dev
     CORDITE_TRY_ASSIGN(AmbientOcclusionPass occlusion, AmbientOcclusionPass::create(device, shaders, viewLayout));
     CORDITE_TRY_ASSIGN(LightShaftPass lightShafts, LightShaftPass::create(device, shaders, viewLayout));
     CORDITE_TRY_ASSIGN(DepthOfFieldPass depthOfField, DepthOfFieldPass::create(device, shaders, viewLayout));
+    CORDITE_TRY_ASSIGN(MotionBlurPass motionBlur, MotionBlurPass::create(device, shaders, viewLayout));
     CORDITE_TRY_ASSIGN(PostProcessPass postProcess, PostProcessPass::create(device, shaders));
 
     Passes passes{.depth = std::move(depth),
@@ -261,6 +317,7 @@ Result<std::unique_ptr<SceneRenderer>> SceneRenderer::create(nvrhi::IDevice* dev
                   .occlusion = std::move(occlusion),
                   .lightShafts = std::move(lightShafts),
                   .depthOfField = std::move(depthOfField),
+                  .motionBlur = std::move(motionBlur),
                   .postProcess = std::move(postProcess)};
     return std::unique_ptr<SceneRenderer>(new SceneRenderer(device, std::move(resources), std::move(viewBindings),
                                                             std::move(palettes), std::move(passes),
@@ -268,7 +325,7 @@ Result<std::unique_ptr<SceneRenderer>> SceneRenderer::create(nvrhi::IDevice* dev
 }
 
 SceneRenderer::MeshPose SceneRenderer::poseFor(const World& world, Entity entity, const GpuMesh& mesh,
-                                               const Uuid& meshId) {
+                                               const Uuid& meshId, const MotionHistory* before) {
     Entity owner;
     const SkeletonPoseComponent* pose = findSkeletonPose(world, entity, &owner);
     if (pose == nullptr) {
@@ -285,25 +342,34 @@ SceneRenderer::MeshPose SceneRenderer::poseFor(const World& world, Entity entity
         }
         return {};
     }
-    const auto [found, isNew] = m_paletteOfPose.try_emplace(owner, kNoPalette);
+    const auto [found, isNew] = m_paletteOfPose.try_emplace(owner);
+    PosePalettes& palettes = found->second;
     if (isNew) {
-        found->second = m_palettes.add(pose->skinning);
-        if (found->second != kNoPalette) {
+        palettes.current = m_palettes.add(pose->skinning);
+        if (palettes.current != kNoPalette) {
             m_statistics.jointMatrices += static_cast<uint32_t>(pose->skinning.size());
+            const Uuid ownerId = world.id(owner);
+            m_poses.emplace_back(ownerId, std::vector<Mat4>(pose->skinning.begin(), pose->skinning.end()));
+            if (const std::vector<Mat4>* was = changedPoseOf(before, ownerId, pose->skinning)) {
+                palettes.previous = m_palettes.add(*was);
+            }
         }
     }
-    if (found->second == kNoPalette) {
+    if (palettes.current == kNoPalette) {
         return {};
     }
-    return {.palette = found->second, .skinning = pose->skinning};
+    return {.palette = palettes.current, .previousPalette = palettes.previous, .skinning = pose->skinning};
 }
 
-void SceneRenderer::collectDraws(const World& world, const CameraView& view, const LodView& lodView) {
+void SceneRenderer::collectDraws(const World& world, const CameraView& view, const LodView& lodView,
+                                 const MotionHistory* before) {
     m_sceneMeshes.clear();
     m_sceneDraws.clear();
     m_draws.clear();
     m_palettes.clear();
     m_paletteOfPose.clear();
+    m_placements.clear();
+    m_poses.clear();
     const Frustum frustum = Frustum::fromViewProjection(view.viewProjection);
     const auto renderers = world.registry().view<const MeshRendererComponent, const WorldTransform>();
     for (const auto [handle, renderer, placement] : renderers.each()) {
@@ -315,7 +381,12 @@ void SceneRenderer::collectDraws(const World& world, const CameraView& view, con
             continue;
         }
         ++m_statistics.meshRenderers;
-        const MeshPose pose = mesh->isSkinned() ? poseFor(world, Entity{handle}, *mesh, renderer.mesh) : MeshPose();
+        // Where it is, for the next picture to tell how far it went; and where it was.
+        const Uuid id = world.id(Entity{handle});
+        m_placements.emplace_back(id, placement.matrix);
+        const std::optional<Mat4> previousToWorld = placementBefore(before, id);
+        const MeshPose pose =
+            mesh->isSkinned() ? poseFor(world, Entity{handle}, *mesh, renderer.mesh, before) : MeshPose();
         if (pose.palette != kNoPalette) {
             ++m_statistics.skinnedMeshes;
         }
@@ -340,7 +411,9 @@ void SceneRenderer::collectDraws(const World& world, const CameraView& view, con
                                     .localToWorld = placement.matrix,
                                     .lightChannels = renderer.lightChannels,
                                     .palette = pose.palette,
-                                    .lod = lod});
+                                    .lod = lod,
+                                    .previousToWorld = previousToWorld,
+                                    .previousPalette = pose.previousPalette});
         }
         m_sceneMeshes.push_back({.bounds = bounds,
                                  .firstDraw = static_cast<uint32_t>(firstDraw),
@@ -366,6 +439,7 @@ void SceneRenderer::uploadPoses(nvrhi::ICommandList* commandList) {
     for (std::vector<MeshDraw>* draws : {&m_sceneDraws, &m_draws}) {
         for (MeshDraw& draw : *draws) {
             draw.palette = kNoPalette;
+            draw.previousPalette = kNoPalette;
         }
     }
     m_statistics.skinnedMeshes = 0;
@@ -445,7 +519,8 @@ void SceneRenderer::render(nvrhi::ICommandList* commandList, const World& world,
     }
 
     m_resources->beginFrame();
-    collectDraws(world, view, lodViewOf(view, targets.size().y, settings.lodErrorPixels));
+    const MotionHistory* before = historyToGoOn(targets, view, settings);
+    collectDraws(world, view, lodViewOf(view, targets.size().y, settings.lodErrorPixels), before);
     // The decals, and what they are drawn with, which goes to the GPU with the rest.
     m_decals.collect(world);
     DecalPass::prepare(*m_resources, m_decals.decals());
@@ -519,6 +594,7 @@ void SceneRenderer::render(nvrhi::ICommandList* commandList, const World& world,
     m_viewBindings.update(
         commandList,
         {.camera = view,
+         .previousViewProjection = viewProjectionBefore(before),
          .targetSize = targets.size(),
          .skyColor = m_lights.skyColor(),
          .groundColor = m_lights.groundColor(),
@@ -589,13 +665,21 @@ void SceneRenderer::render(nvrhi::ICommandList* commandList, const World& world,
                                                              m_drawList.blendedBatches(), meshBindings);
         }
     }
-    finishPicture(commandList, targets, viewBindings, view, look, settings, debugView);
+    finishPicture(commandList, targets, viewBindings, view, look, settings, debugView, before != nullptr);
+
+    // What the next picture of the view goes on from. The lists change places, so that
+    // their memory is used again.
+    MotionHistory& history = targets.motionHistory();
+    std::swap(history.placements, m_placements);
+    std::swap(history.poses, m_poses);
+    history.remember(view, settings.viewEntity);
 
     m_statistics.views = 1;
     m_statistics.shadowAtlasBytes = m_passes.shadows.byteSize();
     m_statistics.ambientOcclusionBytes = targets.tracedOcclusionBytes();
     m_statistics.depthOfFieldBytes = targets.depthOfFieldBytes();
     m_statistics.lightShaftBytes = targets.lightShaftBytes();
+    m_statistics.motionBlurBytes = targets.motionBlurBytes();
     m_statistics.decalBytes = targets.decalNormalBytes();
     m_statistics.meshes = m_statistics.shadowPass;
     m_statistics.meshes += m_statistics.depthPass;
@@ -607,7 +691,7 @@ void SceneRenderer::render(nvrhi::ICommandList* commandList, const World& world,
 void SceneRenderer::finishPicture(nvrhi::ICommandList* commandList, SceneTargets& targets,
                                   nvrhi::IBindingSet* viewBindings, const CameraView& view,
                                   const PostProcessSettings& look, const SceneRenderSettings& settings,
-                                  RenderDebugView debugView) {
+                                  RenderDebugView debugView, bool continues) {
     const bool isFinished = isFinishedPicture(settings, debugView);
     const bool showsFocus = debugView == RenderDebugView::Focus;
     // The light of the sun scattered in the air is part of the light of the scene: the
@@ -622,6 +706,18 @@ void SceneRenderer::finishPicture(nvrhi::ICommandList* commandList, SceneTargets
     } else {
         // A view that has none gives back what it was worked out in.
         targets.releaseDepthOfField();
+    }
+    // Motion blur smears what moved, after the lens has blurred what is out of focus and
+    // before the rest, so that bloom and exposure see the blur. In a picture that goes
+    // on from none - the first of a view, the first after a cut - nothing moved.
+    if (isFinished && settings.motionBlur && hasMotionBlur(look)) {
+        if (continues) {
+            m_statistics.screenPasses += m_passes.motionBlur.draw(commandList, targets, viewBindings, look,
+                                                                  {.quality = settings.postProcessQuality});
+        }
+    } else {
+        // A view that has none gives back what it was worked out in.
+        targets.releaseMotionBlur();
     }
     if (isFinished) {
         // A lookup table that is used for the first time goes to the GPU now.
@@ -757,6 +853,7 @@ void SceneRenderer::renderCaptures(nvrhi::ICommandList* commandList, const World
         SceneRenderSettings captured = settings;
         captured.debugView = RenderDebugView::None;
         captured.defaultLighting = false;
+        captured.motionBlur = true;
         captured.viewEntity = id;
         captured.deltaSeconds = state.hasPicture ? state.sinceLastPicture : passed;
         const CameraView view =

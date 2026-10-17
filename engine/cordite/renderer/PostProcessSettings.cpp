@@ -187,6 +187,7 @@ PostProcessSettings sanitized(const PostProcessSettings& settings) {
     result.lightShaftIntensity = within(settings.lightShaftIntensity, 0.0f, 4.0f, defaults.lightShaftIntensity);
     result.lightShaftThreshold = within(settings.lightShaftThreshold, 0.0f, 64.0f, defaults.lightShaftThreshold);
     result.lightShaftLength = within(settings.lightShaftLength, 0.0f, 1.0f, defaults.lightShaftLength);
+    result.motionBlur = within(settings.motionBlur, 0.0f, 1.0f, defaults.motionBlur);
     return result;
 }
 
@@ -227,6 +228,7 @@ PostProcessSettings blend(const PostProcessSettings& from, const PostProcessSett
     result.lightShaftIntensity = mix(from.lightShaftIntensity, to.lightShaftIntensity, t);
     result.lightShaftThreshold = mix(from.lightShaftThreshold, to.lightShaftThreshold, t);
     result.lightShaftLength = mix(from.lightShaftLength, to.lightShaftLength, t);
+    result.motionBlur = mix(from.motionBlur, to.motionBlur, t);
 
     // Two tables cannot be blended into one without making a third. The same table on
     // both sides blends its intensity; otherwise the one fades out towards the middle
@@ -269,6 +271,10 @@ bool hasDepthOfField(const PostProcessSettings& settings) {
 
 bool hasLightShafts(const PostProcessSettings& settings) {
     return settings.lightShaftIntensity > 0.0f && settings.lightShaftLength > 0.0f;
+}
+
+bool hasMotionBlur(const PostProcessSettings& settings) {
+    return settings.motionBlur > 0.0f;
 }
 
 float exposureScale(float stops) {
@@ -320,7 +326,8 @@ PostProcessQualitySettings postProcessSettingsFor(PostProcessQuality quality) {
                     .antiAliasingSteps = 5,
                     .antiAliasingEdgeThreshold = 0.25f,
                     .antiAliasingEdgeMinimum = 0.0833f,
-                    .depthOfFieldTaps = 16};
+                    .depthOfFieldTaps = 16,
+                    .motionBlurSamples = 8};
         case PostProcessQuality::Medium:
             return {.bloomFirstLevel = 0,
                     .bloomLevels = 5,
@@ -328,7 +335,8 @@ PostProcessQualitySettings postProcessSettingsFor(PostProcessQuality quality) {
                     .antiAliasingSteps = 8,
                     .antiAliasingEdgeThreshold = 0.166f,
                     .antiAliasingEdgeMinimum = 0.0625f,
-                    .depthOfFieldTaps = 32};
+                    .depthOfFieldTaps = 32,
+                    .motionBlurSamples = 12};
         case PostProcessQuality::High:
             return {.bloomFirstLevel = 0,
                     .bloomLevels = 7,
@@ -336,7 +344,8 @@ PostProcessQualitySettings postProcessSettingsFor(PostProcessQuality quality) {
                     .antiAliasingSteps = 12,
                     .antiAliasingEdgeThreshold = 0.125f,
                     .antiAliasingEdgeMinimum = 0.0312f,
-                    .depthOfFieldTaps = 64};
+                    .depthOfFieldTaps = 64,
+                    .motionBlurSamples = 16};
     }
     return {};
 }

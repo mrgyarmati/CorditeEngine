@@ -16,6 +16,7 @@
 /// | t3       | G-buffer: emissive                                       |
 /// | t4       | Depth                                                    |
 /// | t5       | Ambient occlusion (see SceneTargets::ambientOcclusion)   |
+/// | t6       | Motion vectors (see SceneTargets::motion)                |
 ///
 /// @code
 /// nvrhi::BindingLayoutHandle layout = createGBufferLayout(device, false);

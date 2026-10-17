@@ -2,9 +2,9 @@
 
 #include "cordite/core/Assert.h"
 
-#include <array>
 #include <cstddef>
 #include <utility>
+#include <vector>
 
 namespace cordite {
 namespace {
@@ -31,23 +31,31 @@ Result<MeshPass> MeshPass::create(nvrhi::IDevice* device, ShaderManager& shaders
     pass.m_materialLayout = layouts.material;
     pass.m_jointLayout = layouts.joints;
 
-    CORDITE_TRY_ASSIGN(
-        pass.m_vertexShader,
-        shaders.get({.path = kVertexShaderPath, .entryPoint = kVertexShaderEntryPoint, .stage = ShaderStage::Vertex}));
-    CORDITE_TRY_ASSIGN(pass.m_skinnedVertexShader, shaders.get({.path = kVertexShaderPath,
-                                                                .entryPoint = kVertexShaderEntryPoint,
-                                                                .stage = ShaderStage::Vertex,
-                                                                .defines = {{"SKINNED", "1"}}}));
+    // A pass that works out where its vertices were has every shader compiled for it:
+    // the varyings of its stages are not those of the others.
+    const auto withMotion = [&](ShaderRequest request) {
+        if (desc.motion) {
+            request.defines.push_back(ShaderDefine{.name = "MOTION"});
+        }
+        return request;
+    };
+    CORDITE_TRY_ASSIGN(pass.m_vertexShader, shaders.get(withMotion({.path = kVertexShaderPath,
+                                                                    .entryPoint = kVertexShaderEntryPoint,
+                                                                    .stage = ShaderStage::Vertex})));
+    CORDITE_TRY_ASSIGN(pass.m_skinnedVertexShader, shaders.get(withMotion({.path = kVertexShaderPath,
+                                                                           .entryPoint = kVertexShaderEntryPoint,
+                                                                           .stage = ShaderStage::Vertex,
+                                                                           .defines = {{"SKINNED", "1"}}})));
     if (!desc.pixelShader.path.empty()) {
-        CORDITE_TRY_ASSIGN(pass.m_pixelShader, shaders.get(desc.pixelShader));
+        CORDITE_TRY_ASSIGN(pass.m_pixelShader, shaders.get(withMotion(desc.pixelShader)));
     }
     if (!desc.maskedPixelShader.path.empty()) {
-        CORDITE_TRY_ASSIGN(pass.m_maskedPixelShader, shaders.get(desc.maskedPixelShader));
+        CORDITE_TRY_ASSIGN(pass.m_maskedPixelShader, shaders.get(withMotion(desc.maskedPixelShader)));
     }
 
     // The order matches the members of MeshVertexInput in the shader: the vertex first,
-    // from buffer 0, then the instance, from buffer 1, then - for a skinned mesh - how
-    // the vertex follows its joints, from buffer 2.
+    // from buffer 0, then the instance, from buffer 1 - with MOTION, where it was as well -
+    // then, for a skinned mesh, how the vertex follows its joints, from buffer 2.
     const auto vertexAttribute = [](const char* name, nvrhi::Format format, size_t offset) {
         return nvrhi::VertexAttributeDesc()
             .setName(name)
@@ -73,7 +81,7 @@ Result<MeshPass> MeshPass::create(nvrhi::IDevice* device, ShaderManager& shaders
             .setOffset(static_cast<uint32_t>(offset))
             .setElementStride(sizeof(MeshSkinVertex));
     };
-    const std::array<nvrhi::VertexAttributeDesc, 11> attributes = {
+    std::vector<nvrhi::VertexAttributeDesc> attributes = {
         vertexAttribute("POSITION", nvrhi::Format::RGB32_FLOAT, offsetof(MeshVertex, position)),
         vertexAttribute("NORMAL", nvrhi::Format::RGB32_FLOAT, offsetof(MeshVertex, normal)),
         vertexAttribute("TANGENT", nvrhi::Format::RGBA32_FLOAT, offsetof(MeshVertex, tangent)),
@@ -83,11 +91,16 @@ Result<MeshPass> MeshPass::create(nvrhi::IDevice* device, ShaderManager& shaders
         instanceAttribute("WORLD1", 1),
         instanceAttribute("WORLD2", 2),
         instanceAttribute("PARAMETERS", 3),
-        skinAttribute("JOINTS", nvrhi::Format::RGBA16_UINT, offsetof(MeshSkinVertex, joints)),
-        skinAttribute("WEIGHTS", nvrhi::Format::RGBA32_FLOAT, offsetof(MeshSkinVertex, weights)),
     };
-    // A mesh that is not skinned has all but the last two.
-    const auto rigidCount = static_cast<uint32_t>(attributes.size() - 2);
+    if (desc.motion) {
+        attributes.push_back(instanceAttribute("PREVIOUSWORLD0", 4));
+        attributes.push_back(instanceAttribute("PREVIOUSWORLD1", 5));
+        attributes.push_back(instanceAttribute("PREVIOUSWORLD2", 6));
+    }
+    // A mesh that is not skinned has all but the two of the skin, which come last.
+    const auto rigidCount = static_cast<uint32_t>(attributes.size());
+    attributes.push_back(skinAttribute("JOINTS", nvrhi::Format::RGBA16_UINT, offsetof(MeshSkinVertex, joints)));
+    attributes.push_back(skinAttribute("WEIGHTS", nvrhi::Format::RGBA32_FLOAT, offsetof(MeshSkinVertex, weights)));
     pass.m_inputLayout = device->createInputLayout(attributes.data(), rigidCount, pass.m_vertexShader);
     pass.m_skinnedInputLayout = device->createInputLayout(attributes.data(), static_cast<uint32_t>(attributes.size()),
                                                           pass.m_skinnedVertexShader);

@@ -77,6 +77,8 @@
 #include "cordite/renderer/LightShaftPass.h"
 #include "cordite/renderer/MeshDrawList.h"
 #include "cordite/renderer/MeshPass.h"
+#include "cordite/renderer/MotionBlurPass.h"
+#include "cordite/renderer/MotionVectors.h"
 #include "cordite/renderer/PostProcessPass.h"
 #include "cordite/renderer/PostProcessSettings.h"
 #include "cordite/renderer/RenderDebugView.h"
@@ -153,6 +155,11 @@ struct SceneRenderSettings {
     /// How the edges of the finished picture are smoothed. How finely goes by the
     /// quality above; a picture that is not finished is not anti-aliased either.
     AntiAliasing antiAliasing = AntiAliasing::Fxaa;
+    /// Whether what moved since the view was last drawn is blurred, as much as the look
+    /// of the scene asks (PostProcessSettings::motionBlur). A game's views are; an
+    /// editor's view through its own camera is not: that camera moves to look around,
+    /// not as part of what is shown.
+    bool motionBlur = true;
     /// What the picture is finished with, and what its screen effects look like. Left
     /// empty, the PostProcess components of the world say (ScenePostProcess.h). A tool
     /// or a test that wants one look whatever the scene says sets it here.
@@ -162,7 +169,9 @@ struct SceneRenderSettings {
     Uuid viewEntity;
     /// How long ago the view was last drawn, in seconds, and the time: for what takes
     /// time - automatic exposure getting used to the light - or changes with it, as
-    /// film grain does. A view that is drawn once leaves them alone.
+    /// film grain does. A view that is drawn once leaves them alone. Where no time has
+    /// passed, nothing has moved either: what changed since is no motion
+    /// (MotionVectors.h), and is not blurred.
     float deltaSeconds = 1.0f / 60.0f;
     double timeSeconds = 0.0;
 };
@@ -215,8 +224,10 @@ struct SceneRenderStatistics {
     std::array<uint32_t, kMaxMeshLods + 1> lodInstances{};
     /// Of the mesh renderers, the ones whose mesh is skinned and was given a pose.
     uint32_t skinnedMeshes = 0;
-    /// The joint matrices sent to the GPU for them. A pose that several meshes are
-    /// drawn in counts once.
+    /// The joint matrices of the poses they are drawn in, sent to the GPU. A pose that
+    /// several meshes are drawn in counts once; the matrices of the pose a figure was in
+    /// when the view was last drawn, which go along for the motion of one that moved, are
+    /// not counted.
     uint32_t jointMatrices = 0;
     /// Passes that draw over the whole picture, or over a smaller copy of it, rather
     /// than meshes: the two of the ambient occlusion, the lighting or the debug view,
@@ -235,11 +246,6 @@ struct SceneRenderStatistics {
 
     /// The decals laid onto the G-buffer: those in view whose material could be used.
     uint32_t decals = 0;
-    /// Pictures drawn by SceneCapture components (renderCaptures()), each a view of its
-    /// own in the numbers here; and captures left out because a frame draws only so many
-    /// (kMaxSceneCaptures).
-    uint32_t captures = 0;
-    uint32_t droppedCaptures = 0;
     /// Decals left out because a view can only hold so many (kMaxDecals).
     uint32_t droppedDecals = 0;
     /// How often the normals of the G-buffer were copied for the decals to read: once for
@@ -250,6 +256,12 @@ struct SceneRenderStatistics {
     /// (SceneTargets::prepareDecalNormals). Over the views of a frame it is the largest of
     /// them.
     uint64_t decalBytes = 0;
+
+    /// Pictures drawn by SceneCapture components (renderCaptures()), each a view of its
+    /// own in the numbers here; and captures left out because a frame draws only so many
+    /// (kMaxSceneCaptures).
+    uint32_t captures = 0;
+    uint32_t droppedCaptures = 0;
 
     /// The shadow maps drawn: one for a spot light, six for a point light, one for
     /// each cascade of the sun.
@@ -287,6 +299,11 @@ struct SceneRenderStatistics {
     /// (SceneTargets::prepareLightShafts). Over the views of a frame it is the largest of
     /// them.
     uint64_t lightShaftBytes = 0;
+    /// The memory of the images the motion blur of the view is worked out in, in bytes: a
+    /// copy of the picture, four half floats a pixel, and two of two half floats a tile
+    /// (SceneTargets::prepareMotionBlur). Over the views of a frame it is the largest of
+    /// them.
+    uint64_t motionBlurBytes = 0;
 
     /// What each of the passes that draw meshes did. A debug view that draws the meshes
     /// itself - wireframe, overdraw - counts as the forward pass.
@@ -360,14 +377,24 @@ private:
         AmbientOcclusionPass occlusion;
         LightShaftPass lightShafts;
         DepthOfFieldPass depthOfField;
+        MotionBlurPass motionBlur;
         PostProcessPass postProcess;
     };
 
     /// The pose a skinned mesh is drawn in: where its joint matrices are among those
-    /// of the view, and the matrices themselves. kNoPalette and none without a pose.
+    /// of the view, where those of the pose it was in when the view was last drawn are,
+    /// and the matrices themselves. kNoPalette and none without a pose.
     struct MeshPose {
         uint32_t palette = kNoPalette;
+        uint32_t previousPalette = kNoPalette;
         std::span<const Mat4> skinning;
+    };
+
+    /// Where the joint matrices of a pose are among those of the view: of the pose now,
+    /// and of the pose it was in when the view was last drawn.
+    struct PosePalettes {
+        uint32_t current = kNoPalette;
+        uint32_t previous = kNoPalette;
     };
 
     /// A mesh renderer of the world: where it is, and which of m_sceneDraws draw it.
@@ -384,13 +411,17 @@ private:
 
     /// Fills m_sceneMeshes and m_sceneDraws with everything `world` draws, m_draws
     /// with what of it shows through `view`, each mesh at the level of detail `lodView`
-    /// chooses for it, and counts.
-    void collectDraws(const World& world, const CameraView& view, const LodView& lodView);
+    /// chooses for it, and counts. Each draw is placed and posed as it was in `before` -
+    /// what the view remembers of its last picture - where that has it; m_placements and
+    /// m_poses get what the next picture will remember.
+    void collectDraws(const World& world, const CameraView& view, const LodView& lodView, const MotionHistory* before);
 
-    /// The pose the skinned mesh `mesh` of `entity` is drawn in, its matrices added to
-    /// m_palettes the first time the pose is asked for. `meshId` names the mesh where
-    /// a pose that does not fit it is reported.
-    [[nodiscard]] MeshPose poseFor(const World& world, Entity entity, const GpuMesh& mesh, const Uuid& meshId);
+    /// The pose the skinned mesh `mesh` of `entity` is drawn in, its matrices - and
+    /// those of the pose it was in before, where `before` has another - added to
+    /// m_palettes the first time the pose is asked for. `meshId` names the mesh where a
+    /// pose that does not fit it is reported.
+    [[nodiscard]] MeshPose poseFor(const World& world, Entity entity, const GpuMesh& mesh, const Uuid& meshId,
+                                   const MotionHistory* before);
 
     /// Sends the poses collectDraws() gathered to the GPU. Where that fails, no draw
     /// keeps its pose.
@@ -401,13 +432,14 @@ private:
     void drawShadows(nvrhi::ICommandList* commandList, const ShadowSettings& settings);
 
     /// Makes the display image of `targets` of the light in their scene color, seen from
-    /// `view`: with the shafts of the sun added, blurred where it is out of focus, and
-    /// finished with `look` - or only encoded, in a debug view and where `settings` ask for
-    /// no finishing. In the debug views of the light shafts and of the depth of field, what
+    /// `view`: with the shafts of the sun added, blurred where it is out of focus and
+    /// where it moved - when the picture `continues` from one before -, and finished with
+    /// `look`; or only encoded, in a debug view and where `settings` ask for no
+    /// finishing. In the debug views of the light shafts and of the depth of field, what
     /// they are about takes the place of the light first.
     void finishPicture(nvrhi::ICommandList* commandList, SceneTargets& targets, nvrhi::IBindingSet* viewBindings,
                        const CameraView& view, const PostProcessSettings& look, const SceneRenderSettings& settings,
-                       RenderDebugView debugView);
+                       RenderDebugView debugView, bool continues);
 
     /// Lays the decals of the scene that `view` sees onto what the base pass left in the
     /// G-buffer of `targets`; gives back what they read when none are drawn.
@@ -427,7 +459,12 @@ private:
     /// The joint matrices of the view being drawn, and where those of each pose are in
     /// them, by the entity that has the pose.
     SkinPalettes m_palettes;
-    std::unordered_map<Entity, uint32_t> m_paletteOfPose;
+    std::unordered_map<Entity, PosePalettes> m_paletteOfPose;
+    /// What the view being drawn is to remember of its picture (MotionHistory): where
+    /// every mesh renderer placed its mesh, and the poses meshes were drawn in, by the ids
+    /// of their entities. Handed to the view's targets when it is drawn.
+    std::vector<std::pair<Uuid, Mat4>> m_placements;
+    std::vector<std::pair<Uuid, std::vector<Mat4>>> m_poses;
     /// The meshes that were given a pose that does not fit them, so that each is
     /// reported once, not every frame.
     std::unordered_set<Uuid> m_reportedPoses;

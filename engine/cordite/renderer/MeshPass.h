@@ -31,6 +31,10 @@
 /// one vertex shader compiled with SKINNED, which reads how each vertex follows its
 /// joints from a third vertex buffer (GpuMesh::skinBuffer) and the joint matrices from a
 /// third binding set (SkinPalettes). Everything else about the pass is the same.
+///
+/// A pass that is to know where its vertices were when the view was last drawn
+/// (MeshPassDesc::motion) compiles all of its shaders with MOTION, and reads where each
+/// instance was from three more rows of its entry in the instance buffer.
 
 #include "cordite/core/Result.h"
 #include "cordite/renderer/MeshDrawList.h"
@@ -85,6 +89,12 @@ struct MeshPassDesc {
     /// the views of a scene have it the other way round. The depth test passes what
     /// is nearer either way.
     bool conventionalDepth = false;
+    /// Also work out where each vertex was when the view was last drawn - the vertex
+    /// shader compiled with MOTION, and the pixel shaders too, which then get it
+    /// (MotionVectors.h). For the base pass, which writes motion vectors, and for the
+    /// depth pre-pass, whose positions the base pass has to match to the bit: the two
+    /// must run the same code.
+    bool motion = false;
 };
 
 /// What a call to MeshPass::draw() cost.

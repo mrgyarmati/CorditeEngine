@@ -50,6 +50,12 @@ cordite_add_module(renderer
         MeshDrawList.h
         MeshPass.cpp
         MeshPass.h
+        MotionBlur.cpp
+        MotionBlur.h
+        MotionBlurPass.cpp
+        MotionBlurPass.h
+        MotionVectors.cpp
+        MotionVectors.h
         PostProcessPass.cpp
         PostProcessPass.h
         PostProcessSettings.cpp

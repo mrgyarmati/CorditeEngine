@@ -746,6 +746,36 @@ TEST_SUITE("EditorApp") {
         checkNoValidationIssues(editor->engine().graphics());
     }
 
+    TEST_CASE("the viewport blurs what moves only through the game's camera, while the game's time passes") {
+        EditorAppDesc desc = headlessDesc(UVec2(640, 360));
+        desc.project = showcaseProject();
+        const std::unique_ptr<EditorApp> editor = createEditor(desc);
+        // The memory motion blur takes, of the largest view that has it: the security
+        // camera's capture blurs what moves, as a game's view does, with the smaller images.
+        const auto blurBytes = [&] {
+            return run(*editor, "editor.statistics")["scene"]["motionBlur"]["bytes"].get<uint64_t>();
+        };
+        const uint64_t capture = uint64_t{256} * 144 * 8 + uint64_t{64} * 36 * 4 * 2;
+
+        // Through the editor's own camera nothing of the viewport is blurred.
+        REQUIRE(editor->runFrames(3).has_value());
+        CHECK(blurBytes() == capture);
+        // Nor through the game's, while the scene is edited and no time passes for it.
+        run(*editor, "viewport.show", R"({"camera": "game"})");
+        REQUIRE(editor->runFrames(3).has_value());
+        CHECK(blurBytes() == capture);
+        // While it plays, the viewport is a game's view: blurred, with images as large as it.
+        run(*editor, "play.start");
+        REQUIRE(editor->runFrames(3).has_value());
+        CHECK(blurBytes() > capture);
+        // Paused, time stands still again.
+        run(*editor, "play.pause");
+        REQUIRE(editor->runFrames(3).has_value());
+        CHECK(blurBytes() == capture);
+        run(*editor, "play.stop");
+        checkNoValidationIssues(editor->engine().graphics());
+    }
+
     TEST_CASE("editor.statistics reports what the last frame cost") {
         EditorAppDesc desc = headlessDesc(UVec2(640, 360));
         desc.project = showcaseProject();
@@ -802,8 +832,9 @@ TEST_SUITE("EditorApp") {
         // the three of the depth of field, and what finishes the picture as the showcase
         // says - five levels of bloom down and up, the exposure, the final pass, the
         // smoothing of its edges - for each view; and for the capture, which looks towards
-        // the sun, the five of its light shafts.
-        CHECK(scene["screenPasses"] == 2 * 18 + 5);
+        // the sun, the five of its light shafts, and the three of its motion blur: a
+        // capture is a game's view, while the editor's own camera blurs nothing.
+        CHECK(scene["screenPasses"] == 2 * 18 + 5 + 3);
         // The ambient occlusion is worked out for one pixel in four of the viewport, in
         // two half floats each; the depth of field in two images of a texel for every four
         // pixels, of four half floats each.
@@ -820,6 +851,10 @@ TEST_SUITE("EditorApp") {
         // which comes to where the strip bent them; the capture, on the wall, sees the two
         // on the floor, and copies its normals twice as well.
         CHECK(scene["lightShafts"]["bytes"] == uint64_t{128} * 72 * 8 * 2);
+        // The capture's motion blur: a copy of its picture, four half floats a pixel, and two
+        // images of two half floats for every tile of four pixels a side - the longest blur
+        // of a picture 144 pixels high.
+        CHECK(scene["motionBlur"]["bytes"] == uint64_t{256} * 144 * 8 + uint64_t{64} * 36 * 4 * 2);
         CHECK(scene["decals"]["count"] == 3 + 2);
         CHECK(scene["decals"]["dropped"] == 0);
         CHECK(scene["decals"]["normalCopies"] == 2 + 2);

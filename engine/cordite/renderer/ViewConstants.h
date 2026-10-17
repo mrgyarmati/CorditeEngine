@@ -29,6 +29,9 @@ inline constexpr uint32_t kMaxViewsInFlight = 64;
 struct ViewConstants {
     Mat4 viewProjection;
     Mat4 inverseViewProjection;
+    /// The world to clip space as the view was when it was last drawn, for its motion
+    /// vectors (MotionVectors.h): viewProjection where it goes on from no picture before.
+    Mat4 previousViewProjection;
     Vec3 cameraPosition;
     /// 1 for a camera without perspective, 0 for one with.
     float orthographic;
@@ -85,6 +88,6 @@ struct ViewConstants {
     float padding2;
 };
 
-static_assert(sizeof(ViewConstants) == 496, "must match the cbuffer layout in View.slang");
+static_assert(sizeof(ViewConstants) == 560, "must match the cbuffer layout in View.slang");
 
 } // namespace cordite

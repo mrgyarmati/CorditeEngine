@@ -63,9 +63,14 @@ TEST_SUITE("SceneTargets") {
             CHECK(targets.gbuffer(GBufferTarget::Normal)->getDesc().width == 320);
             CHECK(targets.gbuffer(GBufferTarget::Normal)->getDesc().debugName == "View G-buffer normal");
             const nvrhi::FramebufferDesc& gbuffer = targets.gbufferFramebuffer()->getDesc();
-            REQUIRE(gbuffer.colorAttachments.size() == kGBufferTargetCount);
+            // After the G-buffer, the motion vectors the base pass writes as well, which the
+            // decals - drawn into the G-buffer alone - do not change.
+            REQUIRE(gbuffer.colorAttachments.size() == kGBufferTargetCount + 1);
             CHECK(gbuffer.colorAttachments[0].texture == targets.gbuffer(GBufferTarget::BaseColor));
             CHECK(gbuffer.colorAttachments[3].texture == targets.gbuffer(GBufferTarget::Emissive));
+            CHECK(gbuffer.colorAttachments[4].texture == targets.motion());
+            CHECK(targets.motion()->getDesc().format == nvrhi::Format::RG16_FLOAT);
+            CHECK(targets.decalFramebuffer()->getDesc().colorAttachments.size() == kGBufferTargetCount);
             CHECK(gbuffer.depthAttachment.texture == targets.depth());
 
             // The pre-pass draws depth alone; the lighting reads the depth, so the
