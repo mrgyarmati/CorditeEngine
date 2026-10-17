@@ -59,6 +59,15 @@ MeshPassDesc wireframePassDesc() {
     return desc;
 }
 
+/// Each mesh in the color of the level of detail it is drawn at.
+MeshPassDesc lodPassDesc() {
+    MeshPassDesc desc;
+    desc.debugName = "Levels of detail view";
+    desc.pixelShader = pixelShader("passes/MeshDebug.slang", "meshLodPixel");
+    desc.depth = MeshPassDepth::TestAndWrite;
+    return desc;
+}
+
 /// Every surface adds to the picture, hidden or not.
 MeshPassDesc overdrawPassDesc() {
     MeshPassDesc desc;
@@ -127,16 +136,19 @@ void applyRenderQuality(RenderQuality quality, SceneRenderSettings& settings) {
             settings.shadowQuality = ShadowQuality::Low;
             settings.screenEffectsQuality = ScreenEffectsQuality::Low;
             settings.postProcessQuality = PostProcessQuality::Low;
+            settings.lodErrorPixels = 2.0f;
             break;
         case RenderQuality::Medium:
             settings.shadowQuality = ShadowQuality::Medium;
             settings.screenEffectsQuality = ScreenEffectsQuality::Medium;
             settings.postProcessQuality = PostProcessQuality::Medium;
+            settings.lodErrorPixels = 1.0f;
             break;
         case RenderQuality::High:
             settings.shadowQuality = ShadowQuality::High;
             settings.screenEffectsQuality = ScreenEffectsQuality::High;
             settings.postProcessQuality = PostProcessQuality::High;
+            settings.lodErrorPixels = 0.5f;
             break;
     }
 }
@@ -147,7 +159,8 @@ std::optional<RenderQuality> renderQualityOf(const SceneRenderSettings& settings
         applyRenderQuality(quality, preset);
         if (preset.shadowQuality == settings.shadowQuality &&
             preset.screenEffectsQuality == settings.screenEffectsQuality &&
-            preset.postProcessQuality == settings.postProcessQuality) {
+            preset.postProcessQuality == settings.postProcessQuality &&
+            preset.lodErrorPixels == settings.lodErrorPixels) {
             return quality;
         }
     }
@@ -167,6 +180,9 @@ SceneRenderStatistics& SceneRenderStatistics::operator+=(const SceneRenderStatis
     decals += other.decals;
     droppedDecals += other.droppedDecals;
     decalNormalCopies += other.decalNormalCopies;
+    for (size_t level = 0; level < lodInstances.size(); ++level) {
+        lodInstances[level] += other.lodInstances[level];
+    }
     decalBytes = std::max(decalBytes, other.decalBytes);
     shadowMaps += other.shadowMaps;
     lightsWithoutShadows += other.lightsWithoutShadows;
@@ -216,6 +232,7 @@ Result<std::unique_ptr<SceneRenderer>> SceneRenderer::create(nvrhi::IDevice* dev
     CORDITE_TRY_ASSIGN(MeshPass forward, meshPass(forwardPassDesc()));
     CORDITE_TRY_ASSIGN(MeshPass wireframe, meshPass(wireframePassDesc()));
     CORDITE_TRY_ASSIGN(MeshPass overdraw, meshPass(overdrawPassDesc()));
+    CORDITE_TRY_ASSIGN(MeshPass lod, meshPass(lodPassDesc()));
     CORDITE_TRY_ASSIGN(DeferredLightingPass lighting, DeferredLightingPass::create(device, shaders, viewLayout));
     CORDITE_TRY_ASSIGN(DebugViewPass debugView, DebugViewPass::create(device, shaders, viewLayout));
     CORDITE_TRY_ASSIGN(DisplayEncodePass encode, DisplayEncodePass::create(device, shaders));
@@ -232,6 +249,7 @@ Result<std::unique_ptr<SceneRenderer>> SceneRenderer::create(nvrhi::IDevice* dev
                   .forward = std::move(forward),
                   .wireframe = std::move(wireframe),
                   .overdraw = std::move(overdraw),
+                  .lod = std::move(lod),
                   .lighting = std::move(lighting),
                   .debugView = std::move(debugView),
                   .encode = std::move(encode),
@@ -278,7 +296,7 @@ SceneRenderer::MeshPose SceneRenderer::poseFor(const World& world, Entity entity
     return {.palette = found->second, .skinning = pose->skinning};
 }
 
-void SceneRenderer::collectDraws(const World& world, const CameraView& view) {
+void SceneRenderer::collectDraws(const World& world, const CameraView& view, const LodView& lodView) {
     m_sceneMeshes.clear();
     m_sceneDraws.clear();
     m_draws.clear();
@@ -300,6 +318,14 @@ void SceneRenderer::collectDraws(const World& world, const CameraView& view) {
             ++m_statistics.skinnedMeshes;
         }
 
+        // Where a pose puts a mesh is not where it was modelled: an arm that is raised
+        // is seen, and casts its shadow, where it is now.
+        const Aabb inMesh = pose.palette != kNoPalette ? skinnedBounds(mesh->jointBounds, pose.skinning) : mesh->bounds;
+        const Aabb bounds = inMesh.transformed(placement.matrix);
+        // One level of detail for all of the mesh, as this view sees it - also for its
+        // shadows: a mesh casts the shadow of what is drawn.
+        const uint32_t lod = selectLod(mesh->lodErrors, bounds, scaleOf(placement.matrix), lodView);
+
         // Materials are resolved for everything in the scene, in view or not, so that
         // turning the camera does not stall on loading what comes into sight. What the
         // camera does not see may also throw a shadow into what it sees.
@@ -311,12 +337,9 @@ void SceneRenderer::collectDraws(const World& world, const CameraView& view) {
                                     .material = &m_resources->material(material),
                                     .localToWorld = placement.matrix,
                                     .lightChannels = renderer.lightChannels,
-                                    .palette = pose.palette});
+                                    .palette = pose.palette,
+                                    .lod = lod});
         }
-        // Where a pose puts a mesh is not where it was modelled: an arm that is raised
-        // is seen, and casts its shadow, where it is now.
-        const Aabb inMesh = pose.palette != kNoPalette ? skinnedBounds(mesh->jointBounds, pose.skinning) : mesh->bounds;
-        const Aabb bounds = inMesh.transformed(placement.matrix);
         m_sceneMeshes.push_back({.bounds = bounds,
                                  .firstDraw = static_cast<uint32_t>(firstDraw),
                                  .drawCount = static_cast<uint32_t>(m_sceneDraws.size() - firstDraw),
@@ -325,6 +348,7 @@ void SceneRenderer::collectDraws(const World& world, const CameraView& view) {
         if (frustum.intersects(bounds)) {
             m_draws.insert(m_draws.end(), m_sceneDraws.begin() + static_cast<std::ptrdiff_t>(firstDraw),
                            m_sceneDraws.end());
+            ++m_statistics.lodInstances[std::min<size_t>(lod, kMaxMeshLods)];
         } else {
             ++m_statistics.culled;
         }
@@ -419,7 +443,7 @@ void SceneRenderer::render(nvrhi::ICommandList* commandList, const World& world,
     }
 
     m_resources->beginFrame();
-    collectDraws(world, view);
+    collectDraws(world, view, lodViewOf(view, targets.size().y, settings.lodErrorPixels));
     // The decals, and what they are drawn with, which goes to the GPU with the rest.
     m_decals.collect(world);
     DecalPass::prepare(*m_resources, m_decals.decals());
@@ -512,7 +536,8 @@ void SceneRenderer::render(nvrhi::ICommandList* commandList, const World& world,
         .view = viewBindings, .instances = m_drawList.instanceBuffer(), .joints = m_palettes.bindings()};
 
     targets.clear(commandList, settings.backgroundColor);
-    if (debugView == RenderDebugView::Wireframe || debugView == RenderDebugView::Overdraw) {
+    if (debugView == RenderDebugView::Wireframe || debugView == RenderDebugView::Overdraw ||
+        debugView == RenderDebugView::Lod) {
         // What draws every mesh itself shows no G-buffer, and nothing laid onto one.
         targets.releaseDecalNormals();
     }
@@ -526,6 +551,9 @@ void SceneRenderer::render(nvrhi::ICommandList* commandList, const World& world,
                                        nvrhi::Color(0.0f, 0.0f, 0.0f, 1.0f));
         m_statistics.forwardPass =
             m_passes.overdraw.draw(commandList, targets.sceneFramebuffer(), m_drawList.batches(), meshBindings);
+    } else if (debugView == RenderDebugView::Lod) {
+        m_statistics.forwardPass =
+            m_passes.lod.draw(commandList, targets.sceneFramebuffer(), m_drawList.batches(), meshBindings);
     } else {
         // Only here: a view that draws no G-buffer must not clear it either (clear()).
         targets.clearGBuffer(commandList);

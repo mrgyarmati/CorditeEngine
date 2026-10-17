@@ -72,6 +72,7 @@
 #include "cordite/renderer/DepthOfFieldPass.h"
 #include "cordite/renderer/DisplayEncodePass.h"
 #include "cordite/renderer/EnvironmentMaps.h"
+#include "cordite/renderer/LevelOfDetail.h"
 #include "cordite/renderer/LightClusters.h"
 #include "cordite/renderer/LightShaftPass.h"
 #include "cordite/renderer/MeshDrawList.h"
@@ -138,6 +139,11 @@ struct SceneRenderSettings {
 
     /// What to show instead of the finished picture; None shows the picture.
     RenderDebugView debugView = RenderDebugView::None;
+
+    /// How large the error of a level of detail may look, in pixels (LevelOfDetail.h): a
+    /// mesh is drawn at the coarsest of its levels whose surface is no further than this
+    /// from its own. Zero draws every mesh at its finest.
+    float lodErrorPixels = 1.0f;
 
     /// How much finishing the picture - exposing, tone mapping, grading it and the rest
     /// of PostProcessSettings.h - may cost. Off shows the light as it was worked out,
@@ -222,6 +228,9 @@ struct SceneRenderStatistics {
 
     /// The decals laid onto the G-buffer: those in view whose material could be used.
     uint32_t decals = 0;
+    /// The meshes in view, by the level of detail they are drawn at: the mesh itself
+    /// first.
+    std::array<uint32_t, kMaxMeshLods + 1> lodInstances{};
     /// Decals left out because a view can only hold so many (kMaxDecals).
     uint32_t droppedDecals = 0;
     /// How often the normals of the G-buffer were copied for the decals to read: once for
@@ -323,6 +332,7 @@ private:
         MeshPass forward;
         MeshPass wireframe;
         MeshPass overdraw;
+        MeshPass lod;
         DeferredLightingPass lighting;
         DebugViewPass debugView;
         DisplayEncodePass encode;
@@ -355,8 +365,9 @@ private:
                   SkinPalettes palettes, Passes passes, bool supportsWireframe);
 
     /// Fills m_sceneMeshes and m_sceneDraws with everything `world` draws, m_draws
-    /// with what of it shows through `view`, and counts.
-    void collectDraws(const World& world, const CameraView& view);
+    /// with what of it shows through `view`, each mesh at the level of detail `lodView`
+    /// chooses for it, and counts.
+    void collectDraws(const World& world, const CameraView& view, const LodView& lodView);
 
     /// The pose the skinned mesh `mesh` of `entity` is drawn in, its matrices added to
     /// m_palettes the first time the pose is asked for. `meshId` names the mesh where

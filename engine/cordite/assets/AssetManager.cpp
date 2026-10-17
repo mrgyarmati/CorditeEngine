@@ -2,6 +2,7 @@
 
 #include "cordite/assets/GltfDocument.h"
 #include "cordite/assets/GltfImporter.h"
+#include "cordite/assets/MeshProcessing.h"
 #include "cordite/assets/Primitives.h"
 #include "cordite/core/FileSystem.h"
 #include "cordite/core/Json.h"
@@ -175,6 +176,9 @@ Status AssetManager::importModelFile(const AssetInfo& asset) {
             meshMaterials[index].push_back(material && *material < materialIds.size() ? materialIds[*material]
                                                                                       : Uuid());
         }
+        // What the renderer is handed has its levels of detail; what an importer reads
+        // has none - glTF has no place for them.
+        generateLods(source.mesh);
         m_meshes[idOf("mesh", index)] = std::make_shared<const MeshData>(std::move(source.mesh));
     }
 
@@ -239,6 +243,7 @@ Result<std::shared_ptr<const MeshData>> AssetManager::loadMesh(const Uuid& id) {
             if (builtinMeshId(mesh) == id) {
                 MeshData data = makeBuiltinMesh(mesh);
                 data.name = asset->name;
+                generateLods(data);
                 return m_meshes.emplace(id, std::make_shared<const MeshData>(std::move(data))).first->second;
             }
         }

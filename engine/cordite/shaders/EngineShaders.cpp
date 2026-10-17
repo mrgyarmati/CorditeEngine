@@ -46,6 +46,7 @@ std::vector<ShaderRequest> engineShaderRequests() {
          .stage = ShaderStage::Pixel},
         {.path = "passes/MeshDebug.slang", .entryPoint = "meshWireframePixel", .stage = ShaderStage::Pixel},
         {.path = "passes/MeshDebug.slang", .entryPoint = "meshOverdrawPixel", .stage = ShaderStage::Pixel},
+        {.path = "passes/MeshDebug.slang", .entryPoint = "meshLodPixel", .stage = ShaderStage::Pixel},
         {.path = "passes/MeshDepth.slang", .entryPoint = "meshDepthMaskedPixel", .stage = ShaderStage::Pixel},
         {.path = "passes/MeshForward.slang", .entryPoint = "meshForwardPixel", .stage = ShaderStage::Pixel},
         {.path = "passes/MeshGBuffer.slang", .entryPoint = "meshGBufferPixel", .stage = ShaderStage::Pixel},

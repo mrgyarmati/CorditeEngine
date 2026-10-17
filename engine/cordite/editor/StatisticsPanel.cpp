@@ -3,6 +3,7 @@
 #include "cordite/ui/UiWidgets.h"
 
 #include <fmt/format.h>
+#include <fmt/ranges.h>
 #include <imgui.h>
 
 #include <string>
@@ -45,6 +46,8 @@ Json describeFrameStatistics(const FrameStatistics& statistics) {
     scene["views"] = statistics.scene.views;
     scene["meshRenderers"] = statistics.scene.meshRenderers;
     scene["culled"] = statistics.scene.culled;
+    // The meshes in view by the level of detail they are drawn at, the finest first.
+    scene["lods"] = statistics.scene.lodInstances;
     Json skinned = Json::object();
     skinned["meshes"] = statistics.scene.skinnedMeshes;
     skinned["jointMatrices"] = statistics.scene.jointMatrices;
@@ -171,6 +174,7 @@ void StatisticsPanel::draw(const FrameStatistics& statistics, bool& open) {
                                       scene.forwardPass.drawCalls));
         row("Screen passes", fmt::format("{}", scene.screenPasses));
         row("Instances", fmt::format("{}", scene.meshes.instances));
+        row("Levels of detail", fmt::format("{}", fmt::join(scene.lodInstances, " / ")));
         row("Triangles", fmt::format("{}", scene.meshes.triangles));
         row("Mesh renderers", fmt::format("{} ({} out of view)", scene.meshRenderers, scene.culled));
         row("Skinned meshes", fmt::format("{} ({} joint matrices)", scene.skinnedMeshes, scene.jointMatrices));

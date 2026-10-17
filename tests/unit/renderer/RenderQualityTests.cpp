@@ -23,7 +23,8 @@ TEST_SUITE("RenderQuality") {
         CHECK_FALSE(renderQualityFromName("").has_value());
     }
 
-    TEST_CASE("a quality sets the shadows, the screen effects and the finishing of the picture, and nothing else") {
+    TEST_CASE("a quality sets the shadows, the screen effects, the finishing of the picture and the levels of detail, "
+              "and nothing else") {
         SceneRenderSettings settings;
         settings.backgroundColor = Vec3(0.1f, 0.2f, 0.3f);
         settings.defaultLighting = true;
@@ -34,14 +35,18 @@ TEST_SUITE("RenderQuality") {
         CHECK(settings.shadowQuality == ShadowQuality::Low);
         CHECK(settings.screenEffectsQuality == ScreenEffectsQuality::Low);
         CHECK(settings.postProcessQuality == PostProcessQuality::Low);
+        // Coarser levels of detail at a lower quality: errors of two pixels.
+        CHECK(settings.lodErrorPixels == 2.0f);
         applyRenderQuality(RenderQuality::High, settings);
         CHECK(settings.shadowQuality == ShadowQuality::High);
         CHECK(settings.screenEffectsQuality == ScreenEffectsQuality::High);
         CHECK(settings.postProcessQuality == PostProcessQuality::High);
+        CHECK(settings.lodErrorPixels == 0.5f);
         applyRenderQuality(RenderQuality::Medium, settings);
         CHECK(settings.shadowQuality == ShadowQuality::Medium);
         CHECK(settings.screenEffectsQuality == ScreenEffectsQuality::Medium);
         CHECK(settings.postProcessQuality == PostProcessQuality::Medium);
+        CHECK(settings.lodErrorPixels == 1.0f);
 
         CHECK(settings.backgroundColor == Vec3(0.1f, 0.2f, 0.3f));
         CHECK(settings.defaultLighting);
@@ -72,6 +77,11 @@ TEST_SUITE("RenderQuality") {
         settings.screenEffectsQuality = ScreenEffectsQuality::Off;
         CHECK_FALSE(renderQualityOf(settings).has_value());
         settings.screenEffectsQuality = ScreenEffectsQuality::High;
+        CHECK(renderQualityOf(settings) == RenderQuality::High);
+        // And so are the levels of detail.
+        settings.lodErrorPixels = 0.0f;
+        CHECK_FALSE(renderQualityOf(settings).has_value());
+        settings.lodErrorPixels = 0.5f;
         CHECK(renderQualityOf(settings) == RenderQuality::High);
     }
 }

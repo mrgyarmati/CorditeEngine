@@ -25,8 +25,12 @@
         // the posts are drawn with the pillar, which is of the same mesh and material,
         // and the balls are a draw call of their own in each pass and shadow map that
         // sees them - six draw calls and 11,000 triangles more, all passes together.
-        "drawCalls": 160,
-        "triangles": 48500,
+        // Most of those triangles are not drawn: from where the main camera is, the balls,
+        // the capsule and the torus look the same at a coarser level of detail, in every
+        // pass and shadow map, and so are drawn with a half to an eighth of theirs. Meshes
+        // of one kind at different levels are draw calls of their own.
+        "drawCalls": 164,
+        "triangles": 17500,
         // Passes over the whole picture: the two of the ambient occlusion, the lighting,
         // the three of the depth of field, and what finishes the picture as the scene
         // says - five levels of bloom down and up, the automatic exposure, the final pass
@@ -61,7 +65,8 @@
         // and five smaller levels of them, eight bytes a texel. One environment, one
         // cube map.
         "environmentBytes": 4193280,
-        "meshBytes": 160000,
+        // The levels of detail of the meshes of many triangles add their indices.
+        "meshBytes": 165000,
         // What is simulated: the bodies of the scene - of which three are awake at most
         // once the rest has settled, the two triggers and the body that stands for the
         // character; two of those that stand still are the bollards - the shapes that
@@ -119,8 +124,9 @@
     // Six hundred point and spot lights over a field of four hundred crates and balls,
     // none of them casting a shadow; see tests/perf/LightingPerformanceTests.cpp.
     "lights": {
-        // The field is two draw calls a pass, the floor one.
-        "drawCalls": 6,
+        // The crates of the field are a draw call a pass, its balls one for each of the
+        // three levels of detail they are drawn at, the floor one.
+        "drawCalls": 10,
         // The ambient occlusion, the lighting and what finishes a picture when a scene
         // says nothing: bloom, the final pass and the smoothing of its edges.
         "screenPasses": 14,
@@ -132,7 +138,8 @@
         "decals": 0,
         "decalNormalCopies": 0,
         "decalBytes": 0,
-        "triangles": 340000,
+        // The balls of the field are drawn at coarser levels of detail the further they are.
+        "triangles": 60000,
         // Most of the lights are in view. The entries of the cluster lists say how well
         // they are told apart: the number goes up when lights are put into the lists of
         // clusters they do not reach, and every entry is a light a pixel has to ask.
@@ -169,7 +176,8 @@
         "decals": 0,
         "decalNormalCopies": 0,
         "decalBytes": 0,
-        "triangles": 800000,
+        // The shadow maps draw the balls at the levels the camera sees them at.
+        "triangles": 145000,
         "lights": 600,
         "lightListEntries": 22500,
 

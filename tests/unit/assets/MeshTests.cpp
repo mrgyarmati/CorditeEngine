@@ -220,4 +220,63 @@ TEST_SUITE("Mesh") {
         CHECK_THROWS_AS(appendSubmesh(mesh, vertices, outside), AssertionFailure);
     }
 #endif
+
+    TEST_CASE("validation holds the levels of detail to the same rules as the mesh") {
+        // A level of the square that is the square again: valid, if pointless.
+        const auto withLevel = [] {
+            MeshData mesh = makeTwoTriangles();
+            mesh.lods.push_back({.indices = {0, 1, 2, 0, 2, 3},
+                                 .submeshes = {{.firstIndex = 0, .indexCount = 3}, {.firstIndex = 3, .indexCount = 3}},
+                                 .error = 0.25f});
+            return mesh;
+        };
+        CHECK(validateMesh(withLevel()).has_value());
+
+        SUBCASE("a level with another number of submeshes") {
+            MeshData mesh = withLevel();
+            mesh.lods[0].submeshes.pop_back();
+            CHECK(validationError(mesh).find("level of detail 1 has 1 submeshes, the mesh 2") != std::string::npos);
+        }
+        SUBCASE("ranges of a level that do not follow each other") {
+            MeshData mesh = withLevel();
+            mesh.lods[0].submeshes[1].firstIndex = 0;
+            CHECK(validationError(mesh).find("submesh 1 of level of detail 1 has indices 0 to 3, expected whole "
+                                             "triangles from index 3") != std::string::npos);
+        }
+        SUBCASE("ranges of a level that are not made of whole triangles") {
+            MeshData mesh = withLevel();
+            mesh.lods[0].submeshes = {{.firstIndex = 0, .indexCount = 4}, {.firstIndex = 4, .indexCount = 2}};
+            CHECK(validationError(mesh).find("submesh 0 of level of detail 1 has indices 0 to 4") != std::string::npos);
+        }
+        SUBCASE("ranges of a level that do not cover its indices") {
+            MeshData mesh = withLevel();
+            mesh.lods[0].indices.insert(mesh.lods[0].indices.end(), {0, 1, 2});
+            CHECK(validationError(mesh).find("the submeshes of level of detail 1 cover 6 indices, but it has 9") !=
+                  std::string::npos);
+        }
+        SUBCASE("an index of a level without a vertex") {
+            MeshData mesh = withLevel();
+            mesh.lods[0].indices[4] = 7;
+            CHECK(validationError(mesh).find("index 4 of level of detail 1 refers to vertex 7, but there are only 4") !=
+                  std::string::npos);
+        }
+        SUBCASE("an error that is no number") {
+            MeshData mesh = withLevel();
+            mesh.lods[0].error = std::numeric_limits<float>::quiet_NaN();
+            CHECK(validationError(mesh).find("level of detail 1 has an error of") != std::string::npos);
+        }
+        SUBCASE("an error smaller than that of the level before") {
+            MeshData mesh = withLevel();
+            mesh.lods.push_back(mesh.lods[0]);
+            mesh.lods[1].error = 0.125f;
+            CHECK(validationError(mesh).find("level of detail 2 has an error of 0.125") != std::string::npos);
+        }
+        SUBCASE("more levels than a mesh may have") {
+            MeshData mesh = withLevel();
+            while (mesh.lods.size() <= kMaxMeshLods) {
+                mesh.lods.push_back(mesh.lods[0]);
+            }
+            CHECK(validationError(mesh).find("5 levels of detail exceed the limit of 4") != std::string::npos);
+        }
+    }
 }

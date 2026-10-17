@@ -18,4 +18,6 @@ struct MeshVaryings
     float2 uv1 : TEXCOORD1;
     // The lighting channels of the instance, one bit each; the same all over it.
     nointerpolation uint lightChannels : LIGHTCHANNELS;
+    // The level of detail the instance is drawn at: 0 for the mesh itself.
+    nointerpolation uint lod : LODLEVEL;
 };

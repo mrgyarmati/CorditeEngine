@@ -817,6 +817,14 @@ TEST_SUITE("EditorApp") {
         CHECK(scene["decals"]["dropped"] == 0);
         CHECK(scene["decals"]["normalCopies"] == 2);
         CHECK(scene["decals"]["bytes"] == uint64_t{viewportSize.x} * viewportSize.y * 4);
+        // Every mesh in view is drawn at one of its levels of detail.
+        const Json& lods = scene["lods"];
+        REQUIRE(lods.size() == kMaxMeshLods + 1);
+        uint32_t inView = 0;
+        for (const Json& count : lods) {
+            inView += count.get<uint32_t>();
+        }
+        CHECK(inView == scene["meshRenderers"].get<uint32_t>() - scene["culled"].get<uint32_t>());
         // The atlas of the medium quality: 4096 texels a side, four bytes each.
         CHECK(scene["shadows"]["atlasBytes"] == 67108864);
         // The cube map of the showcase's sky, made in the first frame and in no frame

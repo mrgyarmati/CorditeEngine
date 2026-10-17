@@ -48,6 +48,7 @@ TEST_SUITE("RenderDebugView") {
         CHECK(nameOf(RenderDebugView::Overdraw) == "overdraw");
         CHECK(nameOf(RenderDebugView::Focus) == "focus");
         CHECK(nameOf(RenderDebugView::LightShafts) == "lightShafts");
+        CHECK(nameOf(RenderDebugView::Lod) == "lod");
 
         CHECK(displayNameOf(RenderDebugView::None) == "Lit");
         CHECK(displayNameOf(RenderDebugView::LightingOnly) == "Lighting only");
@@ -56,7 +57,8 @@ TEST_SUITE("RenderDebugView") {
         CHECK(displayNameOf(RenderDebugView::Fog) == "Fog");
         CHECK(displayNameOf(RenderDebugView::Focus) == "Depth of field");
         CHECK(displayNameOf(RenderDebugView::LightShafts) == "Light shafts");
-        CHECK(kRenderDebugViews.size() == 19);
+        CHECK(displayNameOf(RenderDebugView::Lod) == "Levels of detail");
+        CHECK(kRenderDebugViews.size() == 20);
     }
 
     TEST_CASE("a view is found by its name, whatever the case, and nothing else is") {

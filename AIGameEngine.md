@@ -319,3 +319,9 @@ Early UE3 titles relied heavily on normal maps, aggressive specular response, an
 
 - Skeletal mesh and animation missing froom the Initial Milestones
 - The editor should be modern, flat designed UI and layout inspired by Unity and Unreal Engine. A project could be opened by double-click on the project file, and editor theme.
+
+- All these bellow can be done after the originally planned version done:
+- Asset browser should be like in Unity and Unreal Engine. List and Grid view with folder tree on the side.
+- File open should use file open dialog, not hand typing. 
+- The play button should change to stop button, not just highlight when play started.
+- We need OpenGL support as fall back if no Vulkan available.

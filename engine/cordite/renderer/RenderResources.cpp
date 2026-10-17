@@ -184,11 +184,34 @@ void RenderResources::flushUploads() {
     m_uploadCommandList = nullptr;
 }
 
+IndexRange GpuMesh::rangeOf(uint32_t submesh, uint32_t lod) const {
+    CORDITE_ASSERT(submesh < submeshes.size(), "submesh {} of a mesh of {}", submesh, submeshes.size());
+    if (submesh >= submeshes.size()) {
+        return {};
+    }
+    if (lod == 0 || lods.empty()) {
+        return {.firstIndex = submeshes[submesh].firstIndex, .indexCount = submeshes[submesh].indexCount};
+    }
+    return lods[std::min<size_t>(lod, lods.size()) - 1].submeshes[submesh];
+}
+
 Result<GpuMesh> RenderResources::createMesh(const MeshData& mesh) {
     CORDITE_TRY(validateMesh(mesh));
 
     GpuMesh gpuMesh;
     gpuMesh.submeshes = mesh.submeshes;
+    // The levels of detail follow the mesh in one index buffer.
+    std::vector<uint32_t> indices = mesh.indices;
+    for (const MeshLod& lod : mesh.lods) {
+        const auto base = static_cast<uint32_t>(indices.size());
+        GpuMeshLod level{.error = lod.error};
+        for (const IndexRange& range : lod.submeshes) {
+            level.submeshes.push_back({.firstIndex = base + range.firstIndex, .indexCount = range.indexCount});
+        }
+        indices.insert(indices.end(), lod.indices.begin(), lod.indices.end());
+        gpuMesh.lodErrors.push_back(lod.error);
+        gpuMesh.lods.push_back(std::move(level));
+    }
     gpuMesh.bounds = mesh.bounds;
     gpuMesh.serial = m_nextSerial++;
 
@@ -204,7 +227,7 @@ Result<GpuMesh> RenderResources::createMesh(const MeshData& mesh) {
     const bool smallIndices = mesh.vertices.size() <= 0xFFFF;
     gpuMesh.indexFormat = smallIndices ? nvrhi::Format::R16_UINT : nvrhi::Format::R32_UINT;
     nvrhi::BufferDesc indexDesc;
-    indexDesc.byteSize = mesh.indices.size() * (smallIndices ? sizeof(uint16_t) : sizeof(uint32_t));
+    indexDesc.byteSize = indices.size() * (smallIndices ? sizeof(uint16_t) : sizeof(uint32_t));
     indexDesc.debugName = mesh.name + " indices";
     indexDesc.isIndexBuffer = true;
     indexDesc.initialState = nvrhi::ResourceStates::IndexBuffer;
@@ -236,12 +259,12 @@ Result<GpuMesh> RenderResources::createMesh(const MeshData& mesh) {
     commandList->writeBuffer(gpuMesh.vertexBuffer, mesh.vertices.data(), vertexDesc.byteSize);
     if (gpuMesh.indexBuffer) {
         if (smallIndices) {
-            std::vector<uint16_t> narrow(mesh.indices.size());
-            std::ranges::transform(mesh.indices, narrow.begin(),
+            std::vector<uint16_t> narrow(indices.size());
+            std::ranges::transform(indices, narrow.begin(),
                                    [](uint32_t index) { return static_cast<uint16_t>(index); });
             commandList->writeBuffer(gpuMesh.indexBuffer, narrow.data(), indexDesc.byteSize);
         } else {
-            commandList->writeBuffer(gpuMesh.indexBuffer, mesh.indices.data(), indexDesc.byteSize);
+            commandList->writeBuffer(gpuMesh.indexBuffer, indices.data(), indexDesc.byteSize);
         }
     }
 

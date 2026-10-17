@@ -713,9 +713,10 @@ Status EditorApp::registerApplicationCommands() {
             "give every surface to reflect, each of them made a perfect mirror (reflections), the "
             "edges of the triangles (wireframe), how often each pixel is drawn (overdraw), how "
             "blurred each pixel is by the depth of field (focus: black where it is sharp, red in "
-            "front of that and blue behind) or the light the shafts of the sun add, alone "
-            "(lightShafts). Returns the view now shown and all there are; without a parameter it "
-            "changes nothing.",
+            "front of that and blue behind), the light the shafts of the sun add, alone "
+            "(lightShafts), or the level of detail each mesh is drawn at (lod: the mesh itself "
+            "grey, then green, yellow, orange and red as the levels get coarser). Returns the view "
+            "now shown and all there are; without a parameter it changes nothing.",
         .parameters = {{"view", Type::String, "The view to show, by one of the names above.", false}},
         .handler = [this](const Json& parameters) -> Result<Json> {
             if (const auto name = jsonGetOr<std::string>(parameters, "view", ""); !name.empty()) {

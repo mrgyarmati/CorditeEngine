@@ -44,6 +44,8 @@ std::string_view nameOf(RenderDebugView view) {
             return "focus";
         case RenderDebugView::LightShafts:
             return "lightShafts";
+        case RenderDebugView::Lod:
+            return "lod";
     }
     return "unknown";
 }
@@ -88,6 +90,8 @@ std::string_view displayNameOf(RenderDebugView view) {
             return "Depth of field";
         case RenderDebugView::LightShafts:
             return "Light shafts";
+        case RenderDebugView::Lod:
+            return "Levels of detail";
     }
     return "Unknown";
 }

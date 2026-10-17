@@ -128,7 +128,7 @@ by accident.
 | `core` | -         | Logging, assertions, `Result`, hashing, UUIDs, JSON, reflection, binary streams, file I/O, noticing that files change, config, job system, allocators, timing |
 | `math` | `core`    | glm aliases, `Transform`, bounds, rays, frustum, projections, color, curves, random, spherical harmonics, directions in images of everything around, reflection of math types |
 | `platform` | `core`, `math` | Windows (GLFW), keyboard / mouse / gamepad input, and the controls a game has by name: `InputMap`, `InputActions` |
-| `assets` | `core`, `math` | Assets as data: images and mipmaps, meshes - rigid and skinned - and what prepares them, skeletons, animation clips, materials, the text of scripts, the samples of sounds, prefabs as their files have them, glTF import and export, the asset database (ids, `.meta` files) and the asset manager (loading by id) |
+| `assets` | `core`, `math` | Assets as data: images and mipmaps, meshes - rigid and skinned - and what prepares them, their levels of detail among it, skeletons, animation clips, materials, the text of scripts, the samples of sounds, prefabs as their files have them, glTF import and export, the asset database (ids, `.meta` files) and the asset manager (loading by id) |
 | `world` | `core`, `math` | Entities, components and their hierarchy (EnTT), the component registry, scene files, prefabs: placing one in a world and making one of what is there |
 | `animation` | `core`, `math`, `assets`, `world` | Poses of skeletons and what makes them: sampling clips, blending, the matrices a mesh is skinned with and the bounds of a posed mesh; the `Animator` component; `AnimationSystem`, which plays the animators of a world |
 | `physics` | `core`, `math`, `assets`, `world` | `PhysicsWorld`: rigid bodies, their shapes - boxes, balls, capsules, the hulls around sets of points and surfaces of triangles - joints between them, the characters that walk among them, stepping, contact events and queries, over Jolt Physics; the `Collider`, `RigidBody`, `Joint` and `CharacterController` components; `PhysicsSystem`, which keeps the entities of a world and the bodies, joints and characters of a simulation in step and makes shapes of mesh assets |
@@ -137,7 +137,7 @@ by accident.
 | `rhi` | `core`, `math`, `platform` | Vulkan device, swapchain and texture readback over NVRHI |
 | `shaders` | `core` | Shader requests and permutation keys, disk cache, `ShaderLibrary` |
 | `shader_compiler` | `core`, `shaders` | Slang to SPIR-V compiler, and the cache of the engine's shaders compiled ahead that an exported game ships (`EngineShaderCache.h`); not linked into exported games |
-| `renderer` | `core`, `math`, `assets`, `world`, `animation`, `rhi`, `shaders` | The scene renderer and what it is made of: GPU copies of assets, the mesh passes, the G-buffer and its lighting, the lights of a world and the clusters they are sorted into, their shadow maps and the atlas those share, what finishes the picture (exposure, bloom, tone mapping, grading), the environment (the sky and what it lights), ambient occlusion from the screen, fog, decals, the debug views, scene targets, the `MeshRenderer`, `Light`, `AmbientLight`, `Environment`, `Fog`, `Decal` and `PostProcess` components; camera views, debug lines, GPU timing, GPU shader management |
+| `renderer` | `core`, `math`, `assets`, `world`, `animation`, `rhi`, `shaders` | The scene renderer and what it is made of: GPU copies of assets, the mesh passes, the G-buffer and its lighting, the lights of a world and the clusters they are sorted into, their shadow maps and the atlas those share, what finishes the picture (exposure, bloom, tone mapping, grading), the environment (the sky and what it lights), ambient occlusion from the screen, fog, decals, levels of detail, the debug views, scene targets, the `MeshRenderer`, `Light`, `AmbientLight`, `Environment`, `Fog`, `Decal` and `PostProcess` components; camera views, debug lines, GPU timing, GPU shader management |
 | `ui` | `core`, `math`, `platform`, `rhi`, `shaders`, `renderer` | The immediate-mode interface: the Dear ImGui context and its NVRHI renderer; its typefaces and icons, compiled in; its themes, and the widgets it draws the same way everywhere |
 | `engine` | all of the above but `shader_compiler` | `Engine`: owns the subsystems, the assets, the world and the interface, and runs the frame loop; projects; a game made of a project (`Game`); placing models; checking the assets a scene uses |
 | `editor` | `engine` and below, `shader_compiler` | The editor: the scene document, undoable actions, scene and asset commands, panels, `EditorApp`; making a game of a project (`GameExport`) (not linked into exported games) |
@@ -313,6 +313,14 @@ Vulkan directly. Step-by-step guide for adding a pass:
   mesh, submesh and material are instanced, and sorted by the serial numbers of their
   GPU resources, never by address, so that two runs issue the same draw calls in the
   same order (`MeshDrawList`).
+- **A mesh is drawn at one level of detail in a view** (`LevelOfDetail.h`): the coarsest
+  whose error looks no larger than `SceneRenderSettings::lodErrorPixels` where the mesh's
+  bounding sphere is nearest to the camera - a pixel at medium quality, two at low, half
+  of one at high; nought draws everything at its finest. All of a mesh's submeshes, and
+  its shadows, are drawn at that level: a mesh casts the shadow of what is drawn. The
+  levels follow the mesh in its index buffer (`GpuMesh::rangeOf`); a draw and a batch
+  carry their level, so instances at different levels are different draw calls. The
+  levels of detail view colors each mesh by its level.
 - **A pass that draws meshes is a `MeshPassDesc`**, not a new class: `MeshPass` owns
   what such passes share. All of them use the one vertex shader in
   `passes/MeshVertex.slang`. That is not a convenience: the base pass keeps only pixels
@@ -696,6 +704,15 @@ Step-by-step guide: [work-with-assets](.claude/skills/work-with-assets/SKILL.md)
   (`MeshProcessing.cpp`): two vertices are one only when they follow the same joints.
   Weights are brought to one in all on the way in (`normalizeSkinWeights`), and
   `validateMesh` holds them to it.
+- **A mesh comes with its levels of detail**, made as it is loaded (`generateLods`, by
+  meshoptimizer's simplifier): up to four coarser versions over the same vertices, each
+  aiming at half the triangles of the one before and simplified from the mesh itself,
+  each with its error - how far its surface is from the mesh's, at the most, in the
+  mesh's own units. Every submesh is simplified on its own with its open edges kept in
+  place, so no gap opens between two of them. Levels index the vertices as they are:
+  whatever changes the vertices or the submeshes drops them, so they are made last, by
+  the asset manager - an importer, and a glTF file, have none. A mesh of fewer than 256
+  triangles gets none.
 - **A skeleton keeps its joints in the order of its file** (`SkeletonData`), because
   that is the order vertices name them in: a joint may come before the one it hangs
   on, and `jointOrder()` is the order to work a pose out in. What stands between a

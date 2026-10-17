@@ -52,6 +52,8 @@ struct MeshDraw {
     /// those of the view, as SkinPalettes::add() said. kNoPalette draws the mesh as it
     /// was modelled, as does any value for a mesh that is not skinned.
     uint32_t palette = kNoPalette;
+    /// The level of detail to draw (GpuMesh::rangeOf()): 0 for the mesh itself.
+    uint32_t lod = 0;
 };
 
 // What a batch needs of the pipeline that draws it: the bits of MeshBatch::variant.
@@ -71,6 +73,8 @@ inline constexpr uint32_t kMeshVariantSkinned = 1u << 4;
 struct MeshBatch {
     const GpuMesh* mesh = nullptr;
     uint32_t submesh = 0;
+    /// The level of detail its instances are drawn at.
+    uint32_t lod = 0;
     const GpuMaterial* material = nullptr;
     /// A combination of the kMeshVariant bits.
     uint32_t variant = 0;

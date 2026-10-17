@@ -70,6 +70,8 @@ public:
     /// Each load fails with NotFound for an id that names no asset, with InvalidArgument
     /// for an asset of another type, and with the reader's error for a file that cannot
     /// be read; the message names the asset.
+    ///
+    /// A mesh comes with its levels of detail (generateLods()), made as it is loaded.
     [[nodiscard]] Result<std::shared_ptr<const MeshData>> loadMesh(const Uuid& id);
     /// A material's parent, if it names one, is loaded and applied first.
     [[nodiscard]] Result<std::shared_ptr<const MaterialData>> loadMaterial(const Uuid& id);

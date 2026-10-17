@@ -29,6 +29,7 @@ struct MeshVertexInput
     float4 world2 : WORLD2;
     // x: the lighting channels the instance belongs to, as a number.
     // y: where the joint matrices of the instance begin among those of the view.
+    // z: the level of detail it is drawn at.
     float4 parameters : PARAMETERS;
 #if defined(SKINNED)
     // The joints the vertex follows, counted within its skeleton, and how much it
@@ -111,5 +112,6 @@ MeshVaryings meshVertex(MeshVertexInput input)
     output.uv0 = input.uv0;
     output.uv1 = input.uv1;
     output.lightChannels = uint(input.parameters.x + 0.5);
+    output.lod = uint(input.parameters.z + 0.5);
     return output;
 }

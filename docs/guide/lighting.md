@@ -138,15 +138,16 @@ editor together with a neutral table, and use the graded table.
 What a picture costs - the size of the shadow atlas, how many samples ambient occlusion
 takes, how far anti-aliasing searches - is a quality of the view, not of the scene: `low`,
 `medium` or `high`, chosen in the editor's View > Quality menu (`viewport.quality`). The look
-stays the same at every quality; only detail and cost change.
+stays the same at every quality; only detail and cost change. At a lower quality, meshes
+also change to their coarser levels of detail sooner.
 
 ## Seeing what the renderer sees
 
 View > Render view shows the channels of the renderer instead of the finished picture: base
 color, normals, roughness, metallic, specular, occlusion, emissive, depth, how many lights
 each pixel has, the shadow cascades, ambient occlusion, fog, lighting only, reflections,
-wireframe, overdraw, depth of field and light shafts (`viewport.debugView` for scripts and
-agents). Use them to find out why something looks the way it does - a wrong normal map, a
+wireframe, overdraw, depth of field, light shafts and levels of detail (`viewport.debugView`
+for scripts and agents). Use them to find out why something looks the way it does - a wrong normal map, a
 light with too small a range, a surface outside every cascade. View > Statistics shows what
 a frame costs: the time on the processor and on the GPU, draw calls, triangles, lights and
 shadow maps, and what meshes and textures take of the GPU's memory (`editor.statistics`

@@ -47,6 +47,13 @@
 
 namespace cordite {
 
+/// A coarser level of a mesh on the GPU (MeshLod): where each submesh's triangles are at
+/// that level, in the index buffer of the mesh, and how far it is from the mesh.
+struct GpuMeshLod {
+    std::vector<IndexRange> submeshes;
+    float error = 0.0f;
+};
+
 struct GpuMesh {
     /// MeshVertex after MeshVertex.
     nvrhi::BufferHandle vertexBuffer;
@@ -67,7 +74,20 @@ struct GpuMesh {
     /// that two runs of a program issue their draw calls in the same order.
     uint32_t serial = 0;
 
+    /// The coarser levels of the mesh, in order (MeshData::lods). Their indices follow
+    /// those of the mesh in `indexBuffer`.
+    std::vector<GpuMeshLod> lods;
+    /// The errors of `lods`, in order: what selectLod() chooses by (LevelOfDetail.h).
+    std::vector<float> lodErrors;
+
     [[nodiscard]] bool isSkinned() const { return skinBuffer != nullptr; }
+
+    /// The levels a draw can ask for: the mesh itself and its coarser ones.
+    [[nodiscard]] uint32_t levelCount() const { return static_cast<uint32_t>(lods.size()) + 1; }
+
+    /// Where the triangles of submesh `submesh` are in `indexBuffer` at level `lod`: 0 is
+    /// the mesh itself. A level beyond the last is the last.
+    [[nodiscard]] IndexRange rangeOf(uint32_t submesh, uint32_t lod) const;
 };
 
 struct GpuMaterial {

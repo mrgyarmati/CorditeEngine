@@ -38,6 +38,8 @@ cordite_add_module(renderer
         GBufferBindings.h
         GpuTimer.cpp
         GpuTimer.h
+        LevelOfDetail.cpp
+        LevelOfDetail.h
         LightClusters.cpp
         LightClusters.h
         LightShaftPass.cpp

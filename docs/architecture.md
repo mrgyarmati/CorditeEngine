@@ -1191,6 +1191,29 @@ no point in the picture for them to come from: orthographic views have none. Nor
 that have the sun behind them; towards ninety degrees they fade, so that turning a camera
 does not make them jump.
 
+### Levels of detail are made when a mesh is loaded, and chosen by their error on the screen
+
+A mesh far away costs as many triangles as one up close, and most of them land on the
+same few pixels. So each mesh comes with coarser versions of itself, made by
+meshoptimizer's simplifier as the mesh is loaded - there is no import step to keep them
+in, and a mesh of a hundred thousand triangles is simplified in milliseconds. Every
+level aims at half the triangles of the one before and is simplified from the mesh
+itself, not from the level before, so that errors do not add up; every submesh is
+simplified on its own, with its open edges locked, so that two materials never part
+along their seam.
+
+The simplifier measures how far each level's surface is from the mesh's, and that
+number - not a distance or a size on the screen picked by hand - decides where a level
+is used: the coarsest whose error, where the mesh is nearest to the camera, looks no
+larger than a pixel, or two, or half of one, by the quality of the view. A level that
+looks the same to within a pixel can be swapped in without anyone seeing it happen, at
+any resolution; a camera inside a mesh's bounds sees it at its finest, and a surface that
+is flat loses nothing to simplification and is drawn at its coarsest wherever it is.
+
+One level is chosen for each mesh and view, before anything is drawn, and every pass of
+the view uses it, shadows included: a mesh casts the shadow of the triangles that are
+drawn, so it is not shaded by a silhouette it does not have.
+
 ### Decals are laid onto the G-buffer
 
 Grime, cracks and markings change what a surface is - its color, how rough it is, its

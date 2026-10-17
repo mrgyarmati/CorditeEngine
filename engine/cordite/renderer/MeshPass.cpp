@@ -205,7 +205,7 @@ MeshPassStatistics MeshPass::draw(nvrhi::ICommandList* commandList, nvrhi::IFram
         if (pipeline == nullptr) {
             continue;
         }
-        const Submesh& submesh = mesh.submeshes[batch.submesh];
+        const IndexRange range = mesh.rangeOf(batch.submesh, batch.lod);
 
         nvrhi::GraphicsState state;
         state.pipeline = pipeline;
@@ -225,14 +225,14 @@ MeshPassStatistics MeshPass::draw(nvrhi::ICommandList* commandList, nvrhi::IFram
         commandList->setGraphicsState(state);
 
         commandList->drawIndexed(nvrhi::DrawArguments()
-                                     .setVertexCount(submesh.indexCount)
+                                     .setVertexCount(range.indexCount)
                                      .setInstanceCount(batch.instanceCount)
-                                     .setStartIndexLocation(submesh.firstIndex)
+                                     .setStartIndexLocation(range.firstIndex)
                                      .setStartInstanceLocation(batch.firstInstance));
 
         ++statistics.drawCalls;
         statistics.instances += batch.instanceCount;
-        statistics.triangles += static_cast<uint64_t>(submesh.indexCount / 3) * batch.instanceCount;
+        statistics.triangles += static_cast<uint64_t>(range.indexCount / 3) * batch.instanceCount;
     }
     return statistics;
 }

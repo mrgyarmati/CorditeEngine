@@ -18,7 +18,8 @@ struct InstanceData {
     Vec4 row1;
     Vec4 row2;
     /// x: the lighting channels, as a number. y: where the joint matrices of the
-    /// instance begin, as a number; zero for an instance that is not skinned.
+    /// instance begin, as a number; zero for an instance that is not skinned. z: the
+    /// level of detail it is drawn at, for the debug view of them.
     Vec4 parameters;
 };
 
@@ -51,9 +52,14 @@ uint32_t variantOf(const MeshDraw& draw) {
     return variant;
 }
 
+/// The level of detail a draw is drawn at: the one it asks for, or the last its mesh has.
+uint32_t levelOf(const MeshDraw& draw) {
+    return std::min(draw.lod, draw.mesh->levelCount() - 1);
+}
+
 bool isDrawable(const MeshDraw& draw) {
     return draw.mesh != nullptr && draw.material != nullptr && draw.submesh < draw.mesh->submeshes.size() &&
-           draw.mesh->submeshes[draw.submesh].indexCount > 0 && draw.mesh->indexBuffer != nullptr;
+           draw.mesh->rangeOf(draw.submesh, draw.lod).indexCount > 0 && draw.mesh->indexBuffer != nullptr;
 }
 
 /// A draw with what it is sorted and batched by.
@@ -68,7 +74,7 @@ struct SortedDraw {
     /// Draws that agree in this can share a draw call. Serial numbers rather than
     /// addresses, so that two runs of a program draw in the same order.
     [[nodiscard]] auto batchKey() const {
-        return std::make_tuple(variant, draw->material->serial, draw->mesh->serial, draw->submesh);
+        return std::make_tuple(variant, draw->material->serial, draw->mesh->serial, draw->submesh, levelOf(*draw));
     }
 };
 
@@ -124,12 +130,12 @@ void MeshDrawList::build(nvrhi::ICommandList* commandList, std::span<const MeshD
     for (const SortedDraw& entry : sorted) {
         const Mat4& matrix = entry.draw->localToWorld;
         // glm stores columns; the shader wants rows.
-        instances.push_back(
-            {Vec4(matrix[0][0], matrix[1][0], matrix[2][0], matrix[3][0]),
-             Vec4(matrix[0][1], matrix[1][1], matrix[2][1], matrix[3][1]),
-             Vec4(matrix[0][2], matrix[1][2], matrix[2][2], matrix[3][2]),
-             Vec4(static_cast<float>(entry.draw->lightChannels & 0xFFu),
-                  isSkinned(*entry.draw) ? static_cast<float>(entry.draw->palette) : 0.0f, 0.0f, 0.0f)});
+        instances.push_back({Vec4(matrix[0][0], matrix[1][0], matrix[2][0], matrix[3][0]),
+                             Vec4(matrix[0][1], matrix[1][1], matrix[2][1], matrix[3][1]),
+                             Vec4(matrix[0][2], matrix[1][2], matrix[2][2], matrix[3][2]),
+                             Vec4(static_cast<float>(entry.draw->lightChannels & 0xFFu),
+                                  isSkinned(*entry.draw) ? static_cast<float>(entry.draw->palette) : 0.0f,
+                                  static_cast<float>(levelOf(*entry.draw)), 0.0f)});
     }
 
     const size_t capacity =
@@ -161,6 +167,7 @@ void MeshDrawList::build(nvrhi::ICommandList* commandList, std::span<const MeshD
         }
         m_batches.push_back({.mesh = entry.draw->mesh,
                              .submesh = entry.draw->submesh,
+                             .lod = levelOf(*entry.draw),
                              .material = entry.draw->material,
                              .variant = entry.variant,
                              .firstInstance = static_cast<uint32_t>(first),

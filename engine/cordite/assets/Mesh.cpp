@@ -6,7 +6,9 @@
 #include <algorithm>
 #include <cmath>
 #include <numeric>
+#include <string>
 #include <string_view>
+#include <utility>
 
 namespace cordite {
 namespace {
@@ -34,6 +36,47 @@ std::string_view problemOf(const MeshSkinVertex& skin) {
         sum += weight;
     }
     return std::abs(sum - 1.0f) <= kWeightTolerance ? std::string_view() : "has weights that are not one in all";
+}
+
+/// What is wrong with the level of detail `number` - counted from one - of `mesh`,
+/// which comes after a level whose error is `previousError`: nothing when it is as the
+/// mesh needs it.
+std::string problemOfLevel(const MeshData& mesh, const MeshLod& lod, size_t number, float previousError) {
+    if (lod.indices.size() > kMaxMeshIndices) {
+        return fmt::format("level of detail {} has {} indices, which exceed the limit of {}", number,
+                           lod.indices.size(), kMaxMeshIndices);
+    }
+    if (lod.submeshes.size() != mesh.submeshes.size()) {
+        return fmt::format("level of detail {} has {} submeshes, the mesh {}", number, lod.submeshes.size(),
+                           mesh.submeshes.size());
+    }
+    size_t expected = 0;
+    for (size_t index = 0; index < lod.submeshes.size(); ++index) {
+        const IndexRange& range = lod.submeshes[index];
+        if (range.firstIndex != expected || range.indexCount % 3 != 0) {
+            return fmt::format("submesh {} of level of detail {} has indices {} to {}, expected whole "
+                               "triangles from index {}",
+                               index, number, range.firstIndex,
+                               static_cast<size_t>(range.firstIndex) + range.indexCount, expected);
+        }
+        expected += range.indexCount;
+    }
+    if (expected != lod.indices.size()) {
+        return fmt::format("the submeshes of level of detail {} cover {} indices, but it has {}", number, expected,
+                           lod.indices.size());
+    }
+    for (size_t index = 0; index < lod.indices.size(); ++index) {
+        if (lod.indices[index] >= mesh.vertices.size()) {
+            return fmt::format("index {} of level of detail {} refers to vertex {}, but there are only {}", index,
+                               number, lod.indices[index], mesh.vertices.size());
+        }
+    }
+    if (!std::isfinite(lod.error) || lod.error < previousError) {
+        return fmt::format("level of detail {} has an error of {}, which is not a number at least as "
+                           "large as the {} of the level before",
+                           number, lod.error, previousError);
+    }
+    return {};
 }
 
 } // namespace
@@ -98,6 +141,18 @@ Status validateMesh(const MeshData& mesh) {
             return fail(fmt::format("vertex {} {}", index, problem));
         }
     }
+
+    if (mesh.lods.size() > kMaxMeshLods) {
+        return fail(fmt::format("{} levels of detail exceed the limit of {}", mesh.lods.size(), kMaxMeshLods));
+    }
+    float previousError = 0.0f;
+    for (size_t level = 0; level < mesh.lods.size(); ++level) {
+        // Levels are counted from one: the mesh itself is level zero.
+        if (std::string problem = problemOfLevel(mesh, mesh.lods[level], level + 1, previousError); !problem.empty()) {
+            return fail(std::move(problem));
+        }
+        previousError = mesh.lods[level].error;
+    }
     return {};
 }
 
@@ -160,6 +215,8 @@ uint32_t appendSubmesh(MeshData& mesh, std::span<const MeshVertex> vertices, std
     }
 
     mesh.submeshes.push_back(submesh);
+    // The levels of detail have a range for every submesh, and this one has none.
+    mesh.lods.clear();
     return static_cast<uint32_t>(mesh.submeshes.size() - 1);
 }
 

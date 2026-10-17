@@ -18,6 +18,21 @@ namespace {
 /// Shorter than this, a vector is treated as having no direction.
 constexpr float kMinimumLength = 1.0e-6f;
 
+// The levels of detail (generateLods()).
+/// Each level aims at this share of the triangles of the level before.
+constexpr float kLodShare = 0.5f;
+/// A level that keeps more than this share of the triangles of the level before is not
+/// worth its memory, and ends the levels.
+constexpr float kLodLeastGain = 0.85f;
+/// The levels end below this many triangles.
+constexpr size_t kMinLodLevelTriangles = 64;
+/// A submesh of fewer triangles stays as it is at every level.
+constexpr size_t kMinSimplifiedTriangles = 32;
+/// The error the simplifier may reach, as a share of the size of the mesh: everything,
+/// so that the number of triangles is what decides how far a level goes. The error it
+/// does reach is measured, and decides where the level is used.
+constexpr float kLodLargestError = 1.0f;
+
 /// The tangent for a vertex: `candidate` made perpendicular to `normal` and unit length,
 /// or any perpendicular when nothing of it is left.
 Vec3 tangentFor(const Vec3& normal, const Vec3& candidate) {
@@ -199,6 +214,7 @@ void generateFlatNormals(MeshData& mesh) {
     for (size_t index = 0; index < mesh.indices.size(); ++index) {
         mesh.indices[index] = static_cast<uint32_t>(index);
     }
+    mesh.lods.clear();
 }
 
 void generateTangents(MeshData& mesh) {
@@ -242,6 +258,7 @@ void generateTangents(MeshData& mesh) {
     mesh.vertices = std::move(vertices);
     mesh.skin = std::move(skin);
     weldVertices(mesh.vertices, mesh.skin, mesh.indices);
+    mesh.lods.clear();
 }
 
 void optimizeMesh(MeshData& mesh) {
@@ -277,8 +294,64 @@ void optimizeMesh(MeshData& mesh) {
     }
     meshopt_remapIndexBuffer(mesh.indices.data(), mesh.indices.data(), mesh.indices.size(), remap.data());
     mesh.vertices = std::move(ordered);
+    mesh.lods.clear();
 
     updateBounds(mesh);
+}
+
+void generateLods(MeshData& mesh) {
+    mesh.lods.clear();
+    if (mesh.triangleCount() < kMinLodTriangles || mesh.vertices.empty()) {
+        return;
+    }
+    const float* positions = &mesh.vertices.front().position.x;
+    // The simplifier measures its error against the size of the mesh.
+    const float scale = meshopt_simplifyScale(positions, mesh.vertices.size(), sizeof(MeshVertex));
+
+    std::vector<uint32_t> simplified;
+    size_t previousTriangles = mesh.triangleCount();
+    float share = 1.0f;
+    for (uint32_t level = 1; level <= kMaxMeshLods; ++level) {
+        share *= kLodShare;
+        MeshLod lod;
+        lod.submeshes.reserve(mesh.submeshes.size());
+        float error = mesh.lods.empty() ? 0.0f : mesh.lods.back().error;
+        for (const Submesh& submesh : mesh.submeshes) {
+            const auto first = static_cast<uint32_t>(lod.indices.size());
+            const uint32_t* source = mesh.indices.data() + submesh.firstIndex;
+            const size_t count = submesh.indexCount;
+            const size_t submeshTriangles = count / 3;
+            if (submeshTriangles < kMinSimplifiedTriangles) {
+                lod.indices.insert(lod.indices.end(), source, source + count);
+            } else {
+                // Each level is simplified from the mesh itself, not from the level before:
+                // its errors do not add up.
+                const size_t target =
+                    std::max<size_t>(static_cast<size_t>(static_cast<float>(submeshTriangles) * share),
+                                     kMinSimplifiedTriangles) *
+                    3;
+                simplified.resize(count);
+                float relativeError = 0.0f;
+                const size_t kept = meshopt_simplify(simplified.data(), source, count, positions, mesh.vertices.size(),
+                                                     sizeof(MeshVertex), target, kLodLargestError,
+                                                     meshopt_SimplifyLockBorder, &relativeError);
+                meshopt_optimizeVertexCache(simplified.data(), simplified.data(), kept, mesh.vertices.size());
+                lod.indices.insert(lod.indices.end(), simplified.begin(),
+                                   simplified.begin() + static_cast<std::ptrdiff_t>(kept));
+                error = std::max(error, relativeError * scale);
+            }
+            lod.submeshes.push_back(
+                {.firstIndex = first, .indexCount = static_cast<uint32_t>(lod.indices.size() - first)});
+        }
+        const size_t triangles = lod.indices.size() / 3;
+        if (static_cast<float>(triangles) > static_cast<float>(previousTriangles) * kLodLeastGain ||
+            triangles < kMinLodLevelTriangles) {
+            break;
+        }
+        lod.error = error;
+        previousTriangles = triangles;
+        mesh.lods.push_back(std::move(lod));
+    }
 }
 
 } // namespace cordite

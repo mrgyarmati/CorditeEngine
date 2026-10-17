@@ -51,6 +51,13 @@ What a file is, its ending says:
 Every project also has built-in assets without files: the meshes `Cube`, `Sphere`, `Plane`,
 `Cylinder`, `Cone`, `Capsule` and `Torus`, and the default material.
 
+A mesh with many triangles gets **levels of detail** when it is loaded: coarser versions of
+itself, each with about half the triangles of the one before. Where a mesh is so far away
+that a coarser version looks the same to within a pixel, that version is drawn - and its
+shadow with it. Nothing has to be set up for it; View > Render view > Levels of detail shows
+which version each mesh is drawn at, and the quality of the view says how closely they must
+match (see [Quality](lighting.md#quality)).
+
 ## Ids
 
 Everything refers to an asset by its **id**, never by its path: a scene names the mesh of a

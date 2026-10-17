@@ -190,11 +190,13 @@ void runScenario(const std::string& name, bool withShadows) {
         FAIL_CHECK("the graphics device reported: " << issue);
     }
 
-    // The scene is what it is meant to be: the whole field in two draw calls a pass
-    // and the floor in one, and every light either in view or out of it, none left out.
+    // The scene is what it is meant to be: the crates of the field in one draw call a
+    // pass, its balls in one for each level of detail they are drawn at - three, by how
+    // far they are - and the floor in one; and every light either in view or out of it,
+    // none left out.
     CHECK(statistics.scene.views == 1);
     CHECK(statistics.scene.meshRenderers == kFieldSize * kFieldSize + 1);
-    CHECK(statistics.scene.basePass.drawCalls == 3);
+    CHECK(statistics.scene.basePass.drawCalls == 5);
     CHECK(statistics.scene.droppedLights == 0);
     CHECK(statistics.scene.lights > kLightCount / 2);
     CHECK(statistics.scene.lights <= kLightCount + 1);

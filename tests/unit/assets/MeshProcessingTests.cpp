@@ -4,8 +4,12 @@
 
 #include "AssetTestSupport.h"
 
+#include <array>
 #include <cmath>
+#include <cstddef>
 #include <limits>
+#include <set>
+#include <span>
 #include <vector>
 
 using namespace cordite;
@@ -318,5 +322,173 @@ TEST_SUITE("MeshProcessing") {
         CHECK(mesh.submeshes.size() == 2);
         CHECK(mesh.submeshes[1].bounds.isEmpty());
         CHECK(validateMesh(mesh).has_value());
+    }
+
+    TEST_CASE("a fine mesh gets levels of detail, each with fewer triangles and an error no smaller") {
+        MeshData sphere = makeSphere(0.5f, 64, 32);
+        generateLods(sphere);
+        REQUIRE(validateMesh(sphere).has_value());
+        REQUIRE(sphere.lods.size() >= 3);
+        size_t previousTriangles = sphere.triangleCount();
+        float previousError = 0.0f;
+        std::vector<size_t> triangles;
+        for (const MeshLod& lod : sphere.lods) {
+            const size_t count = lod.indices.size() / 3;
+            CHECK(static_cast<float>(count) <= 0.85f * static_cast<float>(previousTriangles));
+            CHECK(count >= 64);
+            CHECK(lod.error >= previousError);
+            // A sphere half a metre across that loses half its triangles is not a millimetre off;
+            // one of a few dozen is off by centimetres, but never by its radius.
+            CHECK(lod.error > 0.0f);
+            CHECK(lod.error < 0.5f);
+            triangles.push_back(count);
+            previousTriangles = count;
+            previousError = lod.error;
+        }
+        CHECK(sphere.lods.front().error < 0.005f);
+        // The levels of a mesh are part of what it is: pinned, so that a change of the
+        // simplifier, or of how it is built, is noticed.
+        CHECK(triangles == std::vector<size_t>{1984, 992, 496, 248});
+
+        // The same on every run.
+        MeshData again = makeSphere(0.5f, 64, 32);
+        generateLods(again);
+        CHECK(again.lods == sphere.lods);
+        // And generating them again replaces them.
+        generateLods(again);
+        CHECK(again.lods == sphere.lods);
+    }
+
+    TEST_CASE("a mesh the simplifier cannot reduce gets no levels of detail") {
+        // Two hundred squares side by side, none touching another: every edge is open, and
+        // stays where it is, so not a triangle can go. A level would keep all of them.
+        MeshData squares;
+        squares.name = "Squares";
+        std::vector<MeshVertex> vertices;
+        std::vector<uint32_t> indices;
+        for (uint32_t square = 0; square < 200; ++square) {
+            const auto first = static_cast<uint32_t>(vertices.size());
+            const float left = static_cast<float>(square) * 2.0f;
+            for (const Vec2 corner : {Vec2(0.0f, 0.0f), Vec2(1.0f, 0.0f), Vec2(1.0f, 1.0f), Vec2(0.0f, 1.0f)}) {
+                MeshVertex vertex;
+                vertex.position = Vec3(left + corner.x, 0.0f, -corner.y);
+                vertex.uv0 = corner;
+                vertices.push_back(vertex);
+            }
+            indices.insert(indices.end(), {first, first + 1, first + 2, first, first + 2, first + 3});
+        }
+        appendSubmesh(squares, vertices, indices);
+        REQUIRE(squares.triangleCount() >= kMinLodTriangles);
+        REQUIRE(validateMesh(squares).has_value());
+        generateLods(squares);
+        CHECK(squares.lods.empty());
+    }
+
+    TEST_CASE("a mesh of few triangles gets no levels of detail") {
+        MeshData box = makeBox();
+        generateLods(box);
+        CHECK(box.lods.empty());
+        MeshData sphere = makeSphere(0.5f, 16, 8);
+        REQUIRE(sphere.triangleCount() < kMinLodTriangles);
+        generateLods(sphere);
+        CHECK(sphere.lods.empty());
+    }
+
+    TEST_CASE("the edges between submeshes and around open surfaces stay where they are at every level") {
+        // A flat grid in two submeshes, its left half and its right half, which share the
+        // vertices of the line between them. Inside each half, the simplifier may take away
+        // every vertex at no cost; at the line and at the rim it may take away none.
+        const MeshData plane = makePlane(Vec2(1.0f), UVec2(32, 32));
+        MeshData grid;
+        grid.name = "Grid";
+        grid.vertices = plane.vertices;
+        std::array<std::vector<uint32_t>, 2> halves;
+        for (size_t first = 0; first + 2 < plane.indices.size(); first += 3) {
+            const float centerX =
+                (plane.vertices[plane.indices[first]].position.x + plane.vertices[plane.indices[first + 1]].position.x +
+                 plane.vertices[plane.indices[first + 2]].position.x) /
+                3.0f;
+            std::vector<uint32_t>& half = halves[centerX < 0.0f ? 0 : 1];
+            half.insert(half.end(), plane.indices.begin() + static_cast<std::ptrdiff_t>(first),
+                        plane.indices.begin() + static_cast<std::ptrdiff_t>(first + 3));
+        }
+        for (const std::vector<uint32_t>& half : halves) {
+            grid.submeshes.push_back({.firstIndex = static_cast<uint32_t>(grid.indices.size()),
+                                      .indexCount = static_cast<uint32_t>(half.size())});
+            grid.indices.insert(grid.indices.end(), half.begin(), half.end());
+        }
+        updateBounds(grid);
+        REQUIRE(validateMesh(grid).has_value());
+
+        generateLods(grid);
+        REQUIRE(validateMesh(grid).has_value());
+        REQUIRE_FALSE(grid.lods.empty());
+        const auto isOnLine = [&](uint32_t vertex) { return std::abs(grid.vertices[vertex].position.x) < 1.0e-5f; };
+        const auto isOnRim = [&](uint32_t vertex) {
+            const Vec3& position = grid.vertices[vertex].position;
+            return std::abs(std::abs(position.x) - 0.5f) < 1.0e-5f || std::abs(std::abs(position.z) - 0.5f) < 1.0e-5f;
+        };
+        const auto used = [&](std::span<const uint32_t> indices, const auto& keep) {
+            std::set<uint32_t> found;
+            for (const uint32_t index : indices) {
+                if (keep(index)) {
+                    found.insert(index);
+                }
+            }
+            return found;
+        };
+        const std::set<uint32_t> line = used(grid.indices, isOnLine);
+        const std::set<uint32_t> rim = used(grid.indices, isOnRim);
+        REQUIRE(line.size() == 33);
+        for (size_t level = 0; level < grid.lods.size(); ++level) {
+            CAPTURE(level);
+            const MeshLod& lod = grid.lods[level];
+            // Fewer triangles than the level before.
+            CHECK(lod.indices.size() < (level == 0 ? grid.indices.size() : grid.lods[level - 1].indices.size()));
+            // Flat stays flat, within a fraction of a millimetre: the simplifier counts a
+            // little for the edges it keeps where they are.
+            CHECK(lod.error < 1.0e-3f);
+            for (size_t half = 0; half < 2; ++half) {
+                const IndexRange& range = lod.submeshes[half];
+                const std::span<const uint32_t> indices(lod.indices.data() + range.firstIndex, range.indexCount);
+                CHECK(used(indices, isOnLine) == line);
+            }
+            CHECK(used(lod.indices, isOnRim) == rim);
+        }
+    }
+
+    TEST_CASE("a skinned mesh keeps how its vertices follow their joints at every level") {
+        MeshData sphere = makeSphere(0.5f, 32, 16);
+        sphere.skin.assign(sphere.vertices.size(), MeshSkinVertex{.joints = {1, 0, 0, 0}});
+        REQUIRE(validateMesh(sphere).has_value());
+        generateLods(sphere);
+        CHECK_FALSE(sphere.lods.empty());
+        CHECK(sphere.skin.size() == sphere.vertices.size());
+        CHECK(validateMesh(sphere).has_value());
+    }
+
+    TEST_CASE("whatever changes the vertices or the submeshes drops the levels of detail") {
+        const auto withLevels = [] {
+            MeshData sphere = makeSphere(0.5f, 32, 16);
+            generateLods(sphere);
+            REQUIRE_FALSE(sphere.lods.empty());
+            return sphere;
+        };
+        MeshData optimized = withLevels();
+        optimizeMesh(optimized);
+        CHECK(optimized.lods.empty());
+        MeshData tangents = withLevels();
+        generateTangents(tangents);
+        CHECK(tangents.lods.empty());
+        MeshData flat = withLevels();
+        generateFlatNormals(flat);
+        CHECK(flat.lods.empty());
+        MeshData appended = withLevels();
+        const std::vector<MeshVertex> three(appended.vertices.begin(), appended.vertices.begin() + 3);
+        appendSubmesh(appended, three, std::vector<uint32_t>{0, 1, 2});
+        CHECK(appended.lods.empty());
+        for (const MeshData* mesh : {&optimized, &tangents, &flat, &appended}) {
+            CHECK(validateMesh(*mesh).has_value());
+        }
     }
 }

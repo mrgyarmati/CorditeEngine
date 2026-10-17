@@ -161,6 +161,7 @@ inline Json describeScene(const SceneRenderStatistics& statistics) {
     Json scene = describePass(statistics.meshes);
     scene["meshRenderers"] = statistics.meshRenderers;
     scene["culled"] = statistics.culled;
+    scene["lods"] = statistics.lodInstances;
     scene["skinnedMeshes"] = statistics.skinnedMeshes;
     scene["jointMatrices"] = statistics.jointMatrices;
     scene["screenPasses"] = statistics.screenPasses;
