@@ -274,6 +274,11 @@ TEST_SUITE("Showcase") {
                     CHECK_MESSAGE(prefab.has_value(), test::errorOf(prefab));
                     break;
                 }
+                case AssetType::RenderTarget: {
+                    const auto target = showcase.assets->loadRenderTarget(asset.id);
+                    CHECK_MESSAGE(target.has_value(), test::errorOf(target));
+                    break;
+                }
                 case AssetType::Scene:
                     break;
             }

@@ -5,6 +5,7 @@
 #include "cordite/assets/Prefab.h"
 #include "cordite/assets/Primitives.h"
 #include "cordite/core/Json.h"
+#include "cordite/core/StringUtils.h"
 
 #include "AssetTestSupport.h"
 
@@ -215,14 +216,18 @@ TEST_SUITE("AssetDatabase") {
         CHECK(withArticle(AssetType::Script) == "a script");
         CHECK(withArticle(AssetType::Sound) == "a sound");
         CHECK(withArticle(AssetType::Prefab) == "a prefab");
+        CHECK(withArticle(AssetType::RenderTarget) == "a render target");
         // Every type is found by its name, and has a name of its own.
-        CHECK(kAssetTypes.size() == 10);
+        CHECK(kAssetTypes.size() == 11);
         for (const AssetType type : kAssetTypes) {
             CHECK(assetTypeFromName(nameOf(type)) == type);
             CHECK(nameOf(type) != "unknown");
             CHECK(displayNameOf(type) != "Unknown");
-            // The name is the last word of the name with its article.
-            CHECK(withArticle(type).ends_with(std::string(" ") + std::string(nameOf(type))));
+            // The name is the words after the article, run together: "a render target" is
+            // "renderTarget".
+            std::string words(withArticle(type).substr(withArticle(type).find(' ') + 1));
+            std::erase(words, ' ');
+            CHECK(equalsIgnoreCase(words, nameOf(type)));
         }
         CHECK(assetTypeFromName("Skeleton") == AssetType::Skeleton);
 

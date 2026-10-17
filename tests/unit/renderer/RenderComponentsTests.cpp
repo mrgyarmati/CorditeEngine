@@ -4,6 +4,8 @@
 #include "cordite/core/Reflection.h"
 #include "cordite/core/Uuid.h"
 #include "cordite/world/ComponentRegistry.h"
+#include "cordite/world/Components.h"
+#include "cordite/world/World.h"
 
 #include "support/MathTestSupport.h"
 #include "support/TestSupport.h"
@@ -12,6 +14,7 @@
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 using namespace cordite;
 using cordite::test::unwrap;
@@ -40,14 +43,15 @@ struct Components {
 TEST_SUITE("RenderComponents") {
     TEST_CASE("the renderer registers its components under the names scene files use") {
         const Components components;
-        REQUIRE(components.registry.components().size() == 7);
+        REQUIRE(components.registry.components().size() == 8);
         CHECK(components.registry.components()[0]->type.name() == "MeshRenderer");
         CHECK(components.registry.components()[1]->type.name() == "Light");
         CHECK(components.registry.components()[2]->type.name() == "AmbientLight");
         CHECK(components.registry.components()[3]->type.name() == "Environment");
         CHECK(components.registry.components()[4]->type.name() == "Fog");
         CHECK(components.registry.components()[5]->type.name() == "Decal");
-        CHECK(components.registry.components()[6]->type.name() == "PostProcess");
+        CHECK(components.registry.components()[6]->type.name() == "SceneCapture");
+        CHECK(components.registry.components()[7]->type.name() == "PostProcess");
         for (const ComponentDescriptor* descriptor : components.registry.components()) {
             CAPTURE(descriptor->type.name());
             CHECK(descriptor->traits.optional);
@@ -329,6 +333,61 @@ TEST_SUITE("RenderComponents") {
             CHECK(loaded.intensity == 2.5f);
             CHECK(loaded.rotationDegrees == -45.0f);
         }
+    }
+
+    TEST_CASE("a scene capture is saved as its render target and how long it keeps a picture") {
+        const Components components;
+        const TypeInfo& type = components.type("SceneCapture");
+
+        // A new one has no target yet, and draws a picture every frame.
+        const SceneCaptureComponent fresh;
+        CHECK(fresh.target.isNil());
+        CHECK(fresh.interval == 0.0f);
+
+        const SceneCaptureComponent capture{.target = *Uuid::parse("7c9a0e44-1f2b-4c3d-9e8f-0a1b2c3d4e5f"),
+                                            .interval = 0.5f};
+        const Json saved = type.toJson(&capture);
+        CHECK(saved == json(R"({"target": "7c9a0e44-1f2b-4c3d-9e8f-0a1b2c3d4e5f", "interval": 0.5})"));
+        SceneCaptureComponent loaded;
+        REQUIRE(type.fromJson(&loaded, saved).has_value());
+        CHECK(loaded.target == capture.target);
+        CHECK(loaded.interval == 0.5f);
+
+        // The target is a reference to a render target, which is what an editor offers and
+        // what a scene is checked for.
+        const PropertyInfo* target = type.findProperty("target");
+        REQUIRE(target != nullptr);
+        CHECK(target->attributes().semantic == PropertySemantic::AssetReference);
+        CHECK(target->attributes().referenceType == "RenderTarget");
+
+        for (const char* text : {R"({"interval": -0.1})", R"({"interval": 61})", R"({"interval": "often"})",
+                                 R"({"target": "monitor.target.json"})", R"({"camera": 1})"}) {
+            CAPTURE(std::string(text));
+            CHECK_FALSE(type.fromJson(&loaded, json(text)).has_value());
+            CHECK(loaded.interval == 0.5f);
+        }
+    }
+
+    TEST_CASE("a scene capture without a camera, or with the game's, is a problem of the scene") {
+        World world;
+        const Entity ok = world.createEntity("Monitor camera");
+        CameraComponent lens;
+        lens.primary = false;
+        world.add<CameraComponent>(ok) = lens;
+        world.add<SceneCaptureComponent>(ok);
+        CHECK(findRenderProblems(world).empty());
+
+        const Entity blind = world.createEntity("Blind");
+        world.add<SceneCaptureComponent>(blind);
+        const Entity primary = world.createEntity("Primary");
+        world.add<CameraComponent>(primary);
+        world.add<SceneCaptureComponent>(primary);
+        const std::vector<RenderProblem> problems = findRenderProblems(world);
+        REQUIRE(problems.size() == 2);
+        CHECK(problems[0].entity == blind);
+        CHECK(problems[0].message.find("no Camera") != std::string::npos);
+        CHECK(problems[1].entity == primary);
+        CHECK(problems[1].message.find("primary") != std::string::npos);
     }
 
     TEST_CASE("a decal is saved as its material, how much of it is laid on, where it fades and its order") {

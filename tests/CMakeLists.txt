@@ -134,6 +134,7 @@ cordite_add_test_suite(assets
         unit/assets/MipmapsTests.cpp
         unit/assets/PrefabTests.cpp
         unit/assets/PrimitivesTests.cpp
+        unit/assets/RenderTargetTests.cpp
         unit/assets/SkeletonTests.cpp
         unit/assets/SkinnedMeshTests.cpp
         unit/assets/SoundTests.cpp
@@ -267,6 +268,7 @@ cordite_add_test_suite(render
         render/RenderTestSupport.cpp
         render/RenderTestSupport.h
         render/SceneLightingTests.cpp
+        render/SceneCaptureTests.cpp
         render/SceneRendererTests.cpp
         render/SceneShadowTests.cpp
         render/SceneTestSupport.h

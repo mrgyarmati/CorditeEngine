@@ -167,6 +167,10 @@ struct SceneRenderSettings {
     double timeSeconds = 0.0;
 };
 
+/// The most pictures of SceneCapture components a frame draws: each is a view, and the
+/// views of the few frames on their way through the GPU share kMaxViewsInFlight.
+inline constexpr uint32_t kMaxSceneCaptures = 4;
+
 /// One word for everything a view may cost: what a player picks in the options of a
 /// game. The look is the same at every quality; what changes is how finely it is
 /// worked out.
@@ -206,6 +210,9 @@ struct SceneRenderStatistics {
     uint32_t meshRenderers = 0;
     /// Of those, the ones outside the view, which were not drawn.
     uint32_t culled = 0;
+    /// The meshes in view, by the level of detail they are drawn at: the mesh itself
+    /// first.
+    std::array<uint32_t, kMaxMeshLods + 1> lodInstances{};
     /// Of the mesh renderers, the ones whose mesh is skinned and was given a pose.
     uint32_t skinnedMeshes = 0;
     /// The joint matrices sent to the GPU for them. A pose that several meshes are
@@ -228,9 +235,11 @@ struct SceneRenderStatistics {
 
     /// The decals laid onto the G-buffer: those in view whose material could be used.
     uint32_t decals = 0;
-    /// The meshes in view, by the level of detail they are drawn at: the mesh itself
-    /// first.
-    std::array<uint32_t, kMaxMeshLods + 1> lodInstances{};
+    /// Pictures drawn by SceneCapture components (renderCaptures()), each a view of its
+    /// own in the numbers here; and captures left out because a frame draws only so many
+    /// (kMaxSceneCaptures).
+    uint32_t captures = 0;
+    uint32_t droppedCaptures = 0;
     /// Decals left out because a view can only hold so many (kMaxDecals).
     uint32_t droppedDecals = 0;
     /// How often the normals of the G-buffer were copied for the decals to read: once for
@@ -310,6 +319,15 @@ public:
     /// loaded is reported in the log and left out; rendering itself does not fail for it.
     void render(nvrhi::ICommandList* commandList, const World& world, const CameraView& view, SceneTargets& targets,
                 const SceneRenderSettings& settings = {});
+
+    /// Draws the pictures of the SceneCapture components of `world` into their render
+    /// targets (RenderResources::renderTarget()): each as the Camera of its entity sees the
+    /// world, with the aspect of its target, finished as a game's view is with `settings` -
+    /// kMaxSceneCaptures at the most, by the ids of their entities. Call it before the
+    /// views of the frame that may show the pictures, with what render() needs. A capture
+    /// whose interval has not passed since its last picture keeps it; one without a camera
+    /// is reported once. Each picture is a view in the statistics of the frame.
+    void renderCaptures(nvrhi::ICommandList* commandList, const World& world, const SceneRenderSettings& settings);
 
     /// What the last call to render() did.
     [[nodiscard]] const SceneRenderStatistics& statistics() const { return m_statistics; }
@@ -427,6 +445,23 @@ private:
     /// So that lights that were left out are reported once, not every frame.
     bool m_reportedDroppedLights = false;
     bool m_reportedDroppedDecals = false;
+
+    /// What a SceneCapture keeps from one frame to the next: the targets of its view, and
+    /// how long ago its last picture was drawn.
+    struct CaptureView {
+        SceneTargets targets;
+        float sinceLastPicture = 0.0f;
+        bool hasPicture = false;
+        /// The last call to renderCaptures() that found the capture: one that is no
+        /// longer found lets go of its targets.
+        uint64_t seen = 0;
+    };
+
+    std::unordered_map<Uuid, CaptureView> m_captureViews;
+    uint64_t m_captureCalls = 0;
+    /// Captures already reported for having no camera, or no targets that could be made.
+    std::unordered_set<Uuid> m_reportedCaptures;
+    bool m_reportedDroppedCaptures = false;
 
     /// The shadow maps of the view being drawn, and a draw list for each of them: a
     /// list owns the buffer its instances are in.

@@ -128,7 +128,7 @@ by accident.
 | `core` | -         | Logging, assertions, `Result`, hashing, UUIDs, JSON, reflection, binary streams, file I/O, noticing that files change, config, job system, allocators, timing |
 | `math` | `core`    | glm aliases, `Transform`, bounds, rays, frustum, projections, color, curves, random, spherical harmonics, directions in images of everything around, reflection of math types |
 | `platform` | `core`, `math` | Windows (GLFW), keyboard / mouse / gamepad input, and the controls a game has by name: `InputMap`, `InputActions` |
-| `assets` | `core`, `math` | Assets as data: images and mipmaps, meshes - rigid and skinned - and what prepares them, their levels of detail among it, skeletons, animation clips, materials, the text of scripts, the samples of sounds, prefabs as their files have them, glTF import and export, the asset database (ids, `.meta` files) and the asset manager (loading by id) |
+| `assets` | `core`, `math` | Assets as data: images and mipmaps, meshes - rigid and skinned - and what prepares them, their levels of detail among it, skeletons, animation clips, materials, the text of scripts, the samples of sounds, prefabs as their files have them, render targets, glTF import and export, the asset database (ids, `.meta` files) and the asset manager (loading by id) |
 | `world` | `core`, `math` | Entities, components and their hierarchy (EnTT), the component registry, scene files, prefabs: placing one in a world and making one of what is there |
 | `animation` | `core`, `math`, `assets`, `world` | Poses of skeletons and what makes them: sampling clips, blending, the matrices a mesh is skinned with and the bounds of a posed mesh; the `Animator` component; `AnimationSystem`, which plays the animators of a world |
 | `physics` | `core`, `math`, `assets`, `world` | `PhysicsWorld`: rigid bodies, their shapes - boxes, balls, capsules, the hulls around sets of points and surfaces of triangles - joints between them, the characters that walk among them, stepping, contact events and queries, over Jolt Physics; the `Collider`, `RigidBody`, `Joint` and `CharacterController` components; `PhysicsSystem`, which keeps the entities of a world and the bodies, joints and characters of a simulation in step and makes shapes of mesh assets |
@@ -137,7 +137,7 @@ by accident.
 | `rhi` | `core`, `math`, `platform` | Vulkan device, swapchain and texture readback over NVRHI |
 | `shaders` | `core` | Shader requests and permutation keys, disk cache, `ShaderLibrary` |
 | `shader_compiler` | `core`, `shaders` | Slang to SPIR-V compiler, and the cache of the engine's shaders compiled ahead that an exported game ships (`EngineShaderCache.h`); not linked into exported games |
-| `renderer` | `core`, `math`, `assets`, `world`, `animation`, `rhi`, `shaders` | The scene renderer and what it is made of: GPU copies of assets, the mesh passes, the G-buffer and its lighting, the lights of a world and the clusters they are sorted into, their shadow maps and the atlas those share, what finishes the picture (exposure, bloom, tone mapping, grading), the environment (the sky and what it lights), ambient occlusion from the screen, fog, decals, levels of detail, the debug views, scene targets, the `MeshRenderer`, `Light`, `AmbientLight`, `Environment`, `Fog`, `Decal` and `PostProcess` components; camera views, debug lines, GPU timing, GPU shader management |
+| `renderer` | `core`, `math`, `assets`, `world`, `animation`, `rhi`, `shaders` | The scene renderer and what it is made of: GPU copies of assets, the mesh passes, the G-buffer and its lighting, the lights of a world and the clusters they are sorted into, their shadow maps and the atlas those share, what finishes the picture (exposure, bloom, tone mapping, grading), the environment (the sky and what it lights), ambient occlusion from the screen, fog, decals, levels of detail, scene captures, the debug views, scene targets, the `MeshRenderer`, `Light`, `AmbientLight`, `Environment`, `Fog`, `Decal`, `SceneCapture` and `PostProcess` components; camera views, debug lines, GPU timing, GPU shader management |
 | `ui` | `core`, `math`, `platform`, `rhi`, `shaders`, `renderer` | The immediate-mode interface: the Dear ImGui context and its NVRHI renderer; its typefaces and icons, compiled in; its themes, and the widgets it draws the same way everywhere |
 | `engine` | all of the above but `shader_compiler` | `Engine`: owns the subsystems, the assets, the world and the interface, and runs the frame loop; projects; a game made of a project (`Game`); placing models; checking the assets a scene uses |
 | `editor` | `engine` and below, `shader_compiler` | The editor: the scene document, undoable actions, scene and asset commands, panels, `EditorApp`; making a game of a project (`GameExport`) (not linked into exported games) |
@@ -366,6 +366,17 @@ Vulkan directly. Step-by-step guide for adding a pass:
   `GBufferTarget` in `SceneTargets.h`. Change both, and only through
   `encodeGBuffer`/`decodeGBuffer`; `SceneRendererTests` checks every channel through
   the debug views.
+- **A scene capture draws a camera of the scene into a render target**
+  (`SceneRenderer::renderCaptures`, called by `Engine::drawWorld` and the editor's
+  viewport before their own view): each `SceneCapture` is a view of its own, through the
+  `Camera` of its entity with the aspect of its target, finished like a game's and then
+  copied into the target - so one that sees its own picture sees the frame before, and
+  nothing is read while it is written. A frame draws `kMaxSceneCaptures` at the most, by
+  the ids of their entities; one waits out its `interval`; their targets go when they
+  are no longer found. A render target is one texture of `RenderResources` for as long
+  as the assets are not refreshed, black until it is drawn into, in sRGB: a finished
+  picture, which a material shows as its color or its light and refuses as numbers.
+  The capture's camera is never primary (`findRenderProblems`).
 - **Decals are laid onto the G-buffer** (`DecalPass`, `passes/Decal.slang`), after the
   base pass and before anything reads it. Each is the box of its entity, drawn from
   inside without the depth test; a pixel finds the surface the depth says is there, and
@@ -750,6 +761,11 @@ Step-by-step guide: [work-with-assets](.claude/skills/work-with-assets/SKILL.md)
   miniaudio is included in `.cpp` files only, and compiled with the definitions in
   `cmake/CorditeDependencies.cmake` - which every includer has to see, so a new one
   is added there, never with a `#define` before the include.
+- **A render target is a file that says the size of a picture** (`.target.json`,
+  `RenderTarget.h`), read as strictly as a material and checked when it is indexed. The
+  picture itself is the renderer's (a scene capture draws it); the asset is what a
+  `SceneCapture` and a material name, and what makes both point at the same one. It is
+  written by hand: there is no creating one in the editor.
 - **A broken asset never stops a scene.** The database lists problems
   (`AssetDatabase::problems`), loading returns an error, and the renderer reports once
   and draws the rest. `scene.validate` and `findSceneProblems` find dangling references.

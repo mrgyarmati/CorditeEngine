@@ -30,6 +30,7 @@
 #include "cordite/assets/Mesh.h"
 #include "cordite/assets/Model.h"
 #include "cordite/assets/Prefab.h"
+#include "cordite/assets/RenderTarget.h"
 #include "cordite/assets/ScriptSource.h"
 #include "cordite/assets/Skeleton.h"
 #include "cordite/assets/Sound.h"
@@ -92,6 +93,8 @@ public:
     /// kMaxPrefabFileBytes, and as readJsonFile() and parsePrefab() do. A prefab whose
     /// file gives it no name has that of the file.
     [[nodiscard]] Result<std::shared_ptr<const PrefabData>> loadPrefab(const Uuid& id);
+    /// What a render target file says: the size of its picture (RenderTarget.h).
+    [[nodiscard]] Result<RenderTargetData> loadRenderTarget(const Uuid& id);
 
 private:
     explicit AssetManager(AssetDatabaseDesc desc);
@@ -116,6 +119,7 @@ private:
     std::unordered_map<Uuid, std::shared_ptr<const ScriptSource>> m_scripts;
     std::unordered_map<Uuid, std::shared_ptr<const SoundData>> m_sounds;
     std::unordered_map<Uuid, std::shared_ptr<const PrefabData>> m_prefabs;
+    std::unordered_map<Uuid, RenderTargetData> m_renderTargets;
     std::unordered_map<Uuid, std::weak_ptr<const Image>> m_textures;
     /// The encoded bytes of images that are stored inside model files.
     std::unordered_map<Uuid, std::shared_ptr<const std::vector<std::byte>>> m_embeddedImages;

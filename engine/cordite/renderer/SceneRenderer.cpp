@@ -178,6 +178,8 @@ SceneRenderStatistics& SceneRenderStatistics::operator+=(const SceneRenderStatis
     lightListEntries += other.lightListEntries;
     droppedLights += other.droppedLights;
     decals += other.decals;
+    captures += other.captures;
+    droppedCaptures += other.droppedCaptures;
     droppedDecals += other.droppedDecals;
     decalNormalCopies += other.decalNormalCopies;
     for (size_t level = 0; level < lodInstances.size(); ++level) {
@@ -677,6 +679,98 @@ void SceneRenderer::drawLightShafts(nvrhi::ICommandList* commandList, SceneTarge
                                            nvrhi::Color(0.0f, 0.0f, 0.0f, 1.0f));
         }
     }
+}
+
+void SceneRenderer::renderCaptures(nvrhi::ICommandList* commandList, const World& world,
+                                   const SceneRenderSettings& settings) {
+    CORDITE_ASSERT(commandList != nullptr, "renderCaptures needs a command list");
+    if (commandList == nullptr) {
+        return;
+    }
+    ++m_captureCalls;
+    // Before a target is asked for: the resources of this frame.
+    m_resources->beginFrame();
+
+    // By the ids of their entities: the same captures are left out on every run.
+    std::vector<std::pair<Uuid, Entity>> captures;
+    for (const auto handle : world.registry().view<const SceneCaptureComponent>()) {
+        const Entity entity{handle};
+        if (world.isEnabledInHierarchy(entity)) {
+            captures.emplace_back(world.id(entity), entity);
+        }
+    }
+    std::ranges::sort(captures, {}, &std::pair<Uuid, Entity>::first);
+    if (captures.size() > kMaxSceneCaptures) {
+        const auto dropped = static_cast<uint32_t>(captures.size() - kMaxSceneCaptures);
+        m_frameStatistics.droppedCaptures += dropped;
+        if (!m_reportedDroppedCaptures) {
+            CORDITE_LOG_WARN("Renderer", "too many scene captures: {} draw nothing (a frame draws {})", dropped,
+                             kMaxSceneCaptures);
+            m_reportedDroppedCaptures = true;
+        }
+        captures.resize(kMaxSceneCaptures);
+    }
+
+    const float passed =
+        std::isfinite(settings.deltaSeconds) && settings.deltaSeconds > 0.0f ? settings.deltaSeconds : 0.0f;
+    for (const auto& [id, entity] : captures) {
+        const SceneCaptureComponent& capture = *world.tryGet<SceneCaptureComponent>(entity);
+        const auto* camera = world.tryGet<CameraComponent>(entity);
+        if (camera == nullptr) {
+            if (m_reportedCaptures.insert(id).second) {
+                CORDITE_LOG_WARN("Renderer", "the scene capture of '{}' draws nothing: its entity has no Camera",
+                                 world.name(entity));
+            }
+            continue;
+        }
+        // One that names nothing draws nothing; one that cannot be used is reported by the
+        // resources.
+        nvrhi::ITexture* target = m_resources->renderTarget(capture.target);
+        if (target == nullptr) {
+            continue;
+        }
+        const UVec2 size(target->getDesc().width, target->getDesc().height);
+        CaptureView& state = m_captureViews[id];
+        state.seen = m_captureCalls;
+        state.sinceLastPicture += passed;
+        const float interval = std::isfinite(capture.interval) ? std::max(capture.interval, 0.0f) : 0.0f;
+        if (state.hasPicture && state.sinceLastPicture < interval) {
+            continue;
+        }
+        Status prepared;
+        if (state.targets.isValid()) {
+            prepared = state.targets.resize(m_device, size);
+        } else if (Result<SceneTargets> made = SceneTargets::create(m_device, size, "Capture")) {
+            state.targets = std::move(*made);
+        } else {
+            prepared = tl::unexpected(made.error());
+        }
+        if (!prepared) {
+            if (m_reportedCaptures.insert(id).second) {
+                CORDITE_LOG_ERROR("Renderer", "the scene capture of '{}' draws nothing: {}", world.name(entity),
+                                  prepared.error().message);
+            }
+            continue;
+        }
+
+        // A game's view of the world, whatever the view that shows it is looking at.
+        SceneRenderSettings captured = settings;
+        captured.debugView = RenderDebugView::None;
+        captured.defaultLighting = false;
+        captured.viewEntity = id;
+        captured.deltaSeconds = state.hasPicture ? state.sinceLastPicture : passed;
+        const CameraView view =
+            makeCameraView(world.worldMatrix(entity), *camera, static_cast<float>(size.x) / static_cast<float>(size.y));
+        render(commandList, world, view, state.targets, captured);
+        // Into the target only now that the picture is done: a capture that sees its own
+        // target sees the picture before.
+        commandList->copyTexture(target, nvrhi::TextureSlice(), state.targets.display(), nvrhi::TextureSlice());
+        state.sinceLastPicture = 0.0f;
+        state.hasPicture = true;
+        ++m_frameStatistics.captures;
+    }
+    // A capture that is gone, switched off or left out lets go of its targets.
+    std::erase_if(m_captureViews, [this](const auto& entry) { return entry.second.seen != m_captureCalls; });
 }
 
 SceneRenderStatistics SceneRenderer::takeFrameStatistics() {

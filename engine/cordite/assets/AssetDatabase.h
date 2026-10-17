@@ -69,11 +69,14 @@ enum class AssetType : uint8_t {
     Sound,
     /// A few entities that belong together, to be placed in a scene as often as wanted.
     Prefab,
+    /// A picture a camera of the scene draws into, which materials show (RenderTarget.h).
+    RenderTarget,
 };
 
-inline constexpr std::array<AssetType, 10> kAssetTypes = {
-    AssetType::Texture,  AssetType::Mesh,      AssetType::Material, AssetType::Model, AssetType::Scene,
-    AssetType::Skeleton, AssetType::Animation, AssetType::Script,   AssetType::Sound, AssetType::Prefab,
+inline constexpr std::array<AssetType, 11> kAssetTypes = {
+    AssetType::Texture, AssetType::Mesh,     AssetType::Material,     AssetType::Model,
+    AssetType::Scene,   AssetType::Skeleton, AssetType::Animation,    AssetType::Script,
+    AssetType::Sound,   AssetType::Prefab,   AssetType::RenderTarget,
 };
 
 /// The lowercase name used in files and by tools: "texture", "mesh", ...
@@ -234,6 +237,8 @@ private:
     [[nodiscard]] std::optional<Uuid> identify(const ScannedFile& file);
     void addModelContents(const ScannedFile& file, const Uuid& modelId);
     void addMaterialDependencies(const ScannedFile& file, AssetInfo& asset);
+    /// Reads a render target file as it is indexed, and says what is wrong with it.
+    void checkRenderTarget(const ScannedFile& file);
     [[nodiscard]] Result<std::vector<Uuid>> readEntityReferences(AssetType type,
                                                                  const std::filesystem::path& file) const;
     void resolvePendingDependencies();

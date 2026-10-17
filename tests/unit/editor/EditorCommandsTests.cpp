@@ -188,7 +188,7 @@ TEST_SUITE("EditorCommands") {
     TEST_CASE("component.types describes what can be edited") {
         CommandFixture fixture;
         const Json types = fixture.run("component.types");
-        REQUIRE(types.size() == 11);
+        REQUIRE(types.size() == 12);
 
         CHECK(types[0]["name"] == "Transform");
         CHECK(types[0]["optional"] == false);
@@ -261,19 +261,25 @@ TEST_SUITE("EditorCommands") {
         CHECK(types[8]["properties"][2]["minimum"] == 10.0);
         CHECK(types[8]["properties"][2]["maximum"] == 90.0);
 
+        // A scene capture names a render target, and says how long it keeps a picture.
+        CHECK(types[9]["name"] == "SceneCapture");
+        CHECK(types[9]["properties"][0]["name"] == "target");
+        CHECK(types[9]["properties"][0]["assetType"] == "RenderTarget");
+        CHECK(types[9]["properties"][1]["unit"] == "s");
+
         // The settings a component takes over from a struct it is built on are its own
         // properties like any other.
-        CHECK(types[9]["name"] == "PostProcess");
-        CHECK(types[9]["properties"][0]["name"] == "global");
-        CHECK(types[9]["properties"][4]["name"] == "exposureMode");
-        CHECK(types[9]["properties"][4]["options"] == json(R"(["manual", "automatic"])"));
-        CHECK(types[9]["properties"][10]["name"] == "toneMapper");
-        CHECK(types[9]["properties"][10]["options"] == json(R"(["filmic", "aces", "linear"])"));
-        CHECK(types[9]["properties"][21]["name"] == "colorLut");
-        CHECK(types[9]["properties"][21]["assetType"] == "Texture");
+        CHECK(types[10]["name"] == "PostProcess");
+        CHECK(types[10]["properties"][0]["name"] == "global");
+        CHECK(types[10]["properties"][4]["name"] == "exposureMode");
+        CHECK(types[10]["properties"][4]["options"] == json(R"(["manual", "automatic"])"));
+        CHECK(types[10]["properties"][10]["name"] == "toneMapper");
+        CHECK(types[10]["properties"][10]["options"] == json(R"(["filmic", "aces", "linear"])"));
+        CHECK(types[10]["properties"][21]["name"] == "colorLut");
+        CHECK(types[10]["properties"][21]["assetType"] == "Texture");
 
-        CHECK(types[10]["name"] == "Label");
-        CHECK(types[10]["properties"][1]["readOnly"] == true);
+        CHECK(types[11]["name"] == "Label");
+        CHECK(types[11]["properties"][1]["readOnly"] == true);
     }
 
     TEST_CASE("a scene is lit by commands: lights are made, changed and taken back like everything else") {

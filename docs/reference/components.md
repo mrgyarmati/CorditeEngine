@@ -258,6 +258,15 @@ Makes the entity a body of the simulation, shaped by its Collider and by the Col
 | `linearVelocity` | vec3 | `[0.0,0.0,0.0]` | -100000.0 to 100000.0; m/s | *Not saved.* How fast it moves; kept up to date while the simulation runs. Setting it gives a dynamic body that speed |
 | `angularVelocity` | vec3 | `[0.0,0.0,0.0]` | -100000.0 to 100000.0; rad/s | *Not saved.* How fast it turns about each axis; kept up to date while the simulation runs. Setting it gives a dynamic body that spin |
 
+## SceneCapture
+
+Draws what the Camera of the entity sees into a render target, which materials show: a security monitor, a mirror. The camera is not the game's: leave it not primary.
+
+| Property | Kind | Default | Values | Meaning |
+|---|---|---|---|---|
+| `target` | asset (RenderTarget) | `null` |  | The render target it draws into: a picture that materials show as a color or as light |
+| `interval` | float | `0.0` | 0.0 to 60.0; s | How long a picture is kept before the next is drawn: 0 draws one every frame |
+
 ## Script
 
 Runs a script for the entity while the game runs: its `start` once, its `update` every frame, its `destroy` when the script is taken off or the entity is destroyed by a script.

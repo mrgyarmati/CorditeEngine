@@ -465,6 +465,9 @@ Status ViewportPanel::render(nvrhi::IDevice* device, nvrhi::ICommandList* comman
     // A scene that is being started has no lights yet, and would be black - which is
     // what a game that has none is.
     settings.defaultLighting = m_showsGame ? m_gameSettings->defaultLighting : true;
+    // What the cameras of the scene see goes into their render targets first: the view
+    // may show it.
+    m_sceneRenderer->renderCaptures(commandList, context.world(), settings);
     m_sceneRenderer->render(commandList, context.world(), m_view, m_targets, settings);
 
     // Over the finished image, in display colors, but still behind what is nearer.

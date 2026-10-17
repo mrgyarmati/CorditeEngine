@@ -31,6 +31,9 @@ UiIcon iconOf(AssetType type) {
             return icons::kSound;
         case AssetType::Prefab:
             return icons::kPrefab;
+        case AssetType::RenderTarget:
+            // What a camera draws into.
+            return icons::kCamera;
     }
     return icons::kFile;
 }

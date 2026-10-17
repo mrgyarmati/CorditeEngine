@@ -47,6 +47,7 @@ What a file is, its ending says:
 | Prefab | `.prefab.json` - see [Prefabs](prefabs.md) |
 | Script | `.lua` - see [Scripting](scripting.md) |
 | Sound | `.wav`, `.flac`, `.mp3` |
+| Render target | `.target.json` - a picture a camera of the scene draws into, which materials show; see [Materials](materials.md#screens-and-mirrors) |
 
 Every project also has built-in assets without files: the meshes `Cube`, `Sphere`, `Plane`,
 `Cylinder`, `Cone`, `Capsule` and `Torus`, and the default material.

@@ -1191,6 +1191,24 @@ no point in the picture for them to come from: orthographic views have none. Nor
 that have the sun behind them; towards ninety degrees they fade, so that turning a camera
 does not make them jump.
 
+### Scene captures are views drawn before the views that show them
+
+A security monitor shows what a camera of the scene sees; a mirror, what a camera behind it
+would. Both are a view of the world - shadows, lighting, finishing and all - drawn into a
+picture that a material then shows. Such a picture is an asset, a render target, so that the
+SceneCapture that draws into it and the material that shows it can name the same one; the
+file says only its size, and the picture is the renderer's.
+
+Every capture is drawn as a view of its own, before the views of the frame - the game's, the
+editor's viewport - which may show it, and then copied into the texture of its render target.
+The copy comes after: a capture that sees its own screen reads the picture of the frame
+before, and no texture is read while it is drawn into. The texture is sRGB, because what is
+copied is a finished picture in the colors of a display; read through a material's color
+slot it is light again, and in a slot of numbers it means nothing and is refused. A frame
+draws four captures at the most, by the ids of their entities, so that the views of the few
+frames on their way through the GPU stay within the versions their constant buffers have;
+a capture with an interval keeps its picture until the interval has passed.
+
 ### Levels of detail are made when a mesh is loaded, and chosen by their error on the screen
 
 A mesh far away costs as many triangles as one up close, and most of them land on the

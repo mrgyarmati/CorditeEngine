@@ -78,6 +78,7 @@ Status AssetManager::refresh() {
     m_scripts.clear();
     m_sounds.clear();
     m_prefabs.clear();
+    m_renderTargets.clear();
     m_textures.clear();
     m_embeddedImages.clear();
     m_importedFiles.clear();
@@ -399,6 +400,19 @@ Result<std::shared_ptr<const SoundData>> AssetManager::loadSound(const Uuid& id)
     auto sound = std::make_shared<const SoundData>(std::move(*decoded));
     m_sounds[id] = sound;
     return sound;
+}
+
+Result<RenderTargetData> AssetManager::loadRenderTarget(const Uuid& id) {
+    if (const auto cached = m_renderTargets.find(id); cached != m_renderTargets.end()) {
+        return cached->second;
+    }
+    CORDITE_TRY_ASSIGN(const AssetInfo* asset, lookUp(id, AssetType::RenderTarget));
+    CORDITE_TRY_ASSIGN(const Json document, readJsonFile(m_database.sourceFile(*asset)));
+    Result<RenderTargetData> target = parseRenderTargetFile(document);
+    if (!target) {
+        return tl::unexpected(target.error().withContext(asset->reference()));
+    }
+    return m_renderTargets.emplace(id, *target).first->second;
 }
 
 Result<std::shared_ptr<const PrefabData>> AssetManager::loadPrefab(const Uuid& id) {

@@ -1189,6 +1189,40 @@
             }
         },
         {
+            // A monitor on the wall: a frame, and a screen whose material shows the picture
+            // of the security camera (materials/monitor.material.json).
+            "id": "10000000-0000-4000-8000-000000000048",
+            "name": "Monitor",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-00000000000b",
+            "components": {
+                "Transform": { "position": [-1.5, 0.35, 0.18], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [1.7, 1.0, 0.06] },
+                "MeshRenderer": {
+                    "mesh": "0a56c2f1-21e0-819d-8bac-567d1e1c4345",
+                    "materials": ["9e35de7e-da93-8003-824c-d50e66fb2ad4"]
+                }
+            }
+        },
+        {
+            // The built-in plane faces up; turned a quarter about X it faces the room, the
+            // top of its picture at the top.
+            "id": "10000000-0000-4000-8000-000000000049",
+            "name": "Screen",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-00000000000b",
+            "components": {
+                "Transform": {
+                    "position": [-1.5, 0.35, 0.215],
+                    "rotation": [0.70710677, 0.0, 0.0, 0.70710677],
+                    "scale": [1.6, 1.0, 0.9]
+                },
+                "MeshRenderer": {
+                    "mesh": "8db36b6b-2606-8b2d-b7f0-6bd7af0a9d8c",
+                    "materials": ["1ddfa5ef-6498-8c9c-8b31-7c233dec558c"]
+                }
+            }
+        },
+        {
             // Two bollards, placed from a prefab (prefabs/bollard.prefab.json) as
             // asset.instantiate places one: copies of its entities, with ids of their own.
             // The PrefabInstance on the root of each says where it came from, and that is
@@ -1499,6 +1533,48 @@
                     "lightShaftIntensity": 0.0,
                     "lightShaftThreshold": 1.0,
                     "lightShaftLength": 0.5
+                }
+            }
+        },
+        {
+            // A security camera high on the wall, looking out over the stage. Its SceneCapture
+            // draws what its Camera sees into a render target (targets/monitor.target.json),
+            // every frame ("interval" 0), which the monitor on the wall shows. The camera is
+            // not primary: the game is not seen through it. It does not see its own monitor,
+            // which would show it the picture of the frame before in every picture - and
+            // the showcase is to look the same however often it is drawn.
+            "id": "10000000-0000-4000-8000-000000000046",
+            "name": "Security camera",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-000000000007",
+            "components": {
+                "Transform": {
+                    "position": [-4.0, 3.2, -4.4],
+                    "rotation": [-0.06073842, -0.92892087, -0.17640351, 0.31984161],
+                    "scale": [1.0, 1.0, 1.0]
+                },
+                "Camera": {
+                    "projection": "perspective",
+                    "verticalFovDegrees": 55.0,
+                    "orthographicHeight": 10.0,
+                    "nearPlane": 0.1,
+                    "farPlane": 100.0,
+                    "primary": false
+                },
+                "SceneCapture": { "target": "535d4668-3c0e-8e9a-ab90-cf9a08e41bde", "interval": 0.0 }
+            }
+        },
+        {
+            // What the security camera looks out of.
+            "id": "10000000-0000-4000-8000-000000000047",
+            "name": "Housing",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-000000000046",
+            "components": {
+                "Transform": { "position": [0.0, 0.0, 0.2], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [0.22, 0.16, 0.34] },
+                "MeshRenderer": {
+                    "mesh": "0a56c2f1-21e0-819d-8bac-567d1e1c4345",
+                    "materials": ["9e35de7e-da93-8003-824c-d50e66fb2ad4"]
                 }
             }
         },

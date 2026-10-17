@@ -6,6 +6,7 @@
 #include "cordite/core/Reflection.h"
 #include "cordite/core/StringUtils.h"
 #include "cordite/physics/PhysicsComponents.h"
+#include "cordite/renderer/RenderComponents.h"
 #include "cordite/world/Components.h"
 #include "cordite/world/SceneSerializer.h"
 
@@ -149,6 +150,9 @@ std::vector<SceneProblem> findSceneProblems(const World& world, const ComponentR
         }
     }
     for (PhysicsProblem& problem : findPhysicsProblems(world)) {
+        problems.push_back({problem.entity, std::move(problem.message)});
+    }
+    for (RenderProblem& problem : findRenderProblems(world)) {
         problems.push_back({problem.entity, std::move(problem.message)});
     }
     return problems;

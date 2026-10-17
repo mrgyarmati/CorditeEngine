@@ -1,0 +1,9 @@
+// The picture of the security camera, which the monitor on the wall shows: a camera with
+// a SceneCapture component draws into it, and a material shows it as its light. Small,
+// as the screens of such cameras are: it costs a view of its own every frame.
+{
+    "format": "cordite.target",
+    "version": 1,
+    "width": 256,
+    "height": 144
+}

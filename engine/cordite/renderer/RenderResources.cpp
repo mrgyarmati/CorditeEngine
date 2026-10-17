@@ -149,6 +149,8 @@ void RenderResources::clear() {
     m_meshes.clear();
     m_materials.clear();
     m_textures.clear();
+    m_renderTargets.clear();
+    m_misusedRenderTargets.clear();
     m_failedMeshes.clear();
     m_statistics = m_permanentStatistics;
 }
@@ -371,8 +373,74 @@ Result<nvrhi::TextureHandle> RenderResources::createFlatNormalTexture() {
     return texture;
 }
 
+nvrhi::ITexture* RenderResources::renderTarget(const Uuid& id) {
+    if (id.isNil()) {
+        return nullptr;
+    }
+    if (const auto found = m_renderTargets.find(id); found != m_renderTargets.end()) {
+        return found->second;
+    }
+    const AssetInfo* asset = m_assets.database().find(id);
+    const std::string name = asset != nullptr ? asset->reference() : id.toString();
+    Result<nvrhi::TextureHandle> created = makeError(ErrorCode::Unknown, "not loaded");
+    if (const Result<RenderTargetData> loaded = m_assets.loadRenderTarget(id)) {
+        created = createRenderTarget(*loaded, name);
+    } else {
+        created = tl::unexpected(loaded.error());
+    }
+    if (!created) {
+        CORDITE_LOG_ERROR("Renderer", "cannot use render target {}: {}", name, created.error().message);
+        // Remembered as nothing, so that it is neither made nor reported again.
+        m_renderTargets.emplace(id, nullptr);
+        return nullptr;
+    }
+    return m_renderTargets.emplace(id, std::move(*created)).first->second.Get();
+}
+
+Result<nvrhi::TextureHandle> RenderResources::createRenderTarget(const RenderTargetData& target,
+                                                                 const std::string& name) {
+    nvrhi::TextureDesc desc;
+    desc.width = target.width;
+    desc.height = target.height;
+    // What is copied in is a finished picture: display colors, which an sRGB format turns
+    // back into light when a material reads them.
+    desc.format = nvrhi::Format::SRGBA8_UNORM;
+    desc.debugName = name;
+    desc.initialState = nvrhi::ResourceStates::ShaderResource;
+    desc.keepInitialState = true;
+    nvrhi::TextureHandle texture = m_device->createTexture(desc);
+    if (!texture) {
+        return makeError(ErrorCode::DeviceError, "cannot create its {}x{} picture", target.width, target.height);
+    }
+    // Black until a capture draws into it. Written rather than cleared: a command list
+    // holds on to what it writes, not to what it only clears.
+    const size_t rowBytes = size_t{target.width} * 4;
+    std::vector<uint8_t> black(rowBytes * target.height, 0);
+    for (size_t alpha = 3; alpha < black.size(); alpha += 4) {
+        black[alpha] = 0xFF;
+    }
+    uploadCommandList()->writeTexture(texture, 0, 0, black.data(), rowBytes);
+    ++m_statistics.textureCount;
+    m_statistics.textureBytes += black.size();
+    return texture;
+}
+
 nvrhi::ITexture* RenderResources::texture(const Uuid& id, ColorSpace colorSpace, nvrhi::ITexture* fallback) {
     if (id.isNil()) {
+        return fallback;
+    }
+    if (const AssetInfo* asset = m_assets.database().find(id);
+        asset != nullptr && asset->type == AssetType::RenderTarget) {
+        if (colorSpace == ColorSpace::Srgb) {
+            nvrhi::ITexture* picture = renderTarget(id);
+            return picture != nullptr ? picture : fallback;
+        }
+        if (m_misusedRenderTargets.insert(id).second) {
+            CORDITE_LOG_ERROR("Renderer",
+                              "cannot read the render target {} as numbers - a normal map, roughness, metal, "
+                              "occlusion: it holds a picture, which a material shows as its color or its light",
+                              asset->reference());
+        }
         return fallback;
     }
     const TextureKey key{id, colorSpace};

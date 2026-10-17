@@ -127,6 +127,7 @@ this order. Then each step, with its shader in `shaders/`:
 |------|-----|---------|-----------------|
 | What is drawn, in how few draw calls | `MeshDrawList.h`, `MeshPass.h` | `passes/MeshVertex.slang` | "Instances are a vertex stream" |
 | Levels of detail | `LevelOfDetail.h`, `MeshProcessing.h` (`generateLods`) | `passes/MeshDebug.slang` | "Levels of detail are made when a mesh is loaded, and chosen by their error on the screen" |
+| Scene captures and render targets | `SceneRenderer.h` (`renderCaptures`), `RenderTarget.h` | | "Scene captures are views drawn before the views that show them" |
 | Shadow maps, in one atlas | `ShadowPlan.h`, `ShadowAtlas.h` | `common/Shadows.slang` | "All shadow maps of a view share one atlas", "Cascades are spheres, moved in whole texels", "A surface is kept out of its own shadow by where it is looked up" |
 | Depth pre-pass, then the G-buffer | `SceneTargets.h` | `passes/MeshDepth.slang`, `passes/MeshGBuffer.slang`, `common/GBuffer.slang` | "A depth pre-pass, then a base pass on equal depth", "The G-buffer is four targets and depth" |
 | Decals, laid onto the G-buffer | `Decals.h`, `DecalPass.h` | `passes/Decal.slang`, `common/Decals.slang` | "Decals are laid onto the G-buffer" |

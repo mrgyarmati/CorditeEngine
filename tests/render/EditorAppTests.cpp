@@ -757,10 +757,14 @@ TEST_SUITE("EditorApp") {
         CHECK(statistics["cpuMilliseconds"].get<double>() > 0.0);
         CHECK((statistics["gpuMilliseconds"].is_null() || statistics["gpuMilliseconds"].get<double>() > 0.0));
 
-        // The viewport is the one view; it draws the showcase, some of it instanced.
+        // Two views draw the showcase, some of it instanced: the viewport, and before it the
+        // security camera's capture of the stage, which the monitor on the wall shows.
+        // What is counted for every view is counted twice.
         const Json& scene = statistics["scene"];
-        CHECK(scene["views"] == 1);
-        CHECK(scene["meshRenderers"] == 34);
+        CHECK(scene["views"] == 2);
+        CHECK(scene["captures"]["count"] == 1);
+        CHECK(scene["captures"]["dropped"] == 0);
+        CHECK(scene["meshRenderers"] == 2 * 37);
         // The cable of the hoist is posed by its animator: one skeleton of six joints.
         CHECK(statistics["animation"]["animators"] == 1);
         CHECK(statistics["animation"]["joints"] == 6);
@@ -781,24 +785,25 @@ TEST_SUITE("EditorApp") {
         CHECK(dumpJson(statistics["audio"], -1) ==
               R"({"sources":0,"voices":0,"waiting":0,"listeners":0,"sounds":0,"soundBytes":0})");
         CHECK(run(*editor, "entity.get", R"({"entity": "Stage/Clock"})")["name"] == "Clock");
-        CHECK(scene["skinned"]["meshes"] == 1);
-        CHECK(scene["skinned"]["jointMatrices"] == 6);
+        CHECK(scene["skinned"]["meshes"] == 2 * 1);
+        CHECK(scene["skinned"]["jointMatrices"] == 2 * 6);
         CHECK(scene["drawCalls"].get<uint32_t>() > 0);
         CHECK(scene["drawCalls"].get<uint32_t>() < scene["instances"].get<uint32_t>());
         CHECK(scene["triangles"].get<uint64_t>() > 1000);
         // The sun and the three lamps of the showcase, each lamp in the lists of the
         // clusters it reaches.
-        CHECK(scene["lights"]["count"] == 4);
+        CHECK(scene["lights"]["count"] == 2 * 4);
         CHECK(scene["lights"]["listEntries"].get<uint32_t>() > 3);
         CHECK(scene["lights"]["dropped"] == 0);
         // Three cascades for the sun, one map for the lamp, six for the wall light.
-        CHECK(scene["shadows"]["maps"] == 10);
+        CHECK(scene["shadows"]["maps"] == 2 * 10);
         CHECK(scene["shadows"]["lightsWithout"] == 0);
         // Passes over the whole picture: the two of the ambient occlusion, the lighting,
         // the three of the depth of field, and what finishes the picture as the showcase
         // says - five levels of bloom down and up, the exposure, the final pass, the
-        // smoothing of its edges.
-        CHECK(scene["screenPasses"] == 18);
+        // smoothing of its edges - for each view; and for the capture, which looks towards
+        // the sun, the five of its light shafts.
+        CHECK(scene["screenPasses"] == 2 * 18 + 5);
         // The ambient occlusion is worked out for one pixel in four of the viewport, in
         // two half floats each; the depth of field in two images of a texel for every four
         // pixels, of four half floats each.
@@ -807,15 +812,17 @@ TEST_SUITE("EditorApp") {
               uint64_t{(viewportSize.x + 1) / 2} * ((viewportSize.y + 1) / 2) * 4);
         CHECK(scene["depthOfField"]["bytes"] ==
               uint64_t{(viewportSize.x + 1) / 2} * ((viewportSize.y + 1) / 2) * 8 * 2);
-        // The sun is behind the editor's camera: there are no light shafts. The decals of
-        // the showcase are in view - the grime and the warning strip on the floor, the grime
-        // on the wall - and read a copy of the normals as large as the viewport, two 16-bit
-        // numbers a pixel, made again for the grime, which comes to where the strip bent
-        // them.
-        CHECK(scene["lightShafts"]["bytes"] == 0);
-        CHECK(scene["decals"]["count"] == 3);
+        // The sun is behind the editor's camera, but the capture looks towards it: its light
+        // shafts are worked out at half its 256 by 144 pixels, four half floats a texel, in
+        // two images. The decals of the showcase are in the viewport - the grime and the
+        // warning strip on the floor, the grime on the wall - and read a copy of the normals
+        // as large as the viewport, two 16-bit numbers a pixel, made again for the grime,
+        // which comes to where the strip bent them; the capture, on the wall, sees the two
+        // on the floor, and copies its normals twice as well.
+        CHECK(scene["lightShafts"]["bytes"] == uint64_t{128} * 72 * 8 * 2);
+        CHECK(scene["decals"]["count"] == 3 + 2);
         CHECK(scene["decals"]["dropped"] == 0);
-        CHECK(scene["decals"]["normalCopies"] == 2);
+        CHECK(scene["decals"]["normalCopies"] == 2 + 2);
         CHECK(scene["decals"]["bytes"] == uint64_t{viewportSize.x} * viewportSize.y * 4);
         // Every mesh in view is drawn at one of its levels of detail.
         const Json& lods = scene["lods"];
@@ -850,7 +857,7 @@ TEST_SUITE("EditorApp") {
         run(*editor, "editor.screenshot",
             fmt::format(R"({{"path": {}, "viewportOnly": true}})", quoted(directory.path() / "view.png")));
         REQUIRE(editor->runFrames(1).has_value());
-        CHECK(run(*editor, "editor.statistics")["scene"]["views"] == 1);
+        CHECK(run(*editor, "editor.statistics")["scene"]["views"] == 2);
         checkNoValidationIssues(editor->engine().graphics());
     }
 

@@ -67,6 +67,9 @@ size_t loadEveryAsset(AssetManager& assets) {
             case AssetType::Prefab:
                 REQUIRE(assets.loadPrefab(asset.id).has_value());
                 break;
+            case AssetType::RenderTarget:
+                REQUIRE(assets.loadRenderTarget(asset.id).has_value());
+                break;
             case AssetType::Scene:
                 continue;
         }
@@ -160,8 +163,11 @@ TEST_SUITE("Performance") {
             FAIL_CHECK("the graphics device reported: " << issue);
         }
 
-        // The showcase is drawn completely: nothing failed to load, nothing was left out.
-        CHECK(statistics.scene.views == 1);
+        // The showcase is drawn completely: nothing failed to load, nothing was left out. It
+        // is two views: the game's, and the security camera's, which the monitor shows.
+        CHECK(statistics.scene.views == 2);
+        CHECK(statistics.scene.captures == 1);
+        CHECK(statistics.scene.droppedCaptures == 0);
         CHECK(statistics.scene.meshRenderers > 0);
         CHECK(statistics.scene.droppedLights == 0);
         CHECK(statistics.scene.lightsWithoutShadows == 0);
@@ -207,6 +213,7 @@ TEST_SUITE("Performance") {
         checkBudget(budgets, "depthOfFieldBytes", static_cast<double>(statistics.scene.depthOfFieldBytes));
         checkBudget(budgets, "lightShaftBytes", static_cast<double>(statistics.scene.lightShaftBytes));
         CHECK(statistics.scene.droppedDecals == 0);
+        checkBudget(budgets, "captures", statistics.scene.captures);
         checkBudget(budgets, "decals", statistics.scene.decals);
         checkBudget(budgets, "decalNormalCopies", statistics.scene.decalNormalCopies);
         checkBudget(budgets, "decalBytes", static_cast<double>(statistics.scene.decalBytes));

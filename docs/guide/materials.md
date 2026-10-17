@@ -117,6 +117,32 @@ The `baseColor`, `normals` and `roughness` render views show what decals laid on
 surfaces. A view lays on 256 decals at the most; the statistics (View > Statistics, or
 `editor.statistics`) count them.
 
+## Screens and mirrors
+
+A material can show what a camera of the scene sees: the screen of a security monitor, a
+mirror, the preview of a character. Three things make one:
+
+1. A **render target**: a file whose name ends in `.target.json` and that says how large the
+   picture is. It is written by hand, like a material:
+
+   ```json
+   {"format": "cordite.target", "version": 1, "width": 256, "height": 144}
+   ```
+
+2. A camera that draws into it: an entity with a **Camera** - not primary, or the game would
+   be seen through it - and a **SceneCapture** component that names the render target.
+   `interval` is how long a picture is kept before the next is drawn; 0 draws one every
+   frame. Every picture costs what a view of the game costs, so keep render targets small; a
+   frame draws four at the most.
+3. A material that shows it: name the render target as its `emissiveTexture` - a screen gives
+   off its picture - or as its `baseColorTexture`, for a picture that is lit. A render target
+   is a picture, not numbers: as a normal map or a roughness texture it is refused.
+
+The camera sees the scene finished, as the game would; where it sees its own screen, it sees
+the picture of the frame before. `scene.validate` says so when a scene capture has no camera,
+or a camera that is primary. The showcase has a security camera in a corner and its monitor on
+the wall.
+
 ## The look of the engine
 
 Cordite's lighting favors strong, readable contrast: high specular response, deep shadows,

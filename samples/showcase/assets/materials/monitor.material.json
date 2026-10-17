@@ -1,0 +1,13 @@
+// The screen of the monitor on the wall: dark glass that gives off the picture of the
+// security camera. A render target is a picture, so it goes in a slot of colors - here
+// the light; the emissive color and intensity scale it like any emissive texture.
+{
+    "format": "cordite.material",
+    "version": 1,
+    "baseColor": [0.02, 0.02, 0.025, 1],
+    "emissiveTexture": "535d4668-3c0e-8e9a-ab90-cf9a08e41bde",
+    "emissiveColor": [1, 1, 1],
+    "emissiveIntensity": 1.5,
+    "roughness": 0.15,
+    "metallic": 0
+}

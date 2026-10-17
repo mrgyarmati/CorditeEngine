@@ -3,6 +3,7 @@
 #include "cordite/assets/GltfImporter.h"
 #include "cordite/assets/Material.h"
 #include "cordite/assets/Prefab.h"
+#include "cordite/assets/RenderTarget.h"
 #include "cordite/core/Assert.h"
 #include "cordite/core/Document.h"
 #include "cordite/core/FileSystem.h"
@@ -32,8 +33,9 @@ struct FileKind {
 };
 
 /// Longer extensions first: "x.material.json" is a material, not an unknown ".json".
-constexpr std::array<FileKind, 15> kFileKinds = {{
+constexpr std::array<FileKind, 16> kFileKinds = {{
     {".material.json", AssetType::Material},
+    {".target.json", AssetType::RenderTarget},
     {".scene.json", AssetType::Scene},
     {".prefab.json", AssetType::Prefab},
     {".lua", AssetType::Script},
@@ -161,6 +163,8 @@ std::string_view nameOf(AssetType type) {
             return "sound";
         case AssetType::Prefab:
             return "prefab";
+        case AssetType::RenderTarget:
+            return "renderTarget";
     }
     return "unknown";
 }
@@ -187,6 +191,8 @@ std::string_view displayNameOf(AssetType type) {
             return "Sound";
         case AssetType::Prefab:
             return "Prefab";
+        case AssetType::RenderTarget:
+            return "RenderTarget";
     }
     return "Unknown";
 }
@@ -213,6 +219,8 @@ std::string_view withArticle(AssetType type) {
             return "a sound";
         case AssetType::Prefab:
             return "a prefab";
+        case AssetType::RenderTarget:
+            return "a render target";
     }
     return "an unknown asset";
 }
@@ -395,6 +403,16 @@ std::optional<Uuid> AssetDatabase::identify(const ScannedFile& file) {
     }
     writeMeta(id);
     return id;
+}
+
+void AssetDatabase::checkRenderTarget(const ScannedFile& file) {
+    // Listed all the same, as a material that cannot be read is.
+    const Result<Json> document = readJsonFile(file.absolutePath);
+    const Result<RenderTargetData> target =
+        document ? parseRenderTargetFile(*document) : Result<RenderTargetData>(tl::unexpected(document.error()));
+    if (!target) {
+        addProblem(fmt::format("{}: {}", file.relativePath, target.error().message));
+    }
 }
 
 void AssetDatabase::addMaterialDependencies(const ScannedFile& file, AssetInfo& asset) {
@@ -630,6 +648,8 @@ Status AssetDatabase::refresh() {
                         .path = file.relativePath};
         if (asset.type == AssetType::Material) {
             addMaterialDependencies(file, asset);
+        } else if (asset.type == AssetType::RenderTarget) {
+            checkRenderTarget(file);
         } else if (holdsEntities(asset.type) && m_desc.readReferences) {
             Result<std::vector<Uuid>> references = readEntityReferences(asset.type, file.absolutePath);
             if (references) {

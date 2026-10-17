@@ -240,6 +240,12 @@ Result<Json> describeContent(AssetManager& assets, const ComponentRegistry& comp
         }
         case AssetType::Prefab:
             return describePrefab(assets, components, asset);
+        case AssetType::RenderTarget: {
+            CORDITE_TRY_ASSIGN(const RenderTargetData target, assets.loadRenderTarget(asset.id));
+            content["width"] = target.width;
+            content["height"] = target.height;
+            break;
+        }
         case AssetType::Scene:
             // Opened with scene.open; nothing to say about it without doing that.
             break;

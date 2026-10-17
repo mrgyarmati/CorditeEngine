@@ -2,6 +2,7 @@
 
 #include "cordite/core/Reflection.h"
 #include "cordite/math/MathReflection.h"
+#include "cordite/world/Components.h"
 
 #include <string>
 #include <utility>
@@ -140,6 +141,22 @@ TypeInfo describeEnvironment() {
         .property("visible", &EnvironmentComponent::visible,
                   {.description = "Draws the image where nothing else is, as the sky; without, it only lights "
                                   "the scene and shows in reflections"})
+        .build();
+}
+
+TypeInfo describeSceneCapture() {
+    return TypeBuilder<SceneCaptureComponent>("SceneCapture")
+        .property("target", &SceneCaptureComponent::target,
+                  {.description = "The render target it draws into: a picture that materials show as a color or "
+                                  "as light",
+                   .semantic = PropertySemantic::AssetReference,
+                   .referenceType = "RenderTarget"})
+        .property("interval", &SceneCaptureComponent::interval,
+                  {.description = "How long a picture is kept before the next is drawn: 0 draws one every frame",
+                   .minimum = 0.0,
+                   .maximum = 60.0,
+                   .step = 0.05,
+                   .unit = "s"})
         .build();
 }
 
@@ -460,6 +477,23 @@ std::string_view nameOf(ShadowResolution resolution) {
     return "unknown";
 }
 
+std::vector<RenderProblem> findRenderProblems(const World& world) {
+    std::vector<RenderProblem> problems;
+    world.traverse([&](Entity entity, uint32_t /*depth*/) {
+        if (!world.has<SceneCaptureComponent>(entity)) {
+            return;
+        }
+        const auto* camera = world.tryGet<CameraComponent>(entity);
+        if (camera == nullptr) {
+            problems.push_back({entity, "SceneCapture draws nothing: the entity has no Camera to see with"});
+        } else if (camera->primary) {
+            problems.push_back({entity, "SceneCapture has a Camera that is primary, which the game may take for its "
+                                        "own view: turn primary off"});
+        }
+    });
+    return problems;
+}
+
 Status registerRendererComponents(ComponentRegistry& registry) {
     CORDITE_TRY(registry.add<MeshRendererComponent>(
         describeMeshRenderer(), {.description = "Draws a mesh at the entity's place in the world."}));
@@ -480,6 +514,10 @@ Status registerRendererComponents(ComponentRegistry& registry) {
         describeDecal(),
         {.description = "A material laid onto the solid surfaces inside the entity's box, projected along its -Z "
                         "axis: grime, cracks, rust, markings."}));
+    CORDITE_TRY(registry.add<SceneCaptureComponent>(
+        describeSceneCapture(),
+        {.description = "Draws what the Camera of the entity sees into a render target, which materials show: a "
+                        "security monitor, a mirror. The camera is not the game's: leave it not primary."}));
     CORDITE_TRY(registry.add<PostProcessComponent>(
         describePostProcess(),
         {.description = "How the picture is finished - exposure, bloom, tone mapping, grading - everywhere, in a "

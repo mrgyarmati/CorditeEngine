@@ -192,6 +192,10 @@ inline Json describeScene(const SceneRenderStatistics& statistics) {
     Json shafts = Json::object();
     shafts["bytes"] = statistics.lightShaftBytes;
     scene["lightShafts"] = std::move(shafts);
+    Json captures = Json::object();
+    captures["count"] = statistics.captures;
+    captures["dropped"] = statistics.droppedCaptures;
+    scene["captures"] = std::move(captures);
     Json decals = Json::object();
     decals["count"] = statistics.decals;
     decals["dropped"] = statistics.droppedDecals;

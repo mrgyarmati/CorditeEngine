@@ -394,6 +394,9 @@ Status Engine::drawWorld(const SceneRenderSettings& settings) {
     drawn.viewEntity = impl.world.id(camera);
     drawn.deltaSeconds = static_cast<float>(impl.deltaSeconds);
     drawn.timeSeconds = impl.timeSeconds;
+    // What the cameras of the scene see goes into their render targets first: the view
+    // of the game may show it.
+    impl.sceneRenderer->renderCaptures(impl.commandList, impl.world, drawn);
     impl.sceneRenderer->render(impl.commandList, impl.world, view, impl.worldTargets, drawn);
     impl.blit->draw(impl.commandList, impl.worldTargets.display(), impl.frameTarget.framebuffer());
     return {};

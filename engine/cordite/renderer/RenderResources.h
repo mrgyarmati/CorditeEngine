@@ -33,6 +33,7 @@
 #include "cordite/assets/Material.h"
 #include "cordite/assets/Mesh.h"
 #include "cordite/assets/Mipmaps.h"
+#include "cordite/assets/RenderTarget.h"
 #include "cordite/core/Base.h"
 #include "cordite/core/Result.h"
 
@@ -160,6 +161,14 @@ public:
     /// loaded, which is reported once. The pointer is valid until the next beginFrame().
     [[nodiscard]] nvrhi::ITexture* colorTexture(const Uuid& id) { return texture(id, ColorSpace::Srgb, nullptr); }
 
+    /// The texture of a render target asset (RenderTarget.h), which a SceneCapture draws
+    /// into: as large as the asset says, in sRGB colors - a finished picture - and black
+    /// until something is drawn into it. One for each asset; a material that names the
+    /// asset as a color texture shows this one. Null when the id names no render target
+    /// that can be loaded, which is reported once. The pointer is valid until the next
+    /// beginFrame().
+    [[nodiscard]] nvrhi::ITexture* renderTarget(const Uuid& id);
+
     /// Sends everything created since the last call to the GPU. Must happen before a
     /// command list that draws with it is executed.
     void flushUploads();
@@ -190,8 +199,11 @@ private:
     [[nodiscard]] Result<nvrhi::TextureHandle> createTexture(const Image& image, ColorSpace colorSpace,
                                                              const std::string& name);
     [[nodiscard]] Result<GpuMaterial> createMaterial(const MaterialData& material, const std::string& name);
+    [[nodiscard]] Result<nvrhi::TextureHandle> createRenderTarget(const RenderTargetData& target,
+                                                                  const std::string& name);
     /// The texture for a material slot: the asset's, or `fallback` when the id is nil or
-    /// the texture cannot be loaded.
+    /// the texture cannot be loaded. A render target is a picture: in a slot of colors it
+    /// is renderTarget(); in one of numbers it is reported once and `fallback` stands in.
     [[nodiscard]] nvrhi::ITexture* texture(const Uuid& id, ColorSpace colorSpace, nvrhi::ITexture* fallback);
     [[nodiscard]] Result<nvrhi::ISampler*> sampler(const MaterialData& material);
     [[nodiscard]] Result<nvrhi::TextureHandle> createSolidTexture(const Vec4& color, const std::string& name);
@@ -213,6 +225,10 @@ private:
     std::unordered_map<Uuid, GpuMesh> m_meshes;
     std::unordered_map<Uuid, GpuMaterial> m_materials;
     std::unordered_map<TextureKey, nvrhi::TextureHandle, TextureKeyHash> m_textures;
+    /// Null for one that could not be made, so that it is tried and reported only once.
+    std::unordered_map<Uuid, nvrhi::TextureHandle> m_renderTargets;
+    /// Render targets a slot of numbers asked for, so that each is reported only once.
+    std::unordered_set<Uuid> m_misusedRenderTargets;
     /// One per combination of wrap modes and filter that a material has asked for.
     std::unordered_map<uint32_t, nvrhi::SamplerHandle> m_samplers;
     /// Assets that could not be loaded, so that each is tried and reported only once.

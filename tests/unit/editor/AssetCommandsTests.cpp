@@ -264,7 +264,7 @@ TEST_SUITE("AssetCommands") {
         const Error error = fixture.fail("asset.list", R"({"type": "font"})");
         CHECK(error.code == ErrorCode::InvalidArgument);
         CHECK(error.message == "asset.list: 'font' is not an asset type; use texture, mesh, material, model, scene, "
-                               "skeleton, animation, script, sound or prefab");
+                               "skeleton, animation, script, sound, prefab or renderTarget");
     }
 
     TEST_CASE("asset.list reports what is wrong with the asset directory") {
@@ -1109,7 +1109,7 @@ TEST_SUITE("AssetCommands") {
         CHECK(error.code == ErrorCode::InvalidArgument);
         CHECK(error.message ==
               "assets.browse: 'font' is not an asset type; use \"all\", texture, mesh, material, model, "
-              "scene, skeleton, animation, script, sound or prefab");
+              "scene, skeleton, animation, script, sound, prefab or renderTarget");
         error = fixture.fail("assets.browse", R"({"select": "models/none.gltf"})");
         CHECK(error.code == ErrorCode::NotFound);
         // What can be opened is what has something below it, among what is listed.

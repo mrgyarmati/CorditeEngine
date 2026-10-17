@@ -609,7 +609,7 @@ TEST_SUITE("Engine") {
 
         // Everything in the scene that is enabled was found; none of it failed to load.
         const SceneRenderStatistics& statistics = engine->sceneRenderer().statistics();
-        CHECK(statistics.meshRenderers == 34);
+        CHECK(statistics.meshRenderers == 37);
         // The cable of the hoist is skinned to six joints, and it swings: a game lets
         // time pass, and the animator's clock has moved on by the two frames.
         CHECK(statistics.skinnedMeshes == 1);
@@ -792,7 +792,7 @@ TEST_SUITE("Engine") {
         CHECK(world.findByName("Plinth").isNull());
         CHECK_FALSE(world.findByName("Clock").isNull());
         CHECK(engine->statistics().physics.bodies == 19);
-        CHECK(engine->sceneRenderer().statistics().meshRenderers == 34);
+        CHECK(engine->sceneRenderer().statistics().meshRenderers == 37);
         const Entity back = world.findByName("Sentry");
         REQUIRE_FALSE(back.isNull());
         CHECK_NEAR(world.transform(back).position, Vec3(-0.8f, 0.0f, -3.9f), 5.0e-2f);

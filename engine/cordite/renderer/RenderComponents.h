@@ -2,8 +2,9 @@
 
 /// @file
 /// The components that make an entity visible, the ones that light it, the one that
-/// surrounds a scene with a sky, the one that fills its air with fog, and the one that
-/// says how the picture is finished.
+/// surrounds a scene with a sky, the one that fills its air with fog, the one that lays
+/// a material onto what is drawn, the one that draws what a camera sees into a render
+/// target, and the one that says how the picture is finished.
 ///
 /// @code
 /// const Entity crate = world.createEntity("Crate");
@@ -30,6 +31,9 @@
 ///                 "rotationDegrees": 90, "visible": true},
 /// "Fog": {"color": [0.5, 0.6, 0.7], "density": 0.02, "heightFalloff": 0.2,
 ///         "sunColor": [1, 0.7, 0.4], "sunExponent": 8},
+/// "Decal": {"material": "e967ddcf-f70d-8878-bac3-7975b0d5351c", "opacity": 1, "fadeAngle": 60,
+///           "order": 0},
+/// "SceneCapture": {"target": "7c9a0e44-1f2b-4c3d-9e8f-0a1b2c3d4e5f", "interval": 0},
 /// "PostProcess": {"global": true, "toneMapper": "filmic", "exposure": 0.5, "saturation": 0.85,
 ///                 "vignette": 0.3}
 /// @endcode
@@ -44,8 +48,10 @@
 #include "cordite/math/Math.h"
 #include "cordite/renderer/PostProcessSettings.h"
 #include "cordite/world/ComponentRegistry.h"
+#include "cordite/world/World.h"
 
 #include <cstdint>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -183,6 +189,20 @@ struct EnvironmentComponent {
     bool visible = true;
 };
 
+/// A camera of the scene that draws into a render target (RenderTarget.h) while the scene
+/// is shown, for materials to show what it sees: the screen of a security monitor, a
+/// mirror, the preview of a character. The Camera component of the same entity says how
+/// it sees - with the width and height of the target - and is never the game's camera:
+/// `primary` must be off. Its pictures are finished like a game's, before the views of
+/// the frame that show them; one that sees its own picture sees the frame before.
+struct SceneCaptureComponent {
+    /// The render target it draws into. Nil draws nothing.
+    Uuid target;
+    /// How long a picture is kept before the next is drawn, in seconds: 0 draws one every
+    /// frame, more saves what drawing costs where the picture may lag.
+    float interval = 0.0f;
+};
+
 /// A decal: a material laid onto whatever solid surfaces are inside the box of the entity
 /// - a cube of one metre about its origin, scaled, turned and placed by its transform -
 /// projected along the entity's -Z axis, as a light shines and a camera looks. Its image
@@ -261,8 +281,20 @@ struct PostProcessComponent : PostProcessSettings {
     float weight = 1.0f;
 };
 
+/// Something wrong with the render components of an entity, found without drawing.
+struct RenderProblem {
+    Entity entity;
+    /// One sentence, naming the component and what is wrong.
+    std::string message;
+};
+
+/// What can be told of the render components of `world` without drawing anything, in
+/// the order of the hierarchy: a SceneCapture whose entity has no Camera draws nothing,
+/// and one whose Camera is primary is the view of the game as well (findPrimaryCamera).
+[[nodiscard]] std::vector<RenderProblem> findRenderProblems(const World& world);
+
 /// Registers the renderer's components: "MeshRenderer", "Light", "AmbientLight",
-/// "Environment", "Fog" and "PostProcess".
+/// "Environment", "Fog", "Decal", "SceneCapture" and "PostProcess".
 [[nodiscard]] Status registerRendererComponents(ComponentRegistry& registry);
 
 } // namespace cordite
