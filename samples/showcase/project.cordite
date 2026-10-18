@@ -3,5 +3,9 @@
     "version": 1,
     "name": "Showcase",
     "startScene": "scenes/showcase.scene.json",
-    "inputMap": "input/controls.input.json"
+    "inputMap": "input/controls.input.json",
+    // The most the textures of the showcase may take together on the GPU, in mebibytes. Its
+    // textures take a few: past the budget every texture would be kept the same number of
+    // levels smaller, which the editor's statistics would show.
+    "textureBudgetMegabytes": 64
 }

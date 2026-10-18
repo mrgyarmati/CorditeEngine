@@ -113,6 +113,10 @@ TEST_SUITE("Game") {
             CHECK(*game->settings() == chosen);
             CHECK(engine.renderSize() == UVec2(400, 240));
             CHECK(renderQualityOf(engine.renderSettings()) == RenderQuality::Low);
+            // The quality is the textures' too, and the budget of the project is the game's.
+            REQUIRE(unwrap(game->runFrame()));
+            CHECK(engine.statistics().resources.textureLimit == 1024);
+            CHECK(engine.statistics().resources.textureBudgetBytes == uint64_t{64} << 20);
             CHECK(engine.audio().masterVolume() == 0.5f);
             CHECK(engine.audio().volume(AudioBus::Music) == 0.25f);
             CHECK(engine.audio().volume(AudioBus::Voice) == 0.0f);

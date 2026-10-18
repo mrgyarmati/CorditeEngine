@@ -98,6 +98,8 @@ cordite_add_module(renderer
         ShaderManager.h
         TestPatternPass.cpp
         TestPatternPass.h
+        TextureBudget.cpp
+        TextureBudget.h
         ViewBindings.cpp
         ViewBindings.h
         ViewConstants.h

@@ -242,6 +242,18 @@ void applyRenderQuality(RenderQuality quality, SceneRenderSettings& settings) {
     }
 }
 
+uint32_t textureLimitFor(RenderQuality quality) {
+    switch (quality) {
+        case RenderQuality::Low:
+            return 1024;
+        case RenderQuality::Medium:
+            return 2048;
+        case RenderQuality::High:
+            return 4096;
+    }
+    return 2048;
+}
+
 std::optional<RenderQuality> renderQualityOf(const SceneRenderSettings& settings) {
     for (const RenderQuality quality : kRenderQualities) {
         SceneRenderSettings preset;
@@ -514,7 +526,7 @@ FogVolumeGrid SceneRenderer::prepareFogLight(SceneTargets& targets, const SceneR
 
 void SceneRenderer::captureProbes(nvrhi::ICommandList* commandList, const World& world,
                                   const SceneRenderSettings& settings) {
-    const std::vector<ProbeCapture> captures = m_passes.probes.gather(world, m_resources->assetRevision());
+    const std::vector<ProbeCapture> captures = m_passes.probes.gather(world, m_resources->revision());
     if (captures.empty()) {
         return;
     }

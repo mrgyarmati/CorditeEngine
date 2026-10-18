@@ -36,6 +36,12 @@ TypeInfo describeProjectSettings() {
         .property("inputMap", &ProjectSettings::inputMap,
                   {.description = "The controls of the game - its actions and axes - as a path inside the "
                                   "asset directory"})
+        .property("textureBudgetMegabytes", &ProjectSettings::textureBudgetMegabytes,
+                  {.description = "The most the textures of the game may take together on the GPU, in mebibytes; "
+                                  "past it every texture is kept the same number of levels smaller. 0 for none",
+                   .minimum = 0.0,
+                   .maximum = 65536.0,
+                   .unit = "MiB"})
         .build();
 }
 

@@ -1453,6 +1453,11 @@ TEST_SUITE("EditorApp") {
         CHECK(answer["shadowQualities"] == json(R"(["off", "low", "medium", "high"])"));
         CHECK(answer["effectsQualities"] == json(R"(["off", "low", "medium", "high"])"));
         CHECK(answer["postProcessQualities"] == json(R"(["off", "low", "medium", "high"])"));
+        // The textures of the editor keep to the quality it started at.
+        CHECK(answer["textureLimit"] == 2048);
+        // And to the budget of the project: the showcase names one.
+        REQUIRE(editor->runFrames(1).has_value());
+        CHECK(run(*editor, "editor.statistics")["resources"]["textureBudgetBytes"] == uint64_t{64} << 20);
         CHECK(editor->viewport().shadowQuality() == ShadowQuality::Medium);
         CHECK(editor->viewport().screenEffectsQuality() == ScreenEffectsQuality::Medium);
         CHECK(editor->viewport().postProcessQuality() == PostProcessQuality::Medium);
@@ -1481,6 +1486,12 @@ TEST_SUITE("EditorApp") {
             CHECK(answer["postProcess"] == std::string(preset));
             CHECK(answer["lodErrorPixels"] == lodErrorPixels);
             CHECK(editor->viewport().lodErrorPixels() == lodErrorPixels);
+            // A preset sets how large the textures of the editor are kept, as a game's quality
+            // does: from the next frame on.
+            CHECK(answer["textureLimit"] == textureLimitFor(*renderQualityFromName(preset)));
+            REQUIRE(editor->runFrames(1).has_value());
+            CHECK(run(*editor, "editor.statistics")["resources"]["textureLimit"] ==
+                  textureLimitFor(*renderQualityFromName(preset)));
             // Asked again, the viewport is still at the preset: it keeps every part of it.
             CHECK(run(*editor, "viewport.quality")["preset"] == std::string(preset));
             const Image shown = unwrap(editor->captureViewport(UVec2(320, 180)));

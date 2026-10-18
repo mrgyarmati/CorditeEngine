@@ -5,7 +5,10 @@
 
 #include "support/TestSupport.h"
 
+#include <fmt/format.h>
+
 #include <string>
+#include <string_view>
 
 using namespace cordite;
 using cordite::test::TempDirectory;
@@ -42,7 +45,7 @@ TEST_SUITE("Project") {
         CHECK(directoryExists(root / "assets"));
         CHECK(unwrap(readTextFile(project.file())) ==
               "{\n    \"format\": \"cordite.project\",\n    \"version\": 1,\n    \"name\": \"My Game\",\n"
-              "    \"startScene\": \"\",\n    \"inputMap\": \"\"\n}\n");
+              "    \"startScene\": \"\",\n    \"inputMap\": \"\",\n    \"textureBudgetMegabytes\": 0\n}\n");
     }
 
     TEST_CASE("a project is loaded from its directory or from its file") {
@@ -209,9 +212,29 @@ TEST_SUITE("Project") {
         CHECK(gameFileName("licenses.") == "Game");
     }
 
+    TEST_CASE("a project may give its textures a budget, of up to 64 GiB") {
+        const TempDirectory directory;
+        const auto projectWith = [&](std::string_view budget) {
+            REQUIRE(writeTextFile(directory.path() / "project.cordite",
+                                  fmt::format(R"({{"format": "cordite.project", "version": 1, )"
+                                              R"("textureBudgetMegabytes": {}}})",
+                                              budget))
+                        .has_value());
+            return loadProject(directory.path());
+        };
+        CHECK(unwrap(projectWith("256")).settings.textureBudgetMegabytes == 256);
+        CHECK(unwrap(projectWith("0")).settings.textureBudgetMegabytes == 0);
+        CHECK(unwrap(projectWith("65536")).settings.textureBudgetMegabytes == 65536);
+        CHECK_FALSE(projectWith("65537").has_value());
+        CHECK_FALSE(projectWith("-1").has_value());
+        CHECK_FALSE(projectWith("\"a lot\"").has_value());
+        // None unless it says so.
+        CHECK(ProjectSettings().textureBudgetMegabytes == 0);
+    }
+
     TEST_CASE("the settings are described for tools") {
         const TypeInfo& type = projectSettingsTypeInfo();
-        CHECK(type.properties().size() == 3);
+        CHECK(type.properties().size() == 4);
         for (const PropertyInfo& property : type.properties()) {
             CHECK_FALSE(property.attributes().description.empty());
         }

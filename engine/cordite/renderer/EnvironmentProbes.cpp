@@ -230,8 +230,8 @@ Result<EnvironmentProbes> EnvironmentProbes::create(nvrhi::IDevice* device, Shad
                                    .project = std::move(project)});
 }
 
-std::vector<ProbeCapture> EnvironmentProbes::gather(const World& world, uint64_t assetRevision) {
-    m_assetRevision = assetRevision;
+std::vector<ProbeCapture> EnvironmentProbes::gather(const World& world, uint64_t resourceRevision) {
+    m_resourceRevision = resourceRevision;
     // By the ids of their entities: the same probes are left out on every run.
     std::vector<std::pair<Uuid, Vec3>> probes;
     const auto view = world.registry().view<const EnvironmentProbeComponent, const WorldTransform>();
@@ -279,7 +279,7 @@ std::vector<ProbeCapture> EnvironmentProbes::gather(const World& world, uint64_t
         const State& state = *found;
         // Compared exactly: a probe that has not moved is not taken again for rounding.
         const bool stale =
-            !state.taken || state.retake || state.takenAt != position || state.assetRevision != assetRevision;
+            !state.taken || state.retake || state.takenAt != position || state.resourceRevision != resourceRevision;
         if (stale && isFinite(position) && captures.size() < kMaxProbeCapturesPerFrame) {
             captures.push_back({.id = id, .position = position, .slot = state.slot});
         }
@@ -437,7 +437,7 @@ void EnvironmentProbes::project(nvrhi::ICommandList* commandList, const ProbeCap
     state.reflects = reflects;
     state.retake = false;
     state.takenAt = probe.position;
-    state.assetRevision = m_assetRevision;
+    state.resourceRevision = m_resourceRevision;
     ++m_captureCount;
 }
 

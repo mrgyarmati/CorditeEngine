@@ -18,7 +18,9 @@
 /// drawIndexed(mesh->vertexBuffer, mesh->indexBuffer, material.bindings);
 /// @endcode
 ///
-/// Textures have the format of their images, and all their mip levels. An image of
+/// Textures have the format of their images, and their mip levels from the first whose
+/// larger side is within the limit (setTextureLimit(), by the quality of the program) on -
+/// as many levels more as the budget of all textures asks (TextureBudget.h). An image of
 /// floating-point numbers - light, from an `.hdr` file - is kept as half floats, which
 /// every GPU can filter and which take half the memory; what is more than a half float
 /// holds (65504) is cut off there.
@@ -36,11 +38,13 @@
 #include "cordite/assets/RenderTarget.h"
 #include "cordite/core/Base.h"
 #include "cordite/core/Result.h"
+#include "cordite/renderer/TextureBudget.h"
 
 #include <nvrhi/nvrhi.h>
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -109,8 +113,16 @@ struct GpuMaterial {
 
 struct RenderResourcesDesc {
     /// A texture larger than this on either side is uploaded without its largest mip
-    /// levels, which bounds what one texture can cost in memory. Zero disables the limit.
+    /// levels, which bounds what one texture can cost in memory: the limit the resources
+    /// start with (RenderResources::setTextureLimit()). Zero disables the limit.
     uint32_t maxTextureDimension = 4096;
+
+    /// The most the textures of the assets may take together, in bytes; 0 for no budget.
+    /// When the textures known so far would take more, every one of them drops the same
+    /// number of levels more - the fewest at which they fit (TextureBudget.h), which the
+    /// log says whenever it grows. What is read texel by texel - a lookup table of colors -
+    /// is neither made smaller nor counted, and neither is what cannot be made.
+    uint64_t textureBudgetBytes = 0;
 
     /// How strongly textures are filtered where they are seen at a slant; 1 turns
     /// anisotropic filtering off, 16 is the most GPUs offer.
@@ -126,6 +138,12 @@ struct RenderResourceStatistics {
     uint64_t meshBytes = 0;
     /// Bytes of texture data, all mip levels included.
     uint64_t textureBytes = 0;
+    /// The largest side a texture keeps (RenderResources::setTextureLimit(); 0 for no
+    /// limit), and how many levels more every texture drops to stay within the budget.
+    uint32_t textureLimit = 0;
+    uint32_t textureLevelBias = 0;
+    /// The budget of all textures (RenderResourcesDesc::textureBudgetBytes; 0 for none).
+    uint64_t textureBudgetBytes = 0;
 };
 
 class RenderResources {
@@ -137,12 +155,24 @@ public:
     CORDITE_NON_MOVABLE(RenderResources);
 
     /// Call once per frame before asking for anything. When the asset manager has been
-    /// refreshed since the last call, everything is dropped and rebuilt on demand.
+    /// refreshed since the last call - or the textures are to be another size: another
+    /// limit, or a texture added that took them past their budget - everything is dropped
+    /// and rebuilt on demand.
     void beginFrame();
 
-    /// The revision of the asset database (AssetDatabase::revision()) the resources were
-    /// brought up to by the last beginFrame(): another one means the assets were read anew.
-    [[nodiscard]] uint64_t assetRevision() const { return m_assetRevision; }
+    /// Counts up whenever everything is dropped to be made anew, for either reason of
+    /// beginFrame(): what was made of the textures - the picture of a probe - is to be made
+    /// anew as well.
+    [[nodiscard]] uint64_t revision() const { return m_revision; }
+
+    /// Has every texture keep at most `limit` texels on its larger side (0 for no limit),
+    /// from the next beginFrame() on - not in the middle of a frame, while what was drawn
+    /// with the textures of now may still be shown.
+    void setTextureLimit(uint32_t limit) { m_requestedTextureLimit = limit; }
+
+    /// The limit the textures keep from the next beginFrame() on (setTextureLimit()); the
+    /// statistics say what the textures of now were made with.
+    [[nodiscard]] uint32_t textureLimit() const { return m_requestedTextureLimit; }
 
     /// The mesh for an asset id, or null when the id is nil or the mesh cannot be
     /// loaded. The pointer is valid until the next beginFrame().
@@ -158,10 +188,14 @@ public:
     [[nodiscard]] const GpuMaterial* loadedMaterial(const Uuid& id);
 
     /// The texture of an image asset as the numbers it holds, with no color space
-    /// undone: for what is not a material's, such as a lookup table of colors. Null
-    /// when the id is nil or the image cannot be loaded, which is reported once. The
-    /// pointer is valid until the next beginFrame().
-    [[nodiscard]] nvrhi::ITexture* dataTexture(const Uuid& id) { return texture(id, ColorSpace::Linear, nullptr); }
+    /// undone, at its own size whatever the limit and the budget: for what is not a
+    /// material's and is read texel by texel, such as a lookup table of colors, whose
+    /// structure would not survive being made smaller. Null when the id is nil or the
+    /// image cannot be loaded, which is reported once. The pointer is valid until the
+    /// next beginFrame().
+    [[nodiscard]] nvrhi::ITexture* dataTexture(const Uuid& id) {
+        return texture(id, ColorSpace::Linear, nullptr, TextureSize::AsItIs);
+    }
 
     /// The texture of an image asset as colors, for what is not a material's, such as
     /// an environment: an image of 8-bit numbers is taken as sRGB, one of floating-point
@@ -206,9 +240,16 @@ public:
 private:
     RenderResources(nvrhi::IDevice* device, AssetManager& assets, const RenderResourcesDesc& desc);
 
+    /// Whether a texture keeps to the limit and the budget, or keeps its size.
+    enum class TextureSize : uint8_t {
+        Limited,
+        AsItIs,
+    };
+
     struct TextureKey {
         Uuid id;
         ColorSpace colorSpace = ColorSpace::Linear;
+        TextureSize size = TextureSize::Limited;
         bool operator==(const TextureKey&) const = default;
     };
 
@@ -220,15 +261,24 @@ private:
     void clear();
     [[nodiscard]] nvrhi::ICommandList* uploadCommandList();
     [[nodiscard]] Result<GpuMesh> createMesh(const MeshData& mesh);
+    /// A texture of `image` from its level `firstLevel` on.
     [[nodiscard]] Result<nvrhi::TextureHandle> createTexture(const Image& image, ColorSpace colorSpace,
-                                                             const std::string& name);
+                                                             const std::string& name, uint32_t firstLevel);
     [[nodiscard]] Result<GpuMaterial> createMaterial(const MaterialData& material, const std::string& name);
     [[nodiscard]] Result<nvrhi::TextureHandle> createRenderTarget(const RenderTargetData& target,
                                                                   const std::string& name);
     /// The texture for a material slot: the asset's, or `fallback` when the id is nil or
     /// the texture cannot be loaded. A render target is a picture: in a slot of colors it
     /// is renderTarget(); in one of numbers it is reported once and `fallback` stands in.
-    [[nodiscard]] nvrhi::ITexture* texture(const Uuid& id, ColorSpace colorSpace, nvrhi::ITexture* fallback);
+    [[nodiscard]] nvrhi::ITexture* texture(const Uuid& id, ColorSpace colorSpace, nvrhi::ITexture* fallback,
+                                           TextureSize size = TextureSize::Limited);
+    /// The level bias at which every texture known so far fits the budget - with
+    /// `footprint` in the place of the texture of `key`, or beside them, when a key is given.
+    [[nodiscard]] uint32_t biasOfKnownTextures(const std::optional<TextureKey>& key = std::nullopt,
+                                               const TextureFootprint& footprint = {}) const;
+    /// Takes `bias` for every texture from now on: the textures made so far are made
+    /// again at the next beginFrame().
+    void takeBias(uint32_t bias);
     [[nodiscard]] Result<nvrhi::ISampler*> sampler(const MaterialData& material);
     [[nodiscard]] Result<nvrhi::TextureHandle> createSolidTexture(const Vec4& color, const std::string& name);
     /// The normal map of a material that has none: one texel that leaves the surface
@@ -244,7 +294,21 @@ private:
     nvrhi::IDevice* m_device;
     AssetManager& m_assets;
     RenderResourcesDesc m_desc;
+    /// The revision of the asset database the resources were brought up to.
     uint64_t m_assetRevision = 0;
+    /// What revision() says: how many times everything was dropped.
+    uint64_t m_revision = 0;
+    /// Every texture of the assets loaded since they were last read, whatever has been
+    /// dropped since: the bias is that of all of them, so that it does not depend on the
+    /// order they were asked for in.
+    std::unordered_map<TextureKey, TextureFootprint, TextureKeyHash> m_knownTextures;
+    uint32_t m_textureLimit = 0;
+    uint32_t m_requestedTextureLimit = 0;
+    uint32_t m_textureBias = 0;
+    /// The textures are to be made again at another size, at the next beginFrame().
+    bool m_texturesOutOfDate = false;
+    /// The largest bias the log has been told of.
+    uint32_t m_reportedBias = 0;
 
     nvrhi::BindingLayoutHandle m_materialLayout;
     nvrhi::CommandListHandle m_uploadCommandList;

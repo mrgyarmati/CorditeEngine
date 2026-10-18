@@ -54,6 +54,12 @@ TEST_SUITE("RenderQuality") {
         CHECK(settings.deltaSeconds == 0.5f);
     }
 
+    TEST_CASE("a quality keeps textures up to a size of its own, larger at a higher quality") {
+        CHECK(textureLimitFor(RenderQuality::Low) == 1024);
+        CHECK(textureLimitFor(RenderQuality::Medium) == 2048);
+        CHECK(textureLimitFor(RenderQuality::High) == 4096);
+    }
+
     TEST_CASE("settings say which quality they are at, when they are at one") {
         // As they come, a view is drawn at medium quality.
         SceneRenderSettings settings;

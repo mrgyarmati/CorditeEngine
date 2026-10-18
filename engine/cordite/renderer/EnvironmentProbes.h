@@ -26,7 +26,7 @@
 /// CORDITE_TRY_ASSIGN(EnvironmentProbes probes, EnvironmentProbes::create(device, shaders));
 ///
 /// // Once a frame, before any view:
-/// for (const ProbeCapture& capture : probes.gather(world, assets.database().revision())) {
+/// for (const ProbeCapture& capture : probes.gather(world, resources.revision())) {
 ///     for (uint32_t face = 0; face < kCubeFaceCount; ++face) {
 ///         renderer.render(commandList, world, probeFaceView(capture.position, face), targets, captureSettings);
 ///         probes.copyFace(commandList, targets.sceneColor(), face);
@@ -155,11 +155,12 @@ public:
 
     /// The probes of `world` whose pictures are to be taken now, by the ids of their
     /// entities: those not taken yet, those whose entity has moved since, and all of them
-    /// when the assets have been read anew (`assetRevision` is AssetDatabase::revision())
-    /// or capture() has been called - at most kMaxProbeCapturesPerFrame of them; the rest
+    /// when what they were drawn with has been made anew - the assets read again, or the
+    /// textures made another size (`resourceRevision` is RenderResources::revision()) - or
+    /// capture() has been called - at most kMaxProbeCapturesPerFrame of them; the rest
     /// come in the calls after. The probes of entities that are gone or switched off are
     /// forgotten. After each, copyFace() for every face and project().
-    [[nodiscard]] std::vector<ProbeCapture> gather(const World& world, uint64_t assetRevision);
+    [[nodiscard]] std::vector<ProbeCapture> gather(const World& world, uint64_t resourceRevision);
 
     /// Has the pictures of all probes taken again, from the next gather() on.
     void capture();
@@ -225,12 +226,12 @@ private:
         /// The id of the entity.
         Uuid id;
         uint32_t slot = 0;
-        /// Where its picture was taken from, and with which assets; not taken while false.
+        /// Where its picture was taken from, and with which resources; not taken while false.
         bool taken = false;
         /// Whether its cube of reflections was drawn.
         bool reflects = false;
         Vec3 takenAt{0.0f};
-        uint64_t assetRevision = 0;
+        uint64_t resourceRevision = 0;
         /// Asked to be taken again (capture()); lights with its old picture until it is.
         bool retake = false;
     };
@@ -266,8 +267,8 @@ private:
     std::vector<State> m_states;
     /// The slots no probe holds.
     std::vector<uint32_t> m_freeSlots;
-    /// The assets of the last gather(), which the pictures it asks for are taken with.
-    uint64_t m_assetRevision = 0;
+    /// The resources of the last gather(), which the pictures it asks for are taken with.
+    uint64_t m_resourceRevision = 0;
     uint32_t m_captureCount = 0;
     uint32_t m_dropped = 0;
     bool m_reportedDropped = false;

@@ -112,6 +112,9 @@ Json describeFrameStatistics(const FrameStatistics& statistics) {
     resources["materials"] = statistics.resources.materialCount;
     resources["meshBytes"] = statistics.resources.meshBytes;
     resources["textureBytes"] = statistics.resources.textureBytes;
+    resources["textureLimit"] = statistics.resources.textureLimit;
+    resources["textureLevelBias"] = statistics.resources.textureLevelBias;
+    resources["textureBudgetBytes"] = statistics.resources.textureBudgetBytes;
 
     Json physics = Json::object();
     physics["steps"] = statistics.physics.steps;
@@ -222,6 +225,11 @@ void StatisticsPanel::draw(const FrameStatistics& statistics, bool& open) {
                                   static_cast<double>(resources.meshBytes) / kBytesPerMebibyte));
         row("Textures", fmt::format("{} ({:.1f} MiB)", resources.textureCount,
                                     static_cast<double>(resources.textureBytes) / kBytesPerMebibyte));
+        row("Texture size", resources.textureBudgetBytes == 0
+                                ? fmt::format("up to {} texels, no budget", resources.textureLimit)
+                                : fmt::format("up to {} texels, {} levels smaller for a budget of {:.0f} MiB",
+                                              resources.textureLimit, resources.textureLevelBias,
+                                              static_cast<double>(resources.textureBudgetBytes) / kBytesPerMebibyte));
         row("Materials", fmt::format("{}", resources.materialCount));
         ImGui::EndTable();
     }

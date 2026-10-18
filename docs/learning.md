@@ -132,6 +132,7 @@ this order. Then each step, with its shader in `shaders/`:
 | Depth pre-pass, then the G-buffer | `SceneTargets.h` | `passes/MeshDepth.slang`, `passes/MeshGBuffer.slang`, `common/GBuffer.slang` | "A depth pre-pass, then a base pass on equal depth", "The G-buffer is four targets and depth" |
 | Decals, laid onto the G-buffer | `Decals.h`, `DecalPass.h` | `passes/Decal.slang`, `common/Decals.slang` | "Decals are laid onto the G-buffer" |
 | Ambient occlusion | `AmbientOcclusion.h`, `AmbientOcclusionPass.h` | `passes/AmbientOcclusion.slang`, `common/AmbientOcclusion.slang` | "Ambient occlusion is measured from the surface, in slices" |
+| Texture memory | `TextureBudget.h`, `RenderResources.h` | - | "Textures keep to a budget by one bias for all of them" |
 | Reflections from the screen | `ScreenReflections.h`, `ScreenReflectionPass.h` | `common/ScreenReflections.slang`, `passes/ScreenReflectionTrace.slang`, `passes/ScreenReflectionComposite.slang`, `common/GBufferSurface.slang` | "A reflection found on the screen replaces the surroundings' exactly" |
 | Lights, sorted into clusters, and their cookies | `LightClusters.h`, `SceneLights.h`, `LightCookies.h` | `common/Lights.slang` | "Lights are found through clusters, built on the CPU", "Brightness is set for artists, computed in radiance", "A cookie is a layer of one array, filled on the CPU" |
 | Deferred lighting | `DeferredLightingPass.h` | `passes/DeferredLighting.slang`, `common/SceneLighting.slang`, `common/Brdf.slang` | "Solid surfaces are shaded deferred, translucent ones forward" |

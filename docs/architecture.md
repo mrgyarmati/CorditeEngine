@@ -970,6 +970,36 @@ Decisions:
   own pixels in front of it, half a pixel's width away - at any angle, which is why the
   offset is a pixel's width in metres and not a distance chosen once.
 
+### Textures keep to a budget by one bias for all of them
+
+The brief asks for textures streamed in, or at the least for budgets of texture memory that
+can be predicted. Streaming - each texture as sharp as it is seen large, its levels loaded as
+the camera comes near - is a system of its own: what is seen how large, loading that keeps
+up with the camera, and memory that changes from frame to frame. What is built is the
+budget, and it is meant to be predicted.
+
+Decisions:
+
+- **Two bounds: the quality's and the project's.** The quality of the program caps the
+  largest side a texture keeps (1024, 2048, 4096 texels), so what one texture costs is
+  known before it is loaded; the project's budget caps what all of them take together.
+  The cap is the program's and not a view's: the views of a program share one set of
+  textures, and a texture cannot be two sizes at once.
+- **One bias for all the textures, set by all of them.** Past the budget every texture
+  drops the same number of levels - the fewest at which the textures known so far fit.
+  Dropping levels of each texture as it comes would be determined, but not predictable:
+  two players at the same place would see different textures blurred, depending on what
+  each looked at first, and the editor and the game would differ. The bias follows from
+  the set of textures, not from their order; a test asks for the same textures in two
+  orders and holds them to the same sizes.
+- **Applied between frames, by dropping everything.** A change takes effect at the start
+  of the next frame, where the resources already drop everything when the assets are
+  read again: the interface may hold a pointer to a texture until its frame is drawn,
+  and what is counted of the GPU's memory stays exact. What was made of the textures -
+  the pictures of probes - is made again with them.
+- **What is read texel by texel keeps its size.** A lookup table of colors is not a
+  picture: smaller, it is no table. It is neither limited nor counted.
+
 ### Fog is a formula in the lighting, not a pass
 
 Fog takes light away on its way to the viewer and puts its own color in its place:

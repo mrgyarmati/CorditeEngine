@@ -68,6 +68,7 @@ Result<std::unique_ptr<Game>> Game::create(GameDesc desc) {
         engineDesc.window.title = project.settings.name;
     }
     engineDesc.assetDirectory = project.assetDirectory();
+    engineDesc.textureBudgetBytes = uint64_t{project.settings.textureBudgetMegabytes} << 20;
     if (engineDesc.cacheDirectory.empty()) {
         engineDesc.cacheDirectory = project.cacheDirectory();
     }
@@ -78,7 +79,7 @@ Result<std::unique_ptr<Game>> Game::create(GameDesc desc) {
     if (game->m_settings) {
         applyGameSettings(*game->m_settings, engine);
     } else if (desc.overrides.quality) {
-        applyRenderQuality(*desc.overrides.quality, engine.renderSettings());
+        engine.setRenderQuality(*desc.overrides.quality);
     }
 
     // Read as strictly as the editor reads them: a game whose controls cannot be read does not start.

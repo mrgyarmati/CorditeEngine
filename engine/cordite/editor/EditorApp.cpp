@@ -158,6 +158,7 @@ Result<std::unique_ptr<EditorApp>> EditorApp::create(const EditorAppDesc& desc) 
     if (!desc.project.empty()) {
         CORDITE_TRY_ASSIGN(Project project, loadProject(desc.project));
         engineDesc.assetDirectory = project.assetDirectory();
+        engineDesc.textureBudgetBytes = uint64_t{project.settings.textureBudgetMegabytes} << 20;
         stateDirectory = project.cacheDirectory();
         if (scene.empty()) {
             scene = project.startScenePath();
@@ -604,20 +605,22 @@ Status EditorApp::registerApplicationCommands() {
 
     CORDITE_TRY(m_commands.add({
         .name = "viewport.quality",
-        .description = "Chooses how much the picture in the viewport may cost. \"preset\" sets everything by "
-                       "one word (\"low\", \"medium\", \"high\"); \"shadows\" sets the shadows alone (\"off\" "
-                       "draws none; the others give the shadow maps of a view an atlas of 2048, 4096 and 8192 "
-                       "texels a side to share), \"effects\" what is worked out from the screen - ambient "
-                       "occlusion (\"off\" draws none; \"low\" and \"medium\" work it out for one pixel in "
-                       "four, \"high\" for every pixel) - and \"postProcess\" the finishing of the picture "
-                       "alone (\"off\" shows the light as the renderer worked it out, without exposure, bloom, "
-                       "tone mapping or grading), and \"lodErrorPixels\" how large the error of a level of "
-                       "detail may look, in pixels (a preset sets 2, 1 and a half; 0 draws every mesh at its "
-                       "finest). \"antiAliasing\" says how the steps of slanted edges are "
-                       "smoothed in a finished picture: \"fxaa\" from the picture itself, \"off\" not at all; "
-                       "no preset changes it. Returns what is now in use and all there is to choose from; "
-                       "without parameters it changes nothing. A game sets its own quality; this is the "
-                       "editor's view of the scene.",
+        .description =
+            "Chooses how much the picture in the viewport may cost. \"preset\" sets everything by "
+            "one word (\"low\", \"medium\", \"high\") - also the largest side the textures keep, 1024, "
+            "2048 and 4096 texels, which every view of the editor shares; \"shadows\" sets the shadows alone (\"off\" "
+            "draws none; the others give the shadow maps of a view an atlas of 2048, 4096 and 8192 "
+            "texels a side to share), \"effects\" what is worked out from the screen - ambient "
+            "occlusion (\"off\" draws none; \"low\" and \"medium\" work it out for one pixel in "
+            "four, \"high\" for every pixel) - and \"postProcess\" the finishing of the picture "
+            "alone (\"off\" shows the light as the renderer worked it out, without exposure, bloom, "
+            "tone mapping or grading), and \"lodErrorPixels\" how large the error of a level of "
+            "detail may look, in pixels (a preset sets 2, 1 and a half; 0 draws every mesh at its "
+            "finest). \"antiAliasing\" says how the steps of slanted edges are "
+            "smoothed in a finished picture: \"fxaa\" from the picture itself, \"off\" not at all; "
+            "no preset changes it. Returns what is now in use and all there is to choose from; "
+            "without parameters it changes nothing. A game sets its own quality; this is the "
+            "editor's view of the scene.",
         .parameters = {{"preset", Type::String,
                         "Sets shadows, screen effects and finishing together, by one of the names above.", false},
                        {"shadows", Type::String, "The quality of the shadows; applied after the preset.", false},
@@ -633,6 +636,7 @@ Status EditorApp::registerApplicationCommands() {
         .handler = [this](const Json& parameters) -> Result<Json> {
             // All of them are checked before any of them is applied.
             SceneRenderSettings wanted;
+            std::optional<RenderQuality> chosenPreset;
             wanted.shadowQuality = m_viewport->shadowQuality();
             wanted.screenEffectsQuality = m_viewport->screenEffectsQuality();
             wanted.postProcessQuality = m_viewport->postProcessQuality();
@@ -645,6 +649,7 @@ Status EditorApp::registerApplicationCommands() {
                                      name);
                 }
                 applyRenderQuality(*preset, wanted);
+                chosenPreset = preset;
             }
             if (const auto name = jsonGetOr<std::string>(parameters, "shadows", ""); !name.empty()) {
                 const std::optional<ShadowQuality> quality = shadowQualityFromName(name);
@@ -699,6 +704,10 @@ Status EditorApp::registerApplicationCommands() {
             m_viewport->setPostProcessQuality(wanted.postProcessQuality);
             m_viewport->setLodErrorPixels(wanted.lodErrorPixels);
             m_viewport->setAntiAliasing(wanted.antiAliasing);
+            RenderResources& resources = m_engine->sceneRenderer().resources();
+            if (chosenPreset) {
+                resources.setTextureLimit(textureLimitFor(*chosenPreset));
+            }
 
             Json result = Json::object();
             const std::optional<RenderQuality> preset = renderQualityOf(wanted);
@@ -708,6 +717,7 @@ Status EditorApp::registerApplicationCommands() {
             result["postProcess"] = nameOf(wanted.postProcessQuality);
             result["lodErrorPixels"] = jsonFromFloat(wanted.lodErrorPixels);
             result["antiAliasing"] = nameOf(wanted.antiAliasing);
+            result["textureLimit"] = resources.textureLimit();
             result["presets"] = Json::array();
             for (const RenderQuality quality : kRenderQualities) {
                 result["presets"].push_back(nameOf(quality));
@@ -1552,11 +1562,9 @@ void EditorApp::drawViewMenu() {
         for (const RenderQuality quality : kRenderQualities) {
             const std::string label(displayNameOf(quality));
             if (ImGui::MenuItem(label.c_str(), nullptr, preset == quality)) {
-                applyRenderQuality(quality, current);
-                m_viewport->setShadowQuality(current.shadowQuality);
-                m_viewport->setScreenEffectsQuality(current.screenEffectsQuality);
-                m_viewport->setPostProcessQuality(current.postProcessQuality);
-                m_viewport->setLodErrorPixels(current.lodErrorPixels);
+                // By the command: a preset is also the size of the textures, which every
+                // view of the editor shares.
+                m_submittedLines.push_back(fmt::format(R"(viewport.quality {{"preset": "{}"}})", nameOf(quality)));
             }
         }
         ImGui::Separator();

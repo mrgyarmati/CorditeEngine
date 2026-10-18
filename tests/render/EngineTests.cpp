@@ -10,6 +10,7 @@
 #include "cordite/audio/AudioSystem.h"
 #include "cordite/core/FileSystem.h"
 #include "cordite/core/Log.h"
+#include "cordite/engine/GameSettings.h"
 #include "cordite/engine/Project.h"
 #include "cordite/math/Color.h"
 #include "cordite/math/Transform.h"
@@ -539,6 +540,28 @@ TEST_SUITE("Engine") {
             stops += (std::log2(0.18f / 2.0f) - stops) * (1.0f - std::exp(-0.1f * 2.0f));
             CHECK(brightness() == doctest::Approx(std::min(2.0f * std::exp2(stops), 1.0f)).epsilon(0.03));
         }
+        checkNoValidationIssues(engine->graphics());
+    }
+
+    TEST_CASE("a quality says how large the textures of the whole program are kept, as a game's settings say it") {
+        const std::unique_ptr<Engine> engine = createEngine(headlessDesc(UVec2(64, 64)));
+        // An engine keeps to the quality its settings start at: medium.
+        runFrames(*engine, 1);
+        CHECK(engine->statistics().resources.textureLimit == 2048);
+
+        engine->setRenderQuality(RenderQuality::Low);
+        CHECK(engine->renderSettings().shadowQuality == ShadowQuality::Low);
+        CHECK(engine->sceneRenderer().resources().textureLimit() == 1024);
+        runFrames(*engine, 1);
+        CHECK(engine->statistics().resources.textureLimit == 1024);
+
+        // The settings of a player say it with the rest.
+        GameSettings settings;
+        settings.quality = RenderQuality::High;
+        applyGameSettings(settings, *engine);
+        runFrames(*engine, 1);
+        CHECK(engine->statistics().resources.textureLimit == 4096);
+        CHECK(engine->renderSettings().shadowQuality == ShadowQuality::High);
         checkNoValidationIssues(engine->graphics());
     }
 

@@ -557,6 +557,10 @@ TEST_SUITE("EnvironmentProbes") {
         }
         takeProbes(scene);
         CHECK(probes.captureCount() == 10);
+        // Textures made another size look otherwise too.
+        scene.renderer->resources().setTextureLimit(16);
+        takeAllProbes(scene);
+        CHECK(probes.captureCount() == 14);
         checkNoValidationIssues(*scene.context.graphics);
     }
 

@@ -201,9 +201,13 @@ Status Engine::Impl::initialize() {
     CORDITE_TRY_ASSIGN(assets, AssetManager::create({.rootDirectory = desc.assetDirectory,
                                                      .writeMetaFiles = desc.writeAssetMetaFiles,
                                                      .readReferences = assetReferenceReader(components)}));
+    // The textures keep to the quality the render settings start at, until another is set.
+    const RenderQuality startQuality = renderQualityOf(renderSettings).value_or(RenderQuality::Medium);
     CORDITE_TRY_ASSIGN(sceneRenderer,
                        SceneRenderer::create(device, *shaderManager, *assets,
-                                             {.supportsWireframe = graphics->adapter().supportsWireframe}));
+                                             {.resources = {.maxTextureDimension = textureLimitFor(startQuality),
+                                                            .textureBudgetBytes = desc.textureBudgetBytes},
+                                              .supportsWireframe = graphics->adapter().supportsWireframe}));
 
     CORDITE_TRY_ASSIGN(physics, PhysicsSystem::create(desc.physics));
     CORDITE_TRY_ASSIGN(scripts, ScriptSystem::create(desc.scripts));
@@ -276,6 +280,11 @@ Result<bool> Engine::beginFrame() {
             CORDITE_TRY(impl.frameTarget.resize(impl.graphics->device(), impl.backBuffer.size));
         }
     }
+
+    // What the GPU holds of the assets is brought up to date once, before anything of the
+    // frame asks for it - also in a frame that draws nothing: another texture limit, or
+    // assets read again, apply from here on.
+    impl.sceneRenderer->resources().beginFrame();
 
     impl.commandList->open();
     impl.gpuTimer->begin(impl.commandList);
@@ -478,6 +487,11 @@ SceneRenderSettings& Engine::renderSettings() {
 
 const SceneRenderSettings& Engine::renderSettings() const {
     return m_impl->renderSettings;
+}
+
+void Engine::setRenderQuality(RenderQuality quality) {
+    applyRenderQuality(quality, m_impl->renderSettings);
+    m_impl->sceneRenderer->resources().setTextureLimit(textureLimitFor(quality));
 }
 
 void Engine::requestExit() {

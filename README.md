@@ -30,6 +30,7 @@ number are what its list of milestones leaves out and its requirements ask for:
 | - | Lights that light the fog: a fog that says so is lit by every light, as much as each light's `volumetricIntensity` says, through the lights' shadows and cookies - the beam of a spot light in haze, the glow of a lamp, the sun between shadows - worked out by two compute passes over a grid laid over the view, as fine as the view's screen effects quality, and read by the lighting of solid and translucent surfaces alike; the showcase's lamp is a cone of light in its haze | Done |
 | - | Environment probes: pictures the renderer takes of the scene around a point - six views, once, and again when the probe moves or the editor asks - that light what is in the probe's box in the place of the environment: matte surfaces by nine harmonics worked out on the GPU, shiny ones by a cube blurred for every roughness, looked up where reflections meet the box; probes fade into one another and the environment by priority; the showcase's stage has one | Done |
 | - | Reflections from the screen: what a reflection meets in the picture takes the place of what the environment, a probe or the ambient lights give a smooth surface to reflect, exactly - fading towards the borders of the picture, with distance and with roughness - followed as finely as the screen effects quality says; probes are taken without them, and nothing is drawn for a view in which nothing can be smooth enough; the showcase's mirror plate reflects the crate | Done |
+| - | Predictable texture memory: a texture keeps at most 1024, 2048 or 4096 texels a side by the quality of the program, and past the project's budget every texture is kept the same number of levels smaller - the fewest at which all of them fit, whatever order they came in; lookup tables keep their size | Done |
 | - | Motion blur: what moves while the shutter is open is smeared along the way it went - a figure running past, the world seen from a turning camera - as much as `PostProcess` components say (the share of the time between two pictures the shutter is open), from motion vectors the base pass writes for every pixel: where each entity, each pose of a figure and the camera were when the view was last drawn; what the camera follows stays sharp, a cut to another shot starts sharp, the editor's own camera does not blur; a render view shows how far each pixel went | Done |
 | - | Decals: grime, cracks, rust and markings - a material laid onto the solid surfaces inside the box of an entity, projected along its -Z axis: color, roughness, metal and specular blended in by how much of the material there is, its normal map bending what it lands on, its light added; fading on surfaces that turn away, laid on in an order of their own; the `Decal` component | Done |
 | - | Levels of detail: every mesh of many triangles gets coarser versions of itself when it is loaded, and a view draws the coarsest that looks the same to within a pixel - its shadow too - as the quality of the view says; a render view shows the level of each mesh | Done |
@@ -60,8 +61,9 @@ scene when it plays the scene, and a single sound when one is chosen in the Asse
 and played there.
 
 What the brief asks of the renderer and its cameras that no milestone names, and that
-is not built yet: temporal anti-aliasing, lens flares, rect lights, baked lighting, texture
-streaming, and more than one viewport in the editor. They follow once the milestones above stand.
+is not built yet: temporal anti-aliasing, lens flares, rect lights, baked lighting, textures
+streamed by how large they are seen (they keep to a limit and a budget instead), and more than
+one viewport in the editor. They follow once the milestones above stand.
 
 ## Building
 

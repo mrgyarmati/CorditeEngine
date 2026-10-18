@@ -85,13 +85,19 @@ std::vector<uint16_t> halfFloatsOf(const Image& image) {
     return halves;
 }
 
-/// The first level of a mip chain to upload, so that no side exceeds `limit`.
-uint32_t firstLevelWithin(uint32_t width, uint32_t height, uint32_t limit, uint32_t levelCount) {
-    uint32_t level = 0;
-    while (limit != 0 && level + 1 < levelCount && std::max(width >> level, height >> level) > limit) {
-        ++level;
+/// How many bytes a texel of an image of `format` takes on the GPU (textureFormat()).
+uint32_t bytesPerTexelOf(ImageFormat format) {
+    switch (format) {
+        case ImageFormat::R8:
+            return 1;
+        case ImageFormat::Rg8:
+            return 2;
+        case ImageFormat::Rgba8:
+            return 4;
+        case ImageFormat::Rgba32F:
+            return 8;
     }
-    return level;
+    return 4;
 }
 
 /// The bytes of a cookie array of `layers` layers of `size` pixels square, every level of
@@ -108,11 +114,19 @@ uint64_t cookieArrayBytes(uint32_t size, uint32_t layers) {
 } // namespace
 
 size_t RenderResources::TextureKeyHash::operator()(const TextureKey& key) const noexcept {
-    return std::hash<Uuid>()(key.id) ^ (key.colorSpace == ColorSpace::Srgb ? 0x9e3779b97f4a7c15ull : 0ull);
+    return std::hash<Uuid>()(key.id) ^ (key.colorSpace == ColorSpace::Srgb ? 0x9e3779b97f4a7c15ull : 0ull) ^
+           (key.size == TextureSize::AsItIs ? 0xc2b2ae3d27d4eb4full : 0ull);
 }
 
 RenderResources::RenderResources(nvrhi::IDevice* device, AssetManager& assets, const RenderResourcesDesc& desc)
-    : m_device(device), m_assets(assets), m_desc(desc) {}
+    : m_device(device),
+      m_assets(assets),
+      m_desc(desc),
+      m_textureLimit(desc.maxTextureDimension),
+      m_requestedTextureLimit(desc.maxTextureDimension) {
+    m_statistics.textureLimit = m_textureLimit;
+    m_statistics.textureBudgetBytes = desc.textureBudgetBytes;
+}
 
 RenderResources::~RenderResources() {
     if (m_uploadCommandList) {
@@ -176,15 +190,65 @@ void RenderResources::clear() {
     m_cookieCount = 0;
     m_failedMeshes.clear();
     m_statistics = m_permanentStatistics;
+    m_statistics.textureLimit = m_textureLimit;
+    m_statistics.textureLevelBias = m_textureBias;
+    m_statistics.textureBudgetBytes = m_desc.textureBudgetBytes;
+    ++m_revision;
 }
 
 void RenderResources::beginFrame() {
     const uint64_t revision = m_assets.database().revision();
-    if (revision != m_assetRevision) {
+    const bool assetsReadAgain = revision != m_assetRevision;
+    if (assetsReadAgain) {
         m_assetRevision = revision;
-        // The GPU objects stay alive for as long as command lists in flight use them.
+        // Another set of assets: their textures are found anew.
+        m_knownTextures.clear();
+        m_texturesOutOfDate = true;
+    }
+    if (m_requestedTextureLimit != m_textureLimit) {
+        m_textureLimit = m_requestedTextureLimit;
+        m_texturesOutOfDate = true;
+    }
+    if (m_texturesOutOfDate) {
+        m_textureBias = biasOfKnownTextures();
+        m_texturesOutOfDate = false;
+        // Everything, not just the textures: what is counted of them stays right. The GPU
+        // objects stay alive for as long as command lists in flight use them.
         clear();
     }
+}
+
+uint32_t RenderResources::biasOfKnownTextures(const std::optional<TextureKey>& key,
+                                              const TextureFootprint& footprint) const {
+    std::vector<TextureFootprint> known;
+    known.reserve(m_knownTextures.size() + 1);
+    for (const auto& [knownKey, knownFootprint] : m_knownTextures) {
+        if (knownKey != key) {
+            known.push_back(knownFootprint);
+        }
+    }
+    if (key) {
+        known.push_back(footprint);
+    }
+    return textureBiasFor(known, m_textureLimit, m_desc.textureBudgetBytes);
+}
+
+void RenderResources::takeBias(uint32_t bias) {
+    if (bias == m_textureBias) {
+        return;
+    }
+    // Said whenever it grows, with how far: what the textures take is what a person
+    // tunes a budget by.
+    if (bias > m_reportedBias) {
+        CORDITE_LOG_WARN("Renderer",
+                         "the textures in use take more than their budget of {} bytes: every one of them is kept "
+                         "{} levels smaller than the limit of {} texels allows",
+                         m_desc.textureBudgetBytes, bias, m_textureLimit);
+        m_reportedBias = bias;
+    }
+    m_textureBias = bias;
+    m_statistics.textureLevelBias = bias;
+    m_texturesOutOfDate = true;
 }
 
 nvrhi::ICommandList* RenderResources::uploadCommandList() {
@@ -328,12 +392,13 @@ const GpuMesh* RenderResources::mesh(const Uuid& id) {
 }
 
 Result<nvrhi::TextureHandle> RenderResources::createTexture(const Image& image, ColorSpace colorSpace,
-                                                            const std::string& name) {
+                                                            const std::string& name, uint32_t firstLevel) {
     CORDITE_TRY_ASSIGN(const std::vector<Image> smaller, generateMipChain(image, colorSpace));
 
     // Level 0 is the image itself; the chain holds the rest.
     const auto levelCount = static_cast<uint32_t>(smaller.size() + 1);
-    const uint32_t firstLevel = firstLevelWithin(image.width(), image.height(), m_desc.maxTextureDimension, levelCount);
+    CORDITE_ASSERT(firstLevel < levelCount, "a texture starts at one of its levels");
+    firstLevel = std::min(firstLevel, levelCount - 1);
     const auto level = [&](uint32_t index) -> const Image& { return index == 0 ? image : smaller[index - 1]; };
 
     nvrhi::TextureDesc desc;
@@ -456,7 +521,7 @@ int32_t RenderResources::cookieLayer(const Uuid& id) {
 Result<nvrhi::TextureHandle> RenderResources::createSolidTexture(const Vec4& color, const std::string& name) {
     CORDITE_TRY_ASSIGN(Image image, Image::create(1, 1, ImageFormat::Rgba8));
     image.setPixel(0, 0, color);
-    return createTexture(image, ColorSpace::Linear, name);
+    return createTexture(image, ColorSpace::Linear, name, 0);
 }
 
 Result<nvrhi::TextureHandle> RenderResources::createFlatNormalTexture() {
@@ -534,7 +599,8 @@ Result<nvrhi::TextureHandle> RenderResources::createRenderTarget(const RenderTar
     return texture;
 }
 
-nvrhi::ITexture* RenderResources::texture(const Uuid& id, ColorSpace colorSpace, nvrhi::ITexture* fallback) {
+nvrhi::ITexture* RenderResources::texture(const Uuid& id, ColorSpace colorSpace, nvrhi::ITexture* fallback,
+                                          TextureSize size) {
     if (id.isNil()) {
         return fallback;
     }
@@ -552,7 +618,7 @@ nvrhi::ITexture* RenderResources::texture(const Uuid& id, ColorSpace colorSpace,
         }
         return fallback;
     }
-    const TextureKey key{id, colorSpace};
+    const TextureKey key{.id = id, .colorSpace = colorSpace, .size = size};
     if (const auto found = m_textures.find(key); found != m_textures.end()) {
         // A null entry records a texture that could not be loaded.
         return found->second ? found->second.Get() : fallback;
@@ -563,7 +629,22 @@ nvrhi::ITexture* RenderResources::texture(const Uuid& id, ColorSpace colorSpace,
 
     Result<nvrhi::TextureHandle> created = makeError(ErrorCode::Unknown, "not loaded");
     if (Result<std::shared_ptr<const Image>> loaded = m_assets.loadTexture(id)) {
-        created = createTexture(**loaded, colorSpace, name);
+        const Image& image = **loaded;
+        if (size == TextureSize::Limited) {
+            const TextureFootprint footprint{
+                .width = image.width(), .height = image.height(), .bytesPerTexel = bytesPerTexelOf(image.format())};
+            // One more texture may take them all past the budget: then every one of them
+            // drops a level more - this one now, the others at the next frame. What cannot
+            // be made does not count.
+            const uint32_t bias = biasOfKnownTextures(key, footprint);
+            created = createTexture(image, colorSpace, name, firstTextureLevel(footprint, m_textureLimit, bias));
+            if (created) {
+                m_knownTextures.insert_or_assign(key, footprint);
+                takeBias(bias);
+            }
+        } else {
+            created = createTexture(image, colorSpace, name, 0);
+        }
     } else {
         created = tl::unexpected(loaded.error());
     }

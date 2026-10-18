@@ -26,12 +26,17 @@ my-game/
     "version": 1,
     "name": "My Game",
     "startScene": "scenes/main.scene.json",
-    "inputMap": "input/controls.input.json"
+    "inputMap": "input/controls.input.json",
+    "textureBudgetMegabytes": 256
 }
 ```
 
 The start scene and the input map are named by where they are in the assets, with forward
-slashes. Double-click `project.cordite` to open the project in the editor (on Windows the
+slashes. `textureBudgetMegabytes` is the most the game's textures may take together on the
+GPU (0, or leaving it out, for no budget): past it, every texture is kept the same number of
+mip levels smaller - the fewest at which they fit - which View > Statistics shows. How large
+a texture is kept is also the quality's: up to 1024, 2048 or 4096 texels a side at a low, a
+medium and a high quality. Double-click `project.cordite` to open the project in the editor (on Windows the
 editor registers itself for these files the first time it runs).
 
 ## Kinds of assets

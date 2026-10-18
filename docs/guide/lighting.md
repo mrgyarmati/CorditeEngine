@@ -216,7 +216,9 @@ What a picture costs - the size of the shadow atlas, how many samples ambient oc
 takes, in how many steps reflections are followed, how far anti-aliasing searches - is a quality of the view, not of the scene: `low`,
 `medium` or `high`, chosen in the editor's View > Quality menu (`viewport.quality`). The look
 stays the same at every quality; only detail and cost change. At a lower quality, meshes
-also change to their coarser levels of detail sooner.
+also change to their coarser levels of detail sooner, and textures are kept smaller: up to
+1024, 2048 or 4096 texels a side - for every view of the program at once, since they share
+their textures.
 
 ## Seeing what the renderer sees
 

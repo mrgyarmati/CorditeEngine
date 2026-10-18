@@ -56,6 +56,11 @@ struct ProjectSettings {
     /// (InputMap.h): a file inside the asset directory, named as the start scene is.
     /// Empty for none.
     std::string inputMap;
+    /// The most the textures of the game may take together on the GPU, in mebibytes; 0 for
+    /// no budget. Past it, every texture is kept the same number of levels smaller
+    /// (TextureBudget.h) - which the quality of the program bounds as well, by the largest
+    /// side a texture keeps.
+    uint32_t textureBudgetMegabytes = 0;
 
     bool operator==(const ProjectSettings&) const = default;
 };

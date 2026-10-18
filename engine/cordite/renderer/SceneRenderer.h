@@ -224,6 +224,11 @@ void applyRenderQuality(RenderQuality quality, SceneRenderSettings& settings);
 /// no single quality has.
 [[nodiscard]] std::optional<RenderQuality> renderQualityOf(const SceneRenderSettings& settings);
 
+/// The largest side, in texels, that a texture keeps at `quality`: 1024 at a low quality,
+/// 2048 at a medium one, 4096 at a high one (RenderResources::setTextureLimit, TextureBudget.h).
+/// It is the program's, not a view's: every view of a program shares its textures.
+[[nodiscard]] uint32_t textureLimitFor(RenderQuality quality);
+
 /// What SceneRenderer::render() did: in its last call, or in all the calls of a frame.
 struct SceneRenderStatistics {
     /// The calls these numbers cover: one view each.

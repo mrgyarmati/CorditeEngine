@@ -887,6 +887,23 @@ Step-by-step guide: [work-with-assets](.claude/skills/work-with-assets/SKILL.md)
   65504 cut off, and its mip levels are plain averages: the sharper filter that 8-bit
   images get leaves a ring of less than no light around a sun. As an environment, an
   image of 8-bit colors is sRGB.
+- **What textures take on the GPU is bounded twice**: by the quality of the program - the
+  largest side a texture keeps, 1024, 2048 or 4096 texels (`textureLimitFor` in
+  `SceneRenderer.h`, `Engine::setRenderQuality`, which a game's settings and the
+  editor's quality presets set: every view of a program shares its textures, so this is
+  the program's, never a view's) - and by the budget of the project
+  (`textureBudgetMegabytes` in `project.cordite`): past it every texture is kept the same
+  number of levels smaller, the fewest at which all the textures known so far fit
+  (`TextureBudget.h`), and a texture that could not be made is not among them. Not
+  one texture at a time as they come: then how sharp a texture is would depend on what
+  was looked at first, and a test asks for the same textures in two orders and holds
+  them to the same sizes. A change applies at the start of the next frame
+  (`RenderResources::beginFrame`, which the engine calls at the start of every frame),
+  never in the middle of one - the interface may hold a pointer to a texture - and drops
+  everything, so that what is counted stays right; what was made of the textures - the
+  pictures of probes - is made anew by `RenderResources::revision`. What is read texel
+  by texel - a lookup table of colors - keeps its size and is not counted
+  (`dataTexture`). Textures are not streamed by how large they are seen.
 - **Sampling belongs to the material:** wrap modes, filter, tiling. A texture is pixels.
   All textures of a material share one layout (`uvChannel`, `uvScale`, `uvOffset`); the
   occlusion texture is the one exception, and only when `occlusionUvChannel` gives it

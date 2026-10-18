@@ -181,6 +181,7 @@ cordite_add_test_suite(renderer
         unit/renderer/ScenePostProcessTests.cpp
         unit/renderer/ScreenReflectionsTests.cpp
         unit/renderer/ShadowPlanTests.cpp
+        unit/renderer/TextureBudgetTests.cpp
         unit/renderer/VolumetricFogTests.cpp
     LIBRARIES
         cordite::renderer)
@@ -293,6 +294,7 @@ cordite_add_test_suite(render
         render/ShadowAtlasTests.cpp
         render/SkinningTests.cpp
         render/SwapchainTests.cpp
+        render/TextureMemoryTests.cpp
         render/UiTests.cpp
         render/ViewBindingsTests.cpp
     LIBRARIES

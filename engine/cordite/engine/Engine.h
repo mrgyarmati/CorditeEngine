@@ -148,6 +148,11 @@ struct EngineDesc {
     /// running game only reads. See AssetDatabaseDesc::writeMetaFiles.
     bool writeAssetMetaFiles = false;
 
+    /// The most the textures of the assets may take together on the GPU, in bytes; 0 for
+    /// no budget. A project says it (ProjectSettings::textureBudgetMegabytes). See
+    /// RenderResourcesDesc::textureBudgetBytes.
+    uint64_t textureBudgetBytes = 0;
+
     /// File in which the user interface remembers its layout. See
     /// UiSystemDesc::settingsFile.
     std::filesystem::path uiSettingsFile;
@@ -249,9 +254,16 @@ public:
 
     /// What runFrame() draws the world with: the background, the quality of the
     /// shadows and of the finishing of the picture. A game changes them when its player
-    /// changes the graphics options (applyRenderQuality() sets them by one word).
+    /// changes the graphics options (setRenderQuality() sets them, and the size of the
+    /// textures, by one word).
     [[nodiscard]] SceneRenderSettings& renderSettings();
     [[nodiscard]] const SceneRenderSettings& renderSettings() const;
+
+    /// Sets what `quality` stands for: in renderSettings() (applyRenderQuality()), and the
+    /// largest side the textures of the program keep (textureLimitFor()), from the next
+    /// frame on. Every view of the program shares its textures: a quality chosen for one
+    /// view alone - an editor's viewport - is the program's quality of textures as well.
+    void setRenderQuality(RenderQuality quality);
 
     /// Makes the next beginFrame() return false.
     void requestExit();

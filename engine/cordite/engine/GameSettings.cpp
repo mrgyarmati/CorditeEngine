@@ -128,7 +128,7 @@ void applyGameSettings(const GameSettings& settings, EngineDesc& desc) {
 }
 
 void applyGameSettings(const GameSettings& settings, Engine& engine) {
-    applyRenderQuality(settings.quality, engine.renderSettings());
+    engine.setRenderQuality(settings.quality);
     AudioSystem& audio = engine.audio();
     if (const Status master = audio.setMasterVolume(settings.masterVolume); !master) {
         CORDITE_LOG_WARN("Game", "the volume of everything is left as it was: {}", master.error().message);
