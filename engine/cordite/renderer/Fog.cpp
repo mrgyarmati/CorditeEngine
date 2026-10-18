@@ -14,6 +14,8 @@ constexpr float kMostFalloff = 100.0f;
 constexpr float kMostDistance = 1.0e6f;
 constexpr float kMostLight = 65504.0f;
 constexpr float kMostSunExponent = 256.0f;
+constexpr float kLeastVolumetricDistance = 1.0f;
+constexpr float kMostVolumetricDistance = 1000.0f;
 
 /// A line of sight that climbs less than this for every e-th of the density it would
 /// take to leave the fog behind does not leave it.
@@ -73,6 +75,11 @@ FogSettings sanitized(const FogSettings& fog) {
     result.sunColor = lightOr(fog.sunColor, Vec3(0.0f));
     result.towardsSun = isFinite(fog.towardsSun) ? normalizeOr(fog.towardsSun, kWorldUp) : kWorldUp;
     result.sunExponent = std::clamp(finiteOr(fog.sunExponent, 8.0f), 1.0f, kMostSunExponent);
+    result.volumetric = fog.volumetric;
+    result.scattering = isFinite(fog.scattering) ? glm::clamp(fog.scattering, Vec3(0.0f), Vec3(1.0f)) : Vec3(1.0f);
+    result.anisotropy = std::clamp(finiteOr(fog.anisotropy, 0.2f), -kMostFogAnisotropy, kMostFogAnisotropy);
+    result.volumetricDistance =
+        std::clamp(finiteOr(fog.volumetricDistance, 50.0f), kLeastVolumetricDistance, kMostVolumetricDistance);
     return result;
 }
 

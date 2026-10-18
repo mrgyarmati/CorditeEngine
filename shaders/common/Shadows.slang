@@ -214,7 +214,8 @@ float sunVisibility(int firstView, float bias, float normalOffset, Surface surfa
 }
 
 // The cascade of the sun's shadow that a point `depth` metres in front of the camera is
-// looked up in, or -1 where the sun casts no shadow: for the debug view.
+// looked up in, or -1 where the sun casts no shadow: for the debug view, and for points
+// in the air.
 int shadowCascadeAt(float depth)
 {
     if (cascadeCount == 0 || depth >= shadowFadeEnd)
@@ -230,4 +231,57 @@ int shadowCascadeAt(float depth)
         }
     }
     return cascade;
+}
+
+// How much of a light reaches `position`, a point in the air rather than on a surface,
+// according to one shadow map: one read, which compares with the four texels around the
+// point and blends the answers. A point in the air needs none of the offsets that keep a
+// surface out of its own shadow, and the light of a fog is soft enough without a filter.
+// What the map does not see is lit.
+float pointVisibilityIn(ShadowView shadow, float3 position)
+{
+    const float4 place = mul(shadow.worldToAtlas, float4(position, 1.0));
+    if (place.w <= 0.0)
+    {
+        return 1.0;
+    }
+    const float3 coordinates = place.xyz / place.w;
+    if (coordinates.z <= 0.0 || coordinates.z >= 1.0)
+    {
+        return 1.0;
+    }
+    if (shadow.perspective > 0.5 && (any(coordinates.xy < shadow.bounds.xy) || any(coordinates.xy > shadow.bounds.zw)))
+    {
+        return 1.0;
+    }
+    // Never outside the map's own tile: next to it is another light's map.
+    const float2 uv = clamp(coordinates.xy, shadow.bounds.xy, shadow.bounds.zw);
+    return shadowAtlas.SampleCmpLevelZero(shadowSampler, uv, coordinates.z);
+}
+
+// How much of a point or spot light reaches a point in the air; `firstView` is the light's
+// (first) shadow view.
+float localLightVisibilityAt(int firstView, bool isPointLight, float3 lightPosition, float3 position)
+{
+    if (firstView < 0)
+    {
+        return 1.0;
+    }
+    const uint view = uint(firstView) + (isPointLight ? pointShadowFace(position - lightPosition) : 0);
+    return pointVisibilityIn(shadowViews[view], position);
+}
+
+// How much of the sun - the directional light that casts shadows - reaches a point in the
+// air: through the cascade its depth falls in, fading out towards the shadow distance.
+float sunVisibilityAt(int firstView, float3 position)
+{
+    const float depth = viewDepth(position);
+    const int cascade = shadowCascadeAt(depth);
+    if (firstView < 0 || cascade < 0)
+    {
+        return 1.0;
+    }
+    const float visibility = pointVisibilityIn(shadowViews[uint(firstView) + uint(cascade)], position);
+    const float fade = saturate((depth - shadowFadeStart) / max(shadowFadeEnd - shadowFadeStart, 1.0e-4));
+    return lerp(visibility, 1.0, fade);
 }

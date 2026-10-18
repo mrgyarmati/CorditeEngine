@@ -36,13 +36,14 @@
         "drawCalls": 330,
         "triangles": 32000,
         "captures": 1,
-        // Passes over the whole picture: the two of the ambient occlusion, the lighting,
-        // the three of the depth of field, and what finishes the picture as the scene
-        // says - five levels of bloom down and up, the automatic exposure, the final pass
-        // and the smoothing of its edges - for each view; the three of the motion blur, for
-        // each view too, which goes on from the frame before; and the five of the light
-        // shafts of the capture, which looks towards the sun.
-        "screenPasses": 47,
+        // Passes over the whole picture: the two of the ambient occlusion, the two of what
+        // the lights throw into the haze, the lighting, the three of the depth of field, and
+        // what finishes the picture as the scene says - five levels of bloom down and up,
+        // the automatic exposure, the final pass and the smoothing of its edges - for each
+        // view; the three of the motion blur, for each view too, which goes on from the
+        // frame before; and the five of the light shafts of the capture, which looks
+        // towards the sun.
+        "screenPasses": 51,
         // The image the ambient occlusion is worked out in: at medium quality a texel
         // for one pixel in four of the 960 by 540 the tests draw, two half floats each.
         "ambientOcclusionBytes": 518400,
@@ -52,6 +53,10 @@
         // The main camera has the sun behind it, the capture does not: its light shafts are
         // worked out at half its size, four half floats a texel, in two images.
         "lightShaftBytes": 147456,
+        // The haze is lit by the lights: what they throw into it is worked out for a grid
+        // of boxes of twelve pixels at medium quality - 80 by 45 of them over the main
+        // camera's picture, 64 slices deep - in two volumes of four half floats a box.
+        "fogVolumeBytes": 3686400,
         // The motion blur of each view: a copy of the picture, four half floats a pixel,
         // and two images of two half floats for every tile of a fortieth of the height a
         // side - fourteen pixels for the main camera - of which the larger counts.
@@ -152,6 +157,7 @@
         // has no decals.
         "depthOfFieldBytes": 0,
         "lightShaftBytes": 0,
+        "fogVolumeBytes": 0,
         "decals": 0,
         "decalNormalCopies": 0,
         "decalBytes": 0,
@@ -192,6 +198,7 @@
         "ambientOcclusionBytes": 518400,
         "depthOfFieldBytes": 0,
         "lightShaftBytes": 0,
+        "fogVolumeBytes": 0,
         "decals": 0,
         "decalNormalCopies": 0,
         "decalBytes": 0,

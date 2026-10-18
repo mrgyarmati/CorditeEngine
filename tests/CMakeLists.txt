@@ -179,6 +179,7 @@ cordite_add_test_suite(renderer
         unit/renderer/SceneLightsTests.cpp
         unit/renderer/ScenePostProcessTests.cpp
         unit/renderer/ShadowPlanTests.cpp
+        unit/renderer/VolumetricFogTests.cpp
     LIBRARIES
         cordite::renderer)
 
@@ -255,12 +256,14 @@ cordite_add_test_suite(render
     SOURCES
         render/AmbientOcclusionTests.cpp
         render/AntiAliasingTests.cpp
+        render/ComputePassTests.cpp
         render/DebugLineTests.cpp
         render/DecalTests.cpp
         render/DepthOfFieldTests.cpp
         render/EditorAppTests.cpp
         render/EngineTests.cpp
         render/EnvironmentTests.cpp
+        render/FogLightTests.cpp
         render/FogTests.cpp
         render/FramePacerTests.cpp
         render/GameTests.cpp

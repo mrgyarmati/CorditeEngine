@@ -82,6 +82,20 @@ height of its entity and below, and thins out above (`heightFalloff`) - raise or
 entity to raise or lower the fog. `density` 0.02 leaves 82% of the light of something ten
 metres away. `sunColor` adds the glow of a sun seen through haze. A world uses one fog.
 
+**Lights in the fog**: tick the fog's `volumetric`, and the lights light it - a spot light
+becomes a cone of light in the haze, cut by whatever stands in its way and patterned by its
+cookie; a lamp gets a glow; the sun lights the air between the shadows of a roof. A light's
+`volumetricIntensity` says how brightly it lights the fog against how it lights surfaces:
+1 as its intensity says, 0 not at all - raise it for a beam that is to be seen, lower it for
+a sun that would otherwise make a pale wall of the distance. The fog's `scattering` is the
+share of the light it throws on, in each color (white for mist, darker for smoke), its
+`anisotropy` how much more of it goes onwards (a beam is then brightest seen from in front
+of its light), and `volumetricDistance` how far from the viewer lights light it; beyond that,
+only the sun does. It costs a view two passes over a grid of boxes, as fine as its screen
+effects quality, and none when that is off. A beam thinner than a box is not seen whole:
+with a wide view and a narrow beam, raise the quality. The render view "fog light" shows
+what the lights throw into the fog, alone.
+
 ## Ambient occlusion
 
 Corners, creases and the ground under things get less light from around. Cordite works this
@@ -172,7 +186,7 @@ also change to their coarser levels of detail sooner.
 View > Render view shows the channels of the renderer instead of the finished picture: base
 color, normals, roughness, metallic, specular, occlusion, emissive, depth, how many lights
 each pixel has, the shadow cascades, ambient occlusion, fog, lighting only, reflections,
-wireframe, overdraw, depth of field, light shafts, levels of detail and motion
+wireframe, overdraw, depth of field, light shafts, the fog's light, levels of detail and motion
 (`viewport.debugView`
 for scripts and agents). Use them to find out why something looks the way it does - a wrong normal map, a
 light with too small a range, a surface outside every cascade. View > Statistics shows what

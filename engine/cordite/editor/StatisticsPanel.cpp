@@ -76,6 +76,9 @@ Json describeFrameStatistics(const FrameStatistics& statistics) {
     Json shafts = Json::object();
     shafts["bytes"] = statistics.scene.lightShaftBytes;
     scene["lightShafts"] = std::move(shafts);
+    Json fogLight = Json::object();
+    fogLight["bytes"] = statistics.scene.fogVolumeBytes;
+    scene["fogLight"] = std::move(fogLight);
     Json blur = Json::object();
     blur["bytes"] = statistics.scene.motionBlurBytes;
     scene["motionBlur"] = std::move(blur);

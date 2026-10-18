@@ -29,6 +29,10 @@
 
 namespace cordite {
 
+/// The most a fog's anisotropy is, either way: towards one the phase function of a fog
+/// (henyeyGreenstein, VolumetricFog.h) grows without end.
+inline constexpr float kMostFogAnisotropy = 0.9f;
+
 /// A fog as the renderer works with it. All colors are linear; without density it is
 /// clear air.
 struct FogSettings {
@@ -57,9 +61,27 @@ struct FogSettings {
     /// ... and how closely around the sun that light stays: it falls off with the
     /// cosine of the angle to the sun, to this power. At least 1.
     float sunExponent = 8.0f;
+    /// Whether lights light the fog (VolumetricFog.h): then each light throws its
+    /// GpuLight::fogColor into it, with its shadows and its cookie, besides the fog's own
+    /// color.
+    bool volumetric = false;
+    /// Of the light the fog takes away, the share it throws on, in each color: white for
+    /// mist, which takes nothing for itself, darker for smoke. From 0 to 1.
+    Vec3 scattering{1.0f};
+    /// Which way the fog throws light on - the g of the Henyey-Greenstein phase function:
+    /// 0 alike in every direction; towards 0.9 mostly onwards, so that a light is brightest
+    /// seen through the fog from in front of it; below 0 mostly back. From -0.9 to 0.9.
+    float anisotropy = 0.2f;
+    /// How far in front of the viewer lights light the fog, in metres: the depth of the
+    /// grid that light is worked out for. Beyond it only directional lights do, as if
+    /// nothing stood in their way. From 1 to 1000.
+    float volumetricDistance = 50.0f;
 
     /// Whether there is anything of it to see.
     [[nodiscard]] bool isEnabled() const { return density > 0.0f && maxOpacity > 0.0f; }
+
+    /// Whether there is anything of it to see, and lights light it.
+    [[nodiscard]] bool isLitByLights() const { return volumetric && isEnabled(); }
 };
 
 /// `fog` with every number finite and in the range its comment gives. What is sent to a

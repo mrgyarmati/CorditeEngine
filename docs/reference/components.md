@@ -144,13 +144,17 @@ Fog: the further away something is, the more of the fog's color is seen in its p
 
 | Property | Kind | Default | Values | Meaning |
 |---|---|---|---|---|
-| `color` | color | `[0.5,0.6,0.7]` | at least 0.0 | Linear color of the fog itself: what is seen where nothing shows through it. Nothing lights it; give a fog in a dark scene a dark color |
+| `color` | color | `[0.5,0.6,0.7]` | at least 0.0 | Linear color of the fog itself: what is seen where nothing shows through it. Nothing lights this color (lights light the fog with `volumetric`); give a fog in a dark scene a dark color |
 | `density` | float | `0.02` | 0.0 to 10.0; 1/m | The part of the light that is lost with every metre, at the height of the entity and below. 0.02 leaves 82% after ten metres and 14% after a hundred; 0 is no fog |
 | `heightFalloff` | float | `0.2` | 0.0 to 10.0; 1/m | How fast the fog thins out above the entity: to about a third every one divided by this many metres. 0 is the same fog at every height, which hides the sky |
 | `startDistance` | float | `0.0` | 0.0 to 100000.0; m | The fog begins this far from the viewer |
 | `maxOpacity` | float | `1.0` | 0.0 to 1.0 | The most of the fog's color that takes the place of what is behind it: 1 lets distant things vanish, less keeps them and the sky faintly there |
 | `sunColor` | color | `[0.0,0.0,0.0]` | at least 0.0 | Linear color added to the fog's where the view looks straight at the sun - the brightest directional light: the glow of a sun in haze. Black for none |
 | `sunExponent` | float | `8.0` | 1.0 to 64.0 | How closely around the sun its glow stays: 1 lights half the sky, 64 a small patch |
+| `volumetric` | bool | `false` |  | Whether lights light the fog: each throws its light into it, as much as its volumetricIntensity says, with its shadows and its cookie - beams and glows besides the fog's own color. It costs two passes over a grid of the view |
+| `scattering` | color | `[1.0,1.0,1.0]` | 0.0 to 1.0 | Of the light the fog takes away, the share it throws on, in each color: white for mist, darker for smoke |
+| `anisotropy` | float | `0.2` | -0.9 to 0.9 | Which way the fog throws the light of lights on: 0 alike in every direction, towards 0.9 mostly onwards - a beam is brightest seen from in front of its light - and below 0 back |
+| `volumetricDistance` | float | `50.0` | 1.0 to 1000.0; m | How far in front of the viewer lights light the fog; beyond it only directional lights do, as if nothing stood in their way |
 
 ## Joint
 
@@ -192,6 +196,7 @@ A light at the entity's place: directional, point or spot.
 | `shadowCascadeDistribution` | float | `0.75` | 0.0 to 1.0 | Directional: 0 makes the cascades equally deep, 1 makes each a constant factor deeper than the one before, which keeps the shadows near the camera sharpest |
 | `cookie` | asset (Texture) | `null` |  | Spot and directional: a picture the light shines through, which filters it by its colors - thrown across a spot light's cone, laid out over the world and repeated by a directional light. A point light has none |
 | `cookieSize` | float | `10.0` | 0.01 to 10000.0; m | Directional: how far the cookie reaches across and up before it repeats |
+| `volumetricIntensity` | float | `1.0` | 0.0 to 100.0 | How brightly the light lights a fog lit by lights, against how brightly it lights a surface: 1 as its intensity says, 0 not at all |
 
 ## MeshRenderer
 

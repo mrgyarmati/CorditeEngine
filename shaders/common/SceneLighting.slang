@@ -1,5 +1,6 @@
 // The light a viewer gets from a surface: what leaves it towards the viewer under the
-// lights of the view, and what the fog between the two makes of that.
+// lights of the view, what the fog between the two makes of that, and what the lights
+// throw towards the viewer from that fog.
 //
 // The deferred lighting pass and the forward pass both call shadeSurface(), so a surface
 // looks the same whichever of them draws it. A lighting feature is added here, never to
@@ -12,6 +13,7 @@
 #include "common/Fog.slang"
 #include "common/Lights.slang"
 #include "common/View.slang"
+#include "common/VolumetricFog.slang"
 
 // The most light a pixel of the scene color can hold: the largest of the half floats it
 // is made of. What a GPU makes of more than that is its own business: some keep the
@@ -43,5 +45,6 @@ float3 shadeSurface(Surface surface, float2 uv)
     color += surface.emissive;
     // Made storable before the fog and after it: fog mixes, and what is mixed with
     // "infinitely much" is not a number.
-    return storableLight(seenThroughFog(storableLight(color), viewerOf(surface.position), surface.position));
+    const float3 throughFog = seenThroughFog(storableLight(color), viewerOf(surface.position), surface.position);
+    return storableLight(throughFog + fogLightBefore(uv, surface.position));
 }

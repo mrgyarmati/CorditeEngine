@@ -70,6 +70,14 @@ Create `engine/cordite/renderer/<Name>Pass.h/.cpp` and add them to
   namespace, followed by `static_assert(sizeof(...) == N, ...)`.
 - Screen-space passes are built on `FullscreenPass`, which creates the pipeline for each
   framebuffer format on first use. Create the binding layout once in `create`.
+- Work that writes something other than a picture - a volume, a buffer - is a compute
+  shader run by `ComputePass` (`VolumetricFogPass` is the example): binding layouts of
+  `nvrhi::ShaderType::Compute`, a dispatch of `groupsFor(count, groupSize)` groups, what
+  it writes made with `isUAV` and declared in the shader with its format
+  (`[format("rgba16f")] RWTexture3D<float4>`). A set that holds a texture as something to
+  read cannot be bound while a pass writes that texture: such a pass binds only what it
+  needs of the view (`ViewBindings::constants()`). Add its request, with
+  `ShaderStage::Compute`, to `engineShaderRequests()`.
 - Per-frame constants use a volatile constant buffer
   (`nvrhi::utils::CreateVolatileConstantBufferDesc`) written with
   `commandList->writeBuffer` just before drawing.

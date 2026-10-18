@@ -253,6 +253,28 @@ public:
     /// The memory of those images, in bytes: nothing when there are none.
     [[nodiscard]] uint64_t lightShaftBytes() const;
 
+    /// Makes sure there are the two volumes that what lights throw into the fog is worked
+    /// out in (VolumetricFogPass), for a grid of `size` boxes: columns, rows and slices
+    /// (FogVolumeGrid). Four half floats a box, each. Keeps those it has when they are of
+    /// that size. Fails when the device cannot create them; the targets then hold neither.
+    [[nodiscard]] Status prepareFogVolume(nvrhi::IDevice* device, UVec3 size);
+
+    /// Lets go of those volumes: for a view whose fog no light lights any more.
+    void releaseFogVolume();
+
+    /// The first volume prepareFogVolume() made: what the lights throw towards the viewer
+    /// at the middle of each box, per unit of light the fog scatters there. Null before
+    /// that call and after releaseFogVolume().
+    [[nodiscard]] nvrhi::ITexture* fogScattering() const { return m_fogScattering; }
+
+    /// The second: along each column, the sum of what the fog throws towards the viewer up
+    /// to the end of each box - what the lighting reads (ViewBindings, t8). Null before
+    /// prepareFogVolume() and after releaseFogVolume().
+    [[nodiscard]] nvrhi::ITexture* fogVolume() const { return m_fogVolume; }
+
+    /// The memory of those volumes, in bytes: nothing when there are none.
+    [[nodiscard]] uint64_t fogVolumeBytes() const;
+
     /// Makes sure there are the images motion blur is worked out in (MotionBlurPass): a
     /// copy of the scene color, for the last of its passes to read while it draws over it,
     /// and two images of the longest blur of each tile of the picture - a texel for every
@@ -343,6 +365,8 @@ private:
     nvrhi::TextureHandle m_depthOfFieldSource;
     nvrhi::TextureHandle m_depthOfFieldBlur;
     std::array<nvrhi::TextureHandle, 2> m_lightShafts;
+    nvrhi::TextureHandle m_fogScattering;
+    nvrhi::TextureHandle m_fogVolume;
     nvrhi::TextureHandle m_motionBlurSource;
     std::array<nvrhi::TextureHandle, 2> m_motionBlurTiles;
     std::array<nvrhi::FramebufferHandle, 2> m_motionBlurTileFramebuffers;

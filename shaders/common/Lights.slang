@@ -55,6 +55,10 @@ struct Light
     float3 cookieRight;
     // The layer of the cookie in lightCookies, or -1 for none.
     int cookie;
+    // What the light throws into a fog lit by lights (common/VolumetricFog.slang), as
+    // `color` is what it shines on surfaces with: black for a light that gives it nothing.
+    float3 fogColor;
+    float lightPadding;
 };
 
 // Where the list of a cluster is in lightIndices. Matches ClusterRange.
@@ -122,14 +126,13 @@ float coneFalloff(Light light, float3 toLight)
     return amount * amount;
 }
 
-// The light leaving a surface towards the viewer that comes from one light. Shadows
-// are looked up last, and only for what would be lit: they are the costly part.
 // What of the color of a light its cookie lets through towards `position`: all of it for
 // a light without one. Where on the cookie the position is matches cookieUvOf
 // (renderer/LightCookies.h): change both. The level of the cookie's pictures is the one
-// whose texels are about as large as the pixel there, worked out rather than taken from
-// neighbouring pixels: those may be shading other lights.
-float3 cookieFilter(Light light, float3 position)
+// whose texels are about as large as `footprint`, the size in metres of what the light is
+// worked out for there - worked out rather than taken from neighbouring pixels, which may
+// be shading other lights.
+float3 cookieFilterAt(Light light, float3 position, float footprint)
 {
     if (light.cookie < 0)
     {
@@ -150,10 +153,18 @@ float3 cookieFilter(Light light, float3 position)
         uv = 0.5 + 0.5 * uv / depth;
         texelsPerMetre *= 0.5 / depth;
     }
-    const float level = log2(max(pixelFootprint(position) * texelsPerMetre, 1.0e-6));
+    const float level = log2(max(footprint * texelsPerMetre, 1.0e-6));
     return lightCookies.SampleLevel(cookieSampler, float3(uv, float(light.cookie)), level).rgb;
 }
 
+// The same for a pixel of the view that shows `position`.
+float3 cookieFilter(Light light, float3 position)
+{
+    return cookieFilterAt(light, position, pixelFootprint(position));
+}
+
+// The light leaving a surface towards the viewer that comes from one light. Shadows
+// are looked up last, and only for what would be lit: they are the costly part.
 float3 shadeLight(Surface surface, float3 toViewer, Light light)
 {
     if (lightType(light) == kLightDirectional)

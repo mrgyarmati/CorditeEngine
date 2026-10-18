@@ -192,6 +192,9 @@ inline Json describeScene(const SceneRenderStatistics& statistics) {
     Json shafts = Json::object();
     shafts["bytes"] = statistics.lightShaftBytes;
     scene["lightShafts"] = std::move(shafts);
+    Json fogLight = Json::object();
+    fogLight["bytes"] = statistics.fogVolumeBytes;
+    scene["fogLight"] = std::move(fogLight);
     Json blur = Json::object();
     blur["bytes"] = statistics.motionBlurBytes;
     scene["motionBlur"] = std::move(blur);

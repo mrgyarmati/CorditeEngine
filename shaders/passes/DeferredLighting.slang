@@ -15,7 +15,9 @@
 // Compiled a second time with LIGHTING_ONLY, for the debug view that shows the light
 // without the materials' colors: every surface a plain, matte grey. And a third time
 // with REFLECTIONS_ONLY, for the one that shows what there is to reflect: every surface
-// a perfect mirror, lit by its surroundings alone.
+// a perfect mirror, lit by its surroundings alone. And a fourth time with FOG_LIGHT_ONLY,
+// for the one that shows what the lights throw towards the viewer from the fog in front
+// of each pixel (common/VolumetricFog.slang), alone, over black.
 
 #include "common/Fullscreen.slang"
 #include "common/GBuffer.slang"
@@ -86,6 +88,9 @@ float4 deferredLightingPixel(FullscreenVaryings input) : SV_Target0
     if (depth <= 0.0)
     {
         const float3 direction = viewDirectionAt(uv);
+#if defined(FOG_LIGHT_ONLY)
+        return float4(storableLight(fogLightTowards(uv, direction)), 1.0);
+#else
         float3 light = backgroundColor;
         if (environmentVisible > 0.5)
         {
@@ -98,12 +103,16 @@ float4 deferredLightingPixel(FullscreenVaryings input) : SV_Target0
         }
 #if !defined(REFLECTIONS_ONLY)
         // (What there is to reflect is shown as it is, with no air in between.)
-        light = storableLight(seenThroughFogTowards(light, viewerAt(uv), direction));
+        light = storableLight(seenThroughFogTowards(light, viewerAt(uv), direction) + fogLightTowards(uv, direction));
 #endif
         return float4(light, 1.0);
+#endif
     }
 
     const float3 position = worldPositionFromDepth(uv, depth, inverseViewProjection);
+#if defined(FOG_LIGHT_ONLY)
+    return float4(storableLight(fogLightBefore(uv, position)), 1.0);
+#else
     Surface surface = decodeGBuffer(gbufferBaseColor.Load(pixel), gbufferNormal.Load(pixel).xy,
                                     gbufferParameters.Load(pixel), gbufferEmissive.Load(pixel).rgb, position);
     // What stands around the surface keeps part of the light from all around away from
@@ -133,5 +142,6 @@ float4 deferredLightingPixel(FullscreenVaryings input) : SV_Target0
     return float4(storableLight(shadeSurroundings(surface, directionToViewer(position))), 1.0);
 #else
     return float4(shadeSurface(surface, uv), 1.0);
+#endif
 #endif
 }

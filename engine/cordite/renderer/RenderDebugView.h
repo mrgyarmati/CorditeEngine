@@ -83,19 +83,25 @@ enum class RenderDebugView : uint8_t {
     /// The light the shafts of the sun add to each pixel, alone (LightShaftPass): black
     /// where they add none, and everywhere in a scene without them.
     LightShafts,
+    /// What the lights throw towards the viewer from the fog in front of each pixel
+    /// (VolumetricFog.h), alone: black where they throw nothing, and everywhere in a
+    /// scene whose fog no light lights. Drawn by the lighting; translucent surfaces are
+    /// left out.
+    FogLight,
     /// The level of detail each mesh is drawn at (LevelOfDetail.h): the mesh itself grey,
     /// its coarser levels green, yellow, orange and red, shaded by the way they face.
     Lod,
 };
 
-inline constexpr std::array<RenderDebugView, 21> kRenderDebugViews = {
+inline constexpr std::array<RenderDebugView, 22> kRenderDebugViews = {
     RenderDebugView::None,        RenderDebugView::BaseColor,      RenderDebugView::Normals,
     RenderDebugView::Roughness,   RenderDebugView::Metallic,       RenderDebugView::Specular,
     RenderDebugView::Occlusion,   RenderDebugView::Emissive,       RenderDebugView::Depth,
     RenderDebugView::LightCount,  RenderDebugView::ShadowCascades, RenderDebugView::AmbientOcclusion,
     RenderDebugView::Fog,         RenderDebugView::Motion,         RenderDebugView::LightingOnly,
     RenderDebugView::Reflections, RenderDebugView::Wireframe,      RenderDebugView::Overdraw,
-    RenderDebugView::Focus,       RenderDebugView::LightShafts,    RenderDebugView::Lod,
+    RenderDebugView::Focus,       RenderDebugView::LightShafts,    RenderDebugView::FogLight,
+    RenderDebugView::Lod,
 };
 
 /// The name used in files and by tools: "none", "baseColor", "lightingOnly", "reflections", ...

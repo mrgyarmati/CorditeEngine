@@ -100,6 +100,9 @@ struct SceneLight {
     /// Directional: how far its cookie reaches along the light's right and up before it
     /// repeats, in metres.
     float cookieSize = 10.0f;
+    /// How brightly the light lights a fog lit by lights (FogSettings::volumetric),
+    /// against how brightly it lights a surface: 1 as `color` says, 0 not at all.
+    float volumetricIntensity = 1.0f;
 };
 
 /// A light as the shaders read it: `Light` in shaders/common/Lights.slang.
@@ -130,9 +133,13 @@ struct GpuLight {
     /// The layer of the cookie in the cookie array of the view (RenderResources::
     /// cookies()), or -1 for none.
     int32_t cookie = -1;
+    /// What the light throws into a fog lit by lights (VolumetricFog.h), as `color` is
+    /// what it shines on surfaces with: `color` times SceneLight::volumetricIntensity.
+    Vec3 fogColor{0.0f};
+    float padding = 0.0f;
 };
 
-static_assert(sizeof(GpuLight) == 80, "must match Light in shaders/common/Lights.slang");
+static_assert(sizeof(GpuLight) == 96, "must match Light in shaders/common/Lights.slang");
 
 /// Where the list of a cluster is in LightClusters::indices.
 struct ClusterRange {

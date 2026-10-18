@@ -117,6 +117,12 @@ TypeInfo describeLight() {
                    .maximum = 10000.0,
                    .step = 0.1,
                    .unit = "m"})
+        .property("volumetricIntensity", &LightComponent::volumetricIntensity,
+                  {.description = "How brightly the light lights a fog lit by lights, against how brightly it "
+                                  "lights a surface: 1 as its intensity says, 0 not at all",
+                   .minimum = 0.0,
+                   .maximum = 100.0,
+                   .step = 0.05})
         .build();
 }
 
@@ -203,8 +209,10 @@ TypeInfo describeDecal() {
 TypeInfo describeFog() {
     return TypeBuilder<FogComponent>("Fog")
         .property("color", &FogComponent::color,
-                  {.description = "Linear color of the fog itself: what is seen where nothing shows through "
-                                  "it. Nothing lights it; give a fog in a dark scene a dark color",
+                  {.description =
+                       "Linear color of the fog itself: what is seen where nothing shows through "
+                       "it. Nothing lights this color (lights light the fog with `volumetric`); give a fog in a dark "
+                       "scene a dark color",
                    .semantic = PropertySemantic::Color,
                    .minimum = 0.0})
         .property("density", &FogComponent::density,
@@ -246,6 +254,30 @@ TypeInfo describeFog() {
                    .minimum = 1.0,
                    .maximum = 64.0,
                    .step = 0.1})
+        .property("volumetric", &FogComponent::volumetric,
+                  {.description = "Whether lights light the fog: each throws its light into it, as much as its "
+                                  "volumetricIntensity says, with its shadows and its cookie - beams and glows "
+                                  "besides the fog's own color. It costs two passes over a grid of the view"})
+        .property("scattering", &FogComponent::scattering,
+                  {.description = "Of the light the fog takes away, the share it throws on, in each color: white "
+                                  "for mist, darker for smoke",
+                   .semantic = PropertySemantic::Color,
+                   .minimum = 0.0,
+                   .maximum = 1.0})
+        .property("anisotropy", &FogComponent::anisotropy,
+                  {.description = "Which way the fog throws the light of lights on: 0 alike in every direction, "
+                                  "towards 0.9 mostly onwards - a beam is brightest seen from in front of its "
+                                  "light - and below 0 back",
+                   .minimum = -0.9,
+                   .maximum = 0.9,
+                   .step = 0.01})
+        .property("volumetricDistance", &FogComponent::volumetricDistance,
+                  {.description = "How far in front of the viewer lights light the fog; beyond it only "
+                                  "directional lights do, as if nothing stood in their way",
+                   .minimum = 1.0,
+                   .maximum = 1000.0,
+                   .step = 0.5,
+                   .unit = "m"})
         .build();
 }
 

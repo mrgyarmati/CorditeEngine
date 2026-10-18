@@ -137,7 +137,7 @@ by accident.
 | `rhi` | `core`, `math`, `platform` | Vulkan device, swapchain and texture readback over NVRHI |
 | `shaders` | `core` | Shader requests and permutation keys, disk cache, `ShaderLibrary` |
 | `shader_compiler` | `core`, `shaders` | Slang to SPIR-V compiler, and the cache of the engine's shaders compiled ahead that an exported game ships (`EngineShaderCache.h`); not linked into exported games |
-| `renderer` | `core`, `math`, `assets`, `world`, `animation`, `rhi`, `shaders` | The scene renderer and what it is made of: GPU copies of assets, the mesh passes, the G-buffer and its lighting, the lights of a world and the clusters they are sorted into, their cookies, their shadow maps and the atlas those share, what finishes the picture (exposure, bloom, tone mapping, grading), the environment (the sky and what it lights), ambient occlusion from the screen, fog, decals, levels of detail, scene captures, the debug views, scene targets, the `MeshRenderer`, `Light`, `AmbientLight`, `Environment`, `Fog`, `Decal`, `SceneCapture` and `PostProcess` components; camera views, debug lines, GPU timing, GPU shader management |
+| `renderer` | `core`, `math`, `assets`, `world`, `animation`, `rhi`, `shaders` | The scene renderer and what it is made of: GPU copies of assets, the mesh passes, the G-buffer and its lighting, the lights of a world and the clusters they are sorted into, their cookies, their shadow maps and the atlas those share, what finishes the picture (exposure, bloom, tone mapping, grading), the environment (the sky and what it lights), ambient occlusion from the screen, fog and what lights throw into it, decals, levels of detail, scene captures, the debug views, scene targets, the `MeshRenderer`, `Light`, `AmbientLight`, `Environment`, `Fog`, `Decal`, `SceneCapture` and `PostProcess` components; camera views, debug lines, GPU timing, GPU shader management |
 | `ui` | `core`, `math`, `platform`, `rhi`, `shaders`, `renderer` | The immediate-mode interface: the Dear ImGui context and its NVRHI renderer; its typefaces and icons, compiled in; its themes, and the widgets it draws the same way everywhere |
 | `engine` | all of the above but `shader_compiler` | `Engine`: owns the subsystems, the assets, the world and the interface, and runs the frame loop; projects; a game made of a project (`Game`); placing models; checking the assets a scene uses |
 | `editor` | `engine` and below, `shader_compiler` | The editor: the scene document, undoable actions, scene and asset commands, panels, `EditorApp`; making a game of a project (`GameExport`) (not linked into exported games) |
@@ -307,8 +307,8 @@ Vulkan directly. Step-by-step guide for adding a pass:
   texture before the widget that shows it, never after.
 - **Meshes are drawn by `SceneRenderer`**, into a `SceneTargets` per view, in this
   order: shadow maps, depth pre-pass, base pass (fills the G-buffer), decals, ambient
-  occlusion, deferred lighting, forward pass, light shafts, depth of field,
-  post-processing. Solid surfaces - opaque and masked - go through the G-buffer; only
+  occlusion, what lights throw into the fog, deferred lighting, forward pass, light
+  shafts, depth of field, post-processing. Solid surfaces - opaque and masked - go through the G-buffer; only
   translucent ones are drawn forward. Front faces wind counter-clockwise; depth is reversed. Draws that share
   mesh, submesh and material are instanced, and sorted by the serial numbers of their
   GPU resources, never by address, so that two runs issue the same draw calls in the
@@ -366,8 +366,9 @@ Vulkan directly. Step-by-step guide for adding a pass:
 - **Binding sets:** register space 0 is the view's (`ViewBindings`: the constants of
   `common/View.slang` at `b0`, the lights of `common/Lights.slang` at `t0` to `t2`,
   the shadow maps of `common/Shadows.slang` at `t3`, `t4` and `s0`, the
-  environment of `common/Environment.slang` at `t5`, `t6`, `s1` and `s2`, and the
-  cookies of the lights at `t7` and `s3`), space 1 the
+  environment of `common/Environment.slang` at `t5`, `t6`, `s1` and `s2`, the
+  cookies of the lights at `t7` and `s3`, and what lights throw into the fog
+  (`common/VolumetricFog.slang`) at `t8` and `s4`), space 1 the
   material's in a mesh pass (`materials/Material.slang`; call `evaluateSurface`, never
   sample material textures directly) or the G-buffer's in a pass that reads it
   (`GBufferBindings`: its four targets, the depth, the ambient occlusion at `t5` and
@@ -628,6 +629,33 @@ Vulkan directly. Step-by-step guide for adding a pass:
   plane the camera is in (`viewerOf`, `viewerAt` in `common/View.slang`), not from
   the camera. A world has one `Fog` in use, as it has one environment; `SceneLights`
   picks it and its sun, the brightest directional light.
+- **Lights light a fog that says so** (`FogComponent::volumetric`; `VolumetricFog.h`,
+  `VolumetricFogPass`, `common/VolumetricFog.slang`): each light throws its `fogColor` -
+  its color times the `volumetricIntensity` of its component - into the air it reaches,
+  with its shadows and its cookie, besides the fog's own color. It is worked out for a
+  grid of boxes over the view (`FogVolumeGrid`, as fine as the view's
+  `ScreenEffectsQuality`; none at `Off`), from the camera to `volumetricDistance`, in
+  slices that get deeper as the square of the way: the first of two compute passes asks
+  every light of a box's cluster at its middle, with one read of its shadow map; the
+  second adds that up along each column, each box by how much the fog's amount grows
+  across it - the closed form of `Fog.slang`, start distance and largest opacity
+  included - so that the volume dims what lies behind it exactly as the fog does, and a
+  sun that nothing shadows comes out exact. `shadeSurface` reads the sums in front of a
+  surface, and the lighting in front of the sky, between the ends of the slices; beyond
+  the grid only directional lights add theirs, in the closed form, as if nothing stood
+  in their way. A translucent surface is lit in front as a solid one is: that is why it
+  is a volume and not a march along each pixel, which would lay the beam behind a pane of
+  glass over the pane. The arithmetic is written down twice - in `VolumetricFog.cpp` and
+  in `common/FogVolume.slang`, `common/VolumetricFog.slang` and the two passes - and
+  `FogLightTests` holds the volume's texels and the pictures against the first: change
+  both. The second pass binds the view's constants alone (`ViewBindings::constants()`):
+  the view's set holds the volume it writes. A beam thinner than a box is not seen
+  whole; nothing of the light is kept from one frame to the next.
+- **A pass that computes is a `ComputePass`** (`ComputePass.h`): a compute shader, its
+  layouts, and a dispatch of so many thread groups (`groupsFor`). What it writes is a
+  texture made with `isUAV`, written in the shader through an `RWTexture` that names its
+  format (`[format("rgba16f")]`), so that writing it needs no feature of the device for
+  writing without a format.
 - **A fullscreen pass writes every pixel.** Where nothing was drawn, the lighting and
   the debug views write the background (`backgroundColor` in `ViewConstants`); they
   do not `discard` (see the pitfall on discarding for what is true of every pixel).

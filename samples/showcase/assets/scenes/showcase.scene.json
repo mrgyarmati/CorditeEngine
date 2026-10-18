@@ -363,6 +363,9 @@
             // more than the floor below it needs: a light costs what it can reach.
             // It shines through a wire guard - its `cookie`, textures/lamp_cookie.png - which
             // lays the shadows of the bars on the floor, and dims the light towards its rim.
+            // In the haze it is a cone of light: `volumetricIntensity` has it light the fog
+            // ten times as brightly as its intensity alone would - a lamp in haze is what
+            // the eye goes to.
             "id": "10000000-0000-4000-8000-000000000022",
             "name": "Lamp",
             "enabled": true,
@@ -383,7 +386,8 @@
                     "channels": 1,
                     "castsShadows": true,
                     "shadowResolution": "high",
-                    "cookie": "0431528e-40b4-8300-9814-94cd5283aeac"
+                    "cookie": "0431528e-40b4-8300-9814-94cd5283aeac",
+                    "volumetricIntensity": 10.0
                 },
                 // It flickers: scripts/flicker.lua lets it burn steadily for a few seconds,
                 // dips its brightness three times in a row, and lets it burn on.
@@ -1666,6 +1670,9 @@
             // far away. Bias and normal offset say how far, in texels of a shadow map, a
             // surface is looked up towards the light and along its normal, so that it does
             // not shadow itself; the defaults seldom need changing.
+            //
+            // It lights the haze less than its intensity would: a sun lights all of the air
+            // there is, and at full strength it would make a pale wall of the distance.
             "id": "10000000-0000-4000-8000-00000000001f",
             "name": "Sun",
             "enabled": true,
@@ -1690,7 +1697,8 @@
                     "shadowResolution": "medium",
                     "shadowDistance": 40.0,
                     "shadowCascades": 3,
-                    "shadowCascadeDistribution": 0.75
+                    "shadowCascadeDistribution": 0.75,
+                    "volumetricIntensity": 0.4
                 }
             }
         },
@@ -1744,12 +1752,20 @@
             // metres; here it lies on the ground, and the walkway stands out of it. Moving
             // the entity up or down moves the fog; where else it is does not matter.
             //
-            // Nothing lights a fog: it has the color it is given, here that of the haze on
+            // A fog has a color of its own, which nothing lights: here that of the haze on
             // the horizon of the sky. "sunColor" is added where the view looks towards the
             // sun - the brightest directional light - and "sunExponent" says how closely
             // around the sun that glow stays. The fog begins "startDistance" from the
             // viewer and never takes more than "maxOpacity" of a pixel. Of several fogs,
             // the one whose entity has the lowest id is used.
+            //
+            // "volumetric" lets the lights light it besides: each throws its light into it,
+            // as much as its "volumetricIntensity" says, with its shadows and its cookie -
+            // the lamp's cone, with the bars of its guard in it, and the sun's light on the
+            // haze. "scattering" is how much of the light the fog takes away it throws on, in
+            // each color; "anisotropy" how much more of it goes onwards than back, so that a
+            // beam is brightest seen from in front of its light; "volumetricDistance" how far
+            // from the viewer the lights light it - beyond that, only the sun does.
             "id": "10000000-0000-4000-8000-000000000028",
             "name": "Haze",
             "enabled": true,
@@ -1757,13 +1773,17 @@
             "components": {
                 "Transform": { "position": [0.0, 0.0, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [1.0, 1.0, 1.0] },
                 "Fog": {
-                    "color": [0.2, 0.185, 0.17],
+                    "color": [0.15, 0.14, 0.13],
                     "density": 0.02,
                     "heightFalloff": 0.25,
                     "startDistance": 0.0,
                     "maxOpacity": 1.0,
                     "sunColor": [0.7, 0.42, 0.2],
-                    "sunExponent": 6.0
+                    "sunExponent": 6.0,
+                    "volumetric": true,
+                    "scattering": [1.0, 0.95, 0.88],
+                    "anisotropy": 0.35,
+                    "volumetricDistance": 40.0
                 }
             }
         },

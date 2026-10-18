@@ -92,6 +92,8 @@
 #include "cordite/renderer/ShadowPlan.h"
 #include "cordite/renderer/SkinPalettes.h"
 #include "cordite/renderer/ViewBindings.h"
+#include "cordite/renderer/VolumetricFog.h"
+#include "cordite/renderer/VolumetricFogPass.h"
 #include "cordite/world/Entity.h"
 #include "cordite/world/World.h"
 
@@ -229,10 +231,11 @@ struct SceneRenderStatistics {
     /// when the view was last drawn, which go along for the motion of one that moved, are
     /// not counted.
     uint32_t jointMatrices = 0;
-    /// Passes that draw over the whole picture, or over a smaller copy of it, rather
-    /// than meshes: the two of the ambient occlusion, the lighting or the debug view,
-    /// and what finishes the picture - the levels of the bloom down and up, the
-    /// exposure, the final pass, the anti-aliasing.
+    /// Passes that draw over the whole picture, or over a smaller copy of it, or work over a
+    /// grid laid on it, rather than draw meshes: the two of the ambient occlusion, the two
+    /// of what lights throw into the fog, the lighting or the debug view, and what finishes
+    /// the picture - the levels of the bloom down and up, the exposure, the final pass, the
+    /// anti-aliasing.
     uint32_t screenPasses = 0;
 
     /// The lights that reach something in view: directional ones, and point and spot
@@ -299,6 +302,10 @@ struct SceneRenderStatistics {
     /// (SceneTargets::prepareLightShafts). Over the views of a frame it is the largest of
     /// them.
     uint64_t lightShaftBytes = 0;
+    /// The memory of the two volumes what lights throw into the fog of the view is worked
+    /// out in, in bytes: four half floats for every box of its grid, twice
+    /// (SceneTargets::prepareFogVolume). Over the views of a frame it is the largest of them.
+    uint64_t fogVolumeBytes = 0;
     /// The memory of the images the motion blur of the view is worked out in, in bytes: a
     /// copy of the picture, four half floats a pixel, and two of two half floats a tile
     /// (SceneTargets::prepareMotionBlur). Over the views of a frame it is the largest of
@@ -375,6 +382,7 @@ private:
         EnvironmentMaps environments;
         DecalPass decals;
         AmbientOcclusionPass occlusion;
+        VolumetricFogPass fogLight;
         LightShaftPass lightShafts;
         DepthOfFieldPass depthOfField;
         MotionBlurPass motionBlur;
@@ -431,6 +439,14 @@ private:
     /// (RenderResources::cookieLayer): the first time a cookie is used, it is put there.
     void assignCookies();
 
+    /// The grid of the boxes over the view that what lights throw into its fog is worked out
+    /// for, with the volumes of `targets` made for it (SceneTargets::prepareFogVolume) - or
+    /// none, with the volumes let go of, where nothing of that is to be seen: a fog that no
+    /// light lights, a quality of the view that has none, a debug view that shows no light.
+    /// After the lights of the view are known (m_lights, m_clusters).
+    [[nodiscard]] FogVolumeGrid prepareFogLight(SceneTargets& targets, const SceneRenderSettings& settings,
+                                                RenderDebugView debugView);
+
     /// Draws the shadow maps of m_shadowPlan into the atlas, each with what casts a
     /// shadow in the light it belongs to.
     void drawShadows(nvrhi::ICommandList* commandList, const ShadowSettings& settings);
@@ -485,6 +501,7 @@ private:
     LightClusters m_clusters;
     /// So that lights that were left out are reported once, not every frame.
     bool m_reportedDroppedLights = false;
+    bool m_reportedFogLight = false;
     bool m_reportedDroppedDecals = false;
 
     /// What a SceneCapture keeps from one frame to the next: the targets of its view, and

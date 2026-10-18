@@ -8,6 +8,8 @@ cordite_add_module(renderer
         BlitPass.h
         CameraView.cpp
         CameraView.h
+        ComputePass.cpp
+        ComputePass.h
         DebugDraw.cpp
         DebugDraw.h
         DebugLinePass.cpp
@@ -93,6 +95,10 @@ cordite_add_module(renderer
         ViewBindings.cpp
         ViewBindings.h
         ViewConstants.h
+        VolumetricFog.cpp
+        VolumetricFog.h
+        VolumetricFogPass.cpp
+        VolumetricFogPass.h
     DEPENDS
         core
         math

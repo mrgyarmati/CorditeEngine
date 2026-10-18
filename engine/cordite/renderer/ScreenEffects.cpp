@@ -45,11 +45,26 @@ ScreenEffectsQualitySettings screenEffectsSettingsFor(ScreenEffectsQuality quali
     switch (quality) {
         case ScreenEffectsQuality::Off:
         case ScreenEffectsQuality::Low:
-            return {.ambientOcclusionDivisor = 2, .ambientOcclusionSlices = 2, .ambientOcclusionSteps = 2};
+            return {.ambientOcclusionDivisor = 2,
+                    .ambientOcclusionSlices = 2,
+                    .ambientOcclusionSteps = 2,
+                    .fogVolumeTile = 16,
+                    .fogVolumeMaxCells = 120,
+                    .fogVolumeSlices = 48};
         case ScreenEffectsQuality::Medium:
-            return {.ambientOcclusionDivisor = 2, .ambientOcclusionSlices = 2, .ambientOcclusionSteps = 4};
+            return {.ambientOcclusionDivisor = 2,
+                    .ambientOcclusionSlices = 2,
+                    .ambientOcclusionSteps = 4,
+                    .fogVolumeTile = 12,
+                    .fogVolumeMaxCells = 160,
+                    .fogVolumeSlices = 64};
         case ScreenEffectsQuality::High:
-            return {.ambientOcclusionDivisor = 1, .ambientOcclusionSlices = 3, .ambientOcclusionSteps = 5};
+            return {.ambientOcclusionDivisor = 1,
+                    .ambientOcclusionSlices = 3,
+                    .ambientOcclusionSteps = 5,
+                    .fogVolumeTile = 8,
+                    .fogVolumeMaxCells = 240,
+                    .fogVolumeSlices = 80};
     }
     return {};
 }

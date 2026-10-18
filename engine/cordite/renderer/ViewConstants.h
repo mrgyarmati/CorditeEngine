@@ -81,6 +81,15 @@ struct ViewConstants {
     float fogHeightFalloff;
     float fogStartDistance;
     float fogMaxOpacity;
+    /// What lights throw into the fog (VolumetricFog.h): which way it throws their light on,
+    /// the share of what it takes away that it throws on, in each color, how far in front
+    /// of the camera the grid that light is worked out for reaches - 0 when no light
+    /// lights the fog of the view, and nothing of it is read - and the columns, rows and
+    /// slices of the grid.
+    float fogAnisotropy;
+    Vec3 fogScattering;
+    float fogVolumeDistance;
+    Vec3 fogVolumeSize;
     float padding1;
     /// What the targets of the view were cleared to: what is seen where nothing is
     /// drawn and no sky is shown.
@@ -88,6 +97,6 @@ struct ViewConstants {
     float padding2;
 };
 
-static_assert(sizeof(ViewConstants) == 560, "must match the cbuffer layout in View.slang");
+static_assert(sizeof(ViewConstants) == 592, "must match the cbuffer layout in View.slang");
 
 } // namespace cordite

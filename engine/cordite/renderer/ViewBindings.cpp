@@ -10,6 +10,7 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <span>
 #include <utility>
 #include <vector>
@@ -100,10 +101,12 @@ Result<ViewBindings> ViewBindings::create(nvrhi::IDevice* device) {
         nvrhi::BindingLayoutItem::Texture_SRV(5),
         nvrhi::BindingLayoutItem::Texture_SRV(6),
         nvrhi::BindingLayoutItem::Texture_SRV(7),
+        nvrhi::BindingLayoutItem::Texture_SRV(8),
         nvrhi::BindingLayoutItem::Sampler(0),
         nvrhi::BindingLayoutItem::Sampler(1),
         nvrhi::BindingLayoutItem::Sampler(2),
         nvrhi::BindingLayoutItem::Sampler(3),
+        nvrhi::BindingLayoutItem::Sampler(4),
     };
     view.m_layout = device->createBindingLayout(layoutDesc);
 
@@ -132,8 +135,19 @@ Result<ViewBindings> ViewBindings::create(nvrhi::IDevice* device) {
     // light does.
     view.m_cookieSampler = device->createSampler(
         nvrhi::SamplerDesc().setAllFilters(true).setAllAddressModes(nvrhi::SamplerAddressMode::Wrap));
+    // The light of the fog is read between the middles of its boxes, and its grid covers
+    // exactly the picture and the depth it is worked out to.
+    view.m_fogVolumeSampler = device->createSampler(
+        nvrhi::SamplerDesc().setAllFilters(true).setAllAddressModes(nvrhi::SamplerAddressMode::Clamp));
+    nvrhi::TextureDesc noFogDesc;
+    noFogDesc.dimension = nvrhi::TextureDimension::Texture3D;
+    noFogDesc.format = nvrhi::Format::RGBA16_FLOAT;
+    noFogDesc.initialState = nvrhi::ResourceStates::ShaderResource;
+    noFogDesc.keepInitialState = true;
+    noFogDesc.debugName = "No fog light";
+    view.m_noFogVolume = device->createTexture(noFogDesc);
     if (!view.m_constants || !view.m_layout || !view.m_shadowSampler || !view.m_environmentSampler ||
-        !view.m_skySampler || !view.m_cookieSampler) {
+        !view.m_skySampler || !view.m_cookieSampler || !view.m_fogVolumeSampler || !view.m_noFogVolume) {
         return makeError(ErrorCode::DeviceError, "cannot create the view constants");
     }
 
@@ -173,7 +187,8 @@ bool ViewBindings::reserve(nvrhi::BufferHandle& buffer, size_t byteSize, uint32_
 }
 
 void ViewBindings::update(nvrhi::ICommandList* commandList, const SceneView& view, const LightClusters& lights,
-                          nvrhi::ITexture* cookies, const ViewShadows& shadows, const ViewEnvironment& environment) {
+                          nvrhi::ITexture* cookies, const ViewShadows& shadows, const ViewEnvironment& environment,
+                          nvrhi::ITexture* fogVolume) {
     const bool hasEnvironment = environment.environment != nullptr && environment.environment->radiance != nullptr &&
                                 environment.environment->sky != nullptr;
     CORDITE_ASSERT(commandList != nullptr && m_constants != nullptr && cookies != nullptr && shadows.atlas != nullptr &&
@@ -279,14 +294,31 @@ void ViewBindings::update(nvrhi::ICommandList* commandList, const SceneView& vie
     constants.fogHeightFalloff = fog.heightFalloff;
     constants.fogStartDistance = fog.startDistance;
     constants.fogMaxOpacity = fog.maxOpacity;
+    // What lights throw into it is read only where it has been worked out, for the grid it
+    // was worked out for.
+    const bool fogIsLit = fogVolume != nullptr && fog.isLitByLights() && !view.fogVolume.isEmpty();
+    constants.fogAnisotropy = fog.anisotropy;
+    constants.fogScattering = fog.scattering;
+    constants.fogVolumeDistance = fogIsLit ? fog.volumetricDistance : 0.0f;
+    constants.fogVolumeSize = Vec3(static_cast<float>(view.fogVolume.columns), static_cast<float>(view.fogVolume.rows),
+                                   static_cast<float>(view.fogVolume.slices));
     constants.backgroundColor = isFinite(view.backgroundColor) ? view.backgroundColor : Vec3(0.0f);
     commandList->writeBuffer(m_constants, &constants, sizeof(constants));
 
+    if (!m_noFogVolumeWritten) {
+        // Written, not cleared: a texture that is only cleared is not kept alive by the
+        // command list (AGENTS.md, known pitfalls).
+        constexpr std::array<uint16_t, 4> kNothing{};
+        commandList->writeTexture(m_noFogVolume, 0, 0, kNothing.data(), sizeof(kNothing), sizeof(kNothing));
+        m_noFogVolumeWritten = true;
+    }
+    nvrhi::ITexture* fogLight = fogIsLit ? fogVolume : m_noFogVolume.Get();
     if (m_bindingsOutdated || !m_bindings || m_atlas != shadows.atlas ||
         m_environmentRadiance != surroundings.radiance || m_environmentSky != surroundings.sky ||
-        m_cookies != cookies) {
+        m_cookies != cookies || m_fogVolume != fogLight) {
         m_atlas = shadows.atlas;
         m_cookies = cookies;
+        m_fogVolume = fogLight;
         m_environmentRadiance = surroundings.radiance;
         m_environmentSky = surroundings.sky;
         nvrhi::BindingSetDesc setDesc;
@@ -300,10 +332,12 @@ void ViewBindings::update(nvrhi::ICommandList* commandList, const SceneView& vie
             nvrhi::BindingSetItem::Texture_SRV(5, m_environmentRadiance),
             nvrhi::BindingSetItem::Texture_SRV(6, m_environmentSky),
             nvrhi::BindingSetItem::Texture_SRV(7, m_cookies),
+            nvrhi::BindingSetItem::Texture_SRV(8, m_fogVolume),
             nvrhi::BindingSetItem::Sampler(0, m_shadowSampler),
             nvrhi::BindingSetItem::Sampler(1, m_environmentSampler),
             nvrhi::BindingSetItem::Sampler(2, m_skySampler),
             nvrhi::BindingSetItem::Sampler(3, m_cookieSampler),
+            nvrhi::BindingSetItem::Sampler(4, m_fogVolumeSampler),
         };
         m_bindings = m_device->createBindingSet(setDesc, m_layout);
         CORDITE_VERIFY(m_bindings, "cannot create the view bindings");

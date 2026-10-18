@@ -81,7 +81,11 @@ FogSettings findFog(const World& world, const std::optional<SceneSun>& sun) {
                    .startDistance = component.startDistance,
                    .maxOpacity = component.maxOpacity,
                    .sunColor = component.sunColor,
-                   .sunExponent = component.sunExponent};
+                   .sunExponent = component.sunExponent,
+                   .volumetric = component.volumetric,
+                   .scattering = component.scattering,
+                   .anisotropy = component.anisotropy,
+                   .volumetricDistance = component.volumetricDistance};
         }
     }
 
@@ -120,6 +124,7 @@ SceneLight makeSceneLight(const LightComponent& component, const Mat4& placement
     light.right = normalizeOr(Vec3(placement[0]), kWorldRight);
     light.cookie = component.cookie;
     light.cookieSize = component.cookieSize;
+    light.volumetricIntensity = component.volumetricIntensity;
     return light;
 }
 

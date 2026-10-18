@@ -5,16 +5,18 @@
 
 namespace cordite {
 
-Result<TexturePixels> readTexture(GraphicsDevice& device, nvrhi::ITexture* texture, uint32_t mipLevel,
-                                  uint32_t arraySlice) {
+Result<TexturePixels> readTexture(GraphicsDevice& device, nvrhi::ITexture* texture, uint32_t mipLevel, uint32_t slice) {
     if (texture == nullptr) {
         return makeError(ErrorCode::InvalidArgument, "cannot read a null texture");
     }
 
     const nvrhi::TextureDesc& desc = texture->getDesc();
-    if (mipLevel >= desc.mipLevels || arraySlice >= desc.arraySize) {
+    // The slices of a 3D texture are as many as it is deep at the level.
+    const bool isVolume = desc.dimension == nvrhi::TextureDimension::Texture3D;
+    const uint32_t slices = isVolume ? std::max(1u, desc.depth >> std::min(mipLevel, 31u)) : desc.arraySize;
+    if (mipLevel >= desc.mipLevels || slice >= slices) {
         return makeError(ErrorCode::OutOfRange, "texture '{}' has no mip {} / slice {} ({} mips, {} slices)",
-                         desc.debugName, mipLevel, arraySlice, desc.mipLevels, desc.arraySize);
+                         desc.debugName, mipLevel, slice, desc.mipLevels, slices);
     }
 
     const nvrhi::FormatInfo& formatInfo = nvrhi::getFormatInfo(desc.format);
@@ -43,7 +45,12 @@ Result<TexturePixels> readTexture(GraphicsDevice& device, nvrhi::ITexture* textu
 
     nvrhi::TextureSlice sourceSlice;
     sourceSlice.mipLevel = mipLevel;
-    sourceSlice.arraySlice = arraySlice;
+    if (isVolume) {
+        sourceSlice.z = slice;
+        sourceSlice.depth = 1;
+    } else {
+        sourceSlice.arraySlice = slice;
+    }
 
     const nvrhi::CommandListHandle commandList = nvrhiDevice->createCommandList();
     commandList->open();

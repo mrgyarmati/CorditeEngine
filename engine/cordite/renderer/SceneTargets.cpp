@@ -7,6 +7,8 @@
 #include <array>
 #include <atomic>
 #include <cstddef>
+#include <string>
+#include <string_view>
 #include <utility>
 
 namespace cordite {
@@ -450,6 +452,63 @@ uint64_t SceneTargets::lightShaftBytes() const {
     // Two images of four half floats a texel.
     const nvrhi::TextureDesc& desc = m_lightShafts[0]->getDesc();
     return uint64_t{desc.width} * desc.height * 8 * 2;
+}
+
+Status SceneTargets::prepareFogVolume(nvrhi::IDevice* device, UVec3 size) {
+    const bool hasBoxes = size.x > 0 && size.y > 0 && size.z > 0;
+    CORDITE_ASSERT(isValid() && device != nullptr && hasBoxes,
+                   "the fog's light needs valid targets, a device and a grid");
+    if (!isValid() || device == nullptr || !hasBoxes) {
+        return makeError(ErrorCode::InvalidArgument,
+                         "the fog's light needs valid targets, a device and a grid of boxes");
+    }
+    if (m_fogScattering && m_fogVolume) {
+        const nvrhi::TextureDesc& desc = m_fogVolume->getDesc();
+        if (desc.width == size.x && desc.height == size.y && desc.depth == size.z) {
+            return {};
+        }
+    }
+    releaseFogVolume();
+
+    // Written by compute shaders, read by the lighting and by the second of them.
+    const auto volume = [&](std::string_view what) {
+        nvrhi::TextureDesc desc;
+        desc.dimension = nvrhi::TextureDimension::Texture3D;
+        desc.width = size.x;
+        desc.height = size.y;
+        desc.depth = size.z;
+        desc.format = nvrhi::Format::RGBA16_FLOAT;
+        desc.isUAV = true;
+        desc.initialState = nvrhi::ResourceStates::ShaderResource;
+        desc.keepInitialState = true;
+        desc.debugName = m_debugName + std::string(what);
+        return device->createTexture(desc);
+    };
+    nvrhi::TextureHandle scattering = volume(" fog scattering");
+    nvrhi::TextureHandle sums = volume(" fog light");
+    if (!scattering || !sums) {
+        return makeError(ErrorCode::DeviceError,
+                         "cannot create the {}x{}x{} volumes the fog light of '{}' is worked out in", size.x, size.y,
+                         size.z, m_debugName);
+    }
+    m_fogScattering = std::move(scattering);
+    m_fogVolume = std::move(sums);
+    return {};
+}
+
+void SceneTargets::releaseFogVolume() {
+    // What a command list on its way still writes or reads is kept alive by that list.
+    m_fogScattering = nullptr;
+    m_fogVolume = nullptr;
+}
+
+uint64_t SceneTargets::fogVolumeBytes() const {
+    if (!m_fogScattering || !m_fogVolume) {
+        return 0;
+    }
+    // Two volumes of four half floats a box.
+    const nvrhi::TextureDesc& desc = m_fogVolume->getDesc();
+    return uint64_t{desc.width} * desc.height * desc.depth * 8 * 2;
 }
 
 nvrhi::ITexture* SceneTargets::bloomLevel(uint32_t level) const {

@@ -924,14 +924,60 @@ Three things are decided differently from the textbook form:
   is then at most zero, and nothing has to be clamped.
 - **The height is where the entity is.** A fog is moved up and down like anything
   else in a scene, by hand, by a parent, by a script.
-- **The fog is not lit.** It has the color it is given, plus a second color towards
-  the sun - the brightest directional light - that falls off with a power of the
-  cosine. A sun that is seen through haze has a glow around it, and that is most of
-  what light in fog looks like outdoors. Lamps that light the fog around them, and
+- **The fog's own color is not lit.** It has the color it is given, plus a second
+  color towards the sun - the brightest directional light - that falls off with a power
+  of the cosine. A sun that is seen through haze has a glow around it, and that is most
+  of what light in fog looks like outdoors. Lamps that light the fog around them, and
   shafts of light between the shadows inside a fog, need the fog sampled along the
-  ray; that is a different effect, and when it comes it adds to this one. The light
-  shafts there are come from the sky around the sun, blurred towards it in the picture
-  (below), and need no fog.
+  ray; that is a different effect, and adds to this one (next section). The light
+  shafts of the post-processing come from the sky around the sun, blurred towards it in
+  the picture (below), and need no fog.
+
+### The fog's light is a volume over the view, worked out by compute shaders
+
+A fog lit by lights (`FogComponent::volumetric`) gets what each light throws
+towards the viewer from every point of the air it reaches, through its shadows and its
+cookie: the beam of a lamp, the glow of a lantern, the sun between the beams of a
+roof. Along a line of sight that is the integral of what the lights throw at each
+point, times the light the fog there takes away from what is behind (`VolumetricFog.h`
+writes it out). Two ways to work it out were weighed:
+
+- **March along each pixel's line of sight**, in a pass over the picture after the
+  lighting, at a lower resolution and blurred. It needs nothing new, and gives sharp
+  beams. But it knows the depth of the solid surfaces only: drawn after the
+  translucent ones, it lays the beam behind a pane of glass over the pane; drawn
+  before them, the pane hides the beam in front of it. And the rule of this renderer is
+  that light is worked out in one place, `shadeSurface`, for solid and translucent
+  surfaces alike, which a test holds by drawing one surface both ways.
+- **A volume laid over the view** ("froxels", Hillaire and Wronski's volumetric fog,
+  2014-2015): a grid of boxes - so many columns and rows over the picture, so many
+  slices deep - that holds what is thrown towards the viewer in front of the end of
+  each box. `shadeSurface` reads it where the surface is, whichever pass draws the
+  surface, and the lighting reads it in front of the sky. That is the choice.
+
+It is the first work of the renderer done by compute shaders (`ComputePass`): one pass
+asks the lights at the middle of every box - those of the box's cluster, which the
+lights of the view are sorted into anyway - and one walks every column from the camera
+out and adds up. Three decisions in it:
+
+- **How much each box counts is the closed form of the fog**, not its density times
+  its depth: the fog's amount at the box's far end less that at its near end, as
+  `Fog.slang` works it out, start distance and largest opacity included. The volume
+  then dims what lies behind it exactly as the fog does, and where what the lights
+  throw is the same all through a box - a sun that nothing shadows - the sum is
+  exact, whatever the slices. A test holds a picture of that against the closed form to
+  what a half float can hold.
+- **Slices deepen as the square of the way through them**, so that most of them are
+  near the camera, where a metre is much of the picture: half of them lie in the first
+  quarter of the depth. The grid ends at `volumetricDistance`; beyond it, only
+  directional lights light the fog, in the closed form and as if nothing stood in
+  their way - a sun lights all the air there is, and a grid that ended its light would
+  leave the distance unlit.
+- **Nothing is kept from one frame to the next.** Engines that smooth the volume over
+  frames get finer beams from a coarser grid, at the price of light that trails behind
+  what moves; this renderer blends no picture with the one before it (it has no
+  temporal anti-aliasing either), so the grid is as fine as the view's quality pays for,
+  and a beam thinner than a box is not seen whole.
 
 The sky is behind all the fog there is. A line of sight that climbs comes out of a
 fog that thins out, and the sky shows through the more the steeper the line is; a

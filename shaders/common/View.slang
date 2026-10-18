@@ -78,6 +78,15 @@ cbuffer ViewConstants : register(b0, space0)
     // How far from the viewer the fog begins, and the most of a pixel it ever takes.
     float fogStartDistance;
     float fogMaxOpacity;
+    // What lights throw into the fog (common/VolumetricFog.slang): which way it throws
+    // their light on, the share of what it takes away that it throws on, in each color, ...
+    float fogAnisotropy;
+    float3 fogScattering;
+    // ... how far in front of the camera the grid that light is worked out for reaches -
+    // zero when no light lights the fog of the view, and nothing of it is read - and the
+    // columns, rows and slices of the grid.
+    float fogVolumeDistance;
+    float3 fogVolumeSize;
     float viewPadding1;
     // What the targets were cleared to: what is seen where nothing is drawn and the
     // environment is not shown as the sky.

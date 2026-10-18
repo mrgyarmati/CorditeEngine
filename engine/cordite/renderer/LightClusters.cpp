@@ -21,6 +21,10 @@ constexpr float kMinimumDepth = 1.0e-4f;
 /// light whose cone has no soft edge at all still fades over this much.
 constexpr float kMinimumConeFade = 1.0e-4f;
 
+/// The most a light lights a fog against how it lights a surface: the most the Light
+/// component allows.
+constexpr float kMostVolumetricIntensity = 100.0f;
+
 bool isFiniteLight(const SceneLight& light) {
     return isFinite(light.position) && isFinite(light.direction) && isFinite(light.color) &&
            std::isfinite(light.range) && std::isfinite(light.innerConeAngle) && std::isfinite(light.outerConeAngle);
@@ -46,6 +50,11 @@ GpuLight toGpuLight(const SceneLight& light) {
         gpu.spotOffset = -cosOuter * gpu.spotScale;
     }
     gpu.cookieRight = cookieAxisOf(light);
+    // A light whose share of the fog is no number still lights surfaces: the fog gets none.
+    const float volumetric = std::isfinite(light.volumetricIntensity)
+                                 ? std::clamp(light.volumetricIntensity, 0.0f, kMostVolumetricIntensity)
+                                 : 0.0f;
+    gpu.fogColor = gpu.color * volumetric;
     return gpu;
 }
 

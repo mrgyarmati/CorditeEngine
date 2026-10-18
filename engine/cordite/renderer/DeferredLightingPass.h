@@ -37,6 +37,9 @@ enum class DeferredLightingMode : uint8_t {
     /// Every surface a perfect mirror, lit by its surroundings alone - the environment
     /// and the ambient light: what there is to reflect.
     Reflections,
+    /// What the lights throw towards the viewer from the fog in front of each pixel
+    /// (VolumetricFog.h), alone, over black.
+    FogLight,
 };
 
 class DeferredLightingPass {
@@ -52,13 +55,14 @@ public:
 
 private:
     DeferredLightingPass(nvrhi::IDevice* device, nvrhi::BindingLayoutHandle gbufferLayout, FullscreenPass pass,
-                         FullscreenPass lightingOnlyPass, FullscreenPass reflectionsPass);
+                         FullscreenPass lightingOnlyPass, FullscreenPass reflectionsPass, FullscreenPass fogLightPass);
 
     nvrhi::IDevice* m_device;
     nvrhi::BindingLayoutHandle m_gbufferLayout;
     FullscreenPass m_pass;
     FullscreenPass m_lightingOnlyPass;
     FullscreenPass m_reflectionsPass;
+    FullscreenPass m_fogLightPass;
 };
 
 } // namespace cordite

@@ -159,6 +159,10 @@ struct LightComponent {
     /// Directional: how far the cookie reaches along the light's right and up before it
     /// repeats, in metres.
     float cookieSize = 10.0f;
+    /// How brightly the light lights a fog lit by lights (FogComponent::volumetric),
+    /// against how brightly it lights a surface: 1 as its intensity says, 0 not at all -
+    /// the beam of a lamp in haze, or none.
+    float volumetricIntensity = 1.0f;
 };
 
 /// Light that arrives from all around: from a sky above and from a ground below. It
@@ -242,10 +246,12 @@ struct DecalComponent {
 /// The fog is at its densest at the height of the entity and everywhere below, and
 /// thins out above: raise or lower the entity to raise or lower the fog. Nothing else
 /// of where the entity is matters. A world has one fog: of several that are enabled,
-/// that of the entity with the lowest id. Fog.h says how it is worked out.
+/// that of the entity with the lowest id. Fog.h says how it is worked out, and
+/// VolumetricFog.h how lights light it.
 struct FogComponent {
     /// Linear color of the fog itself: what is seen where nothing shows through it.
-    /// It is not lit by anything: a fog in a dark scene is given a dark color.
+    /// Nothing lights this color - lights light the fog besides, with `volumetric` - so
+    /// a fog in a dark scene is given a dark color.
     Vec3 color{0.5f, 0.6f, 0.7f};
     /// The part of the light that is lost with every metre where the fog is densest.
     /// 0.02 leaves 82% of the light of what is ten metres away, and 14% of what is a
@@ -267,6 +273,20 @@ struct FogComponent {
     /// How closely around the sun the glow stays: it falls off with the cosine of the
     /// angle to the sun, to this power. 1 lights half the sky, 64 a small patch.
     float sunExponent = 8.0f;
+    /// Whether lights light the fog: then each light that is on throws its light into it,
+    /// as much as its `volumetricIntensity` says, with its shadows and its cookie - beams
+    /// and glows besides the fog's own color. It costs a view two passes over a grid of
+    /// boxes, as fine as its screen effects quality.
+    bool volumetric = false;
+    /// Linear color: of the light the fog takes away, the share it throws on, in each
+    /// color. White for mist, which takes nothing for itself; darker for smoke.
+    Vec3 scattering{1.0f};
+    /// Which way the fog throws light on: 0 alike in every direction; towards 0.9 mostly
+    /// onwards, so that a beam is brightest seen from in front of its light; below 0 back.
+    float anisotropy = 0.2f;
+    /// How far in front of the viewer lights light the fog, in metres. Beyond it only
+    /// directional lights do, and as if nothing stood in their way.
+    float volumetricDistance = 50.0f;
 };
 
 /// How the picture is finished - exposure, bloom, tone mapping, grading and the rest of

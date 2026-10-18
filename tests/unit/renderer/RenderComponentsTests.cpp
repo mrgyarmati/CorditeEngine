@@ -128,7 +128,8 @@ TEST_SUITE("RenderComponents") {
                                 "innerConeDegrees": 20.0, "outerConeDegrees": 30.0, "channels": 6,
                                 "castsShadows": true, "shadowBias": 1.5, "shadowNormalOffset": 2.5,
                                 "shadowResolution": "high", "shadowDistance": 80.0, "shadowCascades": 3,
-                                "shadowCascadeDistribution": 0.5, "cookie": null, "cookieSize": 10.0})"));
+                                "shadowCascadeDistribution": 0.5, "cookie": null, "cookieSize": 10.0,
+                                "volumetricIntensity": 1.0})"));
 
         LightComponent loaded;
         REQUIRE(type.fromJson(&loaded, saved).has_value());
@@ -160,6 +161,14 @@ TEST_SUITE("RenderComponents") {
         // And before they had cookies: none.
         CHECK(sparse.cookie.isNil());
         CHECK(sparse.cookieSize == 10.0f);
+        // And before they lit fog: as their intensity says.
+        CHECK(sparse.volumetricIntensity == 1.0f);
+        LightComponent dim;
+        REQUIRE(type.fromJson(&dim, json(R"({"volumetricIntensity": 0.25})")).has_value());
+        CHECK(dim.volumetricIntensity == 0.25f);
+        CHECK_FALSE(type.fromJson(&dim, json(R"({"volumetricIntensity": -1.0})")).has_value());
+        CHECK_FALSE(type.fromJson(&dim, json(R"({"volumetricIntensity": 101.0})")).has_value());
+        CHECK(dim.volumetricIntensity == 0.25f);
 
         // A cookie is a texture, laid out by a directional light over metres.
         CHECK(type.findProperty("cookie")->attributes().semantic == PropertySemantic::AssetReference);
@@ -509,6 +518,11 @@ TEST_SUITE("RenderComponents") {
         CHECK(fresh.maxOpacity == 1.0f);
         CHECK(fresh.sunColor == Vec3(0.0f));
         CHECK(fresh.sunExponent == 8.0f);
+        // Lit by nothing but its own color until it is asked to be.
+        CHECK_FALSE(fresh.volumetric);
+        CHECK(fresh.scattering == Vec3(1.0f));
+        CHECK(fresh.anisotropy == 0.2f);
+        CHECK(fresh.volumetricDistance == 50.0f);
 
         const FogComponent fog{.color = Vec3(0.25f, 0.5f, 0.75f),
                                .density = 0.125f,
@@ -516,11 +530,16 @@ TEST_SUITE("RenderComponents") {
                                .startDistance = 4.0f,
                                .maxOpacity = 0.75f,
                                .sunColor = Vec3(2.0f, 1.0f, 0.5f),
-                               .sunExponent = 16.0f};
+                               .sunExponent = 16.0f,
+                               .volumetric = true,
+                               .scattering = Vec3(0.75f, 0.5f, 0.25f),
+                               .anisotropy = -0.25f,
+                               .volumetricDistance = 64.0f};
         const Json saved = type.toJson(&fog);
         CHECK(saved == json(R"({"color": [0.25, 0.5, 0.75], "density": 0.125, "heightFalloff": 0.5,
                                 "startDistance": 4.0, "maxOpacity": 0.75, "sunColor": [2.0, 1.0, 0.5],
-                                "sunExponent": 16.0})"));
+                                "sunExponent": 16.0, "volumetric": true, "scattering": [0.75, 0.5, 0.25],
+                                "anisotropy": -0.25, "volumetricDistance": 64.0})"));
 
         FogComponent loaded;
         REQUIRE(type.fromJson(&loaded, saved).has_value());
@@ -531,6 +550,16 @@ TEST_SUITE("RenderComponents") {
         CHECK(loaded.maxOpacity == 0.75f);
         CHECK(loaded.sunColor == fog.sunColor);
         CHECK(loaded.sunExponent == 16.0f);
+        CHECK(loaded.volumetric);
+        CHECK(loaded.scattering == fog.scattering);
+        CHECK(loaded.anisotropy == -0.25f);
+        CHECK(loaded.volumetricDistance == 64.0f);
+        // The share of light it throws on is a color, and no more than all of it.
+        const PropertyInfo* scattering = type.findProperty("scattering");
+        REQUIRE(scattering != nullptr);
+        CHECK(scattering->attributes().semantic == PropertySemantic::Color);
+        CHECK(scattering->attributes().maximum == 1.0);
+        CHECK(type.findProperty("volumetricDistance")->attributes().unit == "m");
 
         // Its colors are colors to an editor, and may be brighter than white.
         for (const char* name : {"color", "sunColor"}) {
@@ -552,6 +581,12 @@ TEST_SUITE("RenderComponents") {
                  R"({"maxOpacity": -0.1})",
                  R"({"sunExponent": 0.5})",
                  R"({"sunExponent": 65.0})",
+                 R"({"scattering": [1.5, 1.0, 1.0]})",
+                 R"({"anisotropy": 0.95})",
+                 R"({"anisotropy": -0.95})",
+                 R"({"volumetricDistance": 0.5})",
+                 R"({"volumetricDistance": 1001.0})",
+                 R"({"volumetric": 1})",
                  R"({"color": [-0.1, 0.0, 0.0]})",
                  R"({"sunColor": [0.0, 0.0]})",
                  R"({"color": "grey"})",

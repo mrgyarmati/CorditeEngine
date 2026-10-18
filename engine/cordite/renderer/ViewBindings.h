@@ -18,15 +18,19 @@
 /// | t4       | The shadow atlas (shaders/common/Shadows.slang)                   |
 /// | t5       | The environment's cube map (shaders/common/Environment.slang)     |
 /// | t6       | The environment's image, for the sky                              |
+/// | t7       | The cookies of the lights, a layer each (Lights.slang)            |
+/// | t8       | What lights throw into the fog (shaders/common/VolumetricFog.slang) |
 /// | s0       | The sampler that compares a depth with the atlas                  |
 /// | s1       | The sampler of the cube map                                       |
 /// | s2       | The sampler of the sky: it wraps around from left to right        |
+/// | s3       | The sampler of the cookies: it repeats them                       |
+/// | s4       | The sampler of the fog's light: it stops at the edges             |
 ///
 /// @code
 /// CORDITE_TRY_ASSIGN(ViewBindings view, ViewBindings::create(device));
 ///
 /// view.update(commandList, {.camera = cameraView, .targetSize = targets.size()}, lightClusters,
-///             {.plan = &shadowPlan, .atlas = shadowAtlas.texture(), .filterRadius = 1},
+///             resources.cookies(), {.plan = &shadowPlan, .atlas = shadowAtlas.texture(), .filterRadius = 1},
 ///             {.environment = &environments.none()});
 /// depthPass.draw(commandList, targets.depthFramebuffer(), batches,
 ///                {.view = view.bindings(), .instances = instances, .joints = palettes.bindings()});
@@ -36,7 +40,7 @@
 /// update() may be called any number of times in a command list: what is recorded after
 /// a call sees that call's values, what was recorded before keeps its own. Ask for
 /// bindings() after update(), not before: the set is replaced when a buffer has to grow
-/// or the atlas or the environment is another texture.
+/// or the atlas, the environment, the cookies or the fog's light is another texture.
 
 #include "cordite/core/Result.h"
 #include "cordite/math/Math.h"
@@ -45,6 +49,7 @@
 #include "cordite/renderer/Fog.h"
 #include "cordite/renderer/LightClusters.h"
 #include "cordite/renderer/ShadowPlan.h"
+#include "cordite/renderer/VolumetricFog.h"
 
 #include <nvrhi/nvrhi.h>
 
@@ -71,6 +76,9 @@ struct SceneView {
     bool ambientOcclusion = false;
     /// The fog between the viewer and what it sees; none unless it has a density.
     FogSettings fog;
+    /// The grid that what lights throw into the fog is worked out for (VolumetricFogPass):
+    /// none where no light lights it.
+    FogVolumeGrid fogVolume;
     /// What the targets were cleared to. The lighting has to know it where it draws
     /// fog over pixels in which nothing else is: fog mixes with what is behind it.
     Vec3 backgroundColor{0.0f};
@@ -112,9 +120,13 @@ public:
     /// Makes `view`, `lights`, `shadows` and `environment` what passes recorded from
     /// here on are told. `lights` must have been built for the camera of `view`, and
     /// `shadows` planned for them; `cookies` is the texture array their cookies are
-    /// layers of (RenderResources::cookies()), never null. The command list must be open.
+    /// layers of (RenderResources::cookies()), never null. `fogVolume` is what lights throw
+    /// into the fog, worked out for the grid `view.fogVolume` (SceneTargets::fogVolume()),
+    /// or null: then the shaders are told that no light lights the fog, and read nothing
+    /// of it. The command list must be open.
     void update(nvrhi::ICommandList* commandList, const SceneView& view, const LightClusters& lights,
-                nvrhi::ITexture* cookies, const ViewShadows& shadows, const ViewEnvironment& environment);
+                nvrhi::ITexture* cookies, const ViewShadows& shadows, const ViewEnvironment& environment,
+                nvrhi::ITexture* fogVolume = nullptr);
 
     /// The layout of bindings(), for pipelines: register space 0, visible to every
     /// shader stage.
@@ -122,6 +134,11 @@ public:
 
     /// The set as it is after the last update().
     [[nodiscard]] nvrhi::IBindingSet* bindings() const { return m_bindings; }
+
+    /// The buffer of the constants alone (b0), as the last update() wrote them: for a pass
+    /// that cannot bind the whole set because it writes something the set holds - the
+    /// fog's light (VolumetricFogPass).
+    [[nodiscard]] nvrhi::IBuffer* constants() const { return m_constants; }
 
 private:
     /// Makes room in `buffer` for `byteSize` bytes of elements `stride` bytes large,
@@ -138,12 +155,17 @@ private:
     nvrhi::SamplerHandle m_environmentSampler;
     nvrhi::SamplerHandle m_skySampler;
     nvrhi::SamplerHandle m_cookieSampler;
-    /// The atlas and the environment the binding set holds; a view may come with
-    /// others.
+    nvrhi::SamplerHandle m_fogVolumeSampler;
+    /// What is bound at t8 when no light lights the fog: a single texel of nothing.
+    nvrhi::TextureHandle m_noFogVolume;
+    /// Whether m_noFogVolume has been given its texel, which takes a command list.
+    bool m_noFogVolumeWritten = false;
+    /// The textures the binding set holds; a view may come with others.
     nvrhi::TextureHandle m_atlas;
     nvrhi::TextureHandle m_environmentRadiance;
     nvrhi::TextureHandle m_environmentSky;
     nvrhi::TextureHandle m_cookies;
+    nvrhi::TextureHandle m_fogVolume;
     nvrhi::BindingLayoutHandle m_layout;
     nvrhi::BindingSetHandle m_bindings;
     /// True when a buffer was replaced and the binding set has to follow.

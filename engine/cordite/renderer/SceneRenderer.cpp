@@ -100,7 +100,23 @@ DeferredLightingMode lightingModeOf(RenderDebugView debugView) {
     if (debugView == RenderDebugView::Reflections) {
         return DeferredLightingMode::Reflections;
     }
+    if (debugView == RenderDebugView::FogLight) {
+        return DeferredLightingMode::FogLight;
+    }
     return DeferredLightingMode::Lit;
+}
+
+/// Whether a view shows the light the lights give - the lit picture, the light alone, or
+/// what they throw into the fog - and so needs their shadow maps.
+bool showsLightOfLights(RenderDebugView debugView) {
+    return debugView == RenderDebugView::None || debugView == RenderDebugView::LightingOnly ||
+           debugView == RenderDebugView::FogLight;
+}
+
+/// Whether any of the lights of a view gives the fog something.
+bool anyLightLightsFog(const LightClusters& clusters) {
+    return std::ranges::any_of(
+        clusters.lights, [](const GpuLight& light) { return glm::any(glm::greaterThan(light.fogColor, Vec3(0.0f))); });
 }
 
 /// Where the entity `id` placed its mesh in the picture `before` - what a view remembers
@@ -248,6 +264,7 @@ SceneRenderStatistics& SceneRenderStatistics::operator+=(const SceneRenderStatis
     ambientOcclusionBytes = std::max(ambientOcclusionBytes, other.ambientOcclusionBytes);
     depthOfFieldBytes = std::max(depthOfFieldBytes, other.depthOfFieldBytes);
     lightShaftBytes = std::max(lightShaftBytes, other.lightShaftBytes);
+    fogVolumeBytes = std::max(fogVolumeBytes, other.fogVolumeBytes);
     motionBlurBytes = std::max(motionBlurBytes, other.motionBlurBytes);
     shadowPass += other.shadowPass;
     depthPass += other.depthPass;
@@ -297,6 +314,7 @@ Result<std::unique_ptr<SceneRenderer>> SceneRenderer::create(nvrhi::IDevice* dev
     CORDITE_TRY_ASSIGN(EnvironmentMaps environments, EnvironmentMaps::create(device, shaders, assets));
     CORDITE_TRY_ASSIGN(DecalPass decals, DecalPass::create(device, shaders, viewLayout, materialLayout));
     CORDITE_TRY_ASSIGN(AmbientOcclusionPass occlusion, AmbientOcclusionPass::create(device, shaders, viewLayout));
+    CORDITE_TRY_ASSIGN(VolumetricFogPass fogLight, VolumetricFogPass::create(device, shaders, viewLayout));
     CORDITE_TRY_ASSIGN(LightShaftPass lightShafts, LightShaftPass::create(device, shaders, viewLayout));
     CORDITE_TRY_ASSIGN(DepthOfFieldPass depthOfField, DepthOfFieldPass::create(device, shaders, viewLayout));
     CORDITE_TRY_ASSIGN(MotionBlurPass motionBlur, MotionBlurPass::create(device, shaders, viewLayout));
@@ -315,6 +333,7 @@ Result<std::unique_ptr<SceneRenderer>> SceneRenderer::create(nvrhi::IDevice* dev
                   .environments = std::move(environments),
                   .decals = std::move(decals),
                   .occlusion = std::move(occlusion),
+                  .fogLight = std::move(fogLight),
                   .lightShafts = std::move(lightShafts),
                   .depthOfField = std::move(depthOfField),
                   .motionBlur = std::move(motionBlur),
@@ -444,6 +463,26 @@ void SceneRenderer::uploadPoses(nvrhi::ICommandList* commandList) {
     }
     m_statistics.skinnedMeshes = 0;
     m_statistics.jointMatrices = 0;
+}
+
+FogVolumeGrid SceneRenderer::prepareFogLight(SceneTargets& targets, const SceneRenderSettings& settings,
+                                             RenderDebugView debugView) {
+    const FogVolumeGrid grid = fogVolumeGridFor(targets.size(), settings.screenEffectsQuality);
+    if (!showsLightOfLights(debugView) || grid.isEmpty() || !m_lights.fog().isLitByLights() ||
+        !anyLightLightsFog(m_clusters)) {
+        // A view that has none gives back what it was worked out in.
+        targets.releaseFogVolume();
+        return {};
+    }
+    if (const Status prepared = targets.prepareFogVolume(m_device, UVec3(grid.columns, grid.rows, grid.slices));
+        !prepared) {
+        if (!m_reportedFogLight) {
+            CORDITE_LOG_ERROR("Renderer", "the fog is lit by no light: {}", prepared.error().describe());
+            m_reportedFogLight = true;
+        }
+        return {};
+    }
+    return grid;
 }
 
 void SceneRenderer::assignCookies() {
@@ -599,9 +638,12 @@ void SceneRenderer::render(nvrhi::ICommandList* commandList, const World& world,
     // are lit - the others show something else in place of the light.
     const ShadowSettings shadowSettings = shadowSettingsFor(settings.shadowQuality);
     planShadows(view, m_lights.lights(), m_clusters, shadowSettings, m_shadowPlan);
-    if (debugView == RenderDebugView::None || debugView == RenderDebugView::LightingOnly) {
+    if (showsLightOfLights(debugView)) {
         drawShadows(commandList, shadowSettings);
     }
+    // What lights throw into the fog is worked out over a grid of the view, before
+    // anything is lit, in volumes of its targets that the view's bindings hold.
+    const FogVolumeGrid fogGrid = prepareFogLight(targets, settings, debugView);
 
     m_viewBindings.update(
         commandList,
@@ -612,6 +654,7 @@ void SceneRenderer::render(nvrhi::ICommandList* commandList, const World& world,
          .groundColor = m_lights.groundColor(),
          .ambientOcclusion = drawsOcclusion,
          .fog = m_lights.fog(),
+         .fogVolume = fogGrid,
          .backgroundColor = settings.backgroundColor},
         m_clusters, m_resources->cookies(),
         {.plan = &m_shadowPlan, .atlas = m_passes.shadows.texture(), .filterRadius = shadowSettings.filterRadius},
@@ -619,7 +662,8 @@ void SceneRenderer::render(nvrhi::ICommandList* commandList, const World& world,
         {.environment = environment != nullptr ? environment : &m_passes.environments.none(),
          .intensity = environment != nullptr ? surroundings.intensity : 0.0f,
          .rotation = surroundings.rotation,
-         .visible = surroundings.visible});
+         .visible = surroundings.visible},
+        fogGrid.isEmpty() ? nullptr : targets.fogVolume());
     m_drawList.build(commandList, m_draws, view.position, view.forward);
     nvrhi::IBindingSet* viewBindings = m_viewBindings.bindings();
     const MeshPassBindings meshBindings{
@@ -666,6 +710,9 @@ void SceneRenderer::render(nvrhi::ICommandList* commandList, const World& world,
             }
             m_statistics.screenPasses += passes;
         }
+        // Nothing, unless prepareFogLight() made the targets volumes for it.
+        m_statistics.screenPasses +=
+            m_passes.fogLight.draw(commandList, targets, viewBindings, m_viewBindings.constants());
         if (isDrawnFromGBuffer(debugView)) {
             m_passes.debugView.draw(commandList, targets, viewBindings, debugView);
         } else {
@@ -691,6 +738,7 @@ void SceneRenderer::render(nvrhi::ICommandList* commandList, const World& world,
     m_statistics.ambientOcclusionBytes = targets.tracedOcclusionBytes();
     m_statistics.depthOfFieldBytes = targets.depthOfFieldBytes();
     m_statistics.lightShaftBytes = targets.lightShaftBytes();
+    m_statistics.fogVolumeBytes = targets.fogVolumeBytes();
     m_statistics.motionBlurBytes = targets.motionBlurBytes();
     m_statistics.decalBytes = targets.decalNormalBytes();
     m_statistics.meshes = m_statistics.shadowPass;

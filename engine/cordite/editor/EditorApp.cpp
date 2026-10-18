@@ -736,7 +736,9 @@ Status EditorApp::registerApplicationCommands() {
             "edges of the triangles (wireframe), how often each pixel is drawn (overdraw), how "
             "blurred each pixel is by the depth of field (focus: black where it is sharp, red in "
             "front of that and blue behind), the light the shafts of the sun add, alone "
-            "(lightShafts), or the level of detail each mesh is drawn at (lod: the mesh itself "
+            "(lightShafts), what the lights throw towards the viewer from the fog in front of "
+            "each pixel, alone (fogLight: black where they throw nothing), or the level of "
+            "detail each mesh is drawn at (lod: the mesh itself "
             "grey, then green, yellow, orange and red as the levels get coarser). Returns the view "
             "now shown and all there are; without a parameter it changes nothing.",
         .parameters = {{"view", Type::String, "The view to show, by one of the names above.", false}},

@@ -222,10 +222,13 @@ scene black. Lights are components like any other:
   the part of the light that is lost with every metre (0.02: a fifth after ten
   metres) where the fog is densest: at the height of its entity and below. Above, it
   thins out to about a third every 1 / `heightFalloff` metres; with 0 it is the same
-  at every height and hides the sky. Nothing lights it: give it the color of the
-  sky's horizon, and a darker one in a dark scene. `sunColor` is added towards the
-  brightest directional light. A world uses one fog, the one whose entity has the
-  lowest id. Look at it with `viewport.debugView {"view": "fog"}`.
+  at every height and hides the sky. Nothing lights that color: give it the color of
+  the sky's horizon, and a darker one in a dark scene. `sunColor` is added towards the
+  brightest directional light. With `volumetric` the lights light the fog besides, each
+  as much as its own `volumetricIntensity` says, through its shadows and its cookie.
+  A world uses one fog, the one whose entity has the lowest id. Look at it with
+  `viewport.debugView {"view": "fog"}`, and at what the lights throw into it with
+  `{"view": "fogLight"}`.
 - `channels` on a light and `lightChannels` on a mesh renderer are numbers with one
   bit per lighting channel (1, 2, 4 ... 128). A light shines on a mesh when they share
   a bit; left alone, everything is in channel 1.

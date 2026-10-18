@@ -909,13 +909,14 @@ TEST_SUITE("EditorApp") {
         // Three cascades for the sun, one map for the lamp, six for the wall light.
         CHECK(scene["shadows"]["maps"] == 2 * 10);
         CHECK(scene["shadows"]["lightsWithout"] == 0);
-        // Passes over the whole picture: the two of the ambient occlusion, the lighting,
-        // the three of the depth of field, and what finishes the picture as the showcase
-        // says - five levels of bloom down and up, the exposure, the final pass, the
-        // smoothing of its edges - for each view; and for the capture, which looks towards
-        // the sun, the five of its light shafts, and the three of its motion blur: a
-        // capture is a game's view, while the editor's own camera blurs nothing.
-        CHECK(scene["screenPasses"] == 2 * 18 + 5 + 3);
+        // Passes over the whole picture: the two of the ambient occlusion, the two of
+        // what the lights throw into the haze, the lighting, the three of the depth of
+        // field, and what finishes the picture as the showcase says - five levels of bloom
+        // down and up, the exposure, the final pass, the smoothing of its edges - for each
+        // view; and for the capture, which looks towards the sun, the five of its light
+        // shafts, and the three of its motion blur: a capture is a game's view, while the
+        // editor's own camera blurs nothing.
+        CHECK(scene["screenPasses"] == 2 * 20 + 5 + 3);
         // The ambient occlusion is worked out for one pixel in four of the viewport, in
         // two half floats each; the depth of field in two images of a texel for every four
         // pixels, of four half floats each.
@@ -1485,7 +1486,8 @@ TEST_SUITE("EditorApp") {
         CHECK(unwrap(compareImages(medium, unfinished, {.channelTolerance = 16})).differingPixels > 5000);
 
         // Without the screen effects the corners of the scene are a little lighter: the
-        // light from the sky is kept out of them no longer.
+        // light from the sky is kept out of them no longer. And the haze is lit by its own
+        // color alone, which takes the lamp's cone out of it: a few pixels by much.
         run(*editor, "viewport.quality", R"({"preset": "medium"})");
         answer = run(*editor, "viewport.quality", R"({"effects": "off"})");
         CHECK(answer["effects"] == "off");
@@ -1494,7 +1496,7 @@ TEST_SUITE("EditorApp") {
         CHECK(editor->viewport().screenEffectsQuality() == ScreenEffectsQuality::Off);
         const Image withoutEffects = unwrap(editor->captureViewport(UVec2(320, 180)));
         CHECK(unwrap(compareImages(medium, withoutEffects, {.channelTolerance = 3})).differingPixels > 200);
-        CHECK(unwrap(compareImages(medium, withoutEffects, {.channelTolerance = 40})).differingPixels == 0);
+        CHECK(unwrap(compareImages(medium, withoutEffects, {.channelTolerance = 40})).differingPixels < 32);
 
         // Without anti-aliasing the edges in the picture have their steps: some pixels
         // differ, a few of them by much, and most of the picture not at all. It is no

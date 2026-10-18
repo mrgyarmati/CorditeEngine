@@ -136,6 +136,7 @@ this order. Then each step, with its shader in `shaders/`:
 | Deferred lighting | `DeferredLightingPass.h` | `passes/DeferredLighting.slang`, `common/SceneLighting.slang`, `common/Brdf.slang` | "Solid surfaces are shaded deferred, translucent ones forward" |
 | The environment | `EnvironmentMaps.h`, `EnvironmentLight.h` | `common/Environment.slang`, `passes/EnvironmentPrefilter.slang` | "An environment is one image, and three things are made of it" |
 | Fog | `Fog.h` | `common/Fog.slang` | "Fog is a formula in the lighting, not a pass" |
+| Lights that light the fog | `VolumetricFog.h`, `VolumetricFogPass.h`, `ComputePass.h` | `common/FogVolume.slang`, `common/VolumetricFog.slang`, `passes/FogScattering.slang`, `passes/FogIntegration.slang` | "The fog's light is a volume over the view, worked out by compute shaders" |
 | Translucent surfaces | `MeshDrawList.h` | `passes/MeshForward.slang` | |
 | Light shafts | `LightShafts.h`, `LightShaftPass.h` | `passes/LightShafts.slang`, `common/LightShafts.slang` | "Light shafts are the sky around the sun, blurred towards it" |
 | Depth of field | `DepthOfFieldPass.h`, `PostProcessSettings.h` | `passes/DepthOfField.slang`, `common/DepthOfField.slang` | "Depth of field is gathered at half the size, from light, before the picture is finished" |
