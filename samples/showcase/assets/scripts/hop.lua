@@ -11,6 +11,10 @@
 -- sounds like is a component, saved with the scene and set in an editor. The landing
 -- belongs to no entity - it is where the two met - and is played with
 -- `cordite.audio.play`, once, from that place.
+--
+-- A hard landing is felt, too: every camera with a CameraShake is given trauma, which
+-- it shakes by and which dies down by itself. Nothing but a property is set for that -
+-- the shake is the camera's to do, and moves its view and nothing else.
 
 local Hop = {
     properties = {
@@ -18,6 +22,7 @@ local Hop = {
         impulse = 3.0, -- newton seconds, upwards
         label = "Ball", -- what the name begins with
         landing = "sounds/hop.wav", -- what it lands with: a sound, by where its file is
+        shake = 0.1, -- the trauma of the cameras for every metre a second it lands with
     },
 }
 
@@ -54,6 +59,12 @@ function Hop:collisionBegan(other, contact)
             volume = math.min(contact.speed / 6.0, 1.0),
             pitch = 0.6,
         })
+        -- And it is felt: every camera that can shake is shaken, the harder the ball came
+        -- down the more. Trauma adds up to 1 at the most, and dies down by itself.
+        for _, camera in ipairs(cordite.world.withComponent("CameraShake")) do
+            local trauma = camera:get("CameraShake", "trauma")
+            camera:set("CameraShake", "trauma", math.min(trauma + contact.speed * self.properties.shake, 1.0))
+        end
     end
 end
 

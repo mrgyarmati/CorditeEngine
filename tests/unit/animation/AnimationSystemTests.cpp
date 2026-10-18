@@ -470,7 +470,9 @@ TEST_SUITE("AnimationComponents") {
     TEST_CASE("the animator is registered under the name scene files use, and described") {
         ComponentRegistry registry;
         REQUIRE(registerAnimationComponents(registry).has_value());
-        REQUIRE(registry.components().size() == 1);
+        // The animator first, then the shake of a camera (CameraShakeTests).
+        REQUIRE(registry.components().size() == 2);
+        CHECK(registry.components()[0]->type.name() == "Animator");
         const ComponentDescriptor* descriptor = registry.find("Animator");
         REQUIRE(descriptor != nullptr);
         CHECK(descriptor->traits.optional);

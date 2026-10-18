@@ -16,6 +16,7 @@
 #include "cordite/physics/PhysicsComponents.h"
 #include "cordite/platform/InputMap.h"
 #include "cordite/platform/KeyCodes.h"
+#include "cordite/renderer/CameraView.h"
 #include "cordite/renderer/RenderComponents.h"
 #include "cordite/scripting/ScriptComponents.h"
 #include "cordite/scripting/ScriptSystem.h"
@@ -68,6 +69,23 @@ void runFrames(Engine& engine, int count) {
         REQUIRE_MESSAGE(keepRunning.has_value(), test::errorOf(keepRunning));
         REQUIRE(*keepRunning);
     }
+}
+
+/// The middle of what is bright in a picture - lit against a dark background - in pixels
+/// from its top-left corner, with the middle of a pixel at a half.
+Vec2 middleOfBright(const Image& image) {
+    Vec2 sum(0.0f);
+    float count = 0.0f;
+    for (uint32_t y = 0; y < image.height(); ++y) {
+        for (uint32_t x = 0; x < image.width(); ++x) {
+            if (image.pixel(x, y).r > 0.35f) {
+                sum += Vec2(static_cast<float>(x) + 0.5f, static_cast<float>(y) + 0.5f);
+                count += 1.0f;
+            }
+        }
+    }
+    REQUIRE(count > 0.0f);
+    return sum / count;
 }
 
 } // namespace
@@ -1003,6 +1021,78 @@ TEST_SUITE("Engine") {
         REQUIRE(test::unwrap(engine->beginFrame()));
         REQUIRE(engine->endFrame().has_value());
         CHECK(engine->statistics().animation == AnimationStatistics());
+        checkNoValidationIssues(engine->graphics());
+    }
+
+    TEST_CASE("the engine shakes the cameras of its world while its clock runs, and the game is seen shaken") {
+        const UVec2 size(160, 90);
+        const std::unique_ptr<Engine> engine = createEngine(headlessDesc(size));
+        CHECK(engine->components().find("CameraShake") != nullptr);
+        World& world = engine->world();
+        // A lit cube in the middle of the view of a camera that can shake, by a lot.
+        const Entity camera = world.createEntity("Camera");
+        world.transform(camera).position = Vec3(0.0f, 0.0f, 3.0f);
+        world.add<CameraComponent>(camera);
+        world.add<CameraShakeComponent>(camera) = {
+            .decay = 2.0f, .maxOffset = Vec3(0.2f), .maxRotation = Vec3(5.0f), .frequency = 6.0f};
+        const Entity cube = world.createEntity("Cube");
+        world.add<MeshRendererComponent>(cube).mesh = builtinMeshId(BuiltinMesh::Cube);
+        const Entity lamp = world.createEntity("Lamp");
+        world.transform(lamp).position = Vec3(0.0f, 0.0f, 3.0f);
+        world.add<LightComponent>(lamp) = {.type = LightType::Point, .intensity = 9.0f, .range = 10.0f};
+        const auto shake = [&] { return *world.tryGet<CameraShakeComponent>(camera); };
+        // Where the middle of the face of the cube that is lit is seen through the camera,
+        // as it is now.
+        const auto seenAt = [&] {
+            const CameraView view =
+                makeCameraView(world, camera, static_cast<float>(size.x) / static_cast<float>(size.y));
+            const std::optional<Vec2> point = worldToScreen(view, Vec3(0.0f, 0.0f, 0.5f), Vec2(size));
+            REQUIRE(point.has_value());
+            return *point;
+        };
+        const Vec2 middle = Vec2(size) * 0.5f;
+
+        // Without trauma the camera does not shake, however much time passes: the cube is
+        // in the middle, and the shake has only moved on.
+        runFrames(*engine, 3);
+        CHECK(shake().trauma == 0.0f);
+        CHECK(shake().phase == doctest::Approx(3.0f * 6.0f / 60.0f));
+        CHECK_NEAR(middleOfBright(test::unwrap(engine->captureFrame())), middle, 0.25f);
+
+        // A game shakes it: frame by frame the cube is seen where the shaken camera sees it,
+        // which is somewhere else every time.
+        world.tryGet<CameraShakeComponent>(camera)->trauma = 1.0f;
+        float furthest = 0.0f;
+        Vec2 before = middle;
+        int moved = 0;
+        for (int frame = 0; frame < 10; ++frame) {
+            runFrames(*engine, 1);
+            const Vec2 seen = middleOfBright(test::unwrap(engine->captureFrame()));
+            CHECK_NEAR(seen, seenAt(), 0.75f);
+            furthest = std::max(furthest, glm::distance(seen, middle));
+            moved += glm::distance(seen, before) > 0.25f ? 1 : 0;
+            before = seen;
+        }
+        CHECK(furthest > 2.0f);
+        CHECK(moved >= 8);
+        CHECK(shake().trauma == doctest::Approx(1.0f - 10.0f * 2.0f / 60.0f));
+        // The shake moves the view alone.
+        CHECK(world.transform(camera).position == Vec3(0.0f, 0.0f, 3.0f));
+
+        // With the clock stopped it holds where it is, as everything else does.
+        const CameraShakeComponent held = shake();
+        REQUIRE(test::unwrap(engine->beginFrame()));
+        engine->updateWorld(WorldClock::Stopped);
+        REQUIRE(engine->drawWorld().has_value());
+        REQUIRE(engine->endFrame().has_value());
+        CHECK(shake().trauma == held.trauma);
+        CHECK(shake().phase == held.phase);
+        CHECK_NEAR(middleOfBright(test::unwrap(engine->captureFrame())), before, 0.25f);
+
+        // The trauma dies down, and the camera is still again where it is.
+        runFrames(*engine, 30);
+        CHECK(shake().trauma == 0.0f);
+        CHECK_NEAR(middleOfBright(test::unwrap(engine->captureFrame())), middle, 0.25f);
         checkNoValidationIssues(engine->graphics());
     }
 

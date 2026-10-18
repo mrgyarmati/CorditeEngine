@@ -1,5 +1,6 @@
 #include "cordite/engine/Engine.h"
 
+#include "cordite/animation/CameraShake.h"
 #include "cordite/core/Assert.h"
 #include "cordite/core/FileSystem.h"
 #include "cordite/core/Log.h"
@@ -387,8 +388,7 @@ Status Engine::drawWorld(const SceneRenderSettings& settings) {
         CORDITE_TRY(impl.worldTargets.resize(impl.graphics->device(), size));
     }
 
-    const CameraView view = makeCameraView(impl.world.worldMatrix(camera), *impl.world.tryGet<CameraComponent>(camera),
-                                           static_cast<float>(size.x) / static_cast<float>(size.y));
+    const CameraView view = makeCameraView(impl.world, camera, static_cast<float>(size.x) / static_cast<float>(size.y));
     // Whose view it is and what time it is are the engine's to say.
     SceneRenderSettings drawn = settings;
     drawn.viewEntity = impl.world.id(camera);
@@ -433,6 +433,9 @@ void Engine::updateWorld(WorldClock clock) {
             impl.pendingScene = scene;
         }
         impl.animationStatistics = impl.animation.update(impl.world, *impl.assets, deltaSeconds);
+        // After everything that may have shaken a camera in this frame - a script, or one
+        // that was told what met - and before it is seen through.
+        shakeCameras(impl.world, deltaSeconds);
     } else {
         impl.physicsStatistics = impl.physics->synchronize(impl.world, *impl.assets);
         impl.animationStatistics = impl.animation.evaluate(impl.world, *impl.assets);

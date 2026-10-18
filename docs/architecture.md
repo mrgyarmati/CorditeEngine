@@ -34,7 +34,7 @@ of slowly turning the code base into a ball of mud.
 | `platform` | `core`, `math` | The window system and windows (GLFW), and per-window keyboard, mouse and gamepad state with an injection API for tests and automation. |
 | `assets` | `core`, `math` | Assets as data, and where they come from: images and mipmaps; meshes, primitives and mesh processing; materials; the text of scripts; the samples of sounds; prefabs, as far as their files go; glTF import and export; the asset database, which knows what exists and under which id; the asset manager, which loads by id. Knows nothing of the GPU. |
 | `world` | `core`, `math` | The scene: entities, their components and their parent/child hierarchy, stored with EnTT; the registry of component types known by name; scene files; prefabs - placing one in a world, and making one of what is there. |
-| `animation` | `core`, `math`, `assets`, `world` | Movement of skeletons: the functions that make a pose (sampling a clip, blending two poses, the matrices a mesh is skinned with, the bounds of a posed mesh), the `Animator` component, and `AnimationSystem`, which plays the animators of a world and gives each the pose it is in. |
+| `animation` | `core`, `math`, `assets`, `world` | Movement of skeletons: the functions that make a pose (sampling a clip, blending two poses, the matrices a mesh is skinned with, the bounds of a posed mesh), the `Animator` component, and `AnimationSystem`, which plays the animators of a world and gives each the pose it is in. The shake of a camera: the `CameraShake` component, how it moves a view and how time passes for it. |
 | `physics` | `core`, `math`, `assets`, `world` | The simulation of rigid bodies: `PhysicsWorld` holds bodies - shapes, a mass, where each is and how it moves - steps them on in time and answers what a ray hits. Jolt Physics is behind it and shows in none of its headers. The `Collider` and `RigidBody` components say what of a world is simulated, and `PhysicsSystem` keeps the two in step; it is also what makes the shapes of colliders out of mesh assets. |
 | `audio` | `core`, `math`, `assets`, `world` | Sound: the `AudioSource` and `AudioListener` components, and `AudioSystem`, which gives the sources of a world voices, places them around whoever listens, mixes them through five buses and plays the result on a device - or, for tests and tools, into memory. miniaudio does the mixing and is seen by nothing outside the module. |
 | `scripting` | `core`, `math`, `platform`, `assets`, `world`, `physics`, `audio` | Gameplay scripts: `ScriptRuntime` is the Lua state they run in and what keeps a script that is wrong from being more than an error - limits on instructions, memory and nesting, a build of Lua without what reaches the machine, an environment for every chunk - with the catalogue of the functions scripts are given, and the conversion of values between JSON and Lua. The `Script` component names a script for an entity; `ScriptSystem` gives each such entity an instance and calls it. What scripts call is in the `Script...Api.cpp` sources, one per subject: entities, the world and its hierarchy and transforms, components (through the reflection), vectors and rotations, the controls of the game, the simulation. |
@@ -61,8 +61,8 @@ with and without a window:
    `Engine::updateWorld()`, which runs the scripts of the entities, steps the
    simulation of the world's bodies and puts the entities where their bodies have
    gone, tells the scripts what met and what parted on the way, plays the animations
-   on by the time of the frame, poses the skeletons and works out where every entity
-   is; it records render passes
+   on by the time of the frame, poses the skeletons, shakes the cameras on and works
+   out where every entity is; it records render passes
    into the command list, and describes its interface with ImGui calls. A game calls
    `Engine::drawWorld()`, which renders the world through its primary camera; the
    editor renders it from the viewport's own camera into the viewport panel instead,
@@ -1497,6 +1497,31 @@ for free, but it needs a target of ids, a pass to fill it and a frame's wait for
 answer; picking is rare, and the CPU's answer is there at once and is the same in a
 test without a device. The rule for which pose a mesh is in is one function,
 `findSkeletonPose`, that the renderer and the editor both call.
+
+### A camera shakes its view by its trauma, with noise
+
+A `CameraShake` is driven the way Squirrel Eiserloh described at GDC 2016: what happens
+gives the camera trauma, which falls with time, and the camera is moved by its square -
+so that shakes of different sizes look different, not only larger. The movement is Perlin
+noise of a phase, another row of it for each of the six ways a camera can move: sines of a
+few frequencies read as a wobble, and shakes that keep time with each other as a sway.
+The noise is glm's, which the engine has already; the rows lie between those of the
+lattice, where gradient noise is not nothing at every whole turn - or the camera would
+come back to rest, all six ways at once, at a steady beat.
+
+The shake moves the view, not the entity. Moving the entity would move whatever goes by
+it - a ray a script aims from the camera, the listener on it - and would be a change of
+the world that physics and the editor's history notice. So it is applied where the view
+of a camera's entity is made, in one function (`makeCameraView` of an entity) that the
+game, scene captures and the editor's view through the game's camera all call. A scene
+holds how its cameras shake; that one does, and where in its shaking it is, is the
+game's (`transient`), so a scene begins at rest and the editor never shows a shake it
+cannot undo.
+
+The noise is of a phase that moves on by the frequency, not of the time times the
+frequency: a script that changes the frequency while the camera shakes would make the
+second jump. The phase goes round after a period in which the noise repeats, so it
+keeps the digits that a frame moves it by however long a game runs.
 
 ### Physics is Jolt, behind a world of the engine's own types
 

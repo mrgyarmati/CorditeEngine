@@ -1,7 +1,8 @@
 #pragma once
 
 /// @file
-/// The components of animation: the animator, and the pose it works out.
+/// The components of animation: the animator, the pose it works out, and the shake of a
+/// camera.
 ///
 /// @code
 /// const Entity figure = world.createEntity("Figure");
@@ -10,6 +11,8 @@
 /// animation.update(world, assets, frameSeconds);                      // AnimationSystem
 /// const SkeletonPoseComponent* pose = world.tryGet<SkeletonPoseComponent>(figure);
 /// const SkeletonPoseComponent* sameOne = findSkeletonPose(world, meshBelowFigure);
+///
+/// world.add<CameraShakeComponent>(camera).trauma = 0.5f;               // CameraShake.h
 /// @endcode
 ///
 /// In a scene file:
@@ -18,7 +21,9 @@
 /// "Animator": {"skeleton": "0a56c2f1-21e0-819d-8bac-567d1e1c4345",
 ///              "clip": "5d0b6c1e-9c3f-4f0e-8a54-0d6f3c1b2a79",
 ///              "time": 0, "speed": 1, "loop": true, "playing": true,
-///              "blendClip": null, "blendTime": 0, "blendWeight": 0}
+///              "blendClip": null, "blendTime": 0, "blendWeight": 0},
+/// "CameraShake": {"decay": 1, "maxOffset": [0.05, 0.05, 0.05], "maxRotation": [3, 3, 2],
+///                 "frequency": 12}
 /// @endcode
 ///
 /// The joints of a skeleton are not entities. A skeleton is an asset, and where its
@@ -75,13 +80,47 @@ struct SkeletonPoseComponent {
     std::vector<Mat4> joints;
 };
 
+/// Shakes the view through the Camera of its entity by how much has happened to it: its
+/// trauma. The shake moves the picture alone - the entity stays where it is, and so does
+/// whatever is worked out from it: where its rays start, where it is heard from. How it
+/// moves the view at a moment is cameraShakeOffset, and shakeCameras lets time pass for
+/// it (CameraShake.h). What a scene holds is how the camera shakes; that it does, and
+/// where in its shaking it is, are the game's: neither is saved.
+struct CameraShakeComponent {
+    /// How much has happened to the camera, from nothing to the most there can be. A game
+    /// raises it when something does - an explosion, a landing - and it falls by `decay`
+    /// every second while time passes. The camera is moved by its square, so a little is
+    /// hardly seen and a lot is violent.
+    float trauma = 0.0f;
+    /// How much trauma goes away every second.
+    float decay = 1.0f;
+    /// The furthest the camera is moved along its own axes - right, up and back - at a
+    /// trauma of 1, in metres.
+    Vec3 maxOffset{0.05f, 0.05f, 0.05f};
+    /// The furthest the camera is turned about its own axes at a trauma of 1, in degrees:
+    /// about X it looks up and down, about Y from side to side, and about Z it rolls.
+    Vec3 maxRotation{3.0f, 3.0f, 2.0f};
+    /// How fast it shakes: about how many times a second it changes its way.
+    float frequency = 12.0f;
+    /// Where in its shaking the camera is, in turns of the noise it is shaken by: it moves
+    /// on by `frequency` every second while time passes, and goes round at
+    /// kCameraShakePeriod.
+    float phase = 0.0f;
+};
+
 /// The pose a skinned mesh of `entity` is drawn in: that of the entity itself, or of the
 /// nearest entity above it that has one - the meshes of a figure hang under what
 /// animates it. Null when there is none. `owner`, when given, is told whose pose it is;
 /// the null entity for none.
 [[nodiscard]] const SkeletonPoseComponent* findSkeletonPose(const World& world, Entity entity, Entity* owner = nullptr);
 
-/// Registers the components of the animation module that a scene holds: "Animator".
+/// After this many turns the noise a camera is shaken by begins again, without a jump:
+/// CameraShakeComponent::phase stays below it, where a float still has the digits that
+/// a sixtieth of a second moves it by.
+inline constexpr float kCameraShakePeriod = 256.0f;
+
+/// Registers the components of the animation module that a scene holds: "Animator" and
+/// "CameraShake".
 [[nodiscard]] Status registerAnimationComponents(ComponentRegistry& registry);
 
 } // namespace cordite

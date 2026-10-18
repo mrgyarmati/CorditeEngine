@@ -17,6 +17,7 @@
 #include "cordite/editor/NewProject.h"
 #include "cordite/engine/Project.h"
 #include "cordite/platform/InputMap.h"
+#include "cordite/renderer/CameraView.h"
 #include "cordite/renderer/RenderDebugView.h"
 #include "cordite/rhi/TextureReadback.h"
 #include "cordite/shaders/EngineShaders.h"
@@ -773,6 +774,48 @@ TEST_SUITE("EditorApp") {
         REQUIRE(editor->runFrames(3).has_value());
         CHECK(blurBytes() == capture);
         run(*editor, "play.stop");
+        checkNoValidationIssues(editor->engine().graphics());
+    }
+
+    TEST_CASE("the viewport sees the game shaken where its camera shakes, while the game plays") {
+        EditorAppDesc desc = headlessDesc(UVec2(640, 360));
+        desc.project = showcaseProject();
+        const std::unique_ptr<EditorApp> editor = createEditor(desc);
+        const ViewportPanel& viewport = editor->viewport();
+        // Where the main camera of the showcase is - its entity, not its view.
+        const auto camera = [&] { return editor->context().world().findByName("Main camera"); };
+        const auto placed = [&] { return Vec3(editor->context().world().worldMatrix(camera())[3]); };
+
+        run(*editor, "viewport.show", R"({"camera": "game"})");
+        REQUIRE(editor->runFrames(2).has_value());
+        REQUIRE(viewport.showsGame());
+        CHECK(viewport.view().position == placed());
+
+        // A game gives the camera trauma: the viewport sees through the shake, as the game
+        // would, and it goes on from frame to frame.
+        run(*editor, "play.start");
+        REQUIRE(editor->runFrames(1).has_value());
+        run(*editor, "component.set",
+            R"({"entity": "Cameras/Main camera", "component": "CameraShake", "properties": {"trauma": 1.0}})");
+        REQUIRE(editor->runFrames(2).has_value());
+        const UVec2 size = viewport.targets().size();
+        const CameraView shaken = makeCameraView(editor->context().world(), camera(),
+                                                 static_cast<float>(size.x) / static_cast<float>(size.y));
+        CHECK(viewport.view().position == shaken.position);
+        CHECK(viewport.view().forward == shaken.forward);
+        CHECK(glm::distance(viewport.view().position, placed()) > 1e-4f);
+        const Vec3 before = viewport.view().position;
+        REQUIRE(editor->runFrames(1).has_value());
+        CHECK(viewport.view().position != before);
+
+        // Paused, the shake holds where it is; stopped, the camera is as the scene has it.
+        run(*editor, "play.pause");
+        const Vec3 held = viewport.view().position;
+        REQUIRE(editor->runFrames(2).has_value());
+        CHECK(viewport.view().position == held);
+        run(*editor, "play.stop");
+        REQUIRE(editor->runFrames(1).has_value());
+        CHECK(viewport.view().position == placed());
         checkNoValidationIssues(editor->engine().graphics());
     }
 

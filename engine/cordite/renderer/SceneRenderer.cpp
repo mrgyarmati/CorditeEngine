@@ -856,8 +856,8 @@ void SceneRenderer::renderCaptures(nvrhi::ICommandList* commandList, const World
         captured.motionBlur = true;
         captured.viewEntity = id;
         captured.deltaSeconds = state.hasPicture ? state.sinceLastPicture : passed;
-        const CameraView view =
-            makeCameraView(world.worldMatrix(entity), *camera, static_cast<float>(size.x) / static_cast<float>(size.y));
+        // Shaken where its camera shakes, as a game's view is.
+        const CameraView view = makeCameraView(world, entity, static_cast<float>(size.x) / static_cast<float>(size.y));
         render(commandList, world, view, state.targets, captured);
         // Into the target only now that the picture is done: a capture that sees its own
         // target sees the picture before.

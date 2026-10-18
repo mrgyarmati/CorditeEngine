@@ -4,6 +4,8 @@ cordite_add_module(animation
         AnimationComponents.h
         AnimationSystem.cpp
         AnimationSystem.h
+        CameraShake.cpp
+        CameraShake.h
         Pose.cpp
         Pose.h
     DEPENDS

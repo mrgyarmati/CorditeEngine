@@ -1,6 +1,9 @@
 #include "cordite/renderer/CameraView.h"
 
+#include "cordite/animation/CameraShake.h"
+#include "cordite/core/Assert.h"
 #include "cordite/math/Projection.h"
+#include "cordite/math/Transform.h"
 
 #include <algorithm>
 #include <cmath>
@@ -49,6 +52,27 @@ CameraView makeCameraView(const Mat4& cameraToWorld, const CameraComponent& came
     view.viewProjection = view.projection * view.view;
     view.inverseViewProjection = glm::inverse(view.viewProjection);
     return view;
+}
+
+Mat4 cameraPlacement(const World& world, Entity camera) {
+    const Mat4& placement = world.worldMatrix(camera);
+    const auto* shake = world.tryGet<CameraShakeComponent>(camera);
+    if (shake == nullptr) {
+        return placement;
+    }
+    const Transform offset = cameraShakeOffset(*shake);
+    if (offset == Transform{}) {
+        return placement;
+    }
+    // In the camera's own space, without its scale: what makeCameraView leaves out would
+    // otherwise scale the move, and skew the turn.
+    return withoutScale(placement) * offset.toMatrix();
+}
+
+CameraView makeCameraView(const World& world, Entity camera, float aspectRatio) {
+    const auto* lens = world.tryGet<CameraComponent>(camera);
+    CORDITE_ASSERT(lens != nullptr, "the view of an entity is that of its camera, and it has none");
+    return makeCameraView(cameraPlacement(world, camera), lens != nullptr ? *lens : CameraComponent{}, aspectRatio);
 }
 
 Entity findPrimaryCamera(const World& world) {

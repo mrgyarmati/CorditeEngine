@@ -130,7 +130,7 @@ by accident.
 | `platform` | `core`, `math` | Windows (GLFW), keyboard / mouse / gamepad input, and the controls a game has by name: `InputMap`, `InputActions` |
 | `assets` | `core`, `math` | Assets as data: images and mipmaps, meshes - rigid and skinned - and what prepares them, their levels of detail among it, skeletons, animation clips, materials, the text of scripts, the samples of sounds, prefabs as their files have them, render targets, glTF import and export, the asset database (ids, `.meta` files) and the asset manager (loading by id) |
 | `world` | `core`, `math` | Entities, components and their hierarchy (EnTT), the component registry, scene files, prefabs: placing one in a world and making one of what is there |
-| `animation` | `core`, `math`, `assets`, `world` | Poses of skeletons and what makes them: sampling clips, blending, the matrices a mesh is skinned with and the bounds of a posed mesh; the `Animator` component; `AnimationSystem`, which plays the animators of a world |
+| `animation` | `core`, `math`, `assets`, `world` | Poses of skeletons and what makes them: sampling clips, blending, the matrices a mesh is skinned with and the bounds of a posed mesh; the `Animator` component; `AnimationSystem`, which plays the animators of a world; the shake of a camera: the `CameraShake` component, how it moves the view (`cameraShakeOffset`) and `shakeCameras`, which lets time pass for it |
 | `physics` | `core`, `math`, `assets`, `world` | `PhysicsWorld`: rigid bodies, their shapes - boxes, balls, capsules, the hulls around sets of points and surfaces of triangles - joints between them, the characters that walk among them, stepping, contact events and queries, over Jolt Physics; the `Collider`, `RigidBody`, `Joint` and `CharacterController` components; `PhysicsSystem`, which keeps the entities of a world and the bodies, joints and characters of a simulation in step and makes shapes of mesh assets |
 | `audio` | `core`, `math`, `assets`, `world` | What is heard: the `AudioSource` and `AudioListener` components, and `AudioSystem`, which plays the sources of a world from where they are - voices, five buses with volumes of their own, sound without an entity - over miniaudio, onto a device or into memory |
 | `scripting` | `core`, `math`, `platform`, `assets`, `world`, `physics`, `audio` | `ScriptRuntime`: the Lua state that gameplay scripts run in and the fence around it - limits on instructions, memory and nesting, the libraries a script may have, an environment for every chunk, the catalogue of the functions scripts are given - and values on their way between JSON and Lua; the `Script` component; `ScriptSystem`, which gives every entity with a script an instance of it and calls its `start`, `update` and `destroy`; the functions scripts are given: entities and their hierarchy, transforms, components through the reflection, vectors and rotations, the time, the ids of assets, the controls, the simulation |
@@ -908,6 +908,22 @@ Step-by-step guide: [work-with-assets](.claude/skills/work-with-assets/SKILL.md)
   its middle joint is turned 45 degrees. `tests/render/SkinningTests.cpp` says which
   pixels the bent bar covers, and that a bar at rest is drawn bit for bit like the
   mesh without a pose.
+- **A camera shakes by its trauma, and only its view does** (`CameraShake`,
+  `animation/CameraShake.h`). What a scene holds is how the camera shakes - how far,
+  how fast, how soon it is still again; the trauma that makes it shake and where in its
+  shaking it is are `transient`, a game's: a script raises the trauma when something
+  happens, and `shakeCameras` - called by `Engine::updateWorld` with a running clock,
+  after the scripts and the animators - lets it fall and moves the phase on. The view is
+  moved by trauma squared times Perlin noise of the phase (`cameraShakeOffset`, glm's
+  noise, a row of its own for each of the six ways), in the camera's own space and in
+  metres whatever the entity's scale. It is applied where the view of a camera's entity
+  is made, `makeCameraView(world, entity, aspect)` (`renderer/CameraView.h`), which
+  `Engine::drawWorld`, scene captures and the editor's view through the game's camera
+  all use: never build what is seen through a scene camera from its world matrix. The
+  lines the editor draws for a camera are the one exception, on purpose: they show
+  where the entity is, and are made from its matrix. The entity stays where it is, and
+  so do its rays and its listener; a shake at rest changes the view not by a bit. The noise goes round after `kCameraShakePeriod` turns without a
+  jump, so that the phase keeps the digits a frame moves it by.
 
 ## Physics
 

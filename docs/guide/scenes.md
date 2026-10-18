@@ -20,7 +20,8 @@ is not drawn, not simulated, its scripts do not run.
 | Component | What it makes of an entity |
 |-----------|----------------------------|
 | **Transform** | Where it is, how it is turned and how large, against what it hangs under. Every entity has one. |
-| **Camera** | A viewpoint. A game renders from the first enabled camera marked `primary`. |
+| **Camera** | A viewpoint. A game renders from the first enabled camera marked `primary`. See [Cameras](cameras.md). |
+| **CameraShake** | Shakes the view through the entity's Camera when a game gives it trauma. See [Cameras](cameras.md#camera-shake). |
 | **MeshRenderer** | Something drawn: a mesh and its materials. See [Materials](materials.md). |
 | **Light**, **AmbientLight** | Light. See [Light, shadows and the finished picture](lighting.md). |
 | **Environment** | The sky, and the light from all around. |

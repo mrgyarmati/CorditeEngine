@@ -1,5 +1,6 @@
 #include "cordite/renderer/RenderComponents.h"
 
+#include "cordite/animation/AnimationComponents.h"
 #include "cordite/core/Reflection.h"
 #include "cordite/math/MathReflection.h"
 #include "cordite/world/Components.h"
@@ -487,10 +488,14 @@ std::string_view nameOf(ShadowResolution resolution) {
 std::vector<RenderProblem> findRenderProblems(const World& world) {
     std::vector<RenderProblem> problems;
     world.traverse([&](Entity entity, uint32_t /*depth*/) {
+        const auto* camera = world.tryGet<CameraComponent>(entity);
+        // The view of a camera is what is shaken (makeCameraView of an entity).
+        if (world.has<CameraShakeComponent>(entity) && camera == nullptr) {
+            problems.push_back({entity, "CameraShake shakes nothing: the entity has no Camera whose view it shakes"});
+        }
         if (!world.has<SceneCaptureComponent>(entity)) {
             return;
         }
-        const auto* camera = world.tryGet<CameraComponent>(entity);
         if (camera == nullptr) {
             problems.push_back({entity, "SceneCapture draws nothing: the entity has no Camera to see with"});
         } else if (camera->primary) {

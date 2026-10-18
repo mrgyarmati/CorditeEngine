@@ -1461,6 +1461,18 @@
                     "farPlane": 500.0,
                     "primary": true
                 },
+                // The view shakes when the ball lands hard (scripts/hop.lua gives it trauma):
+                // by trauma squared, at most two centimetres along each of its axes and a
+                // degree and a half about them - a roll least - changing its way about twenty
+                // times a second, and still again a second and a quarter after the hardest
+                // landing (`decay`). The entity stays where it is, and so does the listener
+                // on it.
+                "CameraShake": {
+                    "decay": 0.8,
+                    "maxOffset": [0.02, 0.02, 0.02],
+                    "maxRotation": [1.5, 1.5, 0.75],
+                    "frequency": 20.0
+                },
                 // Whoever looks also listens: everything that is `spatial` is heard from where
                 // it is in relation to this entity, which faces along its -Z axis as a camera
                 // does. The first enabled listener of a scene is the one that hears; `volume`

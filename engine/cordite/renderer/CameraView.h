@@ -6,10 +6,12 @@
 /// @code
 /// const Entity camera = findPrimaryCamera(world);
 /// if (!camera.isNull()) {
-///     const CameraView view = makeCameraView(world.worldMatrix(camera), *world.tryGet<CameraComponent>(camera),
-///                                            static_cast<float>(width) / static_cast<float>(height));
+///     // What the game sees through it, shaken where it shakes:
+///     const CameraView view = makeCameraView(world, camera, static_cast<float>(width) / static_cast<float>(height));
 ///     const Ray ray = screenRay(view, cursorPixel, Vec2(width, height));   // for picking
 /// }
+/// // A camera that is no entity's, such as an editor's own:
+/// const CameraView other = makeCameraView(cameraToWorld, CameraComponent{}, 16.0f / 9.0f);
 /// @endcode
 ///
 /// View space is right-handed with the camera looking along -Z. The projection maps
@@ -46,6 +48,18 @@ struct CameraView {
 /// height of the target. Settings that would produce a degenerate projection (planes
 /// in the wrong order, a field of view of zero) are clamped to the nearest usable value.
 [[nodiscard]] CameraView makeCameraView(const Mat4& cameraToWorld, const CameraComponent& camera, float aspectRatio);
+
+/// Where the camera of an entity sees from, as makeCameraView takes it: where the entity
+/// is in the world, moved and turned in its own space by its CameraShake, when it has one
+/// (cameraShakeOffset, animation/CameraShake.h). The shake moves the view alone, and in
+/// metres of the world however the entity is scaled; a shake at rest changes nothing, to
+/// the bit. The world's transforms are taken as they are.
+[[nodiscard]] Mat4 cameraPlacement(const World& world, Entity camera);
+
+/// The view through the Camera of an entity, from cameraPlacement: what a game sees
+/// through it. The entity must have a CameraComponent (asserted); one without is seen
+/// through a camera as a new CameraComponent is.
+[[nodiscard]] CameraView makeCameraView(const World& world, Entity camera, float aspectRatio);
 
 /// Returns the camera a game renders from: the first entity in hierarchy order that is
 /// enabled, along with all its ancestors, and has a CameraComponent marked primary. Null

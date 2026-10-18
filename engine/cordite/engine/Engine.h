@@ -213,13 +213,13 @@ public:
     /// of its bodies moves on by deltaSeconds(), in steps of a fixed length, and the
     /// entities follow their bodies (PhysicsSystem); the scripts are told what met and
     /// what parted in those steps; the animators play on by as much and every skeleton
-    /// is posed (AnimationSystem); then the world transforms are worked out, and what
-    /// the audio sources say is heard from where they now are (AudioSystem). With the
-    /// clock stopped no script runs, nothing is simulated and
-    /// nothing plays: bodies are where their entities are, the poses are those of
-    /// the times the animators hold, and what was sounding is held where it was - all
-    /// but a preview for whoever is at the editor (AudioSystem::preview()), which goes
-    /// on by deltaSeconds().
+    /// is posed (AnimationSystem), and the cameras shake on (shakeCameras); then the
+    /// world transforms are worked out, and what the audio sources say is heard from
+    /// where they now are (AudioSystem). With the clock stopped no script runs, nothing
+    /// is simulated and nothing plays: bodies are where their entities are, the poses are
+    /// those of the times the animators hold, a shaken camera holds where its shake has
+    /// it, and what was sounding is held where it was - all but a preview for whoever is
+    /// at the editor (AudioSystem::preview()), which goes on by deltaSeconds().
     ///
     /// Call it once per frame with a running clock, between beginFrame() and drawing:
     /// each call lets the time of a frame pass. A running clock outside a frame is a
@@ -231,9 +231,9 @@ public:
     void updateWorld(WorldClock clock = WorldClock::Running);
 
     /// Draws the world into the frame target as its primary camera sees it (the first
-    /// enabled camera with `primary` set; see findPrimaryCamera). A world without one
-    /// shows the test pattern. Only during a frame, with the world up to date
-    /// (updateWorld()).
+    /// enabled camera with `primary` set; see findPrimaryCamera), shaken where it shakes
+    /// (makeCameraView of the entity). A world without one shows the test pattern. Only
+    /// during a frame, with the world up to date (updateWorld()).
     /// Whose view it is and the time are filled in here, whatever `settings` say for
     /// viewEntity, deltaSeconds and timeSeconds.
     [[nodiscard]] Status drawWorld(const SceneRenderSettings& settings = {});

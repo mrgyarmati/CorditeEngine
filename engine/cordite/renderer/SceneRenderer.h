@@ -13,8 +13,7 @@
 ///
 /// world.updateWorldTransforms();
 /// const Entity camera = findPrimaryCamera(world);
-/// const CameraView view =
-///     makeCameraView(world.worldMatrix(camera), *world.tryGet<CameraComponent>(camera), 16.0f / 9.0f);
+/// const CameraView view = makeCameraView(world, camera, 16.0f / 9.0f);
 /// sceneRenderer->render(commandList, world, view, targets);
 /// show(targets.display());
 /// @endcode
@@ -32,6 +31,7 @@
 /// | Forward pass      | Translucent surfaces, far to near        | scene color, over it  |
 /// | Light shafts      | A few triangles (LightShaftPass.h)       | scene color, added    |
 /// | Depth of field    | A few triangles (DepthOfFieldPass.h)     | scene color           |
+/// | Motion blur       | A few triangles (MotionBlurPass.h)       | scene color           |
 /// | Post-processing   | A few triangles (PostProcessPass.h)      | the display image     |
 ///
 /// Scene color is light, without an upper limit; post-processing makes the picture of

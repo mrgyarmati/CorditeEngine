@@ -6,6 +6,7 @@
 /// function that scripts are given exists but is not used in samples/showcase: adding a
 /// feature includes showing it.
 
+#include "cordite/animation/AnimationComponents.h"
 #include "cordite/assets/AssetManager.h"
 #include "cordite/assets/Image.h"
 #include "cordite/assets/Prefab.h"
@@ -440,9 +441,13 @@ TEST_SUITE("Showcase") {
         const Entity post = showcase.world.findByName("Sentry post");
         const Entity ball = showcase.world.findByName("Ball");
         const Entity clock = showcase.world.findByName("Clock");
+        const Entity camera = showcase.world.findByName("Main camera");
         REQUIRE(showcase.world.has<LightComponent>(post));
         REQUIRE_FALSE(ball.isNull());
+        REQUIRE(showcase.world.has<CameraShakeComponent>(camera));
         const auto brightness = [&] { return showcase.world.tryGet<LightComponent>(post)->intensity; };
+        // Nothing lets a shake die down here: what the ball gives the camera adds up.
+        const auto trauma = [&] { return showcase.world.tryGet<CameraShakeComponent>(camera)->trauma; };
 
         // What the scripts do about what they are told is heard, too: which of the three
         // sources that wait for a script was played in the frames that were run, and
@@ -488,6 +493,8 @@ TEST_SUITE("Showcase") {
         CHECK(sounded.ball);
         CHECK(sounded.clock);
         CHECK_FALSE(sounded.post);
+        // The ball is in the air: nothing has shaken the camera yet.
+        CHECK(trauma() == 0.0f);
 
         // Two and a half seconds in, the sentry stands at the end of its beat, in the
         // trigger of its post: the light there is lit. Two seconds and a half later it
@@ -495,9 +502,11 @@ TEST_SUITE("Showcase") {
         sounded = run(105);
         CHECK(brightness() == 3.0f);
         CHECK(showcase.world.name(ball).starts_with("Ball ("));
-        // The ball has come down with a thud, which is a sound of no entity, and the
-        // sentry was announced at its post.
+        // The ball has come down with a thud, which is a sound of no entity, and has
+        // shaken the camera; the sentry was announced at its post.
         CHECK(sounded.withoutEntity);
+        CHECK(trauma() > 0.1f);
+        CHECK(trauma() <= 1.0f);
         CHECK(sounded.post);
         sounded = run(150);
         CHECK(brightness() == 0.0f);

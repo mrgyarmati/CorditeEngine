@@ -1,5 +1,9 @@
+#include "cordite/animation/AnimationComponents.h"
+#include "cordite/animation/CameraShake.h"
 #include "cordite/assets/AssetDatabase.h"
 #include "cordite/core/Log.h"
+#include "cordite/math/Transform.h"
+#include "cordite/renderer/CameraView.h"
 #include "cordite/renderer/RenderComponents.h"
 #include "cordite/renderer/SceneRenderer.h"
 #include "cordite/world/Components.h"
@@ -10,7 +14,9 @@
 
 #include <fmt/format.h>
 
+#include <cmath>
 #include <cstdint>
+#include <optional>
 #include <string>
 
 using namespace cordite;
@@ -118,6 +124,42 @@ TEST_SUITE("SceneCapture") {
             static_cast<void>(studio.render());
             checkPixel(studio.picture(), 32, 16, kSeen);
         }
+        checkNoValidationIssues(*studio.scene.context.graphics);
+    }
+
+    TEST_CASE("a capture is shaken as its camera is") {
+        Studio studio;
+        World& world = studio.scene.world;
+        // The camera looks at the right edge of the cube: the cube on the left of its
+        // picture, the background on the right.
+        world.transform(studio.capture).position = Vec3(2.0f, 0.0f, 0.0f);
+        const auto edgeOf = [](const Image& picture) {
+            uint32_t column = 0;
+            while (column < picture.width() &&
+                   glm::distance(Vec3(picture.pixel(column, 16)), test::displayed(kSeen)) < 0.1f) {
+                ++column;
+            }
+            return column;
+        };
+        static_cast<void>(studio.render());
+        CHECK(edgeOf(studio.picture()) == 32);
+
+        // Shaken from side to side alone, at a moment when the shake has turned it well away.
+        CameraShakeComponent shake{.trauma = 1.0f, .maxOffset = Vec3(0.0f), .maxRotation = Vec3(0.0f, 10.0f, 0.0f)};
+        while (std::abs(eulerDegreesFromQuat(cameraShakeOffset(shake).rotation).y) < 5.0f) {
+            shake.phase += 0.1f;
+            REQUIRE(shake.phase < kCameraShakePeriod);
+        }
+        world.add<CameraShakeComponent>(studio.capture) = shake;
+        world.updateWorldTransforms();
+        const CameraView shaken = makeCameraView(world, studio.capture, 2.0f);
+        const std::optional<Vec2> edge = worldToScreen(shaken, Vec3(2.0f, 0.0f, -2.75f), Vec2(64.0f, 32.0f));
+        REQUIRE(edge.has_value());
+        REQUIRE(std::abs(edge->x - 32.0f) > 3.0f);
+
+        static_cast<void>(studio.render());
+        // The first column of the background is the one whose middle is past the edge.
+        CHECK(edgeOf(studio.picture()) == static_cast<uint32_t>(std::ceil(edge->x - 0.5f)));
         checkNoValidationIssues(*studio.scene.context.graphics);
     }
 

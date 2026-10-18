@@ -1,5 +1,6 @@
 #include "cordite/renderer/RenderComponents.h"
 
+#include "cordite/animation/AnimationComponents.h"
 #include "cordite/core/Json.h"
 #include "cordite/core/Reflection.h"
 #include "cordite/core/Uuid.h"
@@ -388,6 +389,22 @@ TEST_SUITE("RenderComponents") {
         CHECK(problems[0].message.find("no Camera") != std::string::npos);
         CHECK(problems[1].entity == primary);
         CHECK(problems[1].message.find("primary") != std::string::npos);
+    }
+
+    TEST_CASE("a camera shake without a camera to shake is a problem of the scene") {
+        World world;
+        const Entity camera = world.createEntity("Camera");
+        world.add<CameraComponent>(camera);
+        world.add<CameraShakeComponent>(camera);
+        CHECK(findRenderProblems(world).empty());
+
+        const Entity still = world.createEntity("Nothing to shake");
+        world.add<CameraShakeComponent>(still);
+        const std::vector<RenderProblem> problems = findRenderProblems(world);
+        REQUIRE(problems.size() == 1);
+        CHECK(problems[0].entity == still);
+        CHECK(problems[0].message.find("CameraShake") != std::string::npos);
+        CHECK(problems[0].message.find("no Camera") != std::string::npos);
     }
 
     TEST_CASE("a decal is saved as its material, how much of it is laid on, where it fades and its order") {

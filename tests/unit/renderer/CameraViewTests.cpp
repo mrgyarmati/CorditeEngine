@@ -1,5 +1,9 @@
 #include "cordite/renderer/CameraView.h"
 
+#include "cordite/animation/AnimationComponents.h"
+#include "cordite/animation/CameraShake.h"
+#include "cordite/math/Transform.h"
+
 #include "support/MathTestSupport.h"
 #include "support/TestSupport.h"
 
@@ -90,6 +94,67 @@ TEST_SUITE("CameraView") {
 
         CHECK(test::nearlyEqual(plain.viewProjection, scaled.viewProjection, 1e-4f));
         CHECK_NEAR(plain.forward, scaled.forward, 1e-6f);
+    }
+
+    TEST_CASE("the view of a camera's entity is shaken by its shake, in the camera's own space and in metres") {
+        World world;
+        const Entity camera = world.createEntity("Camera");
+        const Quat turned = glm::angleAxis(toRadians(30.0f), kWorldUp);
+        // Scaled: what the shake moves is metres, not the entity's units.
+        world.transform(camera) = Transform{Vec3(1.0f, 2.0f, 3.0f), turned, Vec3(3.0f)};
+        world.add<CameraComponent>(camera).verticalFovDegrees = 50.0f;
+        world.add<CameraShakeComponent>(camera) = {.trauma = 1.0f, .phase = 1.7f};
+        world.updateWorldTransforms();
+        const CameraComponent lens = *world.tryGet<CameraComponent>(camera);
+
+        const Transform offset = cameraShakeOffset(*world.tryGet<CameraShakeComponent>(camera));
+        REQUIRE(glm::length(offset.position) > 1e-3f);
+        const CameraView view = makeCameraView(world, camera, 1.5f);
+        CHECK_NEAR(view.position, Vec3(1.0f, 2.0f, 3.0f) + turned * offset.position, 1e-5f);
+        CHECK_NEAR(view.forward, turned * offset.rotation * kWorldForward, 1e-5f);
+        const CameraView expected = makeCameraView(
+            placedAt(Vec3(1.0f, 2.0f, 3.0f) + turned * offset.position, turned * offset.rotation), lens, 1.5f);
+        CHECK(test::nearlyEqual(view.viewProjection, expected.viewProjection, 1e-4f));
+        CHECK(test::nearlyEqual(cameraPlacement(world, camera), placedAt(view.position, turned * offset.rotation),
+                                1e-5f));
+    }
+
+    TEST_CASE("a camera that does not shake is seen from where its entity is, to the bit") {
+        World world;
+        const Entity camera = world.createEntity("Camera");
+        world.transform(camera) =
+            Transform{Vec3(-4.0f, 1.5f, 2.25f), glm::angleAxis(toRadians(-20.0f), kWorldRight), Vec3(2.0f)};
+        world.add<CameraComponent>(camera);
+        world.updateWorldTransforms();
+        const CameraView placed = makeCameraView(world.worldMatrix(camera), CameraComponent{}, 1.25f);
+        const auto sameView = [&](const CameraView& view) {
+            return view.view == placed.view && view.viewProjection == placed.viewProjection &&
+                   view.position == placed.position && view.forward == placed.forward;
+        };
+
+        CHECK(cameraPlacement(world, camera) == world.worldMatrix(camera));
+        CHECK(sameView(makeCameraView(world, camera, 1.25f)));
+        // Nor one whose shake is at rest, wherever in its shaking it is.
+        world.add<CameraShakeComponent>(camera).phase = 3.5f;
+        CHECK(cameraPlacement(world, camera) == world.worldMatrix(camera));
+        CHECK(sameView(makeCameraView(world, camera, 1.25f)));
+        // Shaken, it is somewhere else.
+        world.tryGet<CameraShakeComponent>(camera)->trauma = 0.5f;
+        CHECK_FALSE(sameView(makeCameraView(world, camera, 1.25f)));
+    }
+
+    TEST_CASE("an entity without a camera has no view of its own") {
+        World world;
+        const Entity plain = world.createEntity("No camera");
+        world.updateWorldTransforms();
+#if defined(CORDITE_ENABLE_ASSERTS)
+        CHECK_THROWS_AS((void)makeCameraView(world, plain, 1.0f), test::AssertionFailure);
+#else
+        // Seen through a camera as a new one is.
+        const CameraView view = makeCameraView(world, plain, 1.0f);
+        CHECK(view.nearPlane == CameraComponent{}.nearPlane);
+        CHECK_NEAR(view.forward, kWorldForward, 1e-6f);
+#endif
     }
 
     TEST_CASE("an orthographic camera sees a box of the configured height") {

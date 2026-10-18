@@ -66,6 +66,19 @@ A point of view the scene can be rendered from, looking along -Z.
 | `farPlane` | float | `1000.0` | at least 0.01; m | Distance to the far clipping plane |
 | `primary` | bool | `true` |  | The game renders from the first enabled primary camera |
 
+## CameraShake
+
+Shakes the view through the entity's Camera by its trauma, which a game raises when something happens and which falls again with time. The entity itself stays where it is.
+
+| Property | Kind | Default | Values | Meaning |
+|---|---|---|---|---|
+| `trauma` | float | `0.0` | 0.0 to 1.0 | *Not saved.* How much has happened to the camera, from nothing to the most there can be: raise it when something does, and it falls by `decay` every second. The camera is moved by its square |
+| `decay` | float | `1.0` | 0.0 to 100.0; 1/s | How much trauma goes away every second |
+| `maxOffset` | vec3 | `[0.05,0.05,0.05]` | 0.0 to 1.0; m | The furthest the camera is moved along its own axes - right, up and back - at a trauma of 1 |
+| `maxRotation` | vec3 | `[3.0,3.0,2.0]` | 0.0 to 30.0; deg | The furthest the camera is turned about its own axes at a trauma of 1: about X it looks up and down, about Y from side to side, about Z it rolls |
+| `frequency` | float | `12.0` | 0.0 to 100.0; Hz | How fast it shakes: about how many times a second it changes its way |
+| `phase` | float | `0.0` | 0.0 to 256.0 | *Not saved.* Where in its shaking the camera is, in turns of its noise: it moves on by `frequency` every second, and goes round |
+
 ## CharacterController
 
 Makes the entity a character: an upright capsule with its soles where the entity is, which walks as `movement` says and jumps when `jump` is given a speed. No body: it has no RigidBody and no Collider but a trigger.

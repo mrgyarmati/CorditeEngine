@@ -290,7 +290,8 @@ struct RenderProblem {
 
 /// What can be told of the render components of `world` without drawing anything, in
 /// the order of the hierarchy: a SceneCapture whose entity has no Camera draws nothing,
-/// and one whose Camera is primary is the view of the game as well (findPrimaryCamera).
+/// and one whose Camera is primary is the view of the game as well (findPrimaryCamera);
+/// a CameraShake whose entity has no Camera shakes nothing (makeCameraView of an entity).
 [[nodiscard]] std::vector<RenderProblem> findRenderProblems(const World& world);
 
 /// Registers the renderer's components: "MeshRenderer", "Light", "AmbientLight",

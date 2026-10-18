@@ -442,7 +442,8 @@ Status ViewportPanel::render(nvrhi::IDevice* device, nvrhi::ICommandList* comman
 
     SceneRenderSettings settings;
     if (m_showsGame) {
-        m_view = makeCameraView(world.worldMatrix(gameCamera), *gameLens, aspect);
+        // Shaken where it shakes: a game's camera holds still until the game plays.
+        m_view = makeCameraView(world, gameCamera, aspect);
         m_gridLines.clear();
         m_sceneLines.clear();
         m_selectionLines.clear();

@@ -163,6 +163,11 @@ only pixels whose depth equals what the pre-pass wrote, which holds only while b
 positions with the same code). `tests/support/SkinnedModelSupport.h` is a bar of three joints
 whose every pose can be worked out by hand.
 
+The same module shakes cameras (`animation/CameraShake.h`; architecture.md "A camera shakes
+its view by its trauma, with noise"): trauma squared times noise, applied where the view of a
+camera is made and nowhere else - look at `makeCameraView` of an entity in
+`renderer/CameraView.h`, and at why the entity itself is left where it is.
+
 ## 9. Physics
 
 Read: `physics/PhysicsWorld.h`, `physics/PhysicsSystem.h`, `physics/CharacterSet.h`;
