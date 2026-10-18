@@ -117,6 +117,9 @@ SceneLight makeSceneLight(const LightComponent& component, const Mat4& placement
     light.shadow.distance = component.shadowDistance;
     light.shadow.cascades = component.shadowCascades;
     light.shadow.cascadeDistribution = component.shadowCascadeDistribution;
+    light.right = normalizeOr(Vec3(placement[0]), kWorldRight);
+    light.cookie = component.cookie;
+    light.cookieSize = component.cookieSize;
     return light;
 }
 

@@ -190,6 +190,8 @@ A light at the entity's place: directional, point or spot.
 | `shadowDistance` | float | `60.0` | 1.0 to 2000.0; m | Directional: how far from the camera the shadows reach; they fade out towards it |
 | `shadowCascades` | int | `4` | 1.0 to 4.0 | Directional: into how many shadow maps the shadow distance is divided |
 | `shadowCascadeDistribution` | float | `0.75` | 0.0 to 1.0 | Directional: 0 makes the cascades equally deep, 1 makes each a constant factor deeper than the one before, which keeps the shadows near the camera sharpest |
+| `cookie` | asset (Texture) | `null` |  | Spot and directional: a picture the light shines through, which filters it by its colors - thrown across a spot light's cone, laid out over the world and repeated by a directional light. A point light has none |
+| `cookieSize` | float | `10.0` | 0.01 to 10000.0; m | Directional: how far the cookie reaches across and up before it repeats |
 
 ## MeshRenderer
 

@@ -99,9 +99,11 @@ Result<ViewBindings> ViewBindings::create(nvrhi::IDevice* device) {
         nvrhi::BindingLayoutItem::Texture_SRV(4),
         nvrhi::BindingLayoutItem::Texture_SRV(5),
         nvrhi::BindingLayoutItem::Texture_SRV(6),
+        nvrhi::BindingLayoutItem::Texture_SRV(7),
         nvrhi::BindingLayoutItem::Sampler(0),
         nvrhi::BindingLayoutItem::Sampler(1),
         nvrhi::BindingLayoutItem::Sampler(2),
+        nvrhi::BindingLayoutItem::Sampler(3),
     };
     view.m_layout = device->createBindingLayout(layoutDesc);
 
@@ -125,8 +127,13 @@ Result<ViewBindings> ViewBindings::create(nvrhi::IDevice* device) {
                                                   .setAddressU(nvrhi::SamplerAddressMode::Wrap)
                                                   .setAddressV(nvrhi::SamplerAddressMode::Clamp)
                                                   .setAddressW(nvrhi::SamplerAddressMode::Clamp));
+    // A cookie is a picture laid onto what is lit, smaller where it is seen from afar: read
+    // between its levels. A directional light's repeats; a spot light's ends where its
+    // light does.
+    view.m_cookieSampler = device->createSampler(
+        nvrhi::SamplerDesc().setAllFilters(true).setAllAddressModes(nvrhi::SamplerAddressMode::Wrap));
     if (!view.m_constants || !view.m_layout || !view.m_shadowSampler || !view.m_environmentSampler ||
-        !view.m_skySampler) {
+        !view.m_skySampler || !view.m_cookieSampler) {
         return makeError(ErrorCode::DeviceError, "cannot create the view constants");
     }
 
@@ -166,12 +173,14 @@ bool ViewBindings::reserve(nvrhi::BufferHandle& buffer, size_t byteSize, uint32_
 }
 
 void ViewBindings::update(nvrhi::ICommandList* commandList, const SceneView& view, const LightClusters& lights,
-                          const ViewShadows& shadows, const ViewEnvironment& environment) {
+                          nvrhi::ITexture* cookies, const ViewShadows& shadows, const ViewEnvironment& environment) {
     const bool hasEnvironment = environment.environment != nullptr && environment.environment->radiance != nullptr &&
                                 environment.environment->sky != nullptr;
-    CORDITE_ASSERT(commandList != nullptr && m_constants != nullptr && shadows.atlas != nullptr && hasEnvironment,
-                   "update needs a command list, created bindings, a shadow atlas and an environment");
-    if (commandList == nullptr || m_constants == nullptr || shadows.atlas == nullptr || !hasEnvironment) {
+    CORDITE_ASSERT(commandList != nullptr && m_constants != nullptr && cookies != nullptr && shadows.atlas != nullptr &&
+                       hasEnvironment,
+                   "update needs a command list, created bindings, cookies, a shadow atlas and an environment");
+    if (commandList == nullptr || m_constants == nullptr || cookies == nullptr || shadows.atlas == nullptr ||
+        !hasEnvironment) {
         return;
     }
 
@@ -274,8 +283,10 @@ void ViewBindings::update(nvrhi::ICommandList* commandList, const SceneView& vie
     commandList->writeBuffer(m_constants, &constants, sizeof(constants));
 
     if (m_bindingsOutdated || !m_bindings || m_atlas != shadows.atlas ||
-        m_environmentRadiance != surroundings.radiance || m_environmentSky != surroundings.sky) {
+        m_environmentRadiance != surroundings.radiance || m_environmentSky != surroundings.sky ||
+        m_cookies != cookies) {
         m_atlas = shadows.atlas;
+        m_cookies = cookies;
         m_environmentRadiance = surroundings.radiance;
         m_environmentSky = surroundings.sky;
         nvrhi::BindingSetDesc setDesc;
@@ -288,9 +299,11 @@ void ViewBindings::update(nvrhi::ICommandList* commandList, const SceneView& vie
             nvrhi::BindingSetItem::Texture_SRV(4, m_atlas),
             nvrhi::BindingSetItem::Texture_SRV(5, m_environmentRadiance),
             nvrhi::BindingSetItem::Texture_SRV(6, m_environmentSky),
+            nvrhi::BindingSetItem::Texture_SRV(7, m_cookies),
             nvrhi::BindingSetItem::Sampler(0, m_shadowSampler),
             nvrhi::BindingSetItem::Sampler(1, m_environmentSampler),
             nvrhi::BindingSetItem::Sampler(2, m_skySampler),
+            nvrhi::BindingSetItem::Sampler(3, m_cookieSampler),
         };
         m_bindings = m_device->createBindingSet(setDesc, m_layout);
         CORDITE_VERIFY(m_bindings, "cannot create the view bindings");

@@ -169,6 +169,22 @@ public:
     /// beginFrame().
     [[nodiscard]] nvrhi::ITexture* renderTarget(const Uuid& id);
 
+    /// The texture array the cookies of lights are layers of (LightCookies.h), as views
+    /// bind it: layers of kLightCookieSize pixels square with all their levels, in the
+    /// colors of a display - a cookie filters light by its colors - as many as cookies are
+    /// in use, rounded up to a power of two, kMaxLightCookies at the most; and a single
+    /// white texel while there is no cookie, which costs nothing.
+    /// The pointer is valid until the next beginFrame().
+    [[nodiscard]] nvrhi::ITexture* cookies() const { return m_cookies ? m_cookies.Get() : m_noCookies.Get(); }
+
+    /// The layer of cookies() that holds the texture asset `id` as a cookie, which puts it
+    /// there - brought to kLightCookieSize pixels square - the first time it is asked for.
+    /// -1 for nil, and for what cannot be a cookie, which is reported once: a texture that
+    /// cannot be loaded, an image of light (floating point: a cookie is a picture), and
+    /// one more than the array has layers for. When the assets are refreshed, the layers
+    /// are given anew.
+    [[nodiscard]] int32_t cookieLayer(const Uuid& id);
+
     /// Sends everything created since the last call to the GPU. Must happen before a
     /// command list that draws with it is executed.
     void flushUploads();
@@ -210,6 +226,12 @@ private:
     /// The normal map of a material that has none: one texel that leaves the surface
     /// normal exactly as it is.
     [[nodiscard]] Result<nvrhi::TextureHandle> createFlatNormalTexture();
+    /// A texture array of `layers` layers of `size` pixels square, with all their levels,
+    /// in display colors.
+    [[nodiscard]] Result<nvrhi::TextureHandle> createCookieArray(uint32_t size, uint32_t layers, const char* name);
+    /// Puts `image`, a picture of four 8-bit channels, into a layer of the cookie array,
+    /// which is made, or made larger, when it has no such layer yet.
+    [[nodiscard]] Status putCookie(const Image& image, uint32_t layer);
 
     nvrhi::IDevice* m_device;
     AssetManager& m_assets;
@@ -220,6 +242,15 @@ private:
     nvrhi::CommandListHandle m_uploadCommandList;
     nvrhi::TextureHandle m_whiteTexture;
     nvrhi::TextureHandle m_flatNormalTexture;
+    /// What views bind while no cookie is in use, and the array of cookies once one is.
+    nvrhi::TextureHandle m_noCookies;
+    nvrhi::TextureHandle m_cookies;
+    /// Layers m_cookies has: it grows, twice as large every time, to kMaxLightCookies.
+    uint32_t m_cookieCapacity = 0;
+    /// The layer of every texture asked for as a cookie; -1 for one that cannot be one,
+    /// so that it is tried and reported only once.
+    std::unordered_map<Uuid, int32_t> m_cookieLayers;
+    uint32_t m_cookieCount = 0;
     GpuMaterial m_defaultMaterial;
 
     std::unordered_map<Uuid, GpuMesh> m_meshes;

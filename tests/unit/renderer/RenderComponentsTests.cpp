@@ -128,7 +128,7 @@ TEST_SUITE("RenderComponents") {
                                 "innerConeDegrees": 20.0, "outerConeDegrees": 30.0, "channels": 6,
                                 "castsShadows": true, "shadowBias": 1.5, "shadowNormalOffset": 2.5,
                                 "shadowResolution": "high", "shadowDistance": 80.0, "shadowCascades": 3,
-                                "shadowCascadeDistribution": 0.5})"));
+                                "shadowCascadeDistribution": 0.5, "cookie": null, "cookieSize": 10.0})"));
 
         LightComponent loaded;
         REQUIRE(type.fromJson(&loaded, saved).has_value());
@@ -157,6 +157,23 @@ TEST_SUITE("RenderComponents") {
         // A scene written before lights cast shadows: they still do not.
         CHECK_FALSE(sparse.castsShadows);
         CHECK(sparse.shadowCascades == 4);
+        // And before they had cookies: none.
+        CHECK(sparse.cookie.isNil());
+        CHECK(sparse.cookieSize == 10.0f);
+
+        // A cookie is a texture, laid out by a directional light over metres.
+        CHECK(type.findProperty("cookie")->attributes().semantic == PropertySemantic::AssetReference);
+        CHECK(type.findProperty("cookie")->attributes().referenceType == "Texture");
+        CHECK(type.findProperty("cookieSize")->attributes().unit == "m");
+        LightComponent withCookie;
+        REQUIRE(type.fromJson(&withCookie, json(R"({"type": "directional",
+                                                    "cookie": "6f1c2e4a-0b3d-4c5e-9f70-8a1b2c3d4e5f",
+                                                    "cookieSize": 4.5})"))
+                    .has_value());
+        CHECK(withCookie.cookie == *Uuid::parse("6f1c2e4a-0b3d-4c5e-9f70-8a1b2c3d4e5f"));
+        CHECK(withCookie.cookieSize == 4.5f);
+        CHECK_FALSE(type.fromJson(&withCookie, json(R"({"cookieSize": 0})")).has_value());
+        CHECK_FALSE(type.fromJson(&withCookie, json(R"({"cookie": "textures/grille.png"})")).has_value());
     }
 
     TEST_CASE("values a light cannot have are refused, and leave the light as it was") {
@@ -389,6 +406,24 @@ TEST_SUITE("RenderComponents") {
         CHECK(problems[0].message.find("no Camera") != std::string::npos);
         CHECK(problems[1].entity == primary);
         CHECK(problems[1].message.find("primary") != std::string::npos);
+    }
+
+    TEST_CASE("a point light with a cookie is a problem of the scene: only spot and directional lights throw one") {
+        World world;
+        const Uuid cookie = *Uuid::parse("6f1c2e4a-0b3d-4c5e-9f70-8a1b2c3d4e5f");
+        for (const LightType type : {LightType::Spot, LightType::Directional}) {
+            world.add<LightComponent>(world.createEntity("Fine")) = {.type = type, .cookie = cookie};
+        }
+        world.add<LightComponent>(world.createEntity("Plain point")) = {.type = LightType::Point};
+        CHECK(findRenderProblems(world).empty());
+
+        const Entity bulb = world.createEntity("Bulb");
+        world.add<LightComponent>(bulb) = {.type = LightType::Point, .cookie = cookie};
+        const std::vector<RenderProblem> problems = findRenderProblems(world);
+        REQUIRE(problems.size() == 1);
+        CHECK(problems[0].entity == bulb);
+        CHECK(problems[0].message.find("cookie") != std::string::npos);
+        CHECK(problems[0].message.find("point light") != std::string::npos);
     }
 
     TEST_CASE("a camera shake without a camera to shake is a problem of the scene") {

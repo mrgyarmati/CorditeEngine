@@ -149,6 +149,16 @@ struct LightComponent {
     /// makes each a constant factor deeper than the one before, which spends most of
     /// the texels close to the camera.
     float shadowCascadeDistribution = 0.75f;
+    /// Spot and directional: a picture the light shines through, as through a slide in a
+    /// projector - a grille, a window, leaves, clouds (LightCookies.h). Its colors filter
+    /// the light: white lets all of it through, black none. A spot light throws it across
+    /// its cone; a directional light lays it out over the world, again and again, from
+    /// where its entity is - so that moving the entity moves the clouds. Nil for none; a
+    /// point light has none.
+    Uuid cookie;
+    /// Directional: how far the cookie reaches along the light's right and up before it
+    /// repeats, in metres.
+    float cookieSize = 10.0f;
 };
 
 /// Light that arrives from all around: from a sky above and from a ground below. It
@@ -291,7 +301,8 @@ struct RenderProblem {
 /// What can be told of the render components of `world` without drawing anything, in
 /// the order of the hierarchy: a SceneCapture whose entity has no Camera draws nothing,
 /// and one whose Camera is primary is the view of the game as well (findPrimaryCamera);
-/// a CameraShake whose entity has no Camera shakes nothing (makeCameraView of an entity).
+/// a CameraShake whose entity has no Camera shakes nothing (makeCameraView of an entity);
+/// a point light with a cookie throws none (LightCookies.h).
 [[nodiscard]] std::vector<RenderProblem> findRenderProblems(const World& world);
 
 /// Registers the renderer's components: "MeshRenderer", "Light", "AmbientLight",

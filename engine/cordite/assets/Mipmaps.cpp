@@ -111,4 +111,18 @@ Result<std::vector<Image>> generateMipChain(const Image& image, ColorSpace color
     return levels;
 }
 
+Result<Image> resizeImage(const Image& image, uint32_t width, uint32_t height, ColorSpace colorSpace) {
+    if (image.isEmpty()) {
+        return makeError(ErrorCode::InvalidArgument, "cannot resize an empty image");
+    }
+    if (width == 0 || height == 0) {
+        return makeError(ErrorCode::InvalidArgument, "cannot resize an image to {}x{} pixels", width, height);
+    }
+    CORDITE_TRY_ASSIGN(Image resized, Image::create(width, height, image.format()));
+    if (!resizeInto(image, resized, colorSpace)) {
+        return makeError(ErrorCode::Unknown, "out of memory while resizing an image to {}x{}", width, height);
+    }
+    return resized;
+}
+
 } // namespace cordite

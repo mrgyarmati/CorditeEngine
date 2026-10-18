@@ -2,6 +2,7 @@
 
 #include "cordite/core/Assert.h"
 #include "cordite/core/Log.h"
+#include "cordite/renderer/LightCookies.h"
 
 #include <glm/gtc/packing.hpp>
 
@@ -93,6 +94,17 @@ uint32_t firstLevelWithin(uint32_t width, uint32_t height, uint32_t limit, uint3
     return level;
 }
 
+/// The bytes of a cookie array of `layers` layers of `size` pixels square, every level of
+/// them, four bytes a pixel.
+uint64_t cookieArrayBytes(uint32_t size, uint32_t layers) {
+    uint64_t bytes = 0;
+    for (uint32_t level = 0; level < mipLevelCount(size, size); ++level) {
+        const UVec2 levelSize = mipLevelSize(size, size, level);
+        bytes += uint64_t{levelSize.x} * levelSize.y * 4 * layers;
+    }
+    return bytes;
+}
+
 } // namespace
 
 size_t RenderResources::TextureKeyHash::operator()(const TextureKey& key) const noexcept {
@@ -138,6 +150,12 @@ Status RenderResources::initialize() {
     // they are, and the flat normal leaves the surface normal alone.
     CORDITE_TRY_ASSIGN(m_whiteTexture, createSolidTexture(Vec4(1.0f), "Default white"));
     CORDITE_TRY_ASSIGN(m_flatNormalTexture, createFlatNormalTexture());
+    CORDITE_TRY_ASSIGN(m_noCookies, createCookieArray(1, 1, "No cookies"));
+    {
+        // White: a light shines through it unchanged.
+        const std::array<uint8_t, 4> white = {255, 255, 255, 255};
+        uploadCommandList()->writeTexture(m_noCookies, 0, 0, white.data(), white.size());
+    }
     CORDITE_TRY_ASSIGN(m_defaultMaterial, createMaterial(MaterialData(), "Default material"));
     flushUploads();
     // These few stay for good, whatever happens to the assets.
@@ -151,6 +169,11 @@ void RenderResources::clear() {
     m_textures.clear();
     m_renderTargets.clear();
     m_misusedRenderTargets.clear();
+    // The layers are given anew; the array goes too, and is made again when it is used.
+    m_cookies = nullptr;
+    m_cookieCapacity = 0;
+    m_cookieLayers.clear();
+    m_cookieCount = 0;
     m_failedMeshes.clear();
     m_statistics = m_permanentStatistics;
 }
@@ -342,6 +365,92 @@ Result<nvrhi::TextureHandle> RenderResources::createTexture(const Image& image, 
     }
     ++m_statistics.textureCount;
     return texture;
+}
+
+Result<nvrhi::TextureHandle> RenderResources::createCookieArray(uint32_t size, uint32_t layers, const char* name) {
+    nvrhi::TextureDesc desc;
+    desc.dimension = nvrhi::TextureDimension::Texture2DArray;
+    desc.width = size;
+    desc.height = size;
+    desc.arraySize = layers;
+    desc.mipLevels = mipLevelCount(size, size);
+    desc.format = nvrhi::Format::SRGBA8_UNORM;
+    desc.debugName = name;
+    desc.initialState = nvrhi::ResourceStates::ShaderResource;
+    desc.keepInitialState = true;
+    nvrhi::TextureHandle texture = m_device->createTexture(desc);
+    if (!texture) {
+        return makeError(ErrorCode::DeviceError, "cannot allocate {} layers of {}x{} for {}", layers, size, size, name);
+    }
+    m_statistics.textureBytes += cookieArrayBytes(size, layers);
+    ++m_statistics.textureCount;
+    return texture;
+}
+
+Status RenderResources::putCookie(const Image& image, uint32_t layer) {
+    // Images are decoded into four 8-bit channels, or into floats, which are refused before.
+    CORDITE_ASSERT(image.format() == ImageFormat::Rgba8, "a cookie is made of a picture of 8-bit colors");
+    if (image.format() != ImageFormat::Rgba8) {
+        return makeError(ErrorCode::InvalidArgument, "a cookie is made of a picture of 8-bit colors");
+    }
+    CORDITE_TRY_ASSIGN(const Image square, resizeImage(image, kLightCookieSize, kLightCookieSize, ColorSpace::Srgb));
+    CORDITE_TRY_ASSIGN(const std::vector<Image> smaller, generateMipChain(square, ColorSpace::Srgb));
+    nvrhi::ICommandList* commandList = uploadCommandList();
+    if (layer >= m_cookieCapacity) {
+        // Twice as many layers, up to kMaxLightCookies: the memory follows what is used.
+        // What the smaller array holds is copied into the larger - copied, never drawn.
+        const uint32_t capacity = std::min(std::max(m_cookieCapacity * 2, layer + 1), kMaxLightCookies);
+        CORDITE_TRY_ASSIGN(nvrhi::TextureHandle grown, createCookieArray(kLightCookieSize, capacity, "Light cookies"));
+        const uint32_t levels = mipLevelCount(kLightCookieSize, kLightCookieSize);
+        for (uint32_t kept = 0; m_cookies && kept < layer; ++kept) {
+            for (uint32_t level = 0; level < levels; ++level) {
+                const nvrhi::TextureSlice slice = nvrhi::TextureSlice().setArraySlice(kept).setMipLevel(level);
+                commandList->copyTexture(grown, slice, m_cookies, slice);
+            }
+        }
+        if (m_cookies) {
+            m_statistics.textureBytes -= cookieArrayBytes(kLightCookieSize, m_cookieCapacity);
+            --m_statistics.textureCount;
+        }
+        m_cookies = std::move(grown);
+        m_cookieCapacity = capacity;
+    }
+    commandList->writeTexture(m_cookies, layer, 0, square.pixels().data(), square.rowBytes());
+    for (size_t level = 0; level < smaller.size(); ++level) {
+        commandList->writeTexture(m_cookies, layer, static_cast<uint32_t>(level + 1), smaller[level].pixels().data(),
+                                  smaller[level].rowBytes());
+    }
+    return {};
+}
+
+int32_t RenderResources::cookieLayer(const Uuid& id) {
+    if (id.isNil()) {
+        return -1;
+    }
+    if (const auto found = m_cookieLayers.find(id); found != m_cookieLayers.end()) {
+        return found->second;
+    }
+    const AssetInfo* asset = m_assets.database().find(id);
+    const std::string name = asset != nullptr ? asset->reference() : id.toString();
+    Status put;
+    if (Result<std::shared_ptr<const Image>> loaded = m_assets.loadTexture(id); !loaded) {
+        put = tl::unexpected(loaded.error());
+    } else if ((*loaded)->format() == ImageFormat::Rgba32F) {
+        put = makeError(ErrorCode::InvalidArgument,
+                        "it is an image of light, and a cookie is a picture whose colors filter light");
+    } else if (m_cookieCount >= kMaxLightCookies) {
+        put = makeError(ErrorCode::OutOfRange, "the {} cookies there is room for are in use", kMaxLightCookies);
+    } else {
+        put = putCookie(**loaded, m_cookieCount);
+    }
+    if (!put) {
+        CORDITE_LOG_ERROR("Renderer", "a light shines without its cookie {}: {}", name, put.error().message);
+        m_cookieLayers.emplace(id, -1);
+        return -1;
+    }
+    const auto layer = static_cast<int32_t>(m_cookieCount++);
+    m_cookieLayers.emplace(id, layer);
+    return layer;
 }
 
 Result<nvrhi::TextureHandle> RenderResources::createSolidTexture(const Vec4& color, const std::string& name) {

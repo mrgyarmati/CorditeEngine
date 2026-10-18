@@ -6,6 +6,7 @@
 ///
 /// @code
 /// CORDITE_TRY_ASSIGN(const std::vector<Image> smaller, generateMipChain(image, ColorSpace::Srgb));
+/// CORDITE_TRY_ASSIGN(const Image square, resizeImage(image, 256, 256, ColorSpace::Srgb));
 /// upload(image, 0);
 /// for (size_t level = 0; level < smaller.size(); ++level) {
 ///     upload(smaller[level], level + 1);
@@ -51,5 +52,10 @@ std::string_view nameOf(ColorSpace colorSpace);
 /// Returns the levels below `image`, from half its size down to 1x1, in its format.
 /// A 1x1 image yields none. Fails for an empty image.
 [[nodiscard]] Result<std::vector<Image>> generateMipChain(const Image& image, ColorSpace colorSpace);
+
+/// `image` brought to `width` by `height` pixels, in its format, filtered as the levels of
+/// a chain are: colors averaged as light, light plainly. Fails for an empty image, for a
+/// size of nothing, and when the filter cannot get the memory it needs.
+[[nodiscard]] Result<Image> resizeImage(const Image& image, uint32_t width, uint32_t height, ColorSpace colorSpace);
 
 } // namespace cordite

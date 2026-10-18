@@ -168,6 +168,7 @@ cordite_add_test_suite(renderer
         unit/renderer/FogTests.cpp
         unit/renderer/LevelOfDetailTests.cpp
         unit/renderer/LightClustersTests.cpp
+        unit/renderer/LightCookiesTests.cpp
         unit/renderer/LightShaftsTests.cpp
         unit/renderer/MotionBlurTests.cpp
         unit/renderer/MotionVectorsTests.cpp
@@ -266,6 +267,7 @@ cordite_add_test_suite(render
         render/GpuTimerTests.cpp
         render/GraphicsDeviceTests.cpp
         render/LevelOfDetailTests.cpp
+        render/LightCookieTests.cpp
         render/LightShaftTests.cpp
         render/MotionBlurTests.cpp
         render/MotionVectorTests.cpp

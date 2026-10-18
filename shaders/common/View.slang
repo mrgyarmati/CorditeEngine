@@ -115,6 +115,16 @@ float viewDepth(float3 position)
     return dot(position - cameraPosition, cameraForward);
 }
 
+// How tall a pixel of the view is where a point is, in metres, across the line of sight:
+// what the texels of a picture laid onto the point should be about as large as. The
+// second row of the view-projection is the camera's up, scaled by the projection.
+// Without perspective a pixel is as large everywhere.
+float pixelFootprint(float3 position)
+{
+    const float atOneMetre = 2.0 / (length(viewProjection[1].xyz) * targetSize.y);
+    return orthographic > 0.5 ? atOneMetre : atOneMetre * max(viewDepth(position), 0.0);
+}
+
 // Where the line of sight to a point in the world sets out. With perspective that is
 // the camera. Without, every line of sight has a start of its own, in the plane the
 // camera is in: the one straight in front of the point.

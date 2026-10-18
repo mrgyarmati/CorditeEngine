@@ -361,6 +361,8 @@
             // it follows wherever the head is turned. Inside the inner cone it is at full
             // brightness; from there it fades to nothing at the outer one. Its range is no
             // more than the floor below it needs: a light costs what it can reach.
+            // It shines through a wire guard - its `cookie`, textures/lamp_cookie.png - which
+            // lays the shadows of the bars on the floor, and dims the light towards its rim.
             "id": "10000000-0000-4000-8000-000000000022",
             "name": "Lamp",
             "enabled": true,
@@ -380,7 +382,8 @@
                     "outerConeDegrees": 44.0,
                     "channels": 1,
                     "castsShadows": true,
-                    "shadowResolution": "high"
+                    "shadowResolution": "high",
+                    "cookie": "0431528e-40b4-8300-9814-94cd5283aeac"
                 },
                 // It flickers: scripts/flicker.lua lets it burn steadily for a few seconds,
                 // dips its brightness three times in a row, and lets it burn on.

@@ -1,6 +1,7 @@
 #include "cordite/renderer/LightClusters.h"
 
 #include "cordite/core/Assert.h"
+#include "cordite/renderer/LightCookies.h"
 
 #include <algorithm>
 #include <array>
@@ -44,6 +45,7 @@ GpuLight toGpuLight(const SceneLight& light) {
         gpu.spotScale = 1.0f / std::max(std::cos(inner) - cosOuter, kMinimumConeFade);
         gpu.spotOffset = -cosOuter * gpu.spotScale;
     }
+    gpu.cookieRight = cookieAxisOf(light);
     return gpu;
 }
 

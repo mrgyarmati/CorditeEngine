@@ -117,8 +117,9 @@
         "audioVoices": 4,
         "soundBytes": 568892,
         // The image of the sky is 1.4 MiB of this, the three images of the grime of the
-        // decals 1 MiB.
-        "textureBytes": 10485760,
+        // decals 1 MiB, and the cookie of the lamp a third of a MiB: one layer of the
+        // cookie array, 256 pixels square with its levels.
+        "textureBytes": 11534336,
 
         "milliseconds": {
             "assetIndex": 500,

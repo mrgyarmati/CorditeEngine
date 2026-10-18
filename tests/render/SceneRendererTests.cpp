@@ -852,13 +852,14 @@ TEST_SUITE("SceneRenderer") {
         scene.writeMaterial("b", fmt::format(R"("baseColorTexture": "{}")", scene.asset("checker.png").toString()));
         REQUIRE(scene.assets->refresh().has_value());
 
-        // Only what every renderer has from the start: two 1x1 textures and the default
+        // Only what every renderer has from the start: three 1x1 textures and the default
         // material. The white one is four bytes; the flat normal map is eight, in half
-        // floats, in which "no tilt" is exact.
+        // floats, in which "no tilt" is exact; and the cookies a view binds while no light
+        // has one are a single white texel of four.
         const RenderResourceStatistics before = scene.renderer->resources().statistics();
         CHECK(before.meshCount == 0);
-        CHECK(before.textureCount == 2);
-        CHECK(before.textureBytes == 12);
+        CHECK(before.textureCount == 3);
+        CHECK(before.textureBytes == 16);
         CHECK(before.materialCount == 1);
 
         scene.add(BuiltinMesh::Cube, scene.material("a"), at(Vec3(-0.5f, 0.0f, 0.0f), Vec3(0.4f)));
@@ -873,13 +874,13 @@ TEST_SUITE("SceneRenderer") {
         CHECK(after.meshBytes == 24 * 56 + 36 * 2);
         CHECK(after.materialCount == 3);
         // One image, used as a color in two slots and as data in one: two textures.
-        CHECK(after.textureCount == 4);
+        CHECK(after.textureCount == 5);
         // 8x8, 4x4, 2x2 and 1x1 pixels of four bytes, twice.
-        CHECK(after.textureBytes == 12 + 2 * (64 + 16 + 4 + 1) * 4);
+        CHECK(after.textureBytes == 16 + 2 * (64 + 16 + 4 + 1) * 4);
 
         // Further frames create nothing.
         (void)scene.render(view);
-        CHECK(scene.renderer->resources().statistics().textureCount == 4);
+        CHECK(scene.renderer->resources().statistics().textureCount == 5);
         CHECK(scene.renderer->resources().statistics().meshCount == 1);
         checkNoValidationIssues(*scene.context.graphics);
     }
@@ -893,8 +894,8 @@ TEST_SUITE("SceneRenderer") {
         scene.add(BuiltinMesh::Cube, scene.material("m"));
         (void)scene.render(scene.orthographicView(Vec3(0.0f, 0.0f, 5.0f), Vec3(0.0f), 2.0f));
 
-        // 4x4, 2x2 and 1x1 instead of starting at 16x16; plus the two default textures.
-        CHECK(scene.renderer->resources().statistics().textureBytes == 12 + (16 + 4 + 1) * 4);
+        // 4x4, 2x2 and 1x1 instead of starting at 16x16; plus the three default textures.
+        CHECK(scene.renderer->resources().statistics().textureBytes == 16 + (16 + 4 + 1) * 4);
         checkNoValidationIssues(*scene.context.graphics);
     }
 

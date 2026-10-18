@@ -785,6 +785,37 @@ Image makeGradeLut() {
     return image;
 }
 
+// --- The cookie of the lamp -------------------------------------------------------------
+
+/// The size of the lamp's cookie, in pixels, across and down.
+constexpr uint32_t kCookieSize = 256;
+
+/// How much of the light gets past the bars of a guard along one axis, at a place from -1
+/// to 1: bars at -1/2, 0 and 1/2, three hundredths wide, with edges a little soft.
+float pastBars(float place) {
+    const float fromBar = std::abs(place * 2.0f - std::round(place * 2.0f)) * 0.5f;
+    return glm::smoothstep(0.03f, 0.045f, fromBar);
+}
+
+/// What the lamp on its post shines through: the wire guard of a work light, three bars
+/// across and three down, its light round and dimming towards the rim of the reflector.
+/// White lets the light through, black none of it: a cookie filters light by its colors.
+Image makeLampCookie() {
+    Result<Image> created = Image::create(kCookieSize, kCookieSize, ImageFormat::Rgba8);
+    CORDITE_VERIFY(created.has_value(), "cannot allocate the cookie");
+    Image image = std::move(*created);
+    const auto size = static_cast<float>(kCookieSize);
+    for (uint32_t y = 0; y < kCookieSize; ++y) {
+        for (uint32_t x = 0; x < kCookieSize; ++x) {
+            const Vec2 place = (Vec2(static_cast<float>(x), static_cast<float>(y)) + 0.5f) / size * 2.0f - 1.0f;
+            const float rim = 1.0f - glm::smoothstep(0.7f, 0.98f, glm::length(place));
+            const float through = pastBars(place.x) * pastBars(place.y) * rim;
+            image.setPixel(x, y, Vec4(Vec3(through), 1.0f));
+        }
+    }
+    return image;
+}
+
 // --- The sky -----------------------------------------------------------------------------
 
 /// The image of the sky is this many pixels all the way round, and half as many from
@@ -971,6 +1002,7 @@ Status generate(const std::filesystem::path& assetDirectory) {
     CORDITE_TRY(writeTextures(textureDirectory, "lamp", bake(lampPanel), true));
     CORDITE_TRY(writeTextures(textureDirectory, "grime", bake(grime), false));
     CORDITE_TRY(makeGradeLut().savePng(textureDirectory / "grade_lut.png"));
+    CORDITE_TRY(makeLampCookie().savePng(textureDirectory / "lamp_cookie.png"));
     CORDITE_TRY(makeSky().saveHdr(textureDirectory / "sky.hdr"));
 
     CORDITE_TRY(exportGltf(makeCrate(), modelDirectory / "crate.gltf"));

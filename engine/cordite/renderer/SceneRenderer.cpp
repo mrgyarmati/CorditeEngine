@@ -446,6 +446,15 @@ void SceneRenderer::uploadPoses(nvrhi::ICommandList* commandList) {
     m_statistics.jointMatrices = 0;
 }
 
+void SceneRenderer::assignCookies() {
+    for (size_t index = 0; index < m_clusters.lights.size(); ++index) {
+        GpuLight& light = m_clusters.lights[index];
+        light.cookie = light.cookieRight == Vec3(0.0f)
+                           ? -1
+                           : m_resources->cookieLayer(m_lights.lights()[m_clusters.sources[index]].cookie);
+    }
+}
+
 void SceneRenderer::drawShadows(nvrhi::ICommandList* commandList, const ShadowSettings& settings) {
     m_statistics.lightsWithoutShadows = m_shadowPlan.lightsWithoutRoom;
     if (m_shadowPlan.lightsWithoutRoom > 0 && !m_reportedShadowRoom) {
@@ -532,6 +541,9 @@ void SceneRenderer::render(nvrhi::ICommandList* commandList, const World& world,
     // The lights: gathered from the world, sorted into the clusters of this view.
     m_lights.collect(world, {.defaultLighting = settings.defaultLighting});
     m_clusterBuilder.build(view, m_lights.lights(), m_clusters);
+    // Their cookies, put into the cookie array by uploads that are sent below, before
+    // anything is drawn.
+    assignCookies();
     m_statistics.lights = static_cast<uint32_t>(m_clusters.lights.size());
     m_statistics.lightListEntries = static_cast<uint32_t>(m_clusters.indices.size());
     m_statistics.droppedLights = m_clusters.droppedLights;
@@ -601,7 +613,7 @@ void SceneRenderer::render(nvrhi::ICommandList* commandList, const World& world,
          .ambientOcclusion = drawsOcclusion,
          .fog = m_lights.fog(),
          .backgroundColor = settings.backgroundColor},
-        m_clusters,
+        m_clusters, m_resources->cookies(),
         {.plan = &m_shadowPlan, .atlas = m_passes.shadows.texture(), .filterRadius = shadowSettings.filterRadius},
         // An environment whose image cannot be used lights nothing.
         {.environment = environment != nullptr ? environment : &m_passes.environments.none(),

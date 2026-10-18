@@ -26,6 +26,7 @@ number are what its list of milestones leaves out and its requirements ask for:
 | 9 | Screen-space effects: ambient occlusion from the screen, fog, anti-aliasing (FXAA). Screen-space reflections, which the brief marks optional, are listed below | Done |
 | - | Depth of field: what is not at the focus distance is blurred by its depth, as through a lens - in front and behind by amounts of their own, set by `PostProcess` components like the rest of the look; worked out at half the size of the picture, before bloom and exposure, with sharp edges kept sharp and blurred ones spread over what is behind them; the Depth of field render view shows how blurred each pixel is | Done |
 | - | Light shafts: looking towards the sun, its light streams past whatever stands in its way - shafts that fan out from the sun and the shadows of what is in front of it, from the light of the sun and the brightest parts of the sky, set by `PostProcess` components; none with the sun behind the camera; the Light shafts render view shows them alone | Done |
+| - | Light cookies: a spot or a directional light shines through a picture whose colors filter it - a guard, a window, leaves, clouds - thrown across a spot light's cone, or laid out over the world by a directional light and repeated, drifting as its entity moves; up to sixteen at once, layers of one texture array; the showcase's lamp shines through a wire guard | Done |
 | - | Motion blur: what moves while the shutter is open is smeared along the way it went - a figure running past, the world seen from a turning camera - as much as `PostProcess` components say (the share of the time between two pictures the shutter is open), from motion vectors the base pass writes for every pixel: where each entity, each pose of a figure and the camera were when the view was last drawn; what the camera follows stays sharp, a cut to another shot starts sharp, the editor's own camera does not blur; a render view shows how far each pixel went | Done |
 | - | Decals: grime, cracks, rust and markings - a material laid onto the solid surfaces inside the box of an entity, projected along its -Z axis: color, roughness, metal and specular blended in by how much of the material there is, its normal map bending what it lands on, its light added; fading on surfaces that turn away, laid on in an order of their own; the `Decal` component | Done |
 | - | Levels of detail: every mesh of many triangles gets coarser versions of itself when it is loaded, and a view draws the coarsest that looks the same to within a pixel - its shadow too - as the quality of the view says; a render view shows the level of each mesh | Done |
@@ -57,9 +58,9 @@ and played there.
 
 What the brief asks of the renderer and its cameras that no milestone names, and that
 is not built yet: screen-space reflections, temporal anti-aliasing, lens flares, rect
-lights, light cookies, lights that light the fog, local reflection and ambient probes,
-baked lighting, texture streaming, and more than one viewport in the editor. They follow
-once the milestones above stand.
+lights, lights that light the fog, local reflection and ambient probes, baked lighting,
+texture streaming, and more than one viewport in the editor. They follow once the
+milestones above stand.
 
 ## Building
 

@@ -204,3 +204,34 @@ TEST_SUITE("Mipmaps") {
         CHECK(nameOf(ColorSpace::Srgb) == "srgb");
     }
 }
+
+TEST_SUITE("ResizeImage") {
+    TEST_CASE("an image is resized as its levels are made: colors averaged as light") {
+        const Image image = makeColumns(ImageFormat::Rgba8, Vec4(0.0f, 0.0f, 0.0f, 1.0f), Vec4(1.0f));
+        const Image one = unwrap(resizeImage(image, 1, 1, ColorSpace::Srgb));
+        CHECK(one.width() == 1);
+        CHECK(one.height() == 1);
+        CHECK(one.format() == ImageFormat::Rgba8);
+        // Half of white, as light: brighter than the middle number once encoded again.
+        CHECK(one.pixel(0, 0).r == doctest::Approx(linearToSrgb(0.5f)).epsilon(0.02));
+        CHECK(unwrap(resizeImage(image, 1, 1, ColorSpace::Linear)).pixel(0, 0).r ==
+              doctest::Approx(0.5f).epsilon(0.02));
+
+        // Larger, and of another shape: the left still black, the right still white.
+        const Image wide = unwrap(resizeImage(image, 16, 4, ColorSpace::Srgb));
+        CHECK(wide.width() == 16);
+        CHECK(wide.height() == 4);
+        CHECK(wide.pixel(0, 2).r < 0.05f);
+        CHECK(wide.pixel(15, 2).r > 0.95f);
+    }
+
+    TEST_CASE("an image that is empty, or a size of nothing, cannot be resized") {
+        const Image image = makeImage(4, 4, ImageFormat::Rgba8, Vec4(1.0f));
+        const auto refused = [](const Result<Image>& result) {
+            return !result.has_value() && result.error().code == ErrorCode::InvalidArgument;
+        };
+        CHECK(refused(resizeImage(Image(), 2, 2, ColorSpace::Srgb)));
+        CHECK(refused(resizeImage(image, 0, 2, ColorSpace::Srgb)));
+        CHECK(refused(resizeImage(image, 2, 0, ColorSpace::Linear)));
+    }
+}

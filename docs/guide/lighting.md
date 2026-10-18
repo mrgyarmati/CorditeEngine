@@ -25,6 +25,17 @@ the others, which fall off with distance and reach nothing at their `range`. A l
 ends at its range, so keep ranges as small as the light needs: it is cheaper, and the scene
 is easier to control.
 
+**Cookies**: a spot or a directional light can shine through a picture, as through a slide in
+a projector - the bars of a guard, the panes of a window, leaves, moving clouds. Name a
+texture as the light's `cookie`; its colors filter the light, white letting all of it
+through and black none. A spot light throws the picture across its cone, as it is seen from
+behind the light, looking the way it shines, and turns it as the light is turned about its
+axis. A directional light lays it out over the world from where its entity is, repeated every
+`cookieSize` metres along the light's right and up: move the entity - a script, a sequence -
+and the clouds drift. A point light has no cookie. A cookie is brought to 256 by 256 pixels,
+and up to 16 can be in use at once; an `.hdr` image, which holds light, is no cookie. The
+showcase's lamp shines through a wire guard (`textures/lamp_cookie.png`).
+
 **AmbientLight** lights what the direct lights do not reach: a `skyColor` from above, a
 `groundColor` from below, times `intensity`. Several ambient lights add up.
 

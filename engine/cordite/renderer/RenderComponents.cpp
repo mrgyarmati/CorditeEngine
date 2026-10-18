@@ -105,6 +105,18 @@ TypeInfo describeLight() {
                    .minimum = 0.0,
                    .maximum = 1.0,
                    .step = 0.01})
+        .property("cookie", &LightComponent::cookie,
+                  {.description = "Spot and directional: a picture the light shines through, which filters it by "
+                                  "its colors - thrown across a spot light's cone, laid out over the world and "
+                                  "repeated by a directional light. A point light has none",
+                   .semantic = PropertySemantic::AssetReference,
+                   .referenceType = "Texture"})
+        .property("cookieSize", &LightComponent::cookieSize,
+                  {.description = "Directional: how far the cookie reaches across and up before it repeats",
+                   .minimum = 0.01,
+                   .maximum = 10000.0,
+                   .step = 0.1,
+                   .unit = "m"})
         .build();
 }
 
@@ -492,6 +504,11 @@ std::vector<RenderProblem> findRenderProblems(const World& world) {
         // The view of a camera is what is shaken (makeCameraView of an entity).
         if (world.has<CameraShakeComponent>(entity) && camera == nullptr) {
             problems.push_back({entity, "CameraShake shakes nothing: the entity has no Camera whose view it shakes"});
+        }
+        if (const auto* light = world.tryGet<LightComponent>(entity);
+            light != nullptr && light->type == LightType::Point && !light->cookie.isNil()) {
+            problems.push_back({entity, "Light has a cookie, which a point light does not throw: only spot and "
+                                        "directional lights do"});
         }
         if (!world.has<SceneCaptureComponent>(entity)) {
             return;

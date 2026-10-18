@@ -25,6 +25,7 @@
 /// shaders/common/Lights.slang; clusterOf() here is the same function, and a test keeps
 /// the two in step.
 
+#include "cordite/core/Uuid.h"
 #include "cordite/math/Geometry.h"
 #include "cordite/math/Math.h"
 #include "cordite/renderer/CameraView.h"
@@ -90,6 +91,15 @@ struct SceneLight {
     /// The lighting channels the light belongs to, one bit each.
     uint32_t channels = 1;
     SceneLightShadow shadow;
+    /// The light's right in the world - the +X axis of its entity, of length one: which
+    /// way round its cookie is.
+    Vec3 right{1.0f, 0.0f, 0.0f};
+    /// Spot and directional: the texture the light shines through (its cookie); nil for
+    /// none.
+    Uuid cookie;
+    /// Directional: how far its cookie reaches along the light's right and up before it
+    /// repeats, in metres.
+    float cookieSize = 10.0f;
 };
 
 /// A light as the shaders read it: `Light` in shaders/common/Lights.slang.
@@ -111,9 +121,18 @@ struct GpuLight {
     /// its normal.
     float shadowBias = 0.0f;
     float shadowNormalOffset = 0.0f;
+    /// Where the cookie of the light is laid on what it lights: its right, divided by the
+    /// tangent of a spot light's outer cone or by the size of a directional light's
+    /// cookie, so that how far a point is from `position` along it and along the up made
+    /// of it and `direction` is where on the cookie the point is (cookieUvOf,
+    /// LightCookies.h). Nothing for a light without a cookie.
+    Vec3 cookieRight{0.0f};
+    /// The layer of the cookie in the cookie array of the view (RenderResources::
+    /// cookies()), or -1 for none.
+    int32_t cookie = -1;
 };
 
-static_assert(sizeof(GpuLight) == 64, "must match Light in shaders/common/Lights.slang");
+static_assert(sizeof(GpuLight) == 80, "must match Light in shaders/common/Lights.slang");
 
 /// Where the list of a cluster is in LightClusters::indices.
 struct ClusterRange {

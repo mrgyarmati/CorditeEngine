@@ -137,7 +137,7 @@ by accident.
 | `rhi` | `core`, `math`, `platform` | Vulkan device, swapchain and texture readback over NVRHI |
 | `shaders` | `core` | Shader requests and permutation keys, disk cache, `ShaderLibrary` |
 | `shader_compiler` | `core`, `shaders` | Slang to SPIR-V compiler, and the cache of the engine's shaders compiled ahead that an exported game ships (`EngineShaderCache.h`); not linked into exported games |
-| `renderer` | `core`, `math`, `assets`, `world`, `animation`, `rhi`, `shaders` | The scene renderer and what it is made of: GPU copies of assets, the mesh passes, the G-buffer and its lighting, the lights of a world and the clusters they are sorted into, their shadow maps and the atlas those share, what finishes the picture (exposure, bloom, tone mapping, grading), the environment (the sky and what it lights), ambient occlusion from the screen, fog, decals, levels of detail, scene captures, the debug views, scene targets, the `MeshRenderer`, `Light`, `AmbientLight`, `Environment`, `Fog`, `Decal`, `SceneCapture` and `PostProcess` components; camera views, debug lines, GPU timing, GPU shader management |
+| `renderer` | `core`, `math`, `assets`, `world`, `animation`, `rhi`, `shaders` | The scene renderer and what it is made of: GPU copies of assets, the mesh passes, the G-buffer and its lighting, the lights of a world and the clusters they are sorted into, their cookies, their shadow maps and the atlas those share, what finishes the picture (exposure, bloom, tone mapping, grading), the environment (the sky and what it lights), ambient occlusion from the screen, fog, decals, levels of detail, scene captures, the debug views, scene targets, the `MeshRenderer`, `Light`, `AmbientLight`, `Environment`, `Fog`, `Decal`, `SceneCapture` and `PostProcess` components; camera views, debug lines, GPU timing, GPU shader management |
 | `ui` | `core`, `math`, `platform`, `rhi`, `shaders`, `renderer` | The immediate-mode interface: the Dear ImGui context and its NVRHI renderer; its typefaces and icons, compiled in; its themes, and the widgets it draws the same way everywhere |
 | `engine` | all of the above but `shader_compiler` | `Engine`: owns the subsystems, the assets, the world and the interface, and runs the frame loop; projects; a game made of a project (`Game`); placing models; checking the assets a scene uses |
 | `editor` | `engine` and below, `shader_compiler` | The editor: the scene document, undoable actions, scene and asset commands, panels, `EditorApp`; making a game of a project (`GameExport`) (not linked into exported games) |
@@ -365,8 +365,9 @@ Vulkan directly. Step-by-step guide for adding a pass:
   GPU or the bounds.
 - **Binding sets:** register space 0 is the view's (`ViewBindings`: the constants of
   `common/View.slang` at `b0`, the lights of `common/Lights.slang` at `t0` to `t2`,
-  the shadow maps of `common/Shadows.slang` at `t3`, `t4` and `s0`, and the
-  environment of `common/Environment.slang` at `t5`, `t6`, `s1` and `s2`), space 1 the
+  the shadow maps of `common/Shadows.slang` at `t3`, `t4` and `s0`, the
+  environment of `common/Environment.slang` at `t5`, `t6`, `s1` and `s2`, and the
+  cookies of the lights at `t7` and `s3`), space 1 the
   material's in a mesh pass (`materials/Material.slang`; call `evaluateSurface`, never
   sample material textures directly) or the G-buffer's in a pass that reads it
   (`GBufferBindings`: its four targets, the depth, the ambient occlusion at `t5` and
@@ -430,6 +431,23 @@ Vulkan directly. Step-by-step guide for adding a pass:
   what shaders compute with (times pi); nothing else converts brightness. A world
   without light components is black, as a game shows it; only an editor view asks for
   stand-ins (`SceneRenderSettings::defaultLighting`).
+- **A spot or directional light can shine through a cookie** (`LightComponent::cookie`,
+  `LightCookies.h`): a picture whose colors filter it - thrown across a spot light's
+  cone as a slide by a projector, seen from behind the light; laid out over the world by
+  a directional light, repeated every `cookieSize` metres from where its entity is. A
+  point light has none (`findRenderProblems`). Cookies are layers of one texture array
+  of `RenderResources` (`cookieLayer`), `kLightCookieSize` square with their mip levels,
+  brought to that size on the CPU and written into their layers as uploads - never drawn
+  into, which a texture the frame reads cannot be. The array has a layer for each cookie
+  in use, rounded up to a power of two: it is made twice as large when it has no room,
+  what it held copied over on the GPU. An image of light, and one more than
+  `kMaxLightCookies`, is said once and the light shines without; a view binds a single
+  white texel while no light has a cookie. Where on a cookie a point is is written down
+  twice, in `LightCookies.cpp` and in `cookieFilter` of `common/Lights.slang`: change
+  both. The level of the cookie's pictures is worked out from how large a pixel is there
+  (`pixelFootprint`), not from the neighbouring pixels, which may be shading other
+  lights. A light without a cookie reads nothing: `LightCookieTests` holds a light next
+  to one whose cookie is black.
 - **Point and spot lights are found through clusters** (`LightClusters.h`,
   `common/Lights.slang`): a grid of 16 x 9 x 24 boxes over what the camera sees, each
   with the list of the lights that touch it, built on the CPU for every view. The size
@@ -775,6 +793,7 @@ Step-by-step guide: [work-with-assets](.claude/skills/work-with-assets/SKILL.md)
   key the same way round as the one before it.
 - **The slot decides the color space, not the texture.** Base color and emissive are
   sRGB, everything else is data. There is no per-texture setting to get wrong. A
+  light's cookie is a color as well: it filters light by its colors. A
   color lookup table (`PostProcess.colorLut`) is data too: an image of N * N by N
   pixels - N slices side by side, red across each, green down it, blue from slice to
   slice - that holds the colors of a display as an image editor has them.
@@ -1927,6 +1946,10 @@ body explaining what changed and why. One logical change per commit.
   the test with hundreds of lights), or look at the surface head-on.
 - Check that a test can fail. The lighting tests were run once with every light's
   bounds shrunk by a sixth, to see them fail, before they were trusted to pass.
+- doctest's `-tc` and `-ts` split their filters at commas, and test names here are
+  sentences: a fragment that spans a comma selects nothing, and a run that says
+  `test cases: 0` has tested nothing - a mutant checked that way "survives". Filter by a
+  fragment without a comma.
 - doctest prints a `const char*` that is streamed into a message as `1`. Wrap it:
   `REQUIRE_MESSAGE(found, "no budget for " << std::string(name))`.
 - A braced list inside the braced list of a range-for (`for (auto [a, b] : {{1, 2}})`)

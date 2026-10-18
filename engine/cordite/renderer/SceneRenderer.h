@@ -427,6 +427,10 @@ private:
     /// keeps its pose.
     void uploadPoses(nvrhi::ICommandList* commandList);
 
+    /// Gives every light of m_clusters the layer of its cookie in the cookie array
+    /// (RenderResources::cookieLayer): the first time a cookie is used, it is put there.
+    void assignCookies();
+
     /// Draws the shadow maps of m_shadowPlan into the atlas, each with what casts a
     /// shadow in the light it belongs to.
     void drawShadows(nvrhi::ICommandList* commandList, const ShadowSettings& settings);

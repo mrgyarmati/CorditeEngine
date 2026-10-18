@@ -41,7 +41,7 @@ of slowly turning the code base into a ball of mud.
 | `rhi` | `core`, `math`, `platform` | The GPU: Vulkan instance and device creation, the NVRHI device the renderer programs against, the swapchain, and texture readback. The only module that calls Vulkan. |
 | `shaders` | `core` | What a shader *is* to the engine: requests and their permutation keys, compiled binaries, the on-disk cache, and the `ShaderLibrary` that resolves a request from memory, disk or a compiler. |
 | `shader_compiler` | `core`, `shaders` | The Slang-based implementation of `IShaderCompiler`, and the cache of the engine's shaders compiled ahead that an exported game has instead (`EngineShaderCache`). Kept separate so exported games do not link a compiler. |
-| `renderer` | `core`, `math`, `assets`, `world`, `animation`, `rhi`, `shaders` | Drawing: the scene renderer and its passes (depth, G-buffer, deferred lighting, forward, debug views), the GPU copies of assets it draws with, the targets of a view, the components that make an entity visible or make it a light, the lights of a world sorted into the clusters of a view, the environment that surrounds a world made ready to light it, ambient occlusion worked out from the screen; the view a camera gives, debug line drawing, and the `ShaderManager` that turns shader binaries into GPU shader objects. |
+| `renderer` | `core`, `math`, `assets`, `world`, `animation`, `rhi`, `shaders` | Drawing: the scene renderer and its passes (depth, G-buffer, deferred lighting, forward, debug views), the GPU copies of assets it draws with, the targets of a view, the components that make an entity visible or make it a light, the lights of a world sorted into the clusters of a view and the cookies they shine through, the environment that surrounds a world made ready to light it, ambient occlusion worked out from the screen; the view a camera gives, debug line drawing, and the `ShaderManager` that turns shader binaries into GPU shader objects. |
 | `ui` | `core`, `math`, `platform`, `rhi`, `shaders`, `renderer` | The immediate-mode user interface: the Dear ImGui context, its input, and the renderer that draws it with NVRHI; its typefaces and icons, compiled in, and its themes. |
 | `engine` | all of the above but `shader_compiler` | `Engine`: creates and owns the subsystems, the assets, the world and the interface, and runs the frame loop. Also what needs several of the modules below at once: projects, a game made of a project (`Game`, which the player runs), placing a model in a world, checking the assets a scene refers to. |
 | `editor` | `engine` and below, `shader_compiler` | The editor: the scene document, undoable actions, the command registry, the panels, `EditorApp`, and making a game of a project (`GameExport`). Not part of exported games. |
@@ -730,6 +730,28 @@ out, counted in the statistics and reported once; lights that reach nothing in v
 do not count. Lights are taken in the order of their entities' ids, which is the same
 on every run and after any edit, so that neither the sums nor the choice of what is
 left out depend on how components happen to be stored.
+
+### A cookie is a layer of one array, filled on the CPU
+
+A light that shines through a picture - its cookie - is looked up in the same loop over
+the lights of a pixel as everything else about it, so every cookie a view uses has to be
+in reach of every pixel. They are the layers of one texture array, 256 pixels square: one
+binding, whatever lights are in view. Pictures of other sizes are brought to that size
+when they are first used, on the CPU, with the filter the mip levels are made with, and
+the layers written as uploads. Drawing them into the array on the GPU would be quicker to
+write and wrong to run: the array is read by the very frame that would draw into it, and
+a texture cannot be both. The array is made with the first cookie, of one layer, and made
+twice as large whenever it has no room for the next, sixteen layers at the most - what it
+held is copied into the larger one on the GPU, which is a copy and not a draw. So the
+memory follows what is used: a scene with one cookie pays for one. A view with no cookie
+binds a single white texel.
+
+Which level of a cookie is read is worked out from how large a pixel is where the light
+lands, not from the differences between neighbouring pixels: the lights of one pixel are
+not those of the next, so the GPU's own derivatives say nothing there. A spot light
+throws its cookie as a projector throws a slide, and so can use the arithmetic of a
+perspective projection; a directional light lays its out like a texture of the world,
+from where its entity is - which is what lets clouds drift without a property for it.
 
 ### Brightness is set for artists, computed in radiance
 

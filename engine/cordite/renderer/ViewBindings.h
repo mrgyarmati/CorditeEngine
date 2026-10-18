@@ -111,9 +111,10 @@ public:
 
     /// Makes `view`, `lights`, `shadows` and `environment` what passes recorded from
     /// here on are told. `lights` must have been built for the camera of `view`, and
-    /// `shadows` planned for them. The command list must be open.
+    /// `shadows` planned for them; `cookies` is the texture array their cookies are
+    /// layers of (RenderResources::cookies()), never null. The command list must be open.
     void update(nvrhi::ICommandList* commandList, const SceneView& view, const LightClusters& lights,
-                const ViewShadows& shadows, const ViewEnvironment& environment);
+                nvrhi::ITexture* cookies, const ViewShadows& shadows, const ViewEnvironment& environment);
 
     /// The layout of bindings(), for pipelines: register space 0, visible to every
     /// shader stage.
@@ -136,11 +137,13 @@ private:
     nvrhi::SamplerHandle m_shadowSampler;
     nvrhi::SamplerHandle m_environmentSampler;
     nvrhi::SamplerHandle m_skySampler;
+    nvrhi::SamplerHandle m_cookieSampler;
     /// The atlas and the environment the binding set holds; a view may come with
     /// others.
     nvrhi::TextureHandle m_atlas;
     nvrhi::TextureHandle m_environmentRadiance;
     nvrhi::TextureHandle m_environmentSky;
+    nvrhi::TextureHandle m_cookies;
     nvrhi::BindingLayoutHandle m_layout;
     nvrhi::BindingSetHandle m_bindings;
     /// True when a buffer was replaced and the binding set has to follow.

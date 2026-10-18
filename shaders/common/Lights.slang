@@ -49,6 +49,12 @@ struct Light
     // its normal.
     float shadowBias;
     float shadowNormalOffset;
+    // Where the cookie of the light is laid on what it lights: its right, divided by the
+    // tangent of a spot light's outer cone or by the size of a directional light's cookie
+    // (cookieAxisOf, renderer/LightCookies.h); nothing without a cookie.
+    float3 cookieRight;
+    // The layer of the cookie in lightCookies, or -1 for none.
+    int cookie;
 };
 
 // Where the list of a cluster is in lightIndices. Matches ClusterRange.
@@ -61,6 +67,14 @@ struct ClusterRange
 StructuredBuffer<Light> lights : register(t0, space0);
 StructuredBuffer<ClusterRange> clusterGrid : register(t1, space0);
 StructuredBuffer<uint> lightIndices : register(t2, space0);
+
+// The cookies of the view (renderer/LightCookies.h): pictures lights shine through, one
+// layer each, in the colors of a display - a filter is a color.
+Texture2DArray<float4> lightCookies : register(t7, space0);
+SamplerState cookieSampler : register(s3, space0);
+
+// Matches kLightCookieSize.
+static const float kLightCookieSize = 256.0;
 
 uint lightType(Light light)
 {
@@ -110,6 +124,36 @@ float coneFalloff(Light light, float3 toLight)
 
 // The light leaving a surface towards the viewer that comes from one light. Shadows
 // are looked up last, and only for what would be lit: they are the costly part.
+// What of the color of a light its cookie lets through towards `position`: all of it for
+// a light without one. Where on the cookie the position is matches cookieUvOf
+// (renderer/LightCookies.h): change both. The level of the cookie's pictures is the one
+// whose texels are about as large as the pixel there, worked out rather than taken from
+// neighbouring pixels: those may be shading other lights.
+float3 cookieFilter(Light light, float3 position)
+{
+    if (light.cookie < 0)
+    {
+        return float3(1.0);
+    }
+    const float3 offset = position - light.position;
+    const float3 up = cross(light.cookieRight, light.direction);
+    float2 uv = float2(dot(offset, light.cookieRight), -dot(offset, up));
+    // Texels of the cookie in a metre, across where the position is.
+    float texelsPerMetre = kLightCookieSize * length(light.cookieRight);
+    if (lightType(light) == kLightSpot)
+    {
+        const float depth = dot(offset, light.direction);
+        if (depth <= 0.0)
+        {
+            return float3(0.0);
+        }
+        uv = 0.5 + 0.5 * uv / depth;
+        texelsPerMetre *= 0.5 / depth;
+    }
+    const float level = log2(max(pixelFootprint(position) * texelsPerMetre, 1.0e-6));
+    return lightCookies.SampleLevel(cookieSampler, float3(uv, float(light.cookie)), level).rgb;
+}
+
 float3 shadeLight(Surface surface, float3 toViewer, Light light)
 {
     if (lightType(light) == kLightDirectional)
@@ -121,7 +165,8 @@ float3 shadeLight(Surface surface, float3 toViewer, Light light)
         }
         const float reaching =
             sunVisibility(light.shadowView, light.shadowBias, light.shadowNormalOffset, surface, toSun);
-        return shadeDirect(surface, toViewer, toSun, light.color * reaching);
+        return shadeDirect(surface, toViewer, toSun,
+                           light.color * reaching * cookieFilter(light, surface.position));
     }
 
     const float3 offset = light.position - surface.position;
@@ -144,7 +189,8 @@ float3 shadeLight(Surface surface, float3 toViewer, Light light)
     }
     brightness *= localLightVisibility(light.shadowView, !isSpot, light.position, light.direction, light.shadowBias,
                                        light.shadowNormalOffset, surface, toLight);
-    return shadeDirect(surface, toViewer, toLight, light.color * brightness);
+    // A point light has no cookie: its filter lets everything through.
+    return shadeDirect(surface, toViewer, toLight, light.color * brightness * cookieFilter(light, surface.position));
 }
 
 // The light leaving a surface towards the viewer that comes from the lights of the

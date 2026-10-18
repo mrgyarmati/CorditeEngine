@@ -42,6 +42,8 @@ cordite_add_module(renderer
         LevelOfDetail.h
         LightClusters.cpp
         LightClusters.h
+        LightCookies.cpp
+        LightCookies.h
         LightShaftPass.cpp
         LightShaftPass.h
         LightShafts.cpp
