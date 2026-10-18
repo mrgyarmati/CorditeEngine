@@ -436,7 +436,7 @@ Status ViewportPanel::render(nvrhi::IDevice* device, nvrhi::ICommandList* comman
     // what a player sees. Otherwise through the editor's, with what an editor adds.
     const World& world = context.world();
     const float aspect = static_cast<float>(size.x) / static_cast<float>(size.y);
-    const Entity gameCamera = m_viewCamera == ViewportCamera::Game ? findPrimaryCamera(world) : Entity{};
+    const Entity gameCamera = m_viewCamera == ViewportCamera::Game ? findGameCamera(world) : Entity{};
     const auto* gameLens = world.tryGet<CameraComponent>(gameCamera);
     m_showsGame = gameLens != nullptr;
 

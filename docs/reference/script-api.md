@@ -9,6 +9,7 @@ Everything gameplay scripts are written against: the functions the engine calls 
 | `function Script:start()` | Called once, before the first update: for parents before what hangs under them. What it sets up - `self.count = 0` - is the script's to keep in `self`. |
 | `function Script:input(action, pressed)` | Called for every action of the input map that was pressed or released in the frame, with its name and true for pressed: after the starts of the frame, before its timers and updates. |
 | `function Script:update(deltaSeconds)` | Called every frame, with the seconds that have passed since the frame before. |
+| `function Script:sequenceEvent(name)` | Called when a sequence that the entity's SequencePlayer plays passes one of its events, with the name the sequence gives it: after the updates of the frame, in the order of the events' times. |
 | `function Script:collisionBegan(other, contact)` | Called when the body of the entity has begun to touch that of another, right after the step of the simulation in which it did. `contact` holds `position`, where the two touch in the world; `normal`, which way the other lies from there; and `speed`, how fast they were closing in, in metres per second. |
 | `function Script:collisionEnded(other)` | Called when the two bodies have parted, or one of them is gone: `other` may no longer be valid. |
 | `function Script:triggerEntered(other, contact)` | Called when a body has moved into a trigger: for the entity that has the trigger, and for the one that moved into it. |

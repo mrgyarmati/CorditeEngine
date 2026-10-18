@@ -61,6 +61,7 @@ The engine calls these functions when a script has them; all of them are optiona
 | `start()` | Once, before the first update - parents before their children. |
 | `input(action, pressed)` | For every action of the input map that was pressed or released in the frame. |
 | `update(deltaSeconds)` | Every frame, with the seconds since the last one. |
+| `sequenceEvent(name)` | A sequence that the entity's SequencePlayer plays passed one of its events. See [Cameras](cameras.md#cinematic-sequences). |
 | `collisionBegan(other, contact)` | The entity's body began to touch another. `contact` has `position`, `normal` (towards the other) and `speed`. |
 | `collisionEnded(other)` | The two bodies parted. |
 | `triggerEntered(other, contact)` | A body entered a trigger - called for both. |
@@ -68,7 +69,9 @@ The engine calls these functions when a script has them; all of them are optiona
 | `destroy()` | The script ends while its entity is still there: the component was removed or changed, a script destroyed the entity, or another scene is loaded. |
 
 In every frame, scripts run before physics: what a script decides in `update` is what the
-simulation does in that frame. Collision functions are called after the simulation step.
+simulation does in that frame. `sequenceEvent` is called right after the sequences have
+played, still before the simulation; collision functions are called after the simulation
+step.
 
 ### Properties
 

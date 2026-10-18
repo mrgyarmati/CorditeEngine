@@ -82,7 +82,8 @@ TEST_SUITE("ScriptCommands") {
             CHECK(callback["description"].get<std::string>().back() == '.');
             CHECK(callback.size() == 3);
         }
-        CHECK(names == "start input update collisionBegan collisionEnded triggerEntered triggerLeft destroy");
+        CHECK(names == "start input update sequenceEvent collisionBegan collisionEnded triggerEntered triggerLeft "
+                       "destroy");
         CHECK(named(callbacks, "update")["signature"] == "function Script:update(deltaSeconds)");
         CHECK(named(callbacks, "collisionBegan")["signature"] == "function Script:collisionBegan(other, contact)");
     }
@@ -96,7 +97,7 @@ TEST_SUITE("ScriptCommands") {
         }
         CHECK(names == "raycast sphereCast overlapSphere overlapBox gravity setGravity");
         // The callbacks are no functions of a library, and come along whatever is asked.
-        CHECK(physics["callbacks"].size() == 8);
+        CHECK(physics["callbacks"].size() == 9);
 
         CHECK(fixture.run("script.api", R"({"prefix": "cordite.Entity.add"})")["functions"].size() == 4);
         CHECK(fixture.run("script.api", R"({"prefix": "no such library"})")["functions"].empty());

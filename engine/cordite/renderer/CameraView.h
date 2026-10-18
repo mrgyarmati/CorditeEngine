@@ -61,10 +61,17 @@ struct CameraView {
 /// through a camera as a new CameraComponent is.
 [[nodiscard]] CameraView makeCameraView(const World& world, Entity camera, float aspectRatio);
 
-/// Returns the camera a game renders from: the first entity in hierarchy order that is
-/// enabled, along with all its ancestors, and has a CameraComponent marked primary. Null
-/// when there is none. The world's transforms need not be up to date.
+/// Returns the camera a game renders from when no sequence cuts to another: the first
+/// entity in hierarchy order that is enabled, along with all its ancestors, and has a
+/// CameraComponent marked primary. Null when there is none. The world's transforms need
+/// not be up to date.
 [[nodiscard]] Entity findPrimaryCamera(const World& world);
+
+/// Returns the camera a game is seen through: the one a sequence that plays has cut to -
+/// of the first SequencePlayer in hierarchy order that is enabled, playing and cut to an
+/// enabled entity with a camera (SequencePlayerComponent::camera) - or else the primary
+/// camera (findPrimaryCamera). Null when there is neither.
+[[nodiscard]] Entity findGameCamera(const World& world);
 
 /// The ray from the camera through a pixel of a target `targetSize` pixels large, with
 /// (0, 0) at the top-left corner. It starts on the near plane.

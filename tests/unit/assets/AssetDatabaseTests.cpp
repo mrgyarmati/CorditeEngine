@@ -217,8 +217,9 @@ TEST_SUITE("AssetDatabase") {
         CHECK(withArticle(AssetType::Sound) == "a sound");
         CHECK(withArticle(AssetType::Prefab) == "a prefab");
         CHECK(withArticle(AssetType::RenderTarget) == "a render target");
+        CHECK(withArticle(AssetType::Sequence) == "a sequence");
         // Every type is found by its name, and has a name of its own.
-        CHECK(kAssetTypes.size() == 11);
+        CHECK(kAssetTypes.size() == 12);
         for (const AssetType type : kAssetTypes) {
             CHECK(assetTypeFromName(nameOf(type)) == type);
             CHECK(nameOf(type) != "unknown");

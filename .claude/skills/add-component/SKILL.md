@@ -51,7 +51,8 @@ Rules:
   property marked `transient`.
 - Refer to other entities and to assets by `Uuid` (or a `std::vector<Uuid>`), with the
   matching `semantic`; for an asset also say which kind with `referenceType` ("Mesh",
-  "Material", "Texture", "Model", "Scene", "Skeleton", "Animation"). The inspector
+  "Material", "Texture", "Model", "Scene", "Skeleton", "Animation", "Script", "Sound",
+  "Prefab", "RenderTarget", "Sequence" - `displayNameOf` of the asset type). The inspector
   then offers the assets of that kind, and `scene.validate` checks the reference.
   `MeshRendererComponent` in `renderer/RenderComponents.cpp` is the example.
 

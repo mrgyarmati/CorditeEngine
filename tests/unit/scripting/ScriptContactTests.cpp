@@ -1,3 +1,4 @@
+#include "cordite/animation/SequenceSystem.h"
 #include "cordite/core/Uuid.h"
 #include "cordite/math/Math.h"
 #include "cordite/math/Transform.h"
@@ -254,13 +255,14 @@ TEST_SUITE("ScriptContacts") {
             }
             return lines;
         };
-        CHECK(counts() == Lines{"start 0", "input 0", "update 0", "collisionBegan 0", "collisionEnded 0",
-                                "triggerEntered 0", "triggerLeft 0", "destroy 0"});
+        CHECK(counts() == Lines{"start 0", "input 0", "update 0", "sequenceEvent 0", "collisionBegan 0",
+                                "collisionEnded 0", "triggerEntered 0", "triggerLeft 0", "destroy 0"});
 
         const Entity first = stage.add("First", stage.write("scripts/all.lua", R"(
             local All = {}
             function All:start() end
             function All:update() end
+            function All:sequenceEvent() end
             function All:collisionBegan() end
             function All:collisionEnded() end
             function All:triggerEntered() end
@@ -276,11 +278,13 @@ TEST_SUITE("ScriptContacts") {
                                    event(CollisionEventType::TriggerEntered, second, first),
                                    event(CollisionEventType::TriggerLeft, first, stage.world.createEntity("Wall"))};
         stage.scripts->tellContacts(stage.context(), events);
+        const std::array passed = {SequenceEvent{.player = second, .name = "cue"}};
+        stage.scripts->tellSequenceEvents(stage.context(), passed);
         stage.scripts->clear(stage.context());
         // Of all instances together, since the system was made: clearing it ends them,
         // and does not forget.
-        CHECK(counts() == Lines{"start 2", "input 0", "update 4", "collisionBegan 2", "collisionEnded 0",
-                                "triggerEntered 4", "triggerLeft 1", "destroy 2"});
+        CHECK(counts() == Lines{"start 2", "input 0", "update 4", "sequenceEvent 1", "collisionBegan 2",
+                                "collisionEnded 0", "triggerEntered 4", "triggerLeft 1", "destroy 2"});
     }
 
     TEST_CASE("what the simulation sees is what the scripts hear") {

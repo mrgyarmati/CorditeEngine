@@ -290,6 +290,19 @@ Runs a script for the entity while the game runs: its `start` once, its `update`
 | `script` | asset (Script) | `null` |  | The script that runs for the entity: a .lua file of the project. |
 | `properties` | json | `{}` |  | What the script is told for this entity: a value for each of the properties it declares that is to be other than the script says. |
 
+## SequencePlayer
+
+Plays a sequence while the game's time passes: moves what its tracks name, cuts to its cameras and tells the entity's scripts of its events.
+
+| Property | Kind | Default | Values | Meaning |
+|---|---|---|---|---|
+| `sequence` | asset (Sequence) | `null` |  | The sequence that plays; the paths of its tracks set out from this entity |
+| `time` | float | `0.0` | 0.0 to 1000000.0; s | Where in the sequence it is; it moves on while the player plays, and set it is where the sequence goes on from |
+| `speed` | float | `1.0` | 0.0 to 100.0 | How fast the time moves: 1 as the sequence was made, 2 twice as fast, 0 not at all |
+| `loop` | bool | `false` |  | At its end the sequence begins again; without, it stops there |
+| `playing` | bool | `true` |  | Whether it plays: its time moves on and what it says is put into the world. One that does not loop stops itself at its end |
+| `camera` | entity | `null` |  | *Read only.* *Not saved.* The camera the game is seen through while the sequence plays, as its camera track says; none for the game's own |
+
 ## Transform
 
 Where the entity is, relative to its parent. Every entity has one.

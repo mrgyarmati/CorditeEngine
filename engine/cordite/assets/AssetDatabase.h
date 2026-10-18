@@ -71,12 +71,15 @@ enum class AssetType : uint8_t {
     Prefab,
     /// A picture a camera of the scene draws into, which materials show (RenderTarget.h).
     RenderTarget,
+    /// What happens in a scene over a few seconds, on a timeline: a camera that flies past,
+    /// a light that comes on, a cut to another camera (Sequence.h).
+    Sequence,
 };
 
-inline constexpr std::array<AssetType, 11> kAssetTypes = {
+inline constexpr std::array<AssetType, 12> kAssetTypes = {
     AssetType::Texture, AssetType::Mesh,     AssetType::Material,     AssetType::Model,
     AssetType::Scene,   AssetType::Skeleton, AssetType::Animation,    AssetType::Script,
-    AssetType::Sound,   AssetType::Prefab,   AssetType::RenderTarget,
+    AssetType::Sound,   AssetType::Prefab,   AssetType::RenderTarget, AssetType::Sequence,
 };
 
 /// The lowercase name used in files and by tools: "texture", "mesh", ...
@@ -239,6 +242,7 @@ private:
     void addMaterialDependencies(const ScannedFile& file, AssetInfo& asset);
     /// Reads a render target file as it is indexed, and says what is wrong with it.
     void checkRenderTarget(const ScannedFile& file);
+    void checkSequence(const ScannedFile& file);
     [[nodiscard]] Result<std::vector<Uuid>> readEntityReferences(AssetType type,
                                                                  const std::filesystem::path& file) const;
     void resolvePendingDependencies();

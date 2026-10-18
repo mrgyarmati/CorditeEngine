@@ -819,6 +819,44 @@ TEST_SUITE("EditorApp") {
         checkNoValidationIssues(editor->engine().graphics());
     }
 
+    TEST_CASE("the editor plays sequences only while the scene plays, and its game view follows their cuts") {
+        EditorAppDesc desc = headlessDesc(UVec2(640, 360));
+        desc.project = showcaseProject();
+        const std::unique_ptr<EditorApp> editor = createEditor(desc);
+        const ViewportPanel& viewport = editor->viewport();
+        const auto entity = [&](std::string_view name) { return editor->context().world().findByName(name); };
+        const auto placed = [&](std::string_view name) {
+            return Vec3(editor->context().world().worldMatrix(entity(name))[3]);
+        };
+        const std::string_view flyby = R"({"entity": "Cameras/Flyby", "component": "SequencePlayer"})";
+        run(*editor, "viewport.show", R"({"camera": "game"})");
+        REQUIRE(editor->runFrames(1).has_value());
+        const Vec3 waiting = placed("Cinema camera");
+        CHECK(waiting == Vec3(6.0f, 1.2f, 1.0f));
+
+        // Told to play while the scene is edited, the flyby does nothing: an editor shows the
+        // scene as it is, and what a sequence writes would change it behind its history.
+        run(*editor, "component.set",
+            R"({"entity": "Cameras/Flyby", "component": "SequencePlayer", "properties": {"playing": true}})");
+        REQUIRE(editor->runFrames(3).has_value());
+        CHECK(run(*editor, "component.get", flyby)["time"] == 0.0);
+        CHECK(placed("Cinema camera") == waiting);
+        CHECK(viewport.view().position == placed("Main camera"));
+
+        // Played, it flies its camera, and the game is seen through it.
+        run(*editor, "play.start");
+        REQUIRE(editor->runFrames(3).has_value());
+        CHECK(run(*editor, "component.get", flyby)["time"].get<double>() > 0.0);
+        CHECK(placed("Cinema camera") != waiting);
+        CHECK(viewport.view().position == placed("Cinema camera"));
+        // Stopped, the scene is as it was, and so is the view.
+        run(*editor, "play.stop");
+        REQUIRE(editor->runFrames(1).has_value());
+        CHECK(placed("Cinema camera") == waiting);
+        CHECK(viewport.view().position == placed("Main camera"));
+        checkNoValidationIssues(editor->engine().graphics());
+    }
+
     TEST_CASE("editor.statistics reports what the last frame cost") {
         EditorAppDesc desc = headlessDesc(UVec2(640, 360));
         desc.project = showcaseProject();
@@ -1766,7 +1804,7 @@ TEST_SUITE("EditorApp") {
         // the camera.
         CHECK(clockName() == "Clock (2)");
         Json statistics = run(*editor, "editor.statistics");
-        CHECK(statistics["scripts"]["instances"] == 7);
+        CHECK(statistics["scripts"]["instances"] == 8);
         CHECK(statistics["scripts"]["stopped"] == 0);
         CHECK(statistics["physics"]["steps"] == 1);
         CHECK(statistics["physics"]["joints"] == 5);

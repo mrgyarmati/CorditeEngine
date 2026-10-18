@@ -1,8 +1,8 @@
 #pragma once
 
 /// @file
-/// The components of animation: the animator, the pose it works out, and the shake of a
-/// camera.
+/// The components of animation: the animator, the pose it works out, the shake of a
+/// camera and the player of a sequence.
 ///
 /// @code
 /// const Entity figure = world.createEntity("Figure");
@@ -23,7 +23,9 @@
 ///              "time": 0, "speed": 1, "loop": true, "playing": true,
 ///              "blendClip": null, "blendTime": 0, "blendWeight": 0},
 /// "CameraShake": {"decay": 1, "maxOffset": [0.05, 0.05, 0.05], "maxRotation": [3, 3, 2],
-///                 "frequency": 12}
+///                 "frequency": 12},
+/// "SequencePlayer": {"sequence": "6f1c2e4a-0b3d-4c5e-9f70-8a1b2c3d4e5f", "time": 0, "speed": 1,
+///                    "loop": false, "playing": false}
 /// @endcode
 ///
 /// The joints of a skeleton are not entities. A skeleton is an asset, and where its
@@ -108,6 +110,31 @@ struct CameraShakeComponent {
     float phase = 0.0f;
 };
 
+/// Plays a sequence (assets/Sequence.h) on its entity, while the game's time passes: the
+/// paths of its tracks set out from here, and its events are told to the scripts of this
+/// entity. What it plays is written into the world - transforms, properties of
+/// components - so a program that only shows a scene, an editor, does not play it
+/// (SequenceSystem.h).
+struct SequencePlayerComponent {
+    /// The sequence asset. Nil is none, and nothing plays.
+    Uuid sequence;
+    /// Where in the sequence it is, in seconds. It moves on while the player plays; set,
+    /// it is where the sequence goes on from - what it passes over is not told.
+    float time = 0.0f;
+    /// How fast the time moves: 1 as the sequence was made, 2 twice as fast, 0 not at all.
+    float speed = 1.0f;
+    /// At its end the sequence begins again; without, it stops there, as its last keys
+    /// leave everything.
+    bool loop = false;
+    /// Whether it plays: its time moves on and what it says is put into the world. One
+    /// that does not loop stops itself at its end.
+    bool playing = true;
+    /// The camera the game is seen through while it plays - what its camera track says at
+    /// its time - and nil for none: the game's own (findGameCamera, renderer/CameraView.h).
+    /// The system's to say; not saved.
+    Uuid camera;
+};
+
 /// The pose a skinned mesh of `entity` is drawn in: that of the entity itself, or of the
 /// nearest entity above it that has one - the meshes of a figure hang under what
 /// animates it. Null when there is none. `owner`, when given, is told whose pose it is;
@@ -119,8 +146,8 @@ struct CameraShakeComponent {
 /// a sixtieth of a second moves it by.
 inline constexpr float kCameraShakePeriod = 256.0f;
 
-/// Registers the components of the animation module that a scene holds: "Animator" and
-/// "CameraShake".
+/// Registers the components of the animation module that a scene holds: "Animator",
+/// "CameraShake" and "SequencePlayer".
 [[nodiscard]] Status registerAnimationComponents(ComponentRegistry& registry);
 
 } // namespace cordite

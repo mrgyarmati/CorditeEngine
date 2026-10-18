@@ -128,12 +128,12 @@ by accident.
 | `core` | -         | Logging, assertions, `Result`, hashing, UUIDs, JSON, reflection, binary streams, file I/O, noticing that files change, config, job system, allocators, timing |
 | `math` | `core`    | glm aliases, `Transform`, bounds, rays, frustum, projections, color, curves, random, spherical harmonics, directions in images of everything around, reflection of math types |
 | `platform` | `core`, `math` | Windows (GLFW), keyboard / mouse / gamepad input, and the controls a game has by name: `InputMap`, `InputActions` |
-| `assets` | `core`, `math` | Assets as data: images and mipmaps, meshes - rigid and skinned - and what prepares them, their levels of detail among it, skeletons, animation clips, materials, the text of scripts, the samples of sounds, prefabs as their files have them, render targets, glTF import and export, the asset database (ids, `.meta` files) and the asset manager (loading by id) |
-| `world` | `core`, `math` | Entities, components and their hierarchy (EnTT), the component registry, scene files, prefabs: placing one in a world and making one of what is there |
-| `animation` | `core`, `math`, `assets`, `world` | Poses of skeletons and what makes them: sampling clips, blending, the matrices a mesh is skinned with and the bounds of a posed mesh; the `Animator` component; `AnimationSystem`, which plays the animators of a world; the shake of a camera: the `CameraShake` component, how it moves the view (`cameraShakeOffset`) and `shakeCameras`, which lets time pass for it |
+| `assets` | `core`, `math` | Assets as data: images and mipmaps, meshes - rigid and skinned - and what prepares them, their levels of detail among it, skeletons, animation clips, materials, the text of scripts, the samples of sounds, prefabs as their files have them, render targets, sequences, glTF import and export, the asset database (ids, `.meta` files) and the asset manager (loading by id) |
+| `world` | `core`, `math` | Entities, components and their hierarchy (EnTT), the paths of names that lead to them, the component registry, scene files, prefabs: placing one in a world and making one of what is there |
+| `animation` | `core`, `math`, `assets`, `world` | Poses of skeletons and what makes them: sampling clips, blending, the matrices a mesh is skinned with and the bounds of a posed mesh; the `Animator` component; `AnimationSystem`, which plays the animators of a world; the shake of a camera: the `CameraShake` component, how it moves the view (`cameraShakeOffset`) and `shakeCameras`, which lets time pass for it; sequences played: the `SequencePlayer` component and `SequenceSystem`, which puts what their tracks say into the world |
 | `physics` | `core`, `math`, `assets`, `world` | `PhysicsWorld`: rigid bodies, their shapes - boxes, balls, capsules, the hulls around sets of points and surfaces of triangles - joints between them, the characters that walk among them, stepping, contact events and queries, over Jolt Physics; the `Collider`, `RigidBody`, `Joint` and `CharacterController` components; `PhysicsSystem`, which keeps the entities of a world and the bodies, joints and characters of a simulation in step and makes shapes of mesh assets |
 | `audio` | `core`, `math`, `assets`, `world` | What is heard: the `AudioSource` and `AudioListener` components, and `AudioSystem`, which plays the sources of a world from where they are - voices, five buses with volumes of their own, sound without an entity - over miniaudio, onto a device or into memory |
-| `scripting` | `core`, `math`, `platform`, `assets`, `world`, `physics`, `audio` | `ScriptRuntime`: the Lua state that gameplay scripts run in and the fence around it - limits on instructions, memory and nesting, the libraries a script may have, an environment for every chunk, the catalogue of the functions scripts are given - and values on their way between JSON and Lua; the `Script` component; `ScriptSystem`, which gives every entity with a script an instance of it and calls its `start`, `update` and `destroy`; the functions scripts are given: entities and their hierarchy, transforms, components through the reflection, vectors and rotations, the time, the ids of assets, the controls, the simulation |
+| `scripting` | `core`, `math`, `platform`, `assets`, `world`, `animation`, `physics`, `audio` | `ScriptRuntime`: the Lua state that gameplay scripts run in and the fence around it - limits on instructions, memory and nesting, the libraries a script may have, an environment for every chunk, the catalogue of the functions scripts are given - and values on their way between JSON and Lua; the `Script` component; `ScriptSystem`, which gives every entity with a script an instance of it and calls its `start`, `update` and `destroy` and tells it what its sequences and its bodies did; the functions scripts are given: entities and their hierarchy, transforms, components through the reflection, vectors and rotations, the time, the ids of assets, the controls, the simulation |
 | `rhi` | `core`, `math`, `platform` | Vulkan device, swapchain and texture readback over NVRHI |
 | `shaders` | `core` | Shader requests and permutation keys, disk cache, `ShaderLibrary` |
 | `shader_compiler` | `core`, `shaders` | Slang to SPIR-V compiler, and the cache of the engine's shaders compiled ahead that an exported game ships (`EngineShaderCache.h`); not linked into exported games |
@@ -807,6 +807,13 @@ Step-by-step guide: [work-with-assets](.claude/skills/work-with-assets/SKILL.md)
   picture itself is the renderer's (a scene capture draws it); the asset is what a
   `SceneCapture` and a material name, and what makes both point at the same one. It is
   written by hand: there is no creating one in the editor.
+- **A sequence is a file of tracks** (`.sequence.json`, `Sequence.h`): a duration, and
+  tracks of four kinds - transforms, properties of components, cuts to cameras, events -
+  each a list of keys at times within the duration, each after the one before. It is
+  read as strictly as a material, checked when it is indexed, bounded in its bytes, its
+  tracks, its keys and its text, and written by hand: there is no timeline in the editor.
+  What its tracks name is a path of entity names (`world/EntityPath.h`), found when it
+  plays: the file says nothing a scene has to agree with until then.
 - **A broken asset never stops a scene.** The database lists problems
   (`AssetDatabase::problems`), loading returns an error, and the renderer reports once
   and draws the rest. `scene.validate` and `findSceneProblems` find dangling references.
@@ -908,6 +915,36 @@ Step-by-step guide: [work-with-assets](.claude/skills/work-with-assets/SKILL.md)
   its middle joint is turned 45 degrees. `tests/render/SkinningTests.cpp` says which
   pixels the bent bar covers, and that a bar at rest is drawn bit for bit like the
   mesh without a pose.
+- **A sequence is played while time passes, and writes the world** (`SequencePlayer`,
+  `SequenceSystem`): `Engine::updateWorld` with a running clock plays the sequences
+  after the scripts, which start them by setting `playing`, and before the simulation,
+  which sets out from where they put things. Unlike an animator, a sequence writes
+  components - transforms, and any property the reflection describes, through
+  `TypeInfo::parseEdit`, held to its range - so a stopped clock, an editor's, plays
+  nothing and poses nothing: that would change the document behind its history.
+  Players are walked in the order of the hierarchy, so of two that set the same thing
+  the later has the last word. A player that plays puts what its tracks say at its time
+  into the world in every update; one that does not loop stops itself at its end, as
+  its last keys leave things, and nothing that is not playing writes anything. Whole
+  numbers and yes or no step from key to key whatever the track says. The events of an
+  update are those from where the time was, included, to where it got, excluded - and
+  at an end, those at the end: an event is passed once, and a long frame passes every
+  event of a sequence that loops once at the most. A time a script sets is where the
+  sequence goes on from, and what it was set past is not told. The paths of a track
+  set out from the player's entity, or from the roots when they begin with '/'. What
+  cannot be played - a path that leads nowhere, a component or property there is
+  none of, values of the wrong kind, a read-only property - is said once and plays
+  nothing; the other tracks play. A transform track moves an entity with a kinematic
+  body, which follows; a dynamic one would be put back every frame, against the
+  simulation.
+- **A cut is the player's to say, and the game's camera follows it**: the system writes
+  the camera a sequence's camera track is at into `SequencePlayer::camera` (transient,
+  read-only), and none where nothing plays; `findGameCamera` (`renderer/CameraView.h`)
+  is that camera, of the first player in the order of the hierarchy, or else the primary
+  one - for `Engine::drawWorld` and the editor's view through the game's camera alike.
+  No `primary` is changed, so a cut ends with its sequence and leaves nothing to undo.
+  The listener does not follow a cut: what is heard is heard by the `AudioListener`.
+  When the scene ends, so does what the system holds (`endScene`).
 - **A camera shakes by its trauma, and only its view does** (`CameraShake`,
   `animation/CameraShake.h`). What a scene holds is how the camera shakes - how far,
   how fast, how soon it is still again; the trauma that makes it shake and where in its
@@ -1252,9 +1289,9 @@ is, called once and checked. Scripts reach entities and their hierarchy, transfo
 every component through its properties, vectors and rotations, the time and the ids
 of assets, the controls of the game, and the simulation - rays, what is within
 reach, gravity, pushes - which tells them what meets what, they have timers and
-tasks, they ask for another scene, and they are heard: an entity's `AudioSource` is
-a component like any other, and `cordite.audio` plays what belongs to no entity and
-sets how loud the buses are.
+tasks, they ask for another scene, they start sequences and are told what those pass,
+and they are heard: an entity's `AudioSource` is a component like any other, and
+`cordite.audio` plays what belongs to no entity and sets how loud the buses are.
 Step-by-step guide for giving scripts a function:
 [add-script-function](.claude/skills/add-script-function/SKILL.md).
 
@@ -1299,6 +1336,12 @@ Step-by-step guide for giving scripts a function:
   (`Impl::sweepTimers`) once no script runs: the task that cancels itself is still
   running when it asks, and Lua's registry is what keeps its coroutine from being
   collected under it.
+- **What a sequence passes is told to the scripts of its player at once**
+  (`ScriptSystem::tellSequenceEvents`, given `SequenceSystem::events()`): right after
+  the sequences have played, which is after the scripts' update and before the
+  simulation - so that what a script does about an event is in the step of the same
+  frame. `sequenceEvent(name)` is called for the entity whose `SequencePlayer` played
+  the sequence, in the order of the events.
 - **After the simulation has moved on, scripts are told what met and what parted**
   (`ScriptSystem::tellContacts`, given `PhysicsSystem::events()`):
   `collisionBegan(other, contact)`, `collisionEnded(other)`,
@@ -1576,9 +1619,10 @@ panels, EditorApp    the interface, built on the three layers above
   hold of has changed nothing - not a last digit - and is no step. A drag is an edit of
   `Transform`, which `component.set` makes as well; `viewport.gizmo` says and sets the mode.
 - **The viewport looks through the editor's camera or the game's**
-  (`ViewportCamera`, `viewport.show {"camera": "game"}`). The game's is the first
-  enabled primary camera of the scene, drawn as `Engine::drawWorld` draws it - the
-  game's background, no default light - and with nothing over it: no grid, no
+  (`ViewportCamera`, `viewport.show {"camera": "game"}`). The game's is the camera the
+  game is seen through (`findGameCamera`: the cut of a sequence that plays, or else the
+  first enabled primary camera of the scene), drawn as `Engine::drawWorld` draws it -
+  the game's background, no default light - and with nothing over it: no grid, no
   markers, no picking, no flying. Playing switches to it and stopping switches
   back. What an editor adds to the picture belongs to the editor's view only.
 - **Batch mode is the test and agent entry point:** `cordite-editor --headless --project

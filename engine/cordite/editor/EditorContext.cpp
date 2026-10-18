@@ -3,6 +3,7 @@
 #include "cordite/core/FileSystem.h"
 #include "cordite/core/Log.h"
 #include "cordite/core/StringUtils.h"
+#include "cordite/world/EntityPath.h"
 #include "cordite/world/SceneSerializer.h"
 
 #include <algorithm>
@@ -10,35 +11,6 @@
 #include <utility>
 
 namespace cordite {
-namespace {
-
-/// How many matches an "ambiguous" error lists before it says "and N more".
-constexpr size_t kMaxListedMatches = 4;
-
-std::string describeMatches(const EditorContext& context, std::span<const Entity> matches) {
-    std::string text;
-    for (size_t index = 0; index < std::min(matches.size(), kMaxListedMatches); ++index) {
-        text += fmt::format("{}{} ({})", index == 0 ? "" : ", ", context.entityPath(matches[index]),
-                            context.world().id(matches[index]).toString());
-    }
-    if (matches.size() > kMaxListedMatches) {
-        text += fmt::format(" and {} more", matches.size() - kMaxListedMatches);
-    }
-    return text;
-}
-
-/// The entities among `candidates` with the given name.
-std::vector<Entity> withName(const World& world, std::span<const Entity> candidates, std::string_view name) {
-    std::vector<Entity> matches;
-    for (const Entity candidate : candidates) {
-        if (world.name(candidate) == name) {
-            matches.push_back(candidate);
-        }
-    }
-    return matches;
-}
-
-} // namespace
 
 EditorContext::EditorContext(World& world, const ComponentRegistry& components, AssetManager& assets)
     : m_world(world), m_components(components), m_assets(assets), m_savedStateId(m_history.stateId()) {}
@@ -133,54 +105,17 @@ Result<Entity> EditorContext::resolveEntity(std::string_view reference) const {
         if (matches.size() > 1) {
             return makeError(ErrorCode::InvalidArgument,
                              "{} entities are named '{}': {}. Refer to one of them by path or by id.", matches.size(),
-                             trimmed, describeMatches(*this, matches));
+                             trimmed, describeEntities(m_world, matches));
         }
         return matches.front();
     }
 
     // A path: every part names a child of the entity found for the part before it.
-    Entity current;
-    for (const std::string_view part : split(trimmed, '/')) {
-        if (part.empty()) {
-            // A leading slash, or a doubled one, adds nothing.
-            continue;
-        }
-        const std::vector<Entity> candidates = m_world.children(current);
-        const std::vector<Entity> matches = withName(m_world, candidates, part);
-        if (matches.empty()) {
-            return makeError(ErrorCode::NotFound, "'{}' in the path '{}' does not name {}", part, trimmed,
-                             current.isNull() ? std::string("a root entity")
-                                              : fmt::format("a child of '{}'", m_world.name(current)));
-        }
-        if (matches.size() > 1) {
-            return makeError(ErrorCode::InvalidArgument,
-                             "'{}' in the path '{}' matches {} entities: {}. Refer to one of them by id.", part,
-                             trimmed, matches.size(), describeMatches(*this, matches));
-        }
-        current = matches.front();
-    }
-    if (current.isNull()) {
-        return makeError(ErrorCode::InvalidArgument, "'{}' does not name an entity", trimmed);
-    }
-    return current;
+    return findEntityByPath(m_world, trimmed);
 }
 
 std::string EditorContext::entityPath(Entity entity) const {
-    return entityPathIn(m_world, entity);
-}
-
-std::string entityPathIn(const World& world, Entity entity) {
-    std::vector<std::string_view> names;
-    for (Entity current = entity; !current.isNull(); current = world.parent(current)) {
-        names.push_back(world.name(current));
-    }
-
-    std::string path;
-    for (const std::string_view name : names | std::views::reverse) {
-        path += path.empty() ? "" : "/";
-        path += name;
-    }
-    return path;
+    return cordite::entityPath(m_world, entity);
 }
 
 void EditorContext::resetDocumentState() {

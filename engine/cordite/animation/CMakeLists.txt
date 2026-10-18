@@ -8,6 +8,8 @@ cordite_add_module(animation
         CameraShake.h
         Pose.cpp
         Pose.h
+        SequenceSystem.cpp
+        SequenceSystem.h
     DEPENDS
         core
         math

@@ -46,6 +46,7 @@ const std::vector<KnownIcon>& knownIcons() {
         {icons::kScript, "file-code", 0xE0C7},
         {icons::kSound, "audio-lines", 0xE55E},
         {icons::kPrefab, "package", 0xE12C},
+        {icons::kSequence, "film", 0xE0D4},
         {icons::kSearch, "search", 0xE154},
         {icons::kRefresh, "refresh-cw", 0xE148},
         {icons::kAdd, "plus", 0xE140},

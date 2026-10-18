@@ -24,6 +24,7 @@ cordite_add_module(scripting
         platform
         assets
         world
+        animation
         physics
         audio
     PRIVATE_LIBRARIES

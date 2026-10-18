@@ -1,5 +1,6 @@
 #include "cordite/renderer/CameraView.h"
 
+#include "cordite/animation/AnimationComponents.h"
 #include "cordite/animation/CameraShake.h"
 #include "cordite/core/Assert.h"
 #include "cordite/math/Projection.h"
@@ -87,6 +88,24 @@ Entity findPrimaryCamera(const World& world) {
         }
     });
     return found;
+}
+
+Entity findGameCamera(const World& world) {
+    Entity cut;
+    world.traverse([&](Entity entity, uint32_t /*depth*/) {
+        if (!cut.isNull()) {
+            return;
+        }
+        const auto* player = world.tryGet<SequencePlayerComponent>(entity);
+        if (player == nullptr || !player->playing || player->camera.isNil() || !world.isEnabledInHierarchy(entity)) {
+            return;
+        }
+        const Entity camera = world.findById(player->camera);
+        if (!camera.isNull() && world.has<CameraComponent>(camera) && world.isEnabledInHierarchy(camera)) {
+            cut = camera;
+        }
+    });
+    return cut.isNull() ? findPrimaryCamera(world) : cut;
 }
 
 Ray screenRay(const CameraView& view, Vec2 pixel, Vec2 targetSize) {

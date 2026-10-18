@@ -4,6 +4,7 @@
 #include "cordite/assets/Material.h"
 #include "cordite/assets/Prefab.h"
 #include "cordite/assets/RenderTarget.h"
+#include "cordite/assets/Sequence.h"
 #include "cordite/core/Assert.h"
 #include "cordite/core/Document.h"
 #include "cordite/core/FileSystem.h"
@@ -33,9 +34,10 @@ struct FileKind {
 };
 
 /// Longer extensions first: "x.material.json" is a material, not an unknown ".json".
-constexpr std::array<FileKind, 16> kFileKinds = {{
+constexpr std::array<FileKind, 17> kFileKinds = {{
     {".material.json", AssetType::Material},
     {".target.json", AssetType::RenderTarget},
+    {".sequence.json", AssetType::Sequence},
     {".scene.json", AssetType::Scene},
     {".prefab.json", AssetType::Prefab},
     {".lua", AssetType::Script},
@@ -165,6 +167,8 @@ std::string_view nameOf(AssetType type) {
             return "prefab";
         case AssetType::RenderTarget:
             return "renderTarget";
+        case AssetType::Sequence:
+            return "sequence";
     }
     return "unknown";
 }
@@ -193,6 +197,8 @@ std::string_view displayNameOf(AssetType type) {
             return "Prefab";
         case AssetType::RenderTarget:
             return "RenderTarget";
+        case AssetType::Sequence:
+            return "Sequence";
     }
     return "Unknown";
 }
@@ -221,6 +227,8 @@ std::string_view withArticle(AssetType type) {
             return "a prefab";
         case AssetType::RenderTarget:
             return "a render target";
+        case AssetType::Sequence:
+            return "a sequence";
     }
     return "an unknown asset";
 }
@@ -412,6 +420,27 @@ void AssetDatabase::checkRenderTarget(const ScannedFile& file) {
         document ? parseRenderTargetFile(*document) : Result<RenderTargetData>(tl::unexpected(document.error()));
     if (!target) {
         addProblem(fmt::format("{}: {}", file.relativePath, target.error().message));
+    }
+}
+
+void AssetDatabase::checkSequence(const ScannedFile& file) {
+    // Refused as AssetManager::loadSequence() refuses it, before it is read - and listed
+    // all the same, as a material that cannot be read is.
+    const auto read = [&]() -> Result<SequenceData> {
+        std::error_code failed;
+        const std::uintmax_t size = std::filesystem::file_size(file.absolutePath, failed);
+        if (failed) {
+            return makeError(ErrorCode::IoError, "it cannot be read: {}", failed.message());
+        }
+        if (size > kMaxSequenceFileBytes) {
+            return makeError(ErrorCode::InvalidArgument, "it has {} bytes; a sequence file has {} at most", size,
+                             kMaxSequenceFileBytes);
+        }
+        CORDITE_TRY_ASSIGN(const Json document, readJsonFile(file.absolutePath));
+        return parseSequenceFile(document);
+    };
+    if (const Result<SequenceData> sequence = read(); !sequence) {
+        addProblem(fmt::format("{}: {}", file.relativePath, sequence.error().message));
     }
 }
 
@@ -650,6 +679,8 @@ Status AssetDatabase::refresh() {
             addMaterialDependencies(file, asset);
         } else if (asset.type == AssetType::RenderTarget) {
             checkRenderTarget(file);
+        } else if (asset.type == AssetType::Sequence) {
+            checkSequence(file);
         } else if (holdsEntities(asset.type) && m_desc.readReferences) {
             Result<std::vector<Uuid>> references = readEntityReferences(asset.type, file.absolutePath);
             if (references) {

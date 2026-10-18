@@ -102,6 +102,38 @@ TypeInfo describeCameraShake() {
         .build();
 }
 
+TypeInfo describeSequencePlayer() {
+    return TypeBuilder<SequencePlayerComponent>("SequencePlayer")
+        .property("sequence", &SequencePlayerComponent::sequence,
+                  {.description = "The sequence that plays; the paths of its tracks set out from this entity",
+                   .semantic = PropertySemantic::AssetReference,
+                   .referenceType = "Sequence"})
+        .property("time", &SequencePlayerComponent::time,
+                  {.description = "Where in the sequence it is; it moves on while the player plays, and set it is "
+                                  "where the sequence goes on from",
+                   .minimum = 0.0,
+                   .maximum = kLongestTime,
+                   .step = 0.01,
+                   .unit = "s"})
+        .property("speed", &SequencePlayerComponent::speed,
+                  {.description = "How fast the time moves: 1 as the sequence was made, 2 twice as fast, 0 not at all",
+                   .minimum = 0.0,
+                   .maximum = 100.0,
+                   .step = 0.01})
+        .property("loop", &SequencePlayerComponent::loop,
+                  {.description = "At its end the sequence begins again; without, it stops there"})
+        .property("playing", &SequencePlayerComponent::playing,
+                  {.description = "Whether it plays: its time moves on and what it says is put into the world. One "
+                                  "that does not loop stops itself at its end"})
+        .property("camera", &SequencePlayerComponent::camera,
+                  {.description = "The camera the game is seen through while the sequence plays, as its camera track "
+                                  "says; none for the game's own",
+                   .semantic = PropertySemantic::EntityReference,
+                   .readOnly = true,
+                   .transient = true})
+        .build();
+}
+
 } // namespace
 
 const SkeletonPoseComponent* findSkeletonPose(const World& world, Entity entity, Entity* owner) {
@@ -124,10 +156,14 @@ Status registerAnimationComponents(ComponentRegistry& registry) {
     CORDITE_TRY(registry.add<AnimatorComponent>(
         describeAnimator(), {.description = "Poses a skeleton: which one, the animation that is playing, and where "
                                             "in it the pose is taken from."}));
-    return registry.add<CameraShakeComponent>(
+    CORDITE_TRY(registry.add<CameraShakeComponent>(
         describeCameraShake(), {.description = "Shakes the view through the entity's Camera by its trauma, which a "
                                                "game raises when something happens and which falls again with "
-                                               "time. The entity itself stays where it is."});
+                                               "time. The entity itself stays where it is."}));
+    return registry.add<SequencePlayerComponent>(
+        describeSequencePlayer(),
+        {.description = "Plays a sequence while the game's time passes: moves what its tracks name, cuts to its "
+                        "cameras and tells the entity's scripts of its events."});
 }
 
 } // namespace cordite

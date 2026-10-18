@@ -1,6 +1,7 @@
 #include "cordite/engine/SceneChange.h"
 
 #include "cordite/animation/AnimationSystem.h"
+#include "cordite/animation/SequenceSystem.h"
 #include "cordite/assets/AssetDatabase.h"
 #include "cordite/assets/AssetManager.h"
 #include "cordite/audio/AudioSystem.h"
@@ -30,6 +31,9 @@ void endScene(const SceneChange& change) {
     }
     if (change.animation != nullptr) {
         change.animation->clear();
+    }
+    if (change.sequences != nullptr) {
+        change.sequences->clear();
     }
     // After the scripts have ended: what one of them still starts as it goes is not
     // heard in the scene that comes.

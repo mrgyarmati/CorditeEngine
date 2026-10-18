@@ -9,7 +9,7 @@
 /// if (const std::optional<Uuid> scene = scripts.takeRequestedScene()) {
 ///     const SceneChange change = {.world = world, .components = components, .assets = assets,
 ///                                 .scripts = scripts, .physics = &physics, .animation = &animation,
-///                                 .audio = &audio};
+///                                 .sequences = &sequences, .audio = &audio};
 ///     if (const Status changed = changeScene(change, *scene); !changed) {
 ///         CORDITE_LOG_ERROR("Game", "{}", changed.error().message);   // the scene that was there goes on
 ///     }
@@ -18,7 +18,7 @@
 ///
 /// A world that is played is more than its entities. Scripts run for them, and are owed a
 /// word when they end; bodies stand for them in the simulation; skeletons are posed for
-/// them; their sounds are playing. All of that belongs to the scene that goes, and none
+/// them; their sequences play; their sounds are playing. All of that belongs to the scene that goes, and none
 /// of it may be left behind for the scene that comes - whose entities may well have the
 /// very handles the old ones had.
 
@@ -34,6 +34,7 @@ class ComponentRegistry;
 class InputActions;
 class PhysicsSystem;
 class ScriptSystem;
+class SequenceSystem;
 class World;
 
 /// The world a scene is put into, and what is kept for it.
@@ -43,9 +44,11 @@ struct SceneChange {
     /// Where the scene is found, by its id.
     AssetManager& assets;
     ScriptSystem& scripts;
-    /// The simulation, the poses and the sounds of the world, where it has them.
+    /// The simulation, the poses, the sequences and the sounds of the world, where it has
+    /// them.
     PhysicsSystem* physics = nullptr;
     AnimationSystem* animation = nullptr;
+    SequenceSystem* sequences = nullptr;
     AudioSystem* audio = nullptr;
     /// The controls the scripts are given, which the ones that end may still ask about.
     const InputActions* controls = nullptr;
@@ -68,7 +71,7 @@ struct SceneChange {
 
 /// Ends what is being played in the world, and puts nothing in its place: the scripts
 /// end - each is told so (`destroy`) while its entity still exists - and the bodies, the
-/// poses and the sounds of the world are forgotten. The world itself is left as it is.
+/// poses, what the sequences were at and the sounds of the world are forgotten. The world itself is left as it is.
 /// For whoever changes what is in the world next by other means: an editor that stops
 /// playing a scene and puts back the one it was working on. changeScene() does this on
 /// its way. Not to be called while the scripts run: between two frames.

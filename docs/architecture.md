@@ -32,12 +32,12 @@ of slowly turning the code base into a ball of mud.
 | `core` | -         | Services every other module needs: logging, assertions, error handling, hashing, UUIDs, JSON and binary serialization, file I/O and noticing that files change, configuration, the job system, memory allocators, timing, platform queries. |
 | `math` | `core`    | glm type aliases and conventions; `Transform`, bounding volumes, rays and intersection tests, frustum culling, projection matrices, color conversions, keyframed curves, deterministic random numbers, spherical harmonics, and where a direction is in an image of everything around. |
 | `platform` | `core`, `math` | The window system and windows (GLFW), and per-window keyboard, mouse and gamepad state with an injection API for tests and automation. |
-| `assets` | `core`, `math` | Assets as data, and where they come from: images and mipmaps; meshes, primitives and mesh processing; materials; the text of scripts; the samples of sounds; prefabs, as far as their files go; glTF import and export; the asset database, which knows what exists and under which id; the asset manager, which loads by id. Knows nothing of the GPU. |
-| `world` | `core`, `math` | The scene: entities, their components and their parent/child hierarchy, stored with EnTT; the registry of component types known by name; scene files; prefabs - placing one in a world, and making one of what is there. |
-| `animation` | `core`, `math`, `assets`, `world` | Movement of skeletons: the functions that make a pose (sampling a clip, blending two poses, the matrices a mesh is skinned with, the bounds of a posed mesh), the `Animator` component, and `AnimationSystem`, which plays the animators of a world and gives each the pose it is in. The shake of a camera: the `CameraShake` component, how it moves a view and how time passes for it. |
+| `assets` | `core`, `math` | Assets as data, and where they come from: images and mipmaps; meshes, primitives and mesh processing; materials; the text of scripts; the samples of sounds; prefabs, as far as their files go; render targets and sequences, as their files say them; glTF import and export; the asset database, which knows what exists and under which id; the asset manager, which loads by id. Knows nothing of the GPU. |
+| `world` | `core`, `math` | The scene: entities, their components and their parent/child hierarchy, stored with EnTT, and the paths of names that lead to them; the registry of component types known by name; scene files; prefabs - placing one in a world, and making one of what is there. |
+| `animation` | `core`, `math`, `assets`, `world` | Movement of skeletons: the functions that make a pose (sampling a clip, blending two poses, the matrices a mesh is skinned with, the bounds of a posed mesh), the `Animator` component, and `AnimationSystem`, which plays the animators of a world and gives each the pose it is in. The shake of a camera: the `CameraShake` component, how it moves a view and how time passes for it. Sequences: the `SequencePlayer` component, and `SequenceSystem`, which plays them into the world. |
 | `physics` | `core`, `math`, `assets`, `world` | The simulation of rigid bodies: `PhysicsWorld` holds bodies - shapes, a mass, where each is and how it moves - steps them on in time and answers what a ray hits. Jolt Physics is behind it and shows in none of its headers. The `Collider` and `RigidBody` components say what of a world is simulated, and `PhysicsSystem` keeps the two in step; it is also what makes the shapes of colliders out of mesh assets. |
 | `audio` | `core`, `math`, `assets`, `world` | Sound: the `AudioSource` and `AudioListener` components, and `AudioSystem`, which gives the sources of a world voices, places them around whoever listens, mixes them through five buses and plays the result on a device - or, for tests and tools, into memory. miniaudio does the mixing and is seen by nothing outside the module. |
-| `scripting` | `core`, `math`, `platform`, `assets`, `world`, `physics`, `audio` | Gameplay scripts: `ScriptRuntime` is the Lua state they run in and what keeps a script that is wrong from being more than an error - limits on instructions, memory and nesting, a build of Lua without what reaches the machine, an environment for every chunk - with the catalogue of the functions scripts are given, and the conversion of values between JSON and Lua. The `Script` component names a script for an entity; `ScriptSystem` gives each such entity an instance and calls it. What scripts call is in the `Script...Api.cpp` sources, one per subject: entities, the world and its hierarchy and transforms, components (through the reflection), vectors and rotations, the controls of the game, the simulation. |
+| `scripting` | `core`, `math`, `platform`, `assets`, `world`, `animation`, `physics`, `audio` | Gameplay scripts: `ScriptRuntime` is the Lua state they run in and what keeps a script that is wrong from being more than an error - limits on instructions, memory and nesting, a build of Lua without what reaches the machine, an environment for every chunk - with the catalogue of the functions scripts are given, and the conversion of values between JSON and Lua. The `Script` component names a script for an entity; `ScriptSystem` gives each such entity an instance and calls it, and tells it what its sequences passed and what its body met. What scripts call is in the `Script...Api.cpp` sources, one per subject: entities, the world and its hierarchy and transforms, components (through the reflection), vectors and rotations, the controls of the game, the simulation. |
 | `rhi` | `core`, `math`, `platform` | The GPU: Vulkan instance and device creation, the NVRHI device the renderer programs against, the swapchain, and texture readback. The only module that calls Vulkan. |
 | `shaders` | `core` | What a shader *is* to the engine: requests and their permutation keys, compiled binaries, the on-disk cache, and the `ShaderLibrary` that resolves a request from memory, disk or a compiler. |
 | `shader_compiler` | `core`, `shaders` | The Slang-based implementation of `IShaderCompiler`, and the cache of the engine's shaders compiled ahead that an exported game has instead (`EngineShaderCache`). Kept separate so exported games do not link a compiler. |
@@ -58,8 +58,8 @@ with and without a window:
 3. It opens the frame's command list, clears the engine's offscreen frame target and
    starts the interface frame.
 4. The program does its work: it changes the world as it sees fit, then calls
-   `Engine::updateWorld()`, which runs the scripts of the entities, steps the
-   simulation of the world's bodies and puts the entities where their bodies have
+   `Engine::updateWorld()`, which runs the scripts of the entities, plays the sequences
+   and tells the scripts what those passed, steps the simulation of the world's bodies and puts the entities where their bodies have
    gone, tells the scripts what met and what parted on the way, plays the animations
    on by the time of the frame, poses the skeletons, shakes the cameras on and works
    out where every entity is; it records render passes
@@ -1497,6 +1497,34 @@ for free, but it needs a target of ids, a pass to fill it and a frame's wait for
 answer; picking is rare, and the CPU's answer is there at once and is the same in a
 test without a device. The rule for which pose a mesh is in is one function,
 `findSkeletonPose`, that the renderer and the editor both call.
+
+### A sequence is a file of tracks, and a component plays it into the world
+
+Cinematics and camera moves are sequences: an asset with a duration and tracks of keys -
+where an entity is, a property of a component, which camera the game is seen through,
+moments that scripts are told of - played by a `SequencePlayer` on an entity. Tracks
+name what they move by paths of names, from that entity or from the roots of the scene,
+as an animation clip names joints: a sequence is then made once and played on any rig of
+entities with those names, and a scene owes it nothing until it plays. Ids would tie a
+sequence to one scene, and its file to a table of bindings in every scene that plays it.
+
+What a sequence moves is written into the world through the reflection, as an edit is:
+any property a component describes can be keyed, with the same checks - ranges, kinds,
+what is read-only. That is also why the editor does not play sequences while a scene is
+edited: an animator writes a pose nobody saves, a sequence writes the document. Scrubbing
+through a sequence in the editor would need a copy of the world to play it in, which is
+what playing the scene is.
+
+A cut is not a change of the `primary` of cameras, which would outlast the sequence and
+have to be undone; it is the player's to say while it plays (`SequencePlayer::camera`),
+and the camera a game is seen through is that cut where there is one
+(`findGameCamera`). When the sequence stops, by its end or by a script, the cut goes with
+it and the game's own camera is there again.
+
+Events are passed from where the time was, included, up to where it got, excluded: every
+moment of a sequence belongs to one update, and an event to the update whose time passes
+it - also the one at the very beginning. A long frame passes the events of a sequence that
+loops once at the most, as timers do, rather than flooding the scripts.
 
 ### A camera shakes its view by its trauma, with noise
 

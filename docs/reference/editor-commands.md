@@ -35,7 +35,7 @@ Lists the assets the scene can use, each with its id, type, name and path, and w
 
 | Parameter | Kind | Needed | Meaning |
 |---|---|---|---|
-| `type` | string | no | Only assets of this type: texture, mesh, material, model, scene, skeleton, animation, script, sound, prefab or renderTarget. |
+| `type` | string | no | Only assets of this type: texture, mesh, material, model, scene, skeleton, animation, script, sound, prefab, renderTarget or sequence. |
 
 ## asset.listen
 
@@ -85,7 +85,7 @@ Says what the Assets panel lists, and sets what it lists: the assets of the proj
 
 | Parameter | Kind | Needed | Meaning |
 |---|---|---|---|
-| `type` | string | no | Only assets of this type: texture, mesh, material, model, scene, skeleton, animation, script, sound, prefab or renderTarget - or "all" for those of every type. |
+| `type` | string | no | Only assets of this type: texture, mesh, material, model, scene, skeleton, animation, script, sound, prefab, renderTarget or sequence - or "all" for those of every type. |
 | `search` | string | no | Only assets with this text in their name or in their path, whatever the case. "" for all of them. |
 | `select` | string | no | The asset to choose: its id, or its path as a row has it. "" for none. What it is in - its directories, the file it is inside - is opened, so that it is among the rows; an asset the filter leaves out is chosen all the same, and shows once it is listed. |
 | `open` | string | no | The path of a directory or of a file whose rows are to be shown: "models", "models/crate.gltf". |

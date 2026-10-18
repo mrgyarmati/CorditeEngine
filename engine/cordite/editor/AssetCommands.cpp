@@ -6,6 +6,7 @@
 #include "cordite/assets/Mesh.h"
 #include "cordite/assets/Prefab.h"
 #include "cordite/assets/ScriptSource.h"
+#include "cordite/assets/Sequence.h"
 #include "cordite/assets/Skeleton.h"
 #include "cordite/assets/Sound.h"
 #include "cordite/core/FileSystem.h"
@@ -18,6 +19,7 @@
 #include "cordite/world/ComponentRegistry.h"
 #include "cordite/world/Components.h"
 #include "cordite/world/Entity.h"
+#include "cordite/world/EntityPath.h"
 #include "cordite/world/Prefab.h"
 #include "cordite/world/World.h"
 
@@ -127,7 +129,7 @@ Result<Json> describePrefab(AssetManager& assets, const ComponentRegistry& compo
         scratch.remove<PrefabInstanceComponent>(*placed);
         for (const SceneProblem& problem : findSceneProblems(scratch, components, assets.database())) {
             Json entry = Json::object();
-            entry["entity"] = entityPathIn(scratch, problem.entity);
+            entry["entity"] = entityPath(scratch, problem.entity);
             entry["problem"] = problem.message;
             problems.push_back(std::move(entry));
         }
@@ -244,6 +246,19 @@ Result<Json> describeContent(AssetManager& assets, const ComponentRegistry& comp
             CORDITE_TRY_ASSIGN(const RenderTargetData target, assets.loadRenderTarget(asset.id));
             content["width"] = target.width;
             content["height"] = target.height;
+            break;
+        }
+        case AssetType::Sequence: {
+            CORDITE_TRY_ASSIGN(const std::shared_ptr<const SequenceData> sequence, assets.loadSequence(asset.id));
+            content["duration"] = jsonFromFloat(sequence->duration);
+            content["transformTracks"] = sequence->transforms.size();
+            content["propertyTracks"] = sequence->properties.size();
+            content["cuts"] = sequence->cuts.size();
+            Json events = Json::array();
+            for (const SequenceEventKey& event : sequence->events) {
+                events.push_back(Json{{"time", jsonFromFloat(event.time)}, {"name", event.name}});
+            }
+            content["events"] = std::move(events);
             break;
         }
         case AssetType::Scene:

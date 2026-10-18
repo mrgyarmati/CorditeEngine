@@ -79,6 +79,7 @@ Status AssetManager::refresh() {
     m_sounds.clear();
     m_prefabs.clear();
     m_renderTargets.clear();
+    m_sequences.clear();
     m_textures.clear();
     m_embeddedImages.clear();
     m_importedFiles.clear();
@@ -413,6 +414,22 @@ Result<RenderTargetData> AssetManager::loadRenderTarget(const Uuid& id) {
         return tl::unexpected(target.error().withContext(asset->reference()));
     }
     return m_renderTargets.emplace(id, *target).first->second;
+}
+
+Result<std::shared_ptr<const SequenceData>> AssetManager::loadSequence(const Uuid& id) {
+    if (const auto cached = m_sequences.find(id); cached != m_sequences.end()) {
+        return cached->second;
+    }
+    CORDITE_TRY_ASSIGN(const AssetInfo* asset, lookUp(id, AssetType::Sequence));
+    CORDITE_TRY_ASSIGN(const std::filesystem::path file,
+                       sourceFileWithin(*asset, kMaxSequenceFileBytes, "a sequence file"));
+    CORDITE_TRY_ASSIGN(const Json document, readJsonFile(file));
+    Result<SequenceData> sequence = parseSequenceFile(document);
+    if (!sequence) {
+        return tl::unexpected(sequence.error().withContext(asset->reference()));
+    }
+    auto shared = std::make_shared<const SequenceData>(std::move(*sequence));
+    return m_sequences.emplace(id, std::move(shared)).first->second;
 }
 
 Result<std::shared_ptr<const PrefabData>> AssetManager::loadPrefab(const Uuid& id) {

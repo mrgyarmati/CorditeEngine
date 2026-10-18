@@ -67,6 +67,9 @@
 ///   does not, and are gone when it ends. A timer's function is called with the table
 ///   of that instance. A task is a function that runs a piece at a time: at once as
 ///   far as its first `cordite.time.wait`, and on from there when the time has passed.
+/// - **sequenceEvent**(name) is called when tellSequenceEvents() is given what the
+///   sequences of the world passed: for the entity whose SequencePlayer plays the
+///   sequence, with the name of the event.
 /// - **collisionBegan**(other, contact), **collisionEnded**(other),
 ///   **triggerEntered**(other, contact) and **triggerLeft**(other) are called when
 ///   tellContacts() is given what the simulation saw: for either of the two entities
@@ -124,6 +127,7 @@ class AudioSystem;
 class InputActions;
 class PhysicsSystem;
 struct CollisionEvent;
+struct SequenceEvent;
 
 struct ScriptSystemDesc {
     /// The limits of the scripts. See ScriptRuntimeDesc.
@@ -220,6 +224,13 @@ public:
     /// runs, has started and has a function for it. Destroys the entities that scripts
     /// asked to have destroyed, as update() does. What it returns goes on from what
     /// update() returned: `calls` counts both.
+    /// Tells the scripts what the sequences of their world passed in the update that
+    /// followed update(): `events` is SequenceSystem::events(). For every event the script
+    /// of the entity whose SequencePlayer played it is told, in order - if it runs, has
+    /// started and has a function for it. Destroys the entities that scripts asked to have
+    /// destroyed, as update() does. What it returns goes on from what update() returned.
+    ScriptStatistics tellSequenceEvents(const ScriptContext& context, std::span<const SequenceEvent> events);
+
     ScriptStatistics tellContacts(const ScriptContext& context, std::span<const CollisionEvent> events);
 
     /// Every function the engine calls in scripts, in the order a frame calls them: how

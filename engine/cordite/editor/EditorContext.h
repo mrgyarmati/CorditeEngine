@@ -187,9 +187,4 @@ private:
     std::optional<PlayedDocument> m_play;
 };
 
-/// The path of names leading to an entity of any world, from a root of it down:
-/// "Room/Table/Lamp". What EditorContext::entityPath() gives for the world of the
-/// document. The entity must be valid.
-[[nodiscard]] std::string entityPathIn(const World& world, Entity entity);
-
 } // namespace cordite

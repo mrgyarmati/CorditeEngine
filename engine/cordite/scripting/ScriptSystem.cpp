@@ -1,5 +1,6 @@
 #include "cordite/scripting/ScriptSystem.h"
 
+#include "cordite/animation/SequenceSystem.h"
 #include "cordite/assets/AssetDatabase.h"
 #include "cordite/assets/ScriptSource.h"
 #include "cordite/core/Assert.h"
@@ -37,6 +38,7 @@ enum class Callback : uint8_t {
     Start,
     Input,
     Update,
+    SequenceEvent,
     CollisionBegan,
     CollisionEnded,
     TriggerEntered,
@@ -64,6 +66,9 @@ constexpr std::array<CallbackWords, kCallbackCount> kCallbacks = {{
      "true for pressed: after the starts of the frame, before its timers and updates."},
     {"update", "function Script:update(deltaSeconds)",
      "Called every frame, with the seconds that have passed since the frame before."},
+    {"sequenceEvent", "function Script:sequenceEvent(name)",
+     "Called when a sequence that the entity's SequencePlayer plays passes one of its events, with the name the "
+     "sequence gives it: after the updates of the frame, in the order of the events' times."},
     {"collisionBegan", "function Script:collisionBegan(other, contact)",
      "Called when the body of the entity has begun to touch that of another, right after the step of the "
      "simulation in which it did. `contact` holds `position`, where the two touch in the world; `normal`, "
@@ -1143,6 +1148,30 @@ ScriptStatistics ScriptSystem::tellContacts(const ScriptContext& context, std::s
     for (const CollisionEvent& event : events) {
         impl.tellContact(world, event.first, event.second, event, false);
         impl.tellContact(world, event.second, event.first, event, true);
+    }
+    impl.destroyDoomed();
+    impl.sweepTimers();
+    std::erase_if(impl.order, [&](Entity entity) { return !impl.instances.contains(entity); });
+    impl.listProblems();
+    return impl.statistics();
+}
+
+ScriptStatistics ScriptSystem::tellSequenceEvents(const ScriptContext& context, std::span<const SequenceEvent> events) {
+    Impl& impl = *m_impl;
+    CORDITE_ASSERT(impl.context == nullptr, "the scripts are told of sequences from inside an update of the scripts");
+    if (impl.context != nullptr || events.empty()) {
+        return impl.statistics();
+    }
+    const Impl::Reach reach(impl, context);
+    for (const SequenceEvent& event : events) {
+        // Asked for every event: the call before may have stopped the instance.
+        Instance* instance = impl.running(context.world, event.player);
+        if (instance == nullptr || !instance->started ||
+            !impl.scripts.at(instance->blueprint.script).hears(Callback::SequenceEvent)) {
+            continue;
+        }
+        const std::array<Argument, 1> arguments = {Argument(std::string_view(event.name))};
+        impl.call(event.player, *instance, Callback::SequenceEvent, arguments);
     }
     impl.destroyDoomed();
     impl.sweepTimers();

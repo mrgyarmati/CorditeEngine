@@ -18,7 +18,7 @@ export, in six steps. The other chapters can be read in any order.
 | [Physics](physics.md) | Colliders, rigid bodies, triggers, joints, characters |
 | [Sound](audio.md) | Sound sources, listeners and buses |
 | [Animation](animation.md) | Skinned models, skeletons and clips |
-| [Cameras](cameras.md) | The camera a game is seen through, and shaking it |
+| [Cameras](cameras.md) | The camera a game is seen through, shaking it, cinematic sequences and camera moves |
 | [Prefabs](prefabs.md) | Groups of entities to place again and again |
 | [Input](input.md) | Controls with names, for keyboards, mice and gamepads |
 | [Scripting](scripting.md) | Gameplay in Lua |

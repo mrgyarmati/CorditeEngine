@@ -34,6 +34,8 @@ UiIcon iconOf(AssetType type) {
         case AssetType::RenderTarget:
             // What a camera draws into.
             return icons::kCamera;
+        case AssetType::Sequence:
+            return icons::kSequence;
     }
     return icons::kFile;
 }

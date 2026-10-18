@@ -93,18 +93,19 @@
         "characters": 1,
         "joints": 8,
         // What is scripted: the scripts that are loaded - the clock, the patrol of the
-        // sentry, the self-test of the script API, the lamp that flickers, and the three
-        // that only hear what they are told: the sentry's post, the ball, and the way out
-        // to the annex - and the entities that run one. The functions of scripts a frame
+        // sentry, the self-test of the script API, the lamp that flickers, and the four
+        // that only hear what they are told: the sentry's post, the ball, the way out to
+        // the annex, and the flyby, which waits for its control - and the entities that
+        // run one. The functions of scripts a frame
         // calls: the updates of the patrol and of the self-test, and in some frames the
         // timer of the clock, the task of the lamp, and the post when the sentry walks
         // into its trigger or out of it. What waits for its time: that timer, that task,
         // and for a moment the timer that lets the post's light go out. The memory all of Lua
         // holds: 82 kB stay - the runtime with the functions it gives scripts, and the
-        // seven scripts, of which the self-test is half - and Lua lets what it holds
+        // eight scripts, of which the self-test is half - and Lua lets what it holds
         // double before it collects.
-        "scripts": 7,
-        "scriptInstances": 7,
+        "scripts": 8,
+        "scriptInstances": 8,
         "scriptCalls": 5,
         "scriptTimers": 3,
         "scriptBytes": 175000,
@@ -128,7 +129,7 @@
             "firstFrame": 5000,
             "cpuFrameMedian": 5,
             "gpuFrameMedian": 5,
-            // What the seven scripts take of a frame: a few hundredths of a millisecond,
+            // What the eight scripts take of a frame: a few hundredths of a millisecond,
             // of which counting their instructions is four tenths. The worst frame is
             // one in which Lua collects what the others left behind.
             "scriptsMedian": 0.5,

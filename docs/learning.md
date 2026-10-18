@@ -166,7 +166,11 @@ whose every pose can be worked out by hand.
 The same module shakes cameras (`animation/CameraShake.h`; architecture.md "A camera shakes
 its view by its trauma, with noise"): trauma squared times noise, applied where the view of a
 camera is made and nowhere else - look at `makeCameraView` of an entity in
-`renderer/CameraView.h`, and at why the entity itself is left where it is.
+`renderer/CameraView.h`, and at why the entity itself is left where it is. And it plays
+sequences (`assets/Sequence.h`, `animation/SequenceSystem.h`; architecture.md "A sequence is
+a file of tracks, and a component plays it into the world"): tracks that find what they move
+by paths of names and write it through the reflection, as an edit would - which is also why
+an editor does not play them.
 
 ## 9. Physics
 

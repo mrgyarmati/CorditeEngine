@@ -114,6 +114,7 @@ struct Engine::Impl {
     AnimationSystem animation;
     /// What the last updateWorld() since the frame began did.
     AnimationStatistics animationStatistics;
+    SequenceSystem sequences;
     std::unique_ptr<ScriptSystem> scripts;
     /// What the last updateWorld() since the frame began did.
     ScriptStatistics scriptStatistics;
@@ -375,7 +376,7 @@ Status Engine::drawWorld(const SceneRenderSettings& settings) {
         return makeError(ErrorCode::InvalidState, "no frame has been started");
     }
 
-    const Entity camera = findPrimaryCamera(impl.world);
+    const Entity camera = findGameCamera(impl.world);
     if (camera.isNull()) {
         drawTestPattern();
         return {};
@@ -424,6 +425,13 @@ void Engine::updateWorld(WorldClock clock) {
         Stopwatch scriptClock;
         impl.scriptStatistics = impl.scripts->update(scripted);
         double scriptSeconds = scriptClock.elapsedSeconds();
+        // The sequences after the scripts that start them, and before the simulation: what
+        // they move is where the step sets out from, and what a script does about one of
+        // their events - told at once - is in the same step.
+        impl.sequences.update(impl.world, impl.components, *impl.assets, deltaSeconds);
+        scriptClock.restart();
+        impl.scriptStatistics = impl.scripts->tellSequenceEvents(scripted, impl.sequences.events());
+        scriptSeconds += scriptClock.elapsedSeconds();
         impl.physicsStatistics = impl.physics->update(impl.world, *impl.assets, deltaSeconds);
         scriptClock.restart();
         impl.scriptStatistics = impl.scripts->tellContacts(scripted, impl.physics->events());
@@ -560,6 +568,7 @@ Status Engine::loadScene(const Uuid& scene) {
                         .scripts = *impl.scripts,
                         .physics = impl.physics.get(),
                         .animation = &impl.animation,
+                        .sequences = &impl.sequences,
                         .audio = impl.audio.get(),
                         .controls = &impl.actions},
                        scene);
@@ -577,6 +586,7 @@ Status Engine::endScene() {
                        .scripts = *impl.scripts,
                        .physics = impl.physics.get(),
                        .animation = &impl.animation,
+                       .sequences = &impl.sequences,
                        .audio = impl.audio.get(),
                        .controls = &impl.actions});
     // A scene a script asked for is not loaded into a world that is no longer played.

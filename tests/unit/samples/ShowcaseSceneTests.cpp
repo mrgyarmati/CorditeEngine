@@ -7,6 +7,7 @@
 /// feature includes showing it.
 
 #include "cordite/animation/AnimationComponents.h"
+#include "cordite/animation/SequenceSystem.h"
 #include "cordite/assets/AssetManager.h"
 #include "cordite/assets/Image.h"
 #include "cordite/assets/Prefab.h"
@@ -91,6 +92,9 @@ struct Showcase {
     /// The bodies of the scene, for the scripts to ask about. No time passes for them
     /// here: what falls and what is pushed is for the tests of the engine.
     std::unique_ptr<PhysicsSystem> physics = test::unwrap(PhysicsSystem::create());
+    /// What plays the sequences of the scene, as the engine does: after the scripts, and
+    /// before the simulation.
+    SequenceSystem sequences;
     /// What plays the sounds of the scene, into memory, and what its last frame played.
     std::unique_ptr<AudioSystem> audio = test::unwrap(AudioSystem::create());
     AudioStatistics heard;
@@ -111,6 +115,7 @@ struct Showcase {
                                                 .assets = *assets,
                                                 .scripts = scripts,
                                                 .physics = physics.get(),
+                                                .sequences = &sequences,
                                                 .audio = audio.get(),
                                                 .controls = &controls},
                                                *scene);
@@ -125,25 +130,30 @@ struct Showcase {
     }
 
     /// A frame of the game, as far as its scripts go: the controls are worked out, every
-    /// body is where its entity is, the scripts run, and what they play is heard.
+    /// body is where its entity is, the scripts run and then the sequences, and what they
+    /// play is heard.
     ScriptStatistics play(ScriptSystem& scripts, double deltaSeconds) {
         followSceneRequest(scripts);
         controls.update(input);
         physics->synchronize(world, *assets);
-        const ScriptStatistics statistics = scripts.update({.world = world,
-                                                            .components = components,
-                                                            .assets = *assets,
-                                                            .deltaSeconds = deltaSeconds,
-                                                            .controls = &controls,
-                                                            .physics = physics.get(),
-                                                            .audio = audio.get()});
+        const ScriptContext context = {.world = world,
+                                       .components = components,
+                                       .assets = *assets,
+                                       .deltaSeconds = deltaSeconds,
+                                       .controls = &controls,
+                                       .physics = physics.get(),
+                                       .audio = audio.get()};
+        scripts.update(context);
+        sequences.update(world, components, *assets, static_cast<float>(deltaSeconds));
+        const ScriptStatistics statistics = scripts.tellSequenceEvents(context, sequences.events());
         listen(deltaSeconds);
         input.beginFrame();
         return statistics;
     }
 
     /// A frame of the game with its simulation, a sixtieth of a second long: the scripts
-    /// run, the bodies move on, and the scripts are told what met and what parted.
+    /// run, the sequences play, the bodies move on, and the scripts are told what met and
+    /// what parted.
     ScriptStatistics simulate(ScriptSystem& scripts) {
         const double frameSeconds = 1.0 / 60.0;
         followSceneRequest(scripts);
@@ -156,6 +166,8 @@ struct Showcase {
                                        .physics = physics.get(),
                                        .audio = audio.get()};
         scripts.update(context);
+        sequences.update(world, components, *assets, static_cast<float>(frameSeconds));
+        scripts.tellSequenceEvents(context, sequences.events());
         physics->update(world, *assets, static_cast<float>(frameSeconds));
         const ScriptStatistics statistics = scripts.tellContacts(context, physics->events());
         listen(frameSeconds);
@@ -278,6 +290,11 @@ TEST_SUITE("Showcase") {
                 case AssetType::RenderTarget: {
                     const auto target = showcase.assets->loadRenderTarget(asset.id);
                     CHECK_MESSAGE(target.has_value(), test::errorOf(target));
+                    break;
+                }
+                case AssetType::Sequence: {
+                    const auto sequence = showcase.assets->loadSequence(asset.id);
+                    CHECK_MESSAGE(sequence.has_value(), test::errorOf(sequence));
                     break;
                 }
                 case AssetType::Scene:
@@ -476,10 +493,14 @@ TEST_SUITE("Showcase") {
             return sounded;
         };
 
+        // C is "cinematic": the flyby plays from the first frame on, and its script is told
+        // of the impact two seconds in.
+        showcase.input.injectKey(Key::C, true);
         // Half a second in, the left button of the pointer is "fire": the ball is knocked
         // off the floor by its script, which the simulation then tells that the two have
         // parted - and, when it comes down, that they have met again, which it counts.
         Sounded sounded = run(30);
+        showcase.input.injectKey(Key::C, false);
         CHECK(showcase.world.name(ball) == "Ball");
         CHECK(brightness() == 0.0f);
         // Nothing but the lamp and the music so far - the clock ticks when the half second
@@ -583,8 +604,8 @@ TEST_SUITE("Showcase") {
         showcase.input.injectKey(Key::T, false);
         CHECK(log.contains("leaving for scenes/annex.scene.json"));
         CHECK(showcase.world.sceneName() == "Showcase");
-        // The seven of the scene, and the clock the self-test has set up for a few frames.
-        CHECK(statistics.instances == 8);
+        // The eight of the scene, and the clock the self-test has set up for a few frames.
+        CHECK(statistics.instances == 9);
         CHECK_FALSE(log.contains("Clock stopped"));
 
         // The next frame begins in the annex. The scripts of the showcase have ended -
@@ -610,7 +631,7 @@ TEST_SUITE("Showcase") {
         CHECK(showcase.world.sceneName() == "Showcase");
         CHECK(showcase.world.findByName("Way back").isNull());
         CHECK_FALSE(showcase.world.findByName("Clock").isNull());
-        CHECK(statistics.instances == 7);
+        CHECK(statistics.instances == 8);
         for (const ScriptProblem& problem : scripts->problems()) {
             FAIL_CHECK(problem.message);
         }
@@ -659,6 +680,76 @@ TEST_SUITE("Showcase") {
         for (const ScriptProblem& problem : scripts->problems()) {
             FAIL_CHECK(problem.message);
         }
+    }
+
+    TEST_CASE("whoever plays the showcase starts its flyby with the controls: cut to its camera, and back") {
+        Showcase showcase;
+        const std::unique_ptr<ScriptSystem> scripts = test::unwrap(ScriptSystem::create());
+        World& world = showcase.world;
+        const Entity flyby = world.findByName("Flyby");
+        const Entity camera = world.findByName("Cinema camera");
+        const Entity glow = world.findByName("Wall light glow");
+        const Entity body = world.findByName("Sentry body");
+        REQUIRE(world.has<SequencePlayerComponent>(flyby));
+        REQUIRE(world.has<CameraShakeComponent>(camera));
+        REQUIRE(world.has<LightComponent>(glow));
+        const auto player = [&]() -> const SequencePlayerComponent& {
+            return *world.tryGet<SequencePlayerComponent>(flyby);
+        };
+        const auto intensity = [&] { return world.tryGet<LightComponent>(glow)->intensity; };
+        const auto frames = [&](int count) {
+            for (int frame = 0; frame < count; ++frame) {
+                showcase.play(*scripts, 0.25);
+            }
+        };
+
+        // Until "cinematic" is pressed it waits, and the game is seen through its own camera.
+        frames(1);
+        CHECK_FALSE(player().playing);
+        CHECK(findGameCamera(world) == world.findByName("Main camera"));
+
+        // C: it plays, from the beginning, and the game is seen through the flyby's camera,
+        // which faces the sentry wherever the sequence has flown it.
+        showcase.input.injectKey(Key::C, true);
+        frames(1);
+        showcase.input.injectKey(Key::C, false);
+        CHECK(player().playing);
+        CHECK(player().time == 0.25f);
+        CHECK(player().camera == world.id(camera));
+        CHECK(findGameCamera(world) == camera);
+        for (int frame = 0; frame < 7; ++frame) {
+            const Mat4 eye = world.computeWorldMatrix(camera);
+            const Vec3 towardsSentry = Vec3(world.computeWorldMatrix(body)[3]) - Vec3(eye[3]);
+            CHECK(glm::dot(-glm::normalize(Vec3(eye[2])), glm::normalize(towardsSentry)) > 0.9999f);
+            frames(1);
+        }
+        // Two seconds in, the light on the wall flares; the impact is told as the time
+        // passes it, and the script shakes the camera.
+        CHECK(player().time == 2.0f);
+        CHECK(intensity() == 16.0f);
+        CHECK(world.tryGet<CameraShakeComponent>(camera)->trauma == 0.0f);
+        frames(1);
+        CHECK(world.tryGet<CameraShakeComponent>(camera)->trauma == 0.6f);
+        frames(1);
+        CHECK(intensity() == 4.0f);
+
+        // Five and a half seconds in, the cut is back to the game's own camera; at six the
+        // sequence is over, and says so, with the lens as its last key has it.
+        const test::LogCapture log(LogLevel::Info);
+        frames(12);
+        CHECK(player().time == 5.5f);
+        CHECK(player().camera.isNil());
+        CHECK(findGameCamera(world) == world.findByName("Main camera"));
+        CHECK(player().playing);
+        frames(2);
+        CHECK_FALSE(player().playing);
+        CHECK(player().time == 6.0f);
+        CHECK(log.contains("the flyby is over"));
+        CHECK(world.tryGet<CameraComponent>(camera)->verticalFovDegrees == 35.0f);
+        for (const ScriptProblem& problem : scripts->problems()) {
+            FAIL_CHECK(problem.message);
+        }
+        CHECK(log.count(LogLevel::Error) == 0);
     }
 
     TEST_CASE("the scripts of the showcase call everything scripts are given, and leave its components as they were") {

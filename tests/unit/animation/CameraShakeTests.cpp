@@ -295,7 +295,7 @@ TEST_SUITE("CameraShake") {
     TEST_CASE("a camera shake is registered after the animator, and saved without what only a game has") {
         ComponentRegistry registry;
         REQUIRE(registerAnimationComponents(registry).has_value());
-        REQUIRE(registry.components().size() == 2);
+        REQUIRE(registry.components().size() == 3);
         CHECK(registry.components()[1]->type.name() == "CameraShake");
         const ComponentDescriptor* descriptor = registry.find("CameraShake");
         REQUIRE(descriptor != nullptr);

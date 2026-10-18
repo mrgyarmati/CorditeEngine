@@ -143,6 +143,52 @@ TEST_SUITE("CameraView") {
         CHECK_FALSE(sameView(makeCameraView(world, camera, 1.25f)));
     }
 
+    TEST_CASE("the game is seen through the camera a sequence that plays has cut to, or else the primary one") {
+        World world;
+        const Entity primary = world.createEntity("Primary");
+        world.add<CameraComponent>(primary);
+        const Entity cinema = world.createEntity("Cinema");
+        world.add<CameraComponent>(cinema).primary = false;
+        const Entity director = world.createEntity("Director");
+        world.add<SequencePlayerComponent>(director);
+        CHECK(findGameCamera(world) == primary);
+
+        // Cut to while it plays.
+        world.tryGet<SequencePlayerComponent>(director)->camera = world.id(cinema);
+        CHECK(findGameCamera(world) == cinema);
+        // Not while it does not, nor when it is switched off - or the camera is.
+        world.tryGet<SequencePlayerComponent>(director)->playing = false;
+        CHECK(findGameCamera(world) == primary);
+        world.tryGet<SequencePlayerComponent>(director)->playing = true;
+        world.setEnabled(director, false);
+        CHECK(findGameCamera(world) == primary);
+        world.setEnabled(director, true);
+        world.setEnabled(cinema, false);
+        CHECK(findGameCamera(world) == primary);
+        world.setEnabled(cinema, true);
+        // A cut to what is no camera, or to nothing that is there, is no cut.
+        world.tryGet<SequencePlayerComponent>(director)->camera = world.id(director);
+        CHECK(findGameCamera(world) == primary);
+        world.tryGet<SequencePlayerComponent>(director)->camera = *Uuid::parse("01234567-89ab-4def-8edc-ba9876543210");
+        CHECK(findGameCamera(world) == primary);
+
+        // Of two that cut, the first in the order of the hierarchy.
+        world.tryGet<SequencePlayerComponent>(director)->camera = world.id(cinema);
+        const Entity close = world.createEntity("Close");
+        world.add<CameraComponent>(close).primary = false;
+        const Entity second = world.createEntity("Second director");
+        world.add<SequencePlayerComponent>(second).camera = world.id(close);
+        CHECK(findGameCamera(world) == cinema);
+        world.setSiblingIndex(second, 0);
+        CHECK(findGameCamera(world) == close);
+        // Without a primary camera, a cut is still seen; without either, nothing is.
+        world.destroyEntity(primary);
+        CHECK(findGameCamera(world) == close);
+        world.destroyEntity(second);
+        world.destroyEntity(director);
+        CHECK(findGameCamera(world).isNull());
+    }
+
     TEST_CASE("an entity without a camera has no view of its own") {
         World world;
         const Entity plain = world.createEntity("No camera");

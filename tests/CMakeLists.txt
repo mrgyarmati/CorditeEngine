@@ -57,6 +57,7 @@ cordite_add_test_suite(math
 cordite_add_test_suite(world
     SOURCES
         unit/world/ComponentRegistryTests.cpp
+        unit/world/EntityPathTests.cpp
         unit/world/PrefabTests.cpp
         unit/world/SceneSerializerTests.cpp
         unit/world/WorldTests.cpp
@@ -69,6 +70,7 @@ cordite_add_test_suite(animation
         unit/animation/AnimationSystemTests.cpp
         unit/animation/CameraShakeTests.cpp
         unit/animation/PoseTests.cpp
+        unit/animation/SequenceSystemTests.cpp
     LIBRARIES
         cordite::animation)
 
@@ -100,6 +102,7 @@ cordite_add_test_suite(scripting
         unit/scripting/ScriptMathApiTests.cpp
         unit/scripting/ScriptPhysicsApiTests.cpp
         unit/scripting/ScriptRuntimeTests.cpp
+        unit/scripting/ScriptSequenceTests.cpp
         unit/scripting/ScriptSystemTests.cpp
         unit/scripting/ScriptTimerTests.cpp
         unit/scripting/ScriptTestSupport.h
@@ -136,6 +139,7 @@ cordite_add_test_suite(assets
         unit/assets/PrefabTests.cpp
         unit/assets/PrimitivesTests.cpp
         unit/assets/RenderTargetTests.cpp
+        unit/assets/SequenceTests.cpp
         unit/assets/SkeletonTests.cpp
         unit/assets/SkinnedMeshTests.cpp
         unit/assets/SoundTests.cpp

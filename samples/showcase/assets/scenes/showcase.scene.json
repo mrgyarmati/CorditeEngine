@@ -1592,6 +1592,55 @@
             }
         },
         {
+            // A cinematic: its SequencePlayer plays sequences/flyby.sequence.json, which flies
+            // the camera below round the stage and cuts the view of the game to it, while the
+            // game's time passes. It waits (`playing` false) until scripts/cinematic.lua
+            // starts it, from the beginning, when "cinematic" is pressed; a sequence that
+            // does not `loop` stops itself at its end, and its cut with it. What the editor
+            // shows is the scene as it is: sequences play when the scene does.
+            "id": "10000000-0000-4000-8000-00000000004a",
+            "name": "Flyby",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-000000000007",
+            "components": {
+                "Transform": { "position": [0.0, 0.0, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [1.0, 1.0, 1.0] },
+                "SequencePlayer": {
+                    "sequence": "dea4b7a2-ca8c-8ef9-99f5-c7be39b1caf1",
+                    "time": 0.0,
+                    "speed": 1.0,
+                    "loop": false,
+                    "playing": false
+                },
+                "Script": { "script": "6d63bf9f-b176-8a2a-8650-45a2b1708120", "properties": {} }
+            }
+        },
+        {
+            // What the flyby is seen through. Not primary: only the cut of the sequence makes
+            // the game look through it. Where it is and how it is turned is the sequence's to
+            // say; the impact shakes it (a CameraShake that a script gives trauma).
+            "id": "10000000-0000-4000-8000-00000000004b",
+            "name": "Cinema camera",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-00000000004a",
+            "components": {
+                "Transform": { "position": [6.0, 1.2, 1.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [1.0, 1.0, 1.0] },
+                "Camera": {
+                    "projection": "perspective",
+                    "verticalFovDegrees": 60.0,
+                    "orthographicHeight": 10.0,
+                    "nearPlane": 0.1,
+                    "farPlane": 500.0,
+                    "primary": false
+                },
+                "CameraShake": {
+                    "decay": 1.5,
+                    "maxOffset": [0.04, 0.04, 0.04],
+                    "maxRotation": [2.5, 2.5, 1.5],
+                    "frequency": 15.0
+                }
+            }
+        },
+        {
             // A scene shows only what its lights light: without any, a game renders it black.
             // (The editor lights a scene that has no lights yet, so that it can be worked on.)
             "id": "10000000-0000-4000-8000-00000000001e",

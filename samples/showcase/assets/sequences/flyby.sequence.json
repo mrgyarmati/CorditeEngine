@@ -1,0 +1,82 @@
+{
+    // A sequence: what happens in the scene over a few seconds, on a timeline. The entity
+    // whose SequencePlayer plays it is where the paths of its tracks set out from - here
+    // "Cameras/Flyby" of the showcase scene; a path that begins with "/" sets out from
+    // the roots of the scene instead. scripts/cinematic.lua starts it when "cinematic"
+    // is pressed (C, or X on a gamepad).
+    "format": "cordite.sequence",
+    "version": 1,
+    // Seconds. Every key of every track is at a time from 0 to this.
+    "duration": 6.0,
+    "tracks": [
+        {
+            // Which camera the game is seen through, from each key on: a path to an entity
+            // with a Camera, or null for the game's own camera. When the sequence is over,
+            // so is its cut. A sequence has one camera track at the most.
+            "kind": "camera",
+            "keys": [
+                { "time": 0.0, "camera": "Cinema camera" },
+                { "time": 5.5, "camera": null }
+            ]
+        },
+        {
+            // Where an entity is, and how it is turned and scaled, against what it hangs
+            // under, as its Transform holds it: each key has any of "position",
+            // "rotation" ([x, y, z, w], as in a scene file) and "scale". This camera flies
+            // round the stage on a curve through its keys ("smooth"), turned all the time
+            // to face what "lookAt" names - the body of the sentry, wherever it walks -
+            // so it needs no rotations of its own.
+            "kind": "transform",
+            "target": "Cinema camera",
+            "interpolation": "smooth",
+            "lookAt": "/Stage/Sentry/Sentry body",
+            "keys": [
+                { "time": 0.0, "position": [6.0, 1.2, 1.0] },
+                { "time": 2.0, "position": [3.0, 2.0, 4.5] },
+                { "time": 4.0, "position": [-1.5, 2.6, 4.0] },
+                { "time": 6.0, "position": [-5.0, 3.0, 1.5] }
+            ]
+        },
+        {
+            // A property of a component, as the reflection names it: "verticalFovDegrees"
+            // of the camera's Camera. Numbers, lists of two to four numbers (vectors,
+            // colors) and true or false; what a key gives is checked against the
+            // property's range as an edit is. Straight from key to key ("linear", what a
+            // track does when it says nothing): the lens closes in on the sentry.
+            "kind": "property",
+            "target": "Cinema camera",
+            "component": "Camera",
+            "property": "verticalFovDegrees",
+            "interpolation": "linear",
+            "keys": [
+                { "time": 0.0, "value": 60.0 },
+                { "time": 6.0, "value": 35.0 }
+            ]
+        },
+        {
+            // "step" holds every key until the next: the light on the wall flares at the
+            // moment of the impact, for three tenths of a second. A sequence leaves what it
+            // set as its last keys say: the light is as bright as it was.
+            "kind": "property",
+            "target": "/Stage/Wall/Wall light glow",
+            "component": "Light",
+            "property": "intensity",
+            "interpolation": "step",
+            "keys": [
+                { "time": 0.0, "value": 4.0 },
+                { "time": 2.0, "value": 16.0 },
+                { "time": 2.3, "value": 4.0 }
+            ]
+        },
+        {
+            // Moments the scripts of the entity that plays the sequence are told of, by
+            // name: `sequenceEvent(name)` of scripts/cinematic.lua, which shakes the camera
+            // at the impact.
+            "kind": "event",
+            "keys": [
+                { "time": 2.0, "name": "impact" },
+                { "time": 6.0, "name": "over" }
+            ]
+        }
+    ]
+}

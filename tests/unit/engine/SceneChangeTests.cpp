@@ -1,6 +1,8 @@
 #include "cordite/engine/SceneChange.h"
 
+#include "cordite/animation/AnimationComponents.h"
 #include "cordite/animation/AnimationSystem.h"
+#include "cordite/animation/SequenceSystem.h"
 #include "cordite/assets/AssetDatabase.h"
 #include "cordite/assets/AssetManager.h"
 #include "cordite/assets/Sound.h"
@@ -78,6 +80,7 @@ struct Game {
     std::unique_ptr<ScriptSystem> scripts = unwrap(ScriptSystem::create());
     std::unique_ptr<PhysicsSystem> physics = unwrap(PhysicsSystem::create());
     AnimationSystem animation;
+    SequenceSystem sequences;
     std::unique_ptr<AudioSystem> audio = unwrap(AudioSystem::create());
     Uuid yard;
     Uuid cellar;
@@ -134,6 +137,7 @@ struct Game {
                 .scripts = *scripts,
                 .physics = physics.get(),
                 .animation = &animation,
+                .sequences = &sequences,
                 .audio = audio.get()};
     }
 };
@@ -224,6 +228,13 @@ TEST_SUITE("SceneChange") {
         game.world.add<AudioSourceComponent>(gate) = {.sound = drone, .loop = true, .spatial = false};
         const AudioVoiceId shot = unwrap(game.audio->play(*game.assets, {.sound = drone, .loop = true}));
         CHECK(game.audio->update(game.world, *game.assets, 0.01).voices == 2);
+        // A sequence the gate plays has passed an event, which the system holds.
+        const Uuid cue = game.write("sequences/cue.sequence.json",
+                                    R"({"format": "cordite.sequence", "version": 1, "duration": 1, "tracks": [
+                                        {"kind": "event", "keys": [{"time": 0, "name": "cue"}]}]})");
+        game.world.add<SequencePlayerComponent>(gate).sequence = cue;
+        game.sequences.update(game.world, game.components, *game.assets, 0.1f);
+        REQUIRE(game.sequences.events().size() == 1);
         const BodyId gateBody = game.physics->bodyOf(gate);
         REQUIRE_FALSE(gateBody.isNull());
         const std::string before = dumpJson(serializeScene(game.world, game.components), 2);
@@ -237,6 +248,8 @@ TEST_SUITE("SceneChange") {
         CHECK_FALSE(game.physics->simulation().isValid(gateBody));
         CHECK(game.physics->bodyOf(gate).isNull());
         CHECK_FALSE(game.audio->isPlaying(shot));
+        // What the sequences held of the scene - its entities among it - is let go of.
+        CHECK(game.sequences.events().empty());
         // The world is what it was: whoever ends a scene decides what comes next.
         CHECK(game.world.isValid(gate));
         CHECK(dumpJson(serializeScene(game.world, game.components), 2) == before);

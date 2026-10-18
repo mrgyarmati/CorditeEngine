@@ -29,6 +29,8 @@ cordite_add_module(assets
         Prefab.h
         RenderTarget.cpp
         RenderTarget.h
+        Sequence.cpp
+        Sequence.h
         Primitives.cpp
         Primitives.h
         ScriptSource.h

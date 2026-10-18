@@ -5,6 +5,8 @@ cordite_add_module(world
         Components.cpp
         Components.h
         Entity.h
+        EntityPath.cpp
+        EntityPath.h
         Entt.h
         Prefab.cpp
         Prefab.h

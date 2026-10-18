@@ -713,12 +713,12 @@ TEST_SUITE("Engine") {
         CHECK(world.transform(sentry).position.x < -0.9f);
         CHECK(brightness() == 0.0f);
 
-        // The seven scripts of the showcase run, and none has a problem: the self-test,
+        // The eight scripts of the showcase run, and none has a problem: the self-test,
         // which compares what every function of the script API gives with what it should
         // and would have stopped at the first that differs, here with the simulation
         // running beside it; the patrol; the clock, which ticks twice a second and has
-        // counted the five seconds; the lamp that flickers; and the three that only hear
-        // what they are told - the post, the ball, the way out. Two are updated every
+        // counted the five seconds; the lamp that flickers; and the four that only hear
+        // what they are told - the post, the ball, the way out, the flyby. Two are updated every
         // frame, and in the frame of a tick the clock's timer is called as well. Two
         // things wait for their time: that timer, and the task that makes the lamp
         // flicker. What the self-test made for a few frames - an entity with a clock of
@@ -726,8 +726,8 @@ TEST_SUITE("Engine") {
         for (const ScriptProblem& problem : engine->scripts().problems()) {
             FAIL_CHECK(problem.message);
         }
-        CHECK(engine->statistics().scripts.scripts == 7);
-        CHECK(engine->statistics().scripts.instances == 7);
+        CHECK(engine->statistics().scripts.scripts == 8);
+        CHECK(engine->statistics().scripts.instances == 8);
         CHECK(engine->statistics().scripts.calls >= 2);
         CHECK(engine->statistics().scripts.calls <= 3);
         CHECK(engine->statistics().scripts.timers == 2);
@@ -1093,6 +1093,90 @@ TEST_SUITE("Engine") {
         runFrames(*engine, 30);
         CHECK(shake().trauma == 0.0f);
         CHECK_NEAR(middleOfBright(test::unwrap(engine->captureFrame())), middle, 0.25f);
+        checkNoValidationIssues(engine->graphics());
+    }
+
+    TEST_CASE(
+        "the engine plays the sequences of its world while its clock runs, and the game is seen through their cuts") {
+        const TempDirectory directory;
+        // A second of a cut to a camera close to the cube, while the cube moves up, and an
+        // event half way that the script of the player hears.
+        REQUIRE(writeTextFile(directory.path() / "close.sequence.json", R"({"format": "cordite.sequence",
+            "version": 1, "duration": 1.0, "tracks": [
+                {"kind": "camera", "keys": [{"time": 0.0, "camera": "Close camera"}]},
+                {"kind": "transform", "target": "/Cube", "keys": [{"time": 0.0, "position": [0, 0, 0]},
+                                                                 {"time": 1.0, "position": [0, 0.5, 0]}]},
+                {"kind": "event", "keys": [{"time": 0.5, "name": "half way"}]}]})")
+                    .has_value());
+        REQUIRE(writeTextFile(directory.path() / "director.lua",
+                              "return {sequenceEvent = function(self, name) self.entity:setName(name) end}")
+                    .has_value());
+        EngineDesc desc = headlessDesc(UVec2(160, 90));
+        desc.assetDirectory = directory.path();
+        const std::unique_ptr<Engine> engine = createEngine(desc);
+        CHECK(engine->components().find("SequencePlayer") != nullptr);
+        World& world = engine->world();
+
+        // A lit cube, seen from three metres by the camera of the game.
+        const Entity camera = world.createEntity("Camera");
+        world.transform(camera).position = Vec3(0.0f, 0.0f, 3.0f);
+        world.add<CameraComponent>(camera);
+        const Entity cube = world.createEntity("Cube");
+        world.add<MeshRendererComponent>(cube).mesh = builtinMeshId(BuiltinMesh::Cube);
+        const Entity lamp = world.createEntity("Lamp");
+        world.transform(lamp).position = Vec3(0.0f, 0.0f, 3.0f);
+        world.add<LightComponent>(lamp) = {.type = LightType::Point, .intensity = 9.0f, .range = 10.0f};
+        // The player, waiting, and the camera it cuts to: half as far from the cube.
+        const Entity director = world.createEntity("Director");
+        const AssetDatabase& database = engine->assets().database();
+        world.add<SequencePlayerComponent>(director) = {.sequence = database.findByReference("close.sequence.json")->id,
+                                                        .playing = false};
+        world.add<ScriptComponent>(director).script = database.findByReference("director.lua")->id;
+        const Entity close = world.createEntity("Close camera");
+        REQUIRE(world.setParent(close, director).has_value());
+        world.transform(close).position = Vec3(0.0f, 0.0f, 1.5f);
+        world.add<CameraComponent>(close).primary = false;
+        const auto bright = [&] {
+            const Image frame = test::unwrap(engine->captureFrame());
+            uint32_t count = 0;
+            for (uint32_t y = 0; y < frame.height(); ++y) {
+                for (uint32_t x = 0; x < frame.width(); ++x) {
+                    count += frame.pixel(x, y).r > 0.35f ? 1 : 0;
+                }
+            }
+            return count;
+        };
+        const auto player = [&] { return *world.tryGet<SequencePlayerComponent>(director); };
+
+        runFrames(*engine, 1);
+        const uint32_t far = bright();
+        REQUIRE(far > 100);
+
+        // Played, the game is seen through the close camera, and the cube moves.
+        world.tryGet<SequencePlayerComponent>(director)->playing = true;
+        runFrames(*engine, 1);
+        CHECK(player().camera == world.id(close));
+        CHECK(bright() > 2 * far);
+        CHECK(world.transform(cube).position.y == doctest::Approx(0.5f / 60.0f));
+
+        // With the clock stopped nothing of it moves.
+        REQUIRE(test::unwrap(engine->beginFrame()));
+        engine->updateWorld(WorldClock::Stopped);
+        REQUIRE(engine->drawWorld().has_value());
+        REQUIRE(engine->endFrame().has_value());
+        CHECK(player().time == doctest::Approx(1.0f / 60.0f));
+
+        // Half way, the script hears the event; at the end the sequence stops, and with it
+        // the cut: the game is seen through its own camera again.
+        runFrames(*engine, 30);
+        CHECK(world.name(director) == "half way");
+        CHECK(player().playing);
+        runFrames(*engine, 30);
+        CHECK_FALSE(player().playing);
+        CHECK(player().camera.isNil());
+        CHECK(world.transform(cube).position.y == 0.5f);
+        runFrames(*engine, 1);
+        CHECK(bright() < 2 * far);
         checkNoValidationIssues(engine->graphics());
     }
 

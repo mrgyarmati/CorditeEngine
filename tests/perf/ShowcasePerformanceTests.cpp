@@ -70,6 +70,9 @@ size_t loadEveryAsset(AssetManager& assets) {
             case AssetType::RenderTarget:
                 REQUIRE(assets.loadRenderTarget(asset.id).has_value());
                 break;
+            case AssetType::Sequence:
+                REQUIRE(assets.loadSequence(asset.id).has_value());
+                break;
             case AssetType::Scene:
                 continue;
         }

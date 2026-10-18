@@ -32,6 +32,14 @@
                 { "key": "T" },
                 { "gamepadButton": "Y" }
             ]
+        },
+        {
+            // What starts the flyby: scripts/cinematic.lua asks for it by this name.
+            "name": "cinematic",
+            "bindings": [
+                { "key": "C" },
+                { "gamepadButton": "X" }
+            ]
         }
     ],
     "axes": [

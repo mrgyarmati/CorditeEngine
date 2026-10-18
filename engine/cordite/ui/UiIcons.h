@@ -71,6 +71,7 @@ inline constexpr UiIcon kAnimation = uiIcon<0xE29A>();
 inline constexpr UiIcon kScript = uiIcon<0xE0C7>();
 inline constexpr UiIcon kSound = uiIcon<0xE55E>();
 inline constexpr UiIcon kPrefab = uiIcon<0xE12C>();
+inline constexpr UiIcon kSequence = uiIcon<0xE0D4>();
 
 // Things to do.
 inline constexpr UiIcon kSearch = uiIcon<0xE154>();
