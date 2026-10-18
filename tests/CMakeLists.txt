@@ -165,6 +165,7 @@ cordite_add_test_suite(renderer
         unit/renderer/DebugDrawTests.cpp
         unit/renderer/DecalsTests.cpp
         unit/renderer/EnvironmentLightTests.cpp
+        unit/renderer/EnvironmentProbesTests.cpp
         unit/renderer/FogTests.cpp
         unit/renderer/LevelOfDetailTests.cpp
         unit/renderer/LightClustersTests.cpp
@@ -261,6 +262,7 @@ cordite_add_test_suite(render
         render/DecalTests.cpp
         render/DepthOfFieldTests.cpp
         render/EditorAppTests.cpp
+        render/EnvironmentProbeTests.cpp
         render/EngineTests.cpp
         render/EnvironmentTests.cpp
         render/FogLightTests.cpp

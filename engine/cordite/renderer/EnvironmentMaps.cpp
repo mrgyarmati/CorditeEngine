@@ -72,6 +72,7 @@ EnvironmentMaps::EnvironmentMaps(Parts parts)
       m_sampler(std::move(parts.sampler)),
       m_layout(std::move(parts.layout)),
       m_prefilter(std::move(parts.prefilter)),
+      m_prefilterCube(std::move(parts.prefilterCube)),
       m_none(std::move(parts.none)) {}
 
 Result<EnvironmentMaps> EnvironmentMaps::create(nvrhi::IDevice* device, ShaderManager& shaders, AssetManager& assets) {
@@ -136,7 +137,12 @@ Result<EnvironmentMaps> EnvironmentMaps::create(nvrhi::IDevice* device, ShaderMa
                             .entryPoint = "environmentPrefilterPixel",
                             .stage = ShaderStage::Pixel};
     passDesc.bindingLayouts = {layout};
+    FullscreenPassDesc cubeDescription = passDesc;
+    cubeDescription.debugName = "Probe prefilter";
+    cubeDescription.pixelShader.defines = {{"CUBE_SOURCE", "1"}};
     CORDITE_TRY_ASSIGN(FullscreenPass prefilter, FullscreenPass::create(device, shaders, std::move(passDesc)));
+    CORDITE_TRY_ASSIGN(FullscreenPass prefilterCube,
+                       FullscreenPass::create(device, shaders, std::move(cubeDescription)));
 
     return EnvironmentMaps(Parts{.device = device,
                                  .assets = &assets,
@@ -144,6 +150,7 @@ Result<EnvironmentMaps> EnvironmentMaps::create(nvrhi::IDevice* device, ShaderMa
                                  .sampler = std::move(sampler),
                                  .layout = std::move(layout),
                                  .prefilter = std::move(prefilter),
+                                 .prefilterCube = std::move(prefilterCube),
                                  .none = std::move(none)});
 }
 
@@ -186,6 +193,53 @@ bool EnvironmentMaps::bake(nvrhi::ICommandList* commandList, nvrhi::ITexture* so
         }
     }
     ++m_bakeCount;
+    return true;
+}
+
+bool EnvironmentMaps::prefilterCube(nvrhi::ICommandList* commandList, nvrhi::ITexture* source,
+                                    nvrhi::ITexture* destination, uint32_t cubeIndex) {
+    CORDITE_ASSERT(commandList != nullptr && source != nullptr && destination != nullptr,
+                   "prefiltering a cube map needs a command list, a source and a destination");
+    if (commandList == nullptr || source == nullptr || destination == nullptr) {
+        return false;
+    }
+    nvrhi::BindingSetDesc setDesc;
+    setDesc.bindings = {nvrhi::BindingSetItem::ConstantBuffer(0, m_constants),
+                        nvrhi::BindingSetItem::Texture_SRV(0, source), nvrhi::BindingSetItem::Sampler(0, m_sampler)};
+    const nvrhi::BindingSetHandle bindings = m_device->createBindingSet(setDesc, m_layout);
+    if (!bindings) {
+        return false;
+    }
+
+    const nvrhi::TextureDesc& destinationDesc = destination->getDesc();
+    const auto sourceSize = static_cast<float>(source->getDesc().width);
+    const float sourceTexels = static_cast<float>(kFaceCount) * sourceSize * sourceSize;
+    const uint32_t levels = destinationDesc.mipLevels;
+    for (uint32_t level = 0; level < levels; ++level) {
+        const auto faceSize = static_cast<float>(std::max(destinationDesc.width >> level, 1u));
+        const float faceTexels = static_cast<float>(kFaceCount) * faceSize * faceSize;
+        for (uint32_t face = 0; face < kFaceCount; ++face) {
+            const nvrhi::FramebufferHandle framebuffer = m_device->createFramebuffer(
+                nvrhi::FramebufferDesc().addColorAttachment(nvrhi::FramebufferAttachment()
+                                                                .setTexture(destination)
+                                                                .setArraySlice(cubeIndex * kFaceCount + face)
+                                                                .setMipLevel(level)));
+            if (!framebuffer) {
+                return false;
+            }
+            EnvironmentPrefilterConstants constants{};
+            constants.face = face;
+            constants.roughness = levels > 1 ? static_cast<float>(level) / static_cast<float>(levels - 1) : 0.0f;
+            // How many texels of the source fall into one texel of this level, on average.
+            constants.sourceLevel = 0.5f * std::log2(std::max(sourceTexels / faceTexels, 1.0f));
+            constants.sourceDensity = sourceTexels / (4.0f * kPi);
+            constants.sampleCount = sampleCountOf(level);
+            commandList->writeBuffer(m_constants, &constants, sizeof(constants));
+
+            const std::array<nvrhi::IBindingSet*, 1> bindingSets = {bindings.Get()};
+            m_prefilterCube.draw(commandList, framebuffer, bindingSets);
+        }
+    }
     return true;
 }
 

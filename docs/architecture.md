@@ -893,6 +893,46 @@ intensity. What it looks like - intensity, radius, bias - belongs to the look of
 scene and is set with its PostProcess components; what it costs is one of three
 qualities of a view, with the shadows and the finishing of the picture.
 
+### A probe is a picture the renderer takes of its own scene
+
+An environment lights a scene from far away, and nothing in the scene keeps its light
+out: inside a room the walls are lit by the sky, and shiny things reflect a sky they
+cannot see. An environment probe is the cure the engines of the time had: a picture of
+everything around a point, taken from the scene itself, that stands in for the
+environment inside a box. Its harmonics light matte surfaces with the light of the
+walls around them; its cube, blurred level by level as an environment's is, is what
+shiny ones reflect - looked up where the reflection meets the box, so that a floor in a
+room reflects the wall before it rather than a wall infinitely far away (box
+projection). Probes give light that has bounced once, and nothing that moves.
+
+Decisions:
+
+- **Taken by the renderer, not baked to files.** A probe is drawn with six views of
+  the renderer itself when its scene is first drawn - a few milliseconds, once - and
+  again when it moves, when the assets are read again, and when the editor asks. A file
+  would be one more thing to keep in step with the scene it was baked from, and a
+  scene would look wrong between a change and the next bake; drawn on the spot, it is
+  what the scene is. A game pays for it in its first frames, one probe a frame: a frame
+  that took several pictures would stand out, and their views would not fit beside those
+  of the frames on their way through the GPU (`kMaxViewsInFlight`). Not on a timer, and
+  not by scripts: six views whenever something liked would be a cost nobody sees coming.
+- **One bounce.** The views that take a probe are lit by no probe: a picture that saw
+  probes would see the last picture, and light would build up from picture to picture
+  - differently for every order in which they are taken.
+- **The harmonics are worked out on the GPU.** The picture never comes back to the CPU:
+  a compute pass weighs every texel by the part of the sphere it covers and adds up, in
+  the same arithmetic `SphericalHarmonics9` has for an image.
+- **The reflections of all probes are one array of cube maps,** which the shaders that
+  light every surface read with a probe's index. That needs `imageCubeArray` of the
+  device, which every GPU the engine runs on has; the alternative - a version of every
+  lighting shader without probe reflections, for devices without it - would double the
+  shaders an exported game ships for hardware it will not meet. The engine requires it
+  instead, and says so when a device lacks it.
+- **Order is by priority and then by id,** never by how components are stored, and a
+  surface takes from each probe what the probe's weight leaves of what the probes before
+  it left: a small probe of a higher priority can be laid inside a large one, and what
+  the probes leave goes to the environment.
+
 ### Fog is a formula in the lighting, not a pass
 
 Fog takes light away on its way to the viewer and puts its own color in its place:

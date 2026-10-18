@@ -88,19 +88,38 @@ enum class RenderDebugView : uint8_t {
     /// scene whose fog no light lights. Drawn by the lighting; translucent surfaces are
     /// left out.
     FogLight,
+    /// Which environment probes light each pixel (EnvironmentProbes.h): a color for each
+    /// probe of the view, by its place among them, mixed by their shares; grey for what
+    /// the environment lights. Drawn by the lighting; translucent surfaces are left out.
+    Probes,
     /// The level of detail each mesh is drawn at (LevelOfDetail.h): the mesh itself grey,
     /// its coarser levels green, yellow, orange and red, shaded by the way they face.
     Lod,
 };
 
-inline constexpr std::array<RenderDebugView, 22> kRenderDebugViews = {
-    RenderDebugView::None,        RenderDebugView::BaseColor,      RenderDebugView::Normals,
-    RenderDebugView::Roughness,   RenderDebugView::Metallic,       RenderDebugView::Specular,
-    RenderDebugView::Occlusion,   RenderDebugView::Emissive,       RenderDebugView::Depth,
-    RenderDebugView::LightCount,  RenderDebugView::ShadowCascades, RenderDebugView::AmbientOcclusion,
-    RenderDebugView::Fog,         RenderDebugView::Motion,         RenderDebugView::LightingOnly,
-    RenderDebugView::Reflections, RenderDebugView::Wireframe,      RenderDebugView::Overdraw,
-    RenderDebugView::Focus,       RenderDebugView::LightShafts,    RenderDebugView::FogLight,
+inline constexpr std::array<RenderDebugView, 23> kRenderDebugViews = {
+    RenderDebugView::None,
+    RenderDebugView::BaseColor,
+    RenderDebugView::Normals,
+    RenderDebugView::Roughness,
+    RenderDebugView::Metallic,
+    RenderDebugView::Specular,
+    RenderDebugView::Occlusion,
+    RenderDebugView::Emissive,
+    RenderDebugView::Depth,
+    RenderDebugView::LightCount,
+    RenderDebugView::ShadowCascades,
+    RenderDebugView::AmbientOcclusion,
+    RenderDebugView::Fog,
+    RenderDebugView::Motion,
+    RenderDebugView::LightingOnly,
+    RenderDebugView::Reflections,
+    RenderDebugView::Wireframe,
+    RenderDebugView::Overdraw,
+    RenderDebugView::Focus,
+    RenderDebugView::LightShafts,
+    RenderDebugView::FogLight,
+    RenderDebugView::Probes,
     RenderDebugView::Lod,
 };
 

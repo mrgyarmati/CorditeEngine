@@ -59,6 +59,7 @@ TEST_SUITE("EditorIcons") {
         CHECK(sameIcon(entityIcon(world, entityWith<LightComponent>(world, "Lamp")), icons::kLight));
         CHECK(sameIcon(entityIcon(world, entityWith<EnvironmentComponent>(world, "Sky")), icons::kEnvironment));
         CHECK(sameIcon(entityIcon(world, entityWith<AmbientLightComponent>(world, "Fill")), icons::kEnvironment));
+        CHECK(sameIcon(entityIcon(world, entityWith<EnvironmentProbeComponent>(world, "Room")), icons::kEnvironment));
         CHECK(sameIcon(entityIcon(world, entityWith<FogComponent>(world, "Haze")), icons::kFog));
         CHECK(sameIcon(entityIcon(world, entityWith<PostProcessComponent>(world, "Grade")), icons::kPostProcess));
         CHECK(sameIcon(entityIcon(world, entityWith<MeshRendererComponent>(world, "Crate")), icons::kMesh));

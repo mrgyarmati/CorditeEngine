@@ -324,6 +324,43 @@ void drawLight(const SceneLight& light, const Vec4& color, DebugDraw& marker, De
     }
 }
 
+/// The boxes of what applies in one - a PostProcess that is not global and no camera's,
+/// an EnvironmentProbe, a Decal - into `lines`: a cube of one metre as the entity places
+/// it. Of a selected one, also where it blends, into `selection`: in metres of the world,
+/// whatever the box is scaled by.
+void drawBoxes(const World& world, Entity entity, const Mat4& placement, bool selected, DebugDraw& lines,
+               DebugDraw& selection) {
+    const Aabb cube = Aabb::fromCenterExtents(Vec3(0.0f), Vec3(0.5f));
+    // How many metres of the world one unit of the box is, along each of its axes.
+    const Vec3 axes(glm::length(Vec3(placement[0])), glm::length(Vec3(placement[1])), glm::length(Vec3(placement[2])));
+    const bool hasVolume = axes.x > 0.0f && axes.y > 0.0f && axes.z > 0.0f;
+    if (const auto* postProcess = world.tryGet<PostProcessComponent>(entity);
+        postProcess != nullptr && !postProcess->global && world.tryGet<CameraComponent>(entity) == nullptr) {
+        // Its settings fade in from outside the box.
+        lines.box(cube, placement, selected ? kSelectionColor : kVolumeColor);
+        if (selected && postProcess->blendDistance > 0.0f && hasVolume) {
+            selection.box(Aabb::fromCenterExtents(Vec3(0.0f), Vec3(0.5f) + Vec3(postProcess->blendDistance) / axes),
+                          placement, kVolumeColor);
+        }
+    }
+    if (const auto* probe = world.tryGet<EnvironmentProbeComponent>(entity)) {
+        // A probe has faded in fully inside the faces.
+        lines.box(cube, placement, selected ? kSelectionColor : kVolumeColor);
+        if (selected && probe->blendDistance > 0.0f && hasVolume) {
+            const Vec3 inner = glm::max(Vec3(0.5f) - Vec3(probe->blendDistance) / axes, Vec3(0.0f));
+            selection.box(Aabb::fromCenterExtents(Vec3(0.0f), inner), placement, kVolumeColor);
+        }
+    }
+    if (world.tryGet<DecalComponent>(entity) != nullptr) {
+        // And the way a decal is projected: from the middle of the face it sets out from to
+        // the middle of the far one.
+        const Vec4 color = selected ? kSelectionColor : kDecalColor;
+        lines.box(cube, placement, color);
+        lines.line(Vec3(placement * Vec4(0.0f, 0.0f, 0.5f, 1.0f)), Vec3(placement * Vec4(0.0f, 0.0f, -0.5f, 1.0f)),
+                   color);
+    }
+}
+
 } // namespace
 
 std::string_view nameOf(ViewportCamera camera) {
@@ -391,29 +428,7 @@ void ViewportPanel::collectLines(EditorContext& context, const CameraView& view)
             drawLight(makeSceneLight(*light, placement), selected ? kSelectionColor : kLightColor, m_sceneLines,
                       selected ? &m_selectionLines : nullptr);
         }
-        if (const auto* postProcess = world.tryGet<PostProcessComponent>(entity);
-            postProcess != nullptr && !postProcess->global && world.tryGet<CameraComponent>(entity) == nullptr) {
-            // The box its settings apply in: a cube of one metre, as the entity places
-            // it. Selected, also how far outside it they fade in - in metres of the
-            // world, whatever the box is scaled by.
-            m_sceneLines.box(Aabb::fromCenterExtents(Vec3(0.0f), Vec3(0.5f)), placement,
-                             selected ? kSelectionColor : kVolumeColor);
-            const Vec3 axes(glm::length(Vec3(placement[0])), glm::length(Vec3(placement[1])),
-                            glm::length(Vec3(placement[2])));
-            if (selected && postProcess->blendDistance > 0.0f && axes.x > 0.0f && axes.y > 0.0f && axes.z > 0.0f) {
-                m_selectionLines.box(
-                    Aabb::fromCenterExtents(Vec3(0.0f), Vec3(0.5f) + Vec3(postProcess->blendDistance) / axes),
-                    placement, kVolumeColor);
-            }
-        }
-        if (world.tryGet<DecalComponent>(entity) != nullptr) {
-            // The box it lands in, and the way it is projected: from the middle of the face
-            // it sets out from to the middle of the far one.
-            const Vec4 color = selected ? kSelectionColor : kDecalColor;
-            m_sceneLines.box(Aabb::fromCenterExtents(Vec3(0.0f), Vec3(0.5f)), placement, color);
-            m_sceneLines.line(Vec3(placement * Vec4(0.0f, 0.0f, 0.5f, 1.0f)),
-                              Vec3(placement * Vec4(0.0f, 0.0f, -0.5f, 1.0f)), color);
-        }
+        drawBoxes(world, entity, placement, selected, m_sceneLines, m_selectionLines);
         if (selected) {
             drawSelected(context, entity, placement, shapes, m_selectionLines);
         } else if (m_showColliders) {

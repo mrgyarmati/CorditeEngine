@@ -6,7 +6,9 @@
 #include "cordite/core/Log.h"
 #include "cordite/core/StringUtils.h"
 #include "cordite/math/Frustum.h"
+#include "cordite/renderer/FramePacer.h"
 #include "cordite/renderer/RenderComponents.h"
+#include "cordite/renderer/ViewConstants.h"
 #include "cordite/world/Components.h"
 
 #include <algorithm>
@@ -20,6 +22,20 @@
 
 namespace cordite {
 namespace {
+
+/// The most views a program draws of its own in a frame: a game's one, or an editor's
+/// viewport and the preview of an asset.
+constexpr uint32_t kMaxProgramViews = 2;
+
+// Every view of a frame - the pictures of a probe, the scene captures, and the program's
+// own - rewrites the per-view constants, and each version stays in use until the GPU has
+// drawn the frame. FramePacer lets kDefaultFramesInFlight frames wait for the GPU while the
+// next is recorded, and NVRHI learns which have finished once a frame: that many and one
+// more have to fit.
+static_assert(kMaxViewsInFlight >=
+                  (FramePacer::kDefaultFramesInFlight + 1) *
+                      (kMaxProbeCapturesPerFrame * kCubeFaceCount + kMaxSceneCaptures + kMaxProgramViews),
+              "the views of the frames on their way through the GPU must have room in kMaxViewsInFlight");
 
 ShaderRequest pixelShader(const char* path, const char* entryPoint) {
     return {.path = path, .entryPoint = entryPoint, .stage = ShaderStage::Pixel};
@@ -102,6 +118,9 @@ DeferredLightingMode lightingModeOf(RenderDebugView debugView) {
     }
     if (debugView == RenderDebugView::FogLight) {
         return DeferredLightingMode::FogLight;
+    }
+    if (debugView == RenderDebugView::Probes) {
+        return DeferredLightingMode::Probes;
     }
     return DeferredLightingMode::Lit;
 }
@@ -261,6 +280,8 @@ SceneRenderStatistics& SceneRenderStatistics::operator+=(const SceneRenderStatis
     shadowAtlasBytes = std::max(shadowAtlasBytes, other.shadowAtlasBytes);
     environmentsMade += other.environmentsMade;
     environmentBytes = std::max(environmentBytes, other.environmentBytes);
+    probeCaptures += other.probeCaptures;
+    probeBytes = std::max(probeBytes, other.probeBytes);
     ambientOcclusionBytes = std::max(ambientOcclusionBytes, other.ambientOcclusionBytes);
     depthOfFieldBytes = std::max(depthOfFieldBytes, other.depthOfFieldBytes);
     lightShaftBytes = std::max(lightShaftBytes, other.lightShaftBytes);
@@ -315,6 +336,7 @@ Result<std::unique_ptr<SceneRenderer>> SceneRenderer::create(nvrhi::IDevice* dev
     CORDITE_TRY_ASSIGN(DecalPass decals, DecalPass::create(device, shaders, viewLayout, materialLayout));
     CORDITE_TRY_ASSIGN(AmbientOcclusionPass occlusion, AmbientOcclusionPass::create(device, shaders, viewLayout));
     CORDITE_TRY_ASSIGN(VolumetricFogPass fogLight, VolumetricFogPass::create(device, shaders, viewLayout));
+    CORDITE_TRY_ASSIGN(EnvironmentProbes probes, EnvironmentProbes::create(device, shaders));
     CORDITE_TRY_ASSIGN(LightShaftPass lightShafts, LightShaftPass::create(device, shaders, viewLayout));
     CORDITE_TRY_ASSIGN(DepthOfFieldPass depthOfField, DepthOfFieldPass::create(device, shaders, viewLayout));
     CORDITE_TRY_ASSIGN(MotionBlurPass motionBlur, MotionBlurPass::create(device, shaders, viewLayout));
@@ -334,6 +356,7 @@ Result<std::unique_ptr<SceneRenderer>> SceneRenderer::create(nvrhi::IDevice* dev
                   .decals = std::move(decals),
                   .occlusion = std::move(occlusion),
                   .fogLight = std::move(fogLight),
+                  .probes = std::move(probes),
                   .lightShafts = std::move(lightShafts),
                   .depthOfField = std::move(depthOfField),
                   .motionBlur = std::move(motionBlur),
@@ -485,6 +508,63 @@ FogVolumeGrid SceneRenderer::prepareFogLight(SceneTargets& targets, const SceneR
     return grid;
 }
 
+void SceneRenderer::captureProbes(nvrhi::ICommandList* commandList, const World& world,
+                                  const SceneRenderSettings& settings) {
+    const std::vector<ProbeCapture> captures = m_passes.probes.gather(world, m_resources->assetRevision());
+    if (captures.empty()) {
+        return;
+    }
+    if (!m_probeTargets.isValid()) {
+        Result<SceneTargets> made = SceneTargets::create(m_device, UVec2(kProbeFaceSize), "Probe");
+        if (made) {
+            m_probeTargets = std::move(*made);
+        }
+    }
+    if (!m_probeTargets.isValid() || !m_passes.probes.prepareCapture()) {
+        if (!m_reportedProbes) {
+            CORDITE_LOG_ERROR("Renderer", "no environment probe is taken: what their pictures are drawn into cannot "
+                                          "be made");
+            m_reportedProbes = true;
+        }
+        return;
+    }
+    // The scene as a game's view shows it, but not lit by the probes, and the light as it
+    // was worked out: unfinished, still, and of no camera of the scene.
+    SceneRenderSettings captured = settings;
+    captured.debugView = RenderDebugView::None;
+    captured.defaultLighting = false;
+    captured.postProcessQuality = PostProcessQuality::Off;
+    captured.antiAliasing = AntiAliasing::Off;
+    captured.motionBlur = false;
+    captured.environmentProbes = false;
+    captured.deltaSeconds = 0.0f;
+    for (const ProbeCapture& capture : captures) {
+        captured.viewEntity = capture.id;
+        for (uint32_t face = 0; face < kCubeFaceCount; ++face) {
+            render(commandList, world, probeFaceView(capture.position, face), m_probeTargets, captured);
+            m_passes.probes.copyFace(commandList, m_probeTargets.sceneColor(), face);
+        }
+        // Its reflections, blurred level by level from the picture as an environment's are;
+        // then its harmonics. Written between views: the set of a view holds both.
+        m_passes.probes.makeLevels(commandList);
+        nvrhi::ITexture* radiance = m_passes.probes.prepareRadiance(commandList, capture.slot);
+        const bool reflects =
+            radiance != nullptr &&
+            m_passes.environments.prefilterCube(commandList, m_passes.probes.captureCube(), radiance, capture.slot);
+        m_passes.probes.project(commandList, capture, reflects);
+        ++m_frameStatistics.probeCaptures;
+    }
+}
+
+std::vector<GpuEnvironmentProbe> SceneRenderer::viewProbes(const World& world, const CameraView& view,
+                                                           const SceneRenderSettings& settings) const {
+    return settings.environmentProbes ? m_passes.probes.viewList(world, view) : std::vector<GpuEnvironmentProbe>{};
+}
+
+void SceneRenderer::retakeProbes() {
+    m_passes.probes.capture();
+}
+
 void SceneRenderer::assignCookies() {
     for (size_t index = 0; index < m_clusters.lights.size(); ++index) {
         GpuLight& light = m_clusters.lights[index];
@@ -603,6 +683,7 @@ void SceneRenderer::render(nvrhi::ICommandList* commandList, const World& world,
     m_resources->flushUploads();
     m_statistics.environmentsMade = m_passes.environments.bakeCount() - environmentsBefore;
     m_statistics.environmentBytes = m_passes.environments.byteSize();
+    m_statistics.probeBytes = m_passes.probes.byteSize();
 
     RenderDebugView debugView = settings.debugView;
     if (debugView == RenderDebugView::Wireframe && !m_supportsWireframe) {
@@ -641,6 +722,8 @@ void SceneRenderer::render(nvrhi::ICommandList* commandList, const World& world,
     if (showsLightOfLights(debugView)) {
         drawShadows(commandList, shadowSettings);
     }
+    // The probes that light the view where the environment would.
+    const std::vector<GpuEnvironmentProbe> probes = viewProbes(world, view, settings);
     // What lights throw into the fog is worked out over a grid of the view, before
     // anything is lit, in volumes of its targets that the view's bindings hold.
     const FogVolumeGrid fogGrid = prepareFogLight(targets, settings, debugView);
@@ -662,7 +745,10 @@ void SceneRenderer::render(nvrhi::ICommandList* commandList, const World& world,
         {.environment = environment != nullptr ? environment : &m_passes.environments.none(),
          .intensity = environment != nullptr ? surroundings.intensity : 0.0f,
          .rotation = surroundings.rotation,
-         .visible = surroundings.visible},
+         .visible = surroundings.visible,
+         .probes = probes,
+         .probeHarmonics = m_passes.probes.harmonics(),
+         .probeRadiance = m_passes.probes.radiance()},
         fogGrid.isEmpty() ? nullptr : targets.fogVolume());
     m_drawList.build(commandList, m_draws, view.position, view.forward);
     nvrhi::IBindingSet* viewBindings = m_viewBindings.bindings();
@@ -846,6 +932,8 @@ void SceneRenderer::renderCaptures(nvrhi::ICommandList* commandList, const World
     ++m_captureCalls;
     // Before a target is asked for: the resources of this frame.
     m_resources->beginFrame();
+    // The pictures of the probes first: the views of the scene captures are lit by them.
+    captureProbes(commandList, world, settings);
 
     // By the ids of their entities: the same captures are left out on every run.
     std::vector<std::pair<Uuid, Entity>> captures;

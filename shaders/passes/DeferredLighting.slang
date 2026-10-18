@@ -17,7 +17,8 @@
 // with REFLECTIONS_ONLY, for the one that shows what there is to reflect: every surface
 // a perfect mirror, lit by its surroundings alone. And a fourth time with FOG_LIGHT_ONLY,
 // for the one that shows what the lights throw towards the viewer from the fog in front
-// of each pixel (common/VolumetricFog.slang), alone, over black.
+// of each pixel (common/VolumetricFog.slang), alone, over black. And a fifth time with
+// PROBES_ONLY, for the one that shows which environment probes light each surface.
 
 #include "common/Fullscreen.slang"
 #include "common/GBuffer.slang"
@@ -88,7 +89,9 @@ float4 deferredLightingPixel(FullscreenVaryings input) : SV_Target0
     if (depth <= 0.0)
     {
         const float3 direction = viewDirectionAt(uv);
-#if defined(FOG_LIGHT_ONLY)
+#if defined(PROBES_ONLY)
+        return float4(0.0, 0.0, 0.0, 1.0);
+#elif defined(FOG_LIGHT_ONLY)
         return float4(storableLight(fogLightTowards(uv, direction)), 1.0);
 #else
         float3 light = backgroundColor;
@@ -110,7 +113,9 @@ float4 deferredLightingPixel(FullscreenVaryings input) : SV_Target0
     }
 
     const float3 position = worldPositionFromDepth(uv, depth, inverseViewProjection);
-#if defined(FOG_LIGHT_ONLY)
+#if defined(PROBES_ONLY)
+    return float4(probeSharesColor(position), 1.0);
+#elif defined(FOG_LIGHT_ONLY)
     return float4(storableLight(fogLightBefore(uv, position)), 1.0);
 #else
     Surface surface = decodeGBuffer(gbufferBaseColor.Load(pixel), gbufferNormal.Load(pixel).xy,

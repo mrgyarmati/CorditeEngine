@@ -19,6 +19,7 @@
 #pragma once
 
 #include "common/Brdf.slang"
+#include "common/SphericalHarmonics.slang"
 #include "common/View.slang"
 
 TextureCube<float4> environmentRadiance : register(t5, space0);
@@ -33,24 +34,6 @@ float3 towardsEnvironment(float3 direction)
     const float sine = environmentTurn.x;
     const float cosine = environmentTurn.y;
     return float3(direction.x * cosine - direction.z * sine, direction.y, direction.z * cosine + direction.x * sine);
-}
-
-// The nine spherical harmonics at a unit direction. Matches sphericalHarmonicsBasis()
-// in engine/cordite/math/SphericalHarmonics.cpp.
-void sphericalHarmonicsBasis(float3 direction, out float basis[9])
-{
-    const float x = direction.x;
-    const float y = direction.y;
-    const float z = direction.z;
-    basis[0] = 0.282095;
-    basis[1] = 0.488603 * y;
-    basis[2] = 0.488603 * z;
-    basis[3] = 0.488603 * x;
-    basis[4] = 1.092548 * x * y;
-    basis[5] = 1.092548 * y * z;
-    basis[6] = 0.315392 * (3.0 * z * z - 1.0);
-    basis[7] = 1.092548 * x * z;
-    basis[8] = 0.546274 * (x * x - y * y);
 }
 
 // What a white, matte surface that faces `normal` gives off under the environment.
@@ -104,21 +87,156 @@ float3 reflectionDirection(float3 normal, float3 toViewer, float roughness)
     return normalizeOr(lerp(normal, mirrored, (1.0 - alpha) * (sqrt(1.0 - alpha) + alpha)), normal);
 }
 
-// The light leaving a surface towards the viewer that comes from the environment:
-// scattered inside it, and reflected off it.
+// The environment probes that light the view (renderer/EnvironmentProbes.h): pictures of
+// everything around points of the scene, which stand in for the environment in their
+// boxes. `probeCount` of them at t9, the highest priority first; their harmonics at t10,
+// nine a probe; their reflections at t11, a cube a probe, read with the sampler of the
+// environment's. Matches GpuEnvironmentProbe.
+struct EnvironmentProbe
+{
+    // From the world to the box's own space, in which the box is the cube from -0.5 to 0.5.
+    float4x4 worldToBox;
+    // How many metres one unit of the box's own space is, along each of its axes.
+    float3 boxSize;
+    // How far inside its faces the probe fades to nothing, in metres.
+    float blendDistance;
+    // Where its picture was taken.
+    float3 capturePosition;
+    // Scales its light.
+    float intensity;
+    // Where its harmonics are - from slot * 9 on - and its cube of reflections.
+    uint slot;
+    // kProbeBoxProjection and kProbeReflects.
+    uint flags;
+    uint probePadding1;
+    uint probePadding2;
+};
+
+StructuredBuffer<EnvironmentProbe> environmentProbes : register(t9, space0);
+StructuredBuffer<float4> probeHarmonics : register(t10, space0);
+TextureCubeArray<float4> probeRadiance : register(t11, space0);
+
+// Match kProbeBoxProjection, kProbeReflects and kProbeLevels.
+static const uint kProbeBoxProjection = 1;
+static const uint kProbeReflects = 2;
+static const float kProbeLastLevel = 5.0;
+
+// How much of the light from all around `position` takes from `probe`, before the probes
+// above it have taken theirs: all of it inside the box and at least the blend distance
+// from each face, falling evenly to nothing at the faces; nothing outside. Matches
+// probeWeight() in renderer/EnvironmentProbes.cpp.
+float probeWeight(EnvironmentProbe probe, float3 position)
+{
+    const float3 local = mul(probe.worldToBox, float4(position, 1.0)).xyz;
+    const float3 inside = (0.5 - abs(local)) * probe.boxSize;
+    const float nearest = min(inside.x, min(inside.y, inside.z));
+    // Also when it is no number.
+    if (!(nearest >= 0.0))
+    {
+        return 0.0;
+    }
+    return probe.blendDistance > 0.0 ? saturate(nearest / probe.blendDistance) : 1.0;
+}
+
+// What a white, matte surface that faces `normal` gives off under the picture of `probe`.
+float3 probeDiffuseLight(EnvironmentProbe probe, float3 normal)
+{
+    float basis[9];
+    sphericalHarmonicsBasis(normal, basis);
+    float3 light = float3(0.0);
+    for (uint index = 0; index < kSphericalHarmonicsCount; ++index)
+    {
+        light += probeHarmonics[probe.slot * kSphericalHarmonicsCount + index].rgb * basis[index];
+    }
+    // Nine numbers overshoot beside a small, bright light: never less than nothing.
+    return max(light, 0.0) * probe.intensity;
+}
+
+// Which way to look up what a surface at `position` reflects in the picture of `probe`,
+// for a reflection that leaves it along `direction`: with box projection, towards where the
+// reflection meets the box, seen from where the picture was taken - the wall the floor of a
+// room reflects is where it is, not infinitely far away. The surface is inside the box.
+float3 probeReflectionDirection(EnvironmentProbe probe, float3 position, float3 direction)
+{
+    if ((probe.flags & kProbeBoxProjection) == 0)
+    {
+        return direction;
+    }
+    // In the box's own space, where it is the cube from -0.5 to 0.5, the line leaves it
+    // through the face it goes towards first. The space is the world moved, turned and
+    // stretched, so how far along the line that is holds in the world as well.
+    const float3 origin = mul(probe.worldToBox, float4(position, 1.0)).xyz;
+    const float3 along = mul((float3x3)probe.worldToBox, direction);
+    // A line that does not go along an axis never reaches its faces.
+    const float3 safe = float3(abs(along.x) > 1.0e-6 ? along.x : 1.0e-6, abs(along.y) > 1.0e-6 ? along.y : 1.0e-6,
+                               abs(along.z) > 1.0e-6 ? along.z : 1.0e-6);
+    const float3 toFaces = (sign(safe) * 0.5 - origin) / safe;
+    const float leaves = max(min(toFaces.x, min(toFaces.y, toFaces.z)), 0.0);
+    return normalizeOr(position + direction * leaves - probe.capturePosition, direction);
+}
+
+// The light the picture of `probe` sends towards a surface at `position` from around
+// `direction`, as a surface of the given roughness sees it.
+float3 probeReflectedLight(EnvironmentProbe probe, float3 position, float3 direction, float roughness)
+{
+    const float3 towards = probeReflectionDirection(probe, position, direction);
+    return probeRadiance.SampleLevel(environmentSampler, float4(towards, float(probe.slot)), roughness * kProbeLastLevel)
+               .rgb *
+           probe.intensity;
+}
+
+// For the debug view of probes (RenderDebugView::Probes): a color for each probe of the
+// view, by its place among them, mixed by the shares of the probes that light `position`;
+// grey for what the environment lights.
+float3 probeSharesColor(float3 position)
+{
+    const float3 colors[8] = {float3(1.0, 0.2, 0.2), float3(0.2, 1.0, 0.2), float3(0.2, 0.4, 1.0),
+                              float3(1.0, 1.0, 0.2), float3(1.0, 0.2, 1.0), float3(0.2, 1.0, 1.0),
+                              float3(1.0, 0.6, 0.2), float3(0.6, 0.2, 1.0)};
+    float left = 1.0;
+    float3 color = float3(0.0);
+    for (uint index = 0; index < probeCount && left > 0.0; ++index)
+    {
+        const float share = probeWeight(environmentProbes[index], position) * left;
+        color += colors[index % 8] * share;
+        left -= share;
+    }
+    return color + float3(0.25) * left;
+}
+
+// The light leaving a surface towards the viewer that comes from all around it: scattered
+// inside it, and reflected off it. Both are taken from the probes whose boxes it is in -
+// each its share of what the probes above it left - and the rest from the environment.
 float3 shadeEnvironment(Surface surface, float3 toViewer)
 {
-    if (environmentIntensity <= 0.0)
+    const float roughness = saturate(surface.roughness);
+    const float3 direction = reflectionDirection(surface.normal, toViewer, roughness);
+    float left = 1.0;
+    float3 diffuseLight = float3(0.0);
+    float3 reflectedLight = float3(0.0);
+    for (uint index = 0; index < probeCount && left > 0.0; ++index)
     {
-        return float3(0.0);
+        const EnvironmentProbe probe = environmentProbes[index];
+        const float share = probeWeight(probe, surface.position) * left;
+        if (share > 0.0)
+        {
+            diffuseLight += probeDiffuseLight(probe, surface.normal) * share;
+            // One whose reflections could not be made reflects the environment.
+            reflectedLight += ((probe.flags & kProbeReflects) != 0
+                                   ? probeReflectedLight(probe, surface.position, direction, roughness)
+                                   : environmentReflectedLight(direction, roughness)) *
+                              share;
+            left -= share;
+        }
+    }
+    if (environmentIntensity > 0.0)
+    {
+        diffuseLight += environmentDiffuseLight(surface.normal) * left;
+        reflectedLight += environmentReflectedLight(direction, roughness) * left;
     }
     const float nDotV = max(dot(surface.normal, toViewer), 1.0e-4);
-    const float roughness = saturate(surface.roughness);
     const float3 reflectance = environmentReflectance(specularColor(surface), roughness, nDotV);
-    const float3 diffuse = environmentDiffuseLight(surface.normal) * diffuseColor(surface);
-    const float3 reflected =
-        environmentReflectedLight(reflectionDirection(surface.normal, toViewer, roughness), roughness);
     // Like the light of a sky and a ground (shadeHemisphere): both parts are dimmed
     // where the material says less of the surroundings is seen, in its crevices.
-    return (diffuse + reflected * reflectance) * surface.occlusion;
+    return (diffuseLight * diffuseColor(surface) + reflectedLight * reflectance) * surface.occlusion;
 }

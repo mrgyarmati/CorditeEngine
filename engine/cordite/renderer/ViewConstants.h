@@ -21,9 +21,10 @@
 
 namespace cordite {
 
-/// How many views can be on their way through the GPU at once: a few views in each of
-/// a few frames (FramePacer keeps it to a few). The constants are rewritten for every
-/// one of them, so whatever writes them keeps this many versions of its buffer.
+/// How many views can be on their way through the GPU at once: the views of the frames
+/// FramePacer lets wait for it, and of the one being recorded meanwhile - SceneRenderer.cpp
+/// adds up the most a frame has. The constants are rewritten for every one of them, so
+/// whatever writes them keeps this many versions of its buffer.
 inline constexpr uint32_t kMaxViewsInFlight = 64;
 
 struct ViewConstants {
@@ -66,7 +67,8 @@ struct ViewConstants {
     /// 1 when the ambient occlusion of the view's targets holds this frame's, and the
     /// lighting is to read it.
     float screenOcclusion;
-    float padding0;
+    /// How many environment probes light the view (EnvironmentProbes.h): 0 for none.
+    uint32_t probeCount;
     /// What the environment lights a matte surface with, as nine spherical harmonics
     /// (rgb; the fourth number is not used).
     std::array<Vec4, 9> environmentDiffuse;

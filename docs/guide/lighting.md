@@ -74,6 +74,25 @@ about the vertical axis, and `visible` off keeps the light and reflections but n
 Import an `.hdr` file into the assets and pick it as the environment's `texture`. A world
 uses one environment.
 
+## Rooms: EnvironmentProbe
+
+The environment lights everything, wherever it is: inside a room the walls are lit by the
+sky, and a shiny barrel reflects a sky it could not see. An **EnvironmentProbe** component
+takes a picture of everything around the middle of its entity's box - scale the entity to
+the room - and inside the box that picture stands in for the environment: matte surfaces get
+the light of the walls around them, shiny ones reflect the room. Towards the faces of the box
+it fades into what is around it over `blendDistance`; `intensity` scales its light;
+`boxProjection` looks up what a surface reflects where its reflection meets the box, which is
+right for a box that is the room it is in. Where boxes overlap, the probe of the higher
+`priority` wins - a small room inside a large yard. The viewport draws the box, and for a
+selected probe also where it has faded in fully, `blendDistance` inside the faces.
+
+The picture is taken when the scene is first drawn, and again when the probe moves or the
+assets are read again. What is around it does not retake it: when a wall was moved or a light
+turned on, use View > Capture probes (`probes.capture`). The picture is the scene lit by its
+lights and its environment, not by probes: light bounces once. The render view "Probes" shows
+which probe lights each surface.
+
 ## Fog
 
 A **Fog** component puts haze between the viewer and everything seen: the farther away, the
@@ -186,7 +205,7 @@ also change to their coarser levels of detail sooner.
 View > Render view shows the channels of the renderer instead of the finished picture: base
 color, normals, roughness, metallic, specular, occlusion, emissive, depth, how many lights
 each pixel has, the shadow cascades, ambient occlusion, fog, lighting only, reflections,
-wireframe, overdraw, depth of field, light shafts, the fog's light, levels of detail and motion
+wireframe, overdraw, depth of field, light shafts, the fog's light, the probes, levels of detail and motion
 (`viewport.debugView`
 for scripts and agents). Use them to find out why something looks the way it does - a wrong normal map, a
 light with too small a range, a surface outside every cascade. View > Statistics shows what

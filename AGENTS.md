@@ -137,7 +137,7 @@ by accident.
 | `rhi` | `core`, `math`, `platform` | Vulkan device, swapchain and texture readback over NVRHI |
 | `shaders` | `core` | Shader requests and permutation keys, disk cache, `ShaderLibrary` |
 | `shader_compiler` | `core`, `shaders` | Slang to SPIR-V compiler, and the cache of the engine's shaders compiled ahead that an exported game ships (`EngineShaderCache.h`); not linked into exported games |
-| `renderer` | `core`, `math`, `assets`, `world`, `animation`, `rhi`, `shaders` | The scene renderer and what it is made of: GPU copies of assets, the mesh passes, the G-buffer and its lighting, the lights of a world and the clusters they are sorted into, their cookies, their shadow maps and the atlas those share, what finishes the picture (exposure, bloom, tone mapping, grading), the environment (the sky and what it lights), ambient occlusion from the screen, fog and what lights throw into it, decals, levels of detail, scene captures, the debug views, scene targets, the `MeshRenderer`, `Light`, `AmbientLight`, `Environment`, `Fog`, `Decal`, `SceneCapture` and `PostProcess` components; camera views, debug lines, GPU timing, GPU shader management |
+| `renderer` | `core`, `math`, `assets`, `world`, `animation`, `rhi`, `shaders` | The scene renderer and what it is made of: GPU copies of assets, the mesh passes, the G-buffer and its lighting, the lights of a world and the clusters they are sorted into, their cookies, their shadow maps and the atlas those share, what finishes the picture (exposure, bloom, tone mapping, grading), the environment (the sky and what it lights), environment probes (pictures of the scene that light it in the environment's place), ambient occlusion from the screen, fog and what lights throw into it, decals, levels of detail, scene captures, the debug views, scene targets, the `MeshRenderer`, `Light`, `AmbientLight`, `Environment`, `EnvironmentProbe`, `Fog`, `Decal`, `SceneCapture` and `PostProcess` components; camera views, debug lines, GPU timing, GPU shader management |
 | `ui` | `core`, `math`, `platform`, `rhi`, `shaders`, `renderer` | The immediate-mode interface: the Dear ImGui context and its NVRHI renderer; its typefaces and icons, compiled in; its themes, and the widgets it draws the same way everywhere |
 | `engine` | all of the above but `shader_compiler` | `Engine`: owns the subsystems, the assets, the world and the interface, and runs the frame loop; projects; a game made of a project (`Game`); placing models; checking the assets a scene uses |
 | `editor` | `engine` and below, `shader_compiler` | The editor: the scene document, undoable actions, scene and asset commands, panels, `EditorApp`; making a game of a project (`GameExport`) (not linked into exported games) |
@@ -367,8 +367,9 @@ Vulkan directly. Step-by-step guide for adding a pass:
   `common/View.slang` at `b0`, the lights of `common/Lights.slang` at `t0` to `t2`,
   the shadow maps of `common/Shadows.slang` at `t3`, `t4` and `s0`, the
   environment of `common/Environment.slang` at `t5`, `t6`, `s1` and `s2`, the
-  cookies of the lights at `t7` and `s3`, and what lights throw into the fog
-  (`common/VolumetricFog.slang`) at `t8` and `s4`), space 1 the
+  cookies of the lights at `t7` and `s3`, what lights throw into the fog
+  (`common/VolumetricFog.slang`) at `t8` and `s4`, and the environment probes at `t9`
+  to `t11`), space 1 the
   material's in a mesh pass (`materials/Material.slang`; call `evaluateSurface`, never
   sample material textures directly) or the G-buffer's in a pass that reads it
   (`GBufferBindings`: its four targets, the depth, the ambient occlusion at `t5` and
@@ -508,8 +509,34 @@ Vulkan directly. Step-by-step guide for adding a pass:
   the sky, which the deferred lighting draws where the depth says nothing was drawn.
   A view without an environment binds `EnvironmentMaps::none()` and an intensity of
   zero. Nothing in a scene blocks the light of its environment; everything that comes
-  from all around goes through `shadeSurroundings`, which is where what does block it
-  will be asked.
+  from all around goes through `shadeSurroundings`, where environment probes stand in
+  for the environment inside their boxes.
+- **An environment probe is a picture of the scene that lights it in the environment's
+  place** (`EnvironmentProbeComponent`, `EnvironmentProbes.h`): taken from the middle of
+  its entity's box by six views of `probeFaceView()`, unfinished and lit by no probe -
+  light bounces once - and of that come a cube blurred level by level for what is
+  reflected (`EnvironmentMaps::prefilterCube`, from levels made on the GPU) and nine
+  spherical harmonics for what matte surfaces get, projected by a compute pass. A cube
+  map's faces are left-handed: a camera's picture is turned left to right as it is
+  copied in (`copyFace`), and `EnvironmentProbeTests` holds a mark on every wall of a
+  room to where it must be. The pictures are taken by `SceneRenderer::renderCaptures`,
+  before any view: when a probe is new, when its entity has moved (compared exactly),
+  when the assets are read again and when asked (`probes.capture`) - never on a timer
+  or by a script - and at most `kMaxProbeCapturesPerFrame` in a frame, because each is
+  six views of the few that share `kMaxViewsInFlight`: the views of the frames that wait
+  for the GPU and of the one being recorded, which a `static_assert` in
+  `SceneRenderer.cpp` adds up, so that a number raised past what fits does not compile.
+  NVRHI says a buffer has too few versions only when the GPU falls that far behind,
+  which no test can count on. Nothing is written back to the
+  world. A view takes the probes whose boxes it sees, the highest priority first and
+  then by id, at most `kMaxViewProbes`; a surface takes from each what its weight there
+  leaves of what the ones before it left, and from the environment the rest - both for
+  matte light and for reflections, which are looked up where they meet the box
+  (`probeReflectionDirection`, written down twice with `common/Environment.slang`, like
+  `probeWeight`). The reflections of every probe are one array of cube maps, which is
+  why the renderer requires `imageCubeArray` of the device (`GraphicsDevice.cpp`): the
+  shaders that light every surface read it. The picture and its levels are written only
+  between views - the set of a view holds both.
 - **Which direction is where in an image of everything around is written down twice**:
   `equirectUv` in `math/Equirectangular.h` and in `common/Math.slang`. The middle of the
   image is -Z, +X a quarter of the width to its right, the top row +Y.
@@ -2074,3 +2101,9 @@ body explaining what changed and why. One logical change per commit.
   that is an absolute tolerance of about `e`, not a share: `Approx(0.35).epsilon(0.1)`
   passed 0.49, and a test that was there to catch a missing factor of 0.7 did not. Write
   the tolerance itself - `CHECK(std::abs(a - b) < 0.03f)` - or say `.scale(0)`.
+- Which of two numbers a GPU's `min()` and `max()` give when one is not a number is left
+  open (SPIR-V's `FMin`), where C++'s `std::min` and a test such as `!(x >= 0)` follow
+  rules of their own: code that is safe on the CPU because every comparison with such a
+  number is false may light a pixel on the GPU. What is sent to the GPU is made of numbers
+  first - the matrix of a probe's box of no size is replaced (`gpuProbeOf`), not left to
+  the test in the shader.

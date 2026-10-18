@@ -44,15 +44,16 @@ struct Components {
 TEST_SUITE("RenderComponents") {
     TEST_CASE("the renderer registers its components under the names scene files use") {
         const Components components;
-        REQUIRE(components.registry.components().size() == 8);
+        REQUIRE(components.registry.components().size() == 9);
         CHECK(components.registry.components()[0]->type.name() == "MeshRenderer");
         CHECK(components.registry.components()[1]->type.name() == "Light");
         CHECK(components.registry.components()[2]->type.name() == "AmbientLight");
         CHECK(components.registry.components()[3]->type.name() == "Environment");
-        CHECK(components.registry.components()[4]->type.name() == "Fog");
-        CHECK(components.registry.components()[5]->type.name() == "Decal");
-        CHECK(components.registry.components()[6]->type.name() == "SceneCapture");
-        CHECK(components.registry.components()[7]->type.name() == "PostProcess");
+        CHECK(components.registry.components()[4]->type.name() == "EnvironmentProbe");
+        CHECK(components.registry.components()[5]->type.name() == "Fog");
+        CHECK(components.registry.components()[6]->type.name() == "Decal");
+        CHECK(components.registry.components()[7]->type.name() == "SceneCapture");
+        CHECK(components.registry.components()[8]->type.name() == "PostProcess");
         for (const ComponentDescriptor* descriptor : components.registry.components()) {
             CAPTURE(descriptor->type.name());
             CHECK(descriptor->traits.optional);
@@ -433,6 +434,57 @@ TEST_SUITE("RenderComponents") {
         CHECK(problems[0].entity == bulb);
         CHECK(problems[0].message.find("cookie") != std::string::npos);
         CHECK(problems[0].message.find("point light") != std::string::npos);
+    }
+
+    TEST_CASE(
+        "an environment probe whose box has no size is a problem of the scene, also when its parent flattens it") {
+        World world;
+        const Entity room = world.createEntity("Room");
+        world.transform(room).scale = Vec3(6.0f, 3.0f, 8.0f);
+        world.add<EnvironmentProbeComponent>(room);
+        CHECK(findRenderProblems(world).empty());
+
+        const Entity flat = world.createEntity("Flat");
+        world.transform(flat).scale = Vec3(4.0f, 0.0f, 4.0f);
+        world.add<EnvironmentProbeComponent>(flat);
+        const Entity floor = world.createEntity("Floor");
+        world.transform(floor).scale = Vec3(1.0f, 0.0f, 1.0f);
+        const Entity under = world.createEntity("Under the floor");
+        world.add<EnvironmentProbeComponent>(under);
+        REQUIRE(world.setParent(under, floor));
+        const std::vector<RenderProblem> problems = findRenderProblems(world);
+        REQUIRE(problems.size() == 2);
+        CHECK(problems[0].entity == flat);
+        CHECK(problems[1].entity == under);
+        CHECK(problems[0].message.find("EnvironmentProbe") != std::string::npos);
+        CHECK(problems[0].message.find("no size") != std::string::npos);
+    }
+
+    TEST_CASE("an environment probe's light, blend and order are described, with their ranges") {
+        const Components components;
+        const TypeInfo& type = components.type("EnvironmentProbe");
+        const EnvironmentProbeComponent fresh;
+        CHECK(fresh.blendDistance == 1.0f);
+        CHECK(fresh.intensity == 1.0f);
+        CHECK(fresh.priority == 0);
+        CHECK(fresh.boxProjection);
+        const EnvironmentProbeComponent probe{
+            .blendDistance = 0.5f, .intensity = 2.0f, .priority = -3, .boxProjection = false};
+        const Json saved = type.toJson(&probe);
+        CHECK(saved == json(R"({"blendDistance": 0.5, "intensity": 2.0, "priority": -3, "boxProjection": false})"));
+        EnvironmentProbeComponent loaded;
+        REQUIRE(type.fromJson(&loaded, saved).has_value());
+        CHECK(loaded.blendDistance == 0.5f);
+        CHECK(loaded.intensity == 2.0f);
+        CHECK(loaded.priority == -3);
+        CHECK_FALSE(loaded.boxProjection);
+        CHECK(type.findProperty("blendDistance")->attributes().unit == "m");
+        for (const char* text : {R"({"blendDistance": -0.1})", R"({"blendDistance": 101.0})", R"({"intensity": -1.0})",
+                                 R"({"priority": 1001})", R"({"boxProjection": 1})"}) {
+            CAPTURE(std::string(text));
+            CHECK_FALSE(type.fromJson(&loaded, json(text)).has_value());
+            CHECK(loaded.blendDistance == 0.5f);
+        }
     }
 
     TEST_CASE("a camera shake without a camera to shake is a problem of the scene") {

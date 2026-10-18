@@ -217,6 +217,36 @@ struct SceneCaptureComponent {
     float interval = 0.0f;
 };
 
+/// A picture of everything around a point of the scene, taken from the scene itself, which
+/// lights the surfaces in its box from all around in the place of the environment: a room
+/// lit by its own walls, not by the sky outside.
+///
+/// The box is the entity's - a cube of one metre about its origin, scaled, turned and placed
+/// by its transform - and the picture is taken from the entity's origin, the middle of the
+/// box. Towards the faces of the box the probe fades into what is around it - other probes,
+/// then the environment - over `blendDistance`. Where boxes overlap, the probe of the higher
+/// `priority` is laid over the other; of the same priority, the one whose entity has the
+/// lower id. AmbientLight still adds its sky and ground: a probe stands in for the
+/// environment alone. EnvironmentProbes.h says how it is taken and read.
+///
+/// The picture is taken when the probe is first drawn, and again when its entity moves, when
+/// the assets are read anew and when it is asked for (the editor's `probes.capture`): of the
+/// scene as a game shows it, lit by its lights and its environment, through its fog - but
+/// not by probes, so that light bounces once.
+struct EnvironmentProbeComponent {
+    /// How far inside the faces of its box the probe fades to nothing, in metres: 0 ends it
+    /// sharply at the box.
+    float blendDistance = 1.0f;
+    /// Scales its light.
+    float intensity = 1.0f;
+    /// Of probes whose boxes overlap, the higher is laid over the lower.
+    int32_t priority = 0;
+    /// Whether what a surface reflects is looked up where its reflection meets the box,
+    /// rather than as if everything were far away: a floor in a room reflects the wall
+    /// before it, wherever it is in the room. For boxes that are the rooms they are in.
+    bool boxProjection = true;
+};
+
 /// A decal: a material laid onto whatever solid surfaces are inside the box of the entity
 /// - a cube of one metre about its origin, scaled, turned and placed by its transform -
 /// projected along the entity's -Z axis, as a light shines and a camera looks. Its image
@@ -322,7 +352,8 @@ struct RenderProblem {
 /// the order of the hierarchy: a SceneCapture whose entity has no Camera draws nothing,
 /// and one whose Camera is primary is the view of the game as well (findPrimaryCamera);
 /// a CameraShake whose entity has no Camera shakes nothing (makeCameraView of an entity);
-/// a point light with a cookie throws none (LightCookies.h).
+/// a point light with a cookie throws none (LightCookies.h); an EnvironmentProbe whose box has
+/// no size along an axis lights nothing.
 [[nodiscard]] std::vector<RenderProblem> findRenderProblems(const World& world);
 
 /// Registers the renderer's components: "MeshRenderer", "Light", "AmbientLight",

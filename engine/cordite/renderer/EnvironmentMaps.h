@@ -95,6 +95,14 @@ public:
     [[nodiscard]] const GpuEnvironment* environment(nvrhi::ICommandList* commandList, const Uuid& id,
                                                     RenderResources& resources);
 
+    /// Draws every face of every level of cube `cubeIndex` of `destination` - an array of
+    /// cube maps, whose levels are the steps of roughness, from a mirror in the first to
+    /// the roughest surface in the last - from `source`, a cube map of everything around
+    /// with all its smaller levels: the pictures of environment probes (EnvironmentProbes.h).
+    /// False when the GPU objects that takes cannot be made. The command list must be open.
+    [[nodiscard]] bool prefilterCube(nvrhi::ICommandList* commandList, nvrhi::ITexture* source,
+                                     nvrhi::ITexture* destination, uint32_t cubeIndex);
+
     /// What a view without an environment binds: no light from anywhere.
     [[nodiscard]] const GpuEnvironment& none() const { return m_none; }
 
@@ -135,6 +143,7 @@ private:
         nvrhi::SamplerHandle sampler;
         nvrhi::BindingLayoutHandle layout;
         FullscreenPass prefilter;
+        FullscreenPass prefilterCube;
         GpuEnvironment none;
     };
 
@@ -155,6 +164,8 @@ private:
     nvrhi::SamplerHandle m_sampler;
     nvrhi::BindingLayoutHandle m_layout;
     FullscreenPass m_prefilter;
+    /// The same, from a cube map rather than an image.
+    FullscreenPass m_prefilterCube;
     GpuEnvironment m_none;
     std::vector<Entry> m_entries;
     uint64_t m_calls = 0;

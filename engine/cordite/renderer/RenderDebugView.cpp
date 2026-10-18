@@ -48,6 +48,8 @@ std::string_view nameOf(RenderDebugView view) {
             return "lightShafts";
         case RenderDebugView::FogLight:
             return "fogLight";
+        case RenderDebugView::Probes:
+            return "probes";
         case RenderDebugView::Lod:
             return "lod";
     }
@@ -98,6 +100,8 @@ std::string_view displayNameOf(RenderDebugView view) {
             return "Light shafts";
         case RenderDebugView::FogLight:
             return "Fog light";
+        case RenderDebugView::Probes:
+            return "Probes";
         case RenderDebugView::Lod:
             return "Levels of detail";
     }

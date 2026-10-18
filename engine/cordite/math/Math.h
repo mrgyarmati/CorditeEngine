@@ -77,8 +77,22 @@ inline bool nearlyEqual(const Vec3& a, const Vec3& b, float tolerance = 1e-5f) n
     return nearlyEqual(a.x, b.x, tolerance) && nearlyEqual(a.y, b.y, tolerance) && nearlyEqual(a.z, b.z, tolerance);
 }
 
+/// Whether all three numbers are finite: none is infinite or "not a number".
 inline bool isFinite(const Vec3& value) noexcept {
     return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
+}
+
+/// Whether all sixteen numbers of the matrix are finite. The inverse of a matrix that
+/// flattens space (a scale of nought) is not: glm divides by its determinant, nought.
+inline bool isFinite(const Mat4& value) noexcept {
+    for (glm::length_t column = 0; column < 4; ++column) {
+        for (glm::length_t row = 0; row < 4; ++row) {
+            if (!std::isfinite(value[column][row])) {
+                return false;
+            }
+        }
+    }
+    return true;
 }
 
 /// Whether four numbers can be made a rotation, by bringing them to unit length: they

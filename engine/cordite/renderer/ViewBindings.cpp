@@ -97,11 +97,14 @@ Result<ViewBindings> ViewBindings::create(nvrhi::IDevice* device) {
         nvrhi::BindingLayoutItem::StructuredBuffer_SRV(1),
         nvrhi::BindingLayoutItem::StructuredBuffer_SRV(2),
         nvrhi::BindingLayoutItem::StructuredBuffer_SRV(3),
+        nvrhi::BindingLayoutItem::StructuredBuffer_SRV(9),
+        nvrhi::BindingLayoutItem::StructuredBuffer_SRV(10),
         nvrhi::BindingLayoutItem::Texture_SRV(4),
         nvrhi::BindingLayoutItem::Texture_SRV(5),
         nvrhi::BindingLayoutItem::Texture_SRV(6),
         nvrhi::BindingLayoutItem::Texture_SRV(7),
         nvrhi::BindingLayoutItem::Texture_SRV(8),
+        nvrhi::BindingLayoutItem::Texture_SRV(11),
         nvrhi::BindingLayoutItem::Sampler(0),
         nvrhi::BindingLayoutItem::Sampler(1),
         nvrhi::BindingLayoutItem::Sampler(2),
@@ -146,8 +149,24 @@ Result<ViewBindings> ViewBindings::create(nvrhi::IDevice* device) {
     noFogDesc.keepInitialState = true;
     noFogDesc.debugName = "No fog light";
     view.m_noFogVolume = device->createTexture(noFogDesc);
+    nvrhi::BufferDesc noHarmonicsDesc;
+    noHarmonicsDesc.byteSize = sizeof(Vec4) * kSphericalHarmonicsCount;
+    noHarmonicsDesc.structStride = sizeof(Vec4);
+    noHarmonicsDesc.initialState = nvrhi::ResourceStates::ShaderResource;
+    noHarmonicsDesc.keepInitialState = true;
+    noHarmonicsDesc.debugName = "No probe harmonics";
+    view.m_noProbeHarmonics = device->createBuffer(noHarmonicsDesc);
+    nvrhi::TextureDesc noRadianceDesc;
+    noRadianceDesc.dimension = nvrhi::TextureDimension::TextureCubeArray;
+    noRadianceDesc.arraySize = kCubeFaceCount;
+    noRadianceDesc.format = nvrhi::Format::RGBA16_FLOAT;
+    noRadianceDesc.initialState = nvrhi::ResourceStates::ShaderResource;
+    noRadianceDesc.keepInitialState = true;
+    noRadianceDesc.debugName = "No probe reflections";
+    view.m_noProbeRadiance = device->createTexture(noRadianceDesc);
     if (!view.m_constants || !view.m_layout || !view.m_shadowSampler || !view.m_environmentSampler ||
-        !view.m_skySampler || !view.m_cookieSampler || !view.m_fogVolumeSampler || !view.m_noFogVolume) {
+        !view.m_skySampler || !view.m_cookieSampler || !view.m_fogVolumeSampler || !view.m_noFogVolume ||
+        !view.m_noProbeHarmonics || !view.m_noProbeRadiance) {
         return makeError(ErrorCode::DeviceError, "cannot create the view constants");
     }
 
@@ -156,7 +175,9 @@ Result<ViewBindings> ViewBindings::create(nvrhi::IDevice* device) {
         view.reserve(view.m_clusterGrid, kClusterCount * sizeof(ClusterRange), sizeof(ClusterRange), "Cluster grid") &&
         view.reserve(view.m_lightIndices, kInitialIndexCapacity * sizeof(uint32_t), sizeof(uint32_t), "Light lists") &&
         view.reserve(view.m_shadowViews, kInitialShadowViewCapacity * sizeof(GpuShadowView), sizeof(GpuShadowView),
-                     "Shadow views");
+                     "Shadow views") &&
+        view.reserve(view.m_probes, kMaxViewProbes * sizeof(GpuEnvironmentProbe), sizeof(GpuEnvironmentProbe),
+                     "Environment probes");
     if (!reserved) {
         return makeError(ErrorCode::DeviceError, "cannot create the buffers of the lights");
     }
@@ -184,6 +205,23 @@ bool ViewBindings::reserve(nvrhi::BufferHandle& buffer, size_t byteSize, uint32_
     buffer = std::move(replacement);
     m_bindingsOutdated = true;
     return true;
+}
+
+uint32_t ViewBindings::writeProbes(nvrhi::ICommandList* commandList, const ViewEnvironment& environment) {
+    if (!m_noProbeRadianceWritten) {
+        // Written, not cleared, as the texel of no fog light.
+        constexpr std::array<uint16_t, 4> kBlack{};
+        for (uint32_t face = 0; face < kCubeFaceCount; ++face) {
+            commandList->writeTexture(m_noProbeRadiance, face, 0, kBlack.data(), sizeof(kBlack));
+        }
+        m_noProbeRadianceWritten = true;
+    }
+    // The probes, where they fit; a view with none writes nothing, and reads nothing.
+    const size_t probeCount = std::min(environment.probes.size(), size_t{kMaxViewProbes});
+    if (probeCount > 0) {
+        commandList->writeBuffer(m_probes, environment.probes.data(), probeCount * sizeof(GpuEnvironmentProbe));
+    }
+    return environment.probeHarmonics != nullptr ? static_cast<uint32_t>(probeCount) : 0;
 }
 
 void ViewBindings::update(nvrhi::ICommandList* commandList, const SceneView& view, const LightClusters& lights,
@@ -278,6 +316,11 @@ void ViewBindings::update(nvrhi::ICommandList* commandList, const SceneView& vie
     constants.environmentLastLevel = static_cast<float>(std::max(surroundings.levelCount, 1u) - 1);
     constants.environmentVisible = environment.visible && intensity > 0.0f ? 1.0f : 0.0f;
     constants.environmentTurn = Vec2(std::sin(rotation), std::cos(rotation));
+    constants.probeCount = writeProbes(commandList, environment);
+    nvrhi::IBuffer* harmonics =
+        environment.probeHarmonics != nullptr ? environment.probeHarmonics : m_noProbeHarmonics.Get();
+    nvrhi::ITexture* reflections =
+        environment.probeRadiance != nullptr ? environment.probeRadiance : m_noProbeRadiance.Get();
     for (size_t index = 0; index < surroundings.diffuse.size(); ++index) {
         const Vec3& coefficient = surroundings.diffuse[index];
         constants.environmentDiffuse[index] = Vec4(isFinite(coefficient) ? coefficient : Vec3(0.0f), 0.0f);
@@ -315,7 +358,10 @@ void ViewBindings::update(nvrhi::ICommandList* commandList, const SceneView& vie
     nvrhi::ITexture* fogLight = fogIsLit ? fogVolume : m_noFogVolume.Get();
     if (m_bindingsOutdated || !m_bindings || m_atlas != shadows.atlas ||
         m_environmentRadiance != surroundings.radiance || m_environmentSky != surroundings.sky ||
-        m_cookies != cookies || m_fogVolume != fogLight) {
+        m_cookies != cookies || m_fogVolume != fogLight || m_probeHarmonics != harmonics ||
+        m_probeRadiance != reflections) {
+        m_probeHarmonics = harmonics;
+        m_probeRadiance = reflections;
         m_atlas = shadows.atlas;
         m_cookies = cookies;
         m_fogVolume = fogLight;
@@ -328,11 +374,14 @@ void ViewBindings::update(nvrhi::ICommandList* commandList, const SceneView& vie
             nvrhi::BindingSetItem::StructuredBuffer_SRV(1, m_clusterGrid),
             nvrhi::BindingSetItem::StructuredBuffer_SRV(2, m_lightIndices),
             nvrhi::BindingSetItem::StructuredBuffer_SRV(3, m_shadowViews),
+            nvrhi::BindingSetItem::StructuredBuffer_SRV(9, m_probes),
+            nvrhi::BindingSetItem::StructuredBuffer_SRV(10, m_probeHarmonics),
             nvrhi::BindingSetItem::Texture_SRV(4, m_atlas),
             nvrhi::BindingSetItem::Texture_SRV(5, m_environmentRadiance),
             nvrhi::BindingSetItem::Texture_SRV(6, m_environmentSky),
             nvrhi::BindingSetItem::Texture_SRV(7, m_cookies),
             nvrhi::BindingSetItem::Texture_SRV(8, m_fogVolume),
+            nvrhi::BindingSetItem::Texture_SRV(11, m_probeRadiance),
             nvrhi::BindingSetItem::Sampler(0, m_shadowSampler),
             nvrhi::BindingSetItem::Sampler(1, m_environmentSampler),
             nvrhi::BindingSetItem::Sampler(2, m_skySampler),

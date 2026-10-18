@@ -58,7 +58,8 @@ cbuffer ViewConstants : register(b0, space0)
     // 1 when the ambient occlusion of the view was drawn this frame
     // (passes/AmbientOcclusion.slang) and the lighting is to read it.
     float screenOcclusion;
-    float viewPadding0;
+    // How many environment probes light the view (common/Environment.slang).
+    uint probeCount;
     // What it lights a matte surface with: nine spherical harmonics, in rgb.
     float4 environmentDiffuse[9];
     // The fog (common/Fog.slang): its own color, and the part of the light that is

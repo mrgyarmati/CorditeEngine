@@ -23,7 +23,8 @@ cmake --build --preset linux-release  # or: macos-release
 ```
 
 The editor is `build/<platform>/bin/Release/cordite-editor` (`.exe` on Windows), with the
-player of games, `cordite-player`, beside it. Your graphics driver must support Vulkan 1.3.
+player of games, `cordite-player`, beside it. Your graphics driver must support Vulkan 1.3, with arrays of cube maps
+(`imageCubeArray`).
 
 `Release` is the build to make games with. `RelWithDebInfo`, the default of `dev.ps1`, keeps
 the engine's internal checks on, which is what you want while working on the engine itself.

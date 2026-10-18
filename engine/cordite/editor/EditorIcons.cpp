@@ -57,7 +57,8 @@ UiIcon entityIcon(const World& world, Entity entity) {
     if (const auto* light = world.tryGet<LightComponent>(entity)) {
         return light->type == LightType::Directional ? icons::kSun : icons::kLight;
     }
-    if (world.has<EnvironmentComponent>(entity) || world.has<AmbientLightComponent>(entity)) {
+    if (world.has<EnvironmentComponent>(entity) || world.has<AmbientLightComponent>(entity) ||
+        world.has<EnvironmentProbeComponent>(entity)) {
         return icons::kEnvironment;
     }
     if (world.has<FogComponent>(entity)) {

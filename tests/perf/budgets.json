@@ -85,6 +85,10 @@
         // and five smaller levels of them, eight bytes a texel. One environment, one
         // cube map.
         "environmentBytes": 4193280,
+        // The stage probe: the cube its picture is taken in, 128 texels a side with every
+        // smaller level, its cube of reflections with the five levels after the first, and
+        // the harmonics of every probe a world may have - eight bytes a texel.
+        "probeBytes": 2101488,
         // The levels of detail of the meshes of many triangles add their indices.
         "meshBytes": 165000,
         // What is simulated: the bodies of the scene - of which three are awake at most

@@ -110,6 +110,11 @@ Result<AdapterCandidate> evaluateAdapter(vk::PhysicalDevice device, bool needsPr
         supported.get<vk::PhysicalDeviceVulkan13Features>().synchronization2 == VK_FALSE) {
         return makeError(ErrorCode::Unsupported, "lacks timeline semaphores, dynamic rendering or synchronization2");
     }
+    // The renderer reads the pictures of environment probes as one array of cube maps, in
+    // the shaders that light every surface: without it no lighting pipeline can be made.
+    if (supported.get<vk::PhysicalDeviceFeatures2>().features.imageCubeArray == VK_FALSE) {
+        return makeError(ErrorCode::Unsupported, "lacks arrays of cube maps (imageCubeArray)");
+    }
 
     std::optional<uint32_t> queueFamily;
     const std::vector<vk::QueueFamilyProperties> families = device.getQueueFamilyProperties();
@@ -141,7 +146,8 @@ Result<AdapterCandidate> evaluateAdapter(vk::PhysicalDevice device, bool needsPr
 }
 
 /// Turns on every optional feature the renderer can use, where the device supports it.
-/// The three features NVRHI needs are required and were checked by evaluateAdapter.
+/// The features NVRHI and the renderer need are required, and were checked by
+/// evaluateAdapter.
 void selectFeatures(const FeatureChain& supported, FeatureChain& enabled) {
     const vk::PhysicalDeviceFeatures& supportedCore = supported.get<vk::PhysicalDeviceFeatures2>().features;
     vk::PhysicalDeviceFeatures& core = enabled.get<vk::PhysicalDeviceFeatures2>().features;
@@ -151,7 +157,7 @@ void selectFeatures(const FeatureChain& supported, FeatureChain& enabled) {
     core.depthBiasClamp = supportedCore.depthBiasClamp;
     core.fillModeNonSolid = supportedCore.fillModeNonSolid;
     core.independentBlend = supportedCore.independentBlend;
-    core.imageCubeArray = supportedCore.imageCubeArray;
+    core.imageCubeArray = VK_TRUE;
     core.multiDrawIndirect = supportedCore.multiDrawIndirect;
     core.drawIndirectFirstInstance = supportedCore.drawIndirectFirstInstance;
     core.fragmentStoresAndAtomics = supportedCore.fragmentStoresAndAtomics;

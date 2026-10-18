@@ -8,17 +8,6 @@
 namespace cordite {
 namespace {
 
-bool isFiniteMatrix(const Mat4& matrix) {
-    for (glm::length_t column = 0; column < 4; ++column) {
-        for (glm::length_t row = 0; row < 4; ++row) {
-            if (!std::isfinite(matrix[column][row])) {
-                return false;
-            }
-        }
-    }
-    return true;
-}
-
 bool isFiniteTransform(const Transform& transform) {
     const Quat& rotation = transform.rotation;
     return isFinite(transform.position) && isFinite(transform.scale) && std::isfinite(rotation.x) &&
@@ -48,8 +37,7 @@ Status validateSkeleton(const SkeletonData& skeleton) {
             return makeError(ErrorCode::OutOfRange, "joint '{}' of skeleton '{}' hangs on joint {}, and there are {}",
                              joint.name, skeleton.name, joint.parent, count);
         }
-        if (!isFiniteTransform(joint.rest) || !isFiniteMatrix(joint.parentOffset) ||
-            !isFiniteMatrix(joint.inverseBind)) {
+        if (!isFiniteTransform(joint.rest) || !isFinite(joint.parentOffset) || !isFinite(joint.inverseBind)) {
             return makeError(ErrorCode::InvalidArgument, "joint '{}' of skeleton '{}' has a number that is none",
                              joint.name, skeleton.name);
         }

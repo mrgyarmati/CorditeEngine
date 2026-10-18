@@ -72,6 +72,7 @@
 #include "cordite/renderer/DepthOfFieldPass.h"
 #include "cordite/renderer/DisplayEncodePass.h"
 #include "cordite/renderer/EnvironmentMaps.h"
+#include "cordite/renderer/EnvironmentProbes.h"
 #include "cordite/renderer/LevelOfDetail.h"
 #include "cordite/renderer/LightClusters.h"
 #include "cordite/renderer/LightShaftPass.h"
@@ -162,6 +163,10 @@ struct SceneRenderSettings {
     /// editor's view through its own camera is not: that camera moves to look around,
     /// not as part of what is shown.
     bool motionBlur = true;
+    /// Whether the environment probes of the world light the view where their boxes are
+    /// (EnvironmentProbes.h). Their own pictures are taken without them: light bounces
+    /// once.
+    bool environmentProbes = true;
     /// What the picture is finished with, and what its screen effects look like. Left
     /// empty, the PostProcess components of the world say (ScenePostProcess.h). A tool
     /// or a test that wants one look whatever the scene says sets it here.
@@ -286,6 +291,13 @@ struct SceneRenderStatistics {
     /// (kEnvironmentBytes each). The views of a renderer share them, so this is not
     /// summed up over the views of a frame: it is the most there was.
     uint64_t environmentBytes = 0;
+    /// How many environment probes had their pictures taken (renderCaptures): six views
+    /// each, which `views` counts as well.
+    uint32_t probeCaptures = 0;
+    /// The memory of what the pictures of the probes are taken and kept in, in bytes
+    /// (EnvironmentProbes::byteSize()). Like that of the environments it is not summed up
+    /// over the views of a frame.
+    uint64_t probeBytes = 0;
 
     /// The memory of the image the ambient occlusion of the view is worked out in, in
     /// bytes: two half floats for every pixel, or for one in four
@@ -344,7 +356,10 @@ public:
     void render(nvrhi::ICommandList* commandList, const World& world, const CameraView& view, SceneTargets& targets,
                 const SceneRenderSettings& settings = {});
 
-    /// Draws the pictures of the SceneCapture components of `world` into their render
+    /// Takes the pictures of the environment probes of `world` that need them
+    /// (EnvironmentProbes::gather()), as the scene is lit without probes and otherwise as
+    /// `settings` say, unfinished; then draws the pictures of the SceneCapture components of
+    /// `world` into their render
     /// targets (RenderResources::renderTarget()): each as the Camera of its entity sees the
     /// world, with the aspect of its target, finished as a game's view is with `settings` -
     /// kMaxSceneCaptures at the most, by the ids of their entities. Call it before the
@@ -352,6 +367,13 @@ public:
     /// whose interval has not passed since its last picture keeps it; one without a camera
     /// is reported once. Each picture is a view in the statistics of the frame.
     void renderCaptures(nvrhi::ICommandList* commandList, const World& world, const SceneRenderSettings& settings);
+
+    /// Has the pictures of all environment probes taken again, by the next calls to
+    /// renderCaptures(): what is around them has changed.
+    void retakeProbes();
+
+    /// The environment probes: what their pictures are taken in, and their harmonics.
+    [[nodiscard]] const EnvironmentProbes& probes() const { return m_passes.probes; }
 
     /// What the last call to render() did.
     [[nodiscard]] const SceneRenderStatistics& statistics() const { return m_statistics; }
@@ -383,6 +405,7 @@ private:
         DecalPass decals;
         AmbientOcclusionPass occlusion;
         VolumetricFogPass fogLight;
+        EnvironmentProbes probes;
         LightShaftPass lightShafts;
         DepthOfFieldPass depthOfField;
         MotionBlurPass motionBlur;
@@ -444,6 +467,13 @@ private:
     /// none, with the volumes let go of, where nothing of that is to be seen: a fog that no
     /// light lights, a quality of the view that has none, a debug view that shows no light.
     /// After the lights of the view are known (m_lights, m_clusters).
+    /// Takes the pictures of the probes gather() asks for, before any view is drawn.
+    void captureProbes(nvrhi::ICommandList* commandList, const World& world, const SceneRenderSettings& settings);
+
+    /// The probes that light a view: none where the settings say so.
+    [[nodiscard]] std::vector<GpuEnvironmentProbe> viewProbes(const World& world, const CameraView& view,
+                                                              const SceneRenderSettings& settings) const;
+
     [[nodiscard]] FogVolumeGrid prepareFogLight(SceneTargets& targets, const SceneRenderSettings& settings,
                                                 RenderDebugView debugView);
 
@@ -502,6 +532,9 @@ private:
     /// So that lights that were left out are reported once, not every frame.
     bool m_reportedDroppedLights = false;
     bool m_reportedFogLight = false;
+    /// What the faces of the probes are drawn into, made with the first of them.
+    SceneTargets m_probeTargets;
+    bool m_reportedProbes = false;
     bool m_reportedDroppedDecals = false;
 
     /// What a SceneCapture keeps from one frame to the next: the targets of its view, and

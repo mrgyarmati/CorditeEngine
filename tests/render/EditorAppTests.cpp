@@ -18,6 +18,7 @@
 #include "cordite/engine/Project.h"
 #include "cordite/platform/InputMap.h"
 #include "cordite/renderer/CameraView.h"
+#include "cordite/renderer/EnvironmentProbes.h"
 #include "cordite/renderer/RenderDebugView.h"
 #include "cordite/rhi/TextureReadback.h"
 #include "cordite/shaders/EngineShaders.h"
@@ -955,6 +956,10 @@ TEST_SUITE("EditorApp") {
         // since.
         CHECK(scene["environment"]["bytes"] == 4193280);
         CHECK(scene["environment"]["made"] == 0);
+        // The stage's probe, taken in the first frame and in no frame since: the cube its
+        // faces are copied into, its reflections and the harmonics of every probe there can be.
+        CHECK(scene["probes"]["captures"] == 0);
+        CHECK(scene["probes"]["bytes"] == 2101488);
         CHECK(scene["passes"]["shadow"]["drawCalls"].get<uint32_t>() > 10);
         // All passes together are what was drawn.
         CHECK(scene["drawCalls"].get<uint32_t>() == scene["passes"]["shadow"]["drawCalls"].get<uint32_t>() +
@@ -975,6 +980,28 @@ TEST_SUITE("EditorApp") {
             fmt::format(R"({{"path": {}, "viewportOnly": true}})", quoted(directory.path() / "view.png")));
         REQUIRE(editor->runFrames(1).has_value());
         CHECK(run(*editor, "editor.statistics")["scene"]["views"] == 2);
+        checkNoValidationIssues(editor->engine().graphics());
+    }
+
+    TEST_CASE("the editor takes a probe once, and again when it is asked to: probes.capture") {
+        EditorAppDesc desc = headlessDesc(UVec2(320, 180));
+        desc.project = showcaseProject();
+        const std::unique_ptr<EditorApp> editor = createEditor(desc);
+        const auto taken = [&] {
+            REQUIRE(editor->runFrames(1).has_value());
+            const Json statistics = run(*editor, "editor.statistics");
+            return statistics["scene"]["probes"]["captures"].get<uint32_t>();
+        };
+        // The stage's probe in the first frame, six views more than the viewport's and the
+        // security camera's; then not again, whatever else is drawn.
+        CHECK(taken() == 1);
+        CHECK(run(*editor, "editor.statistics")["scene"]["views"] == 2 + kCubeFaceCount);
+        CHECK(taken() == 0);
+        // A wall that moved, or a light switched on, is not noticed: asked, every probe of the
+        // scene is taken again in the next frame, once.
+        CHECK(run(*editor, "probes.capture")["probes"] == 1);
+        CHECK(taken() == 1);
+        CHECK(taken() == 0);
         checkNoValidationIssues(editor->engine().graphics());
     }
 

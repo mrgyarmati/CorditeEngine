@@ -20,6 +20,9 @@
 /// | t6       | The environment's image, for the sky                              |
 /// | t7       | The cookies of the lights, a layer each (Lights.slang)            |
 /// | t8       | What lights throw into the fog (shaders/common/VolumetricFog.slang) |
+/// | t9       | The environment probes that light the view (Environment.slang)    |
+/// | t10      | Their harmonics, nine a probe                                     |
+/// | t11      | Their reflections, a cube a probe                                 |
 /// | s0       | The sampler that compares a depth with the atlas                  |
 /// | s1       | The sampler of the cube map                                       |
 /// | s2       | The sampler of the sky: it wraps around from left to right        |
@@ -46,6 +49,7 @@
 #include "cordite/math/Math.h"
 #include "cordite/renderer/CameraView.h"
 #include "cordite/renderer/EnvironmentMaps.h"
+#include "cordite/renderer/EnvironmentProbes.h"
 #include "cordite/renderer/Fog.h"
 #include "cordite/renderer/LightClusters.h"
 #include "cordite/renderer/ShadowPlan.h"
@@ -56,6 +60,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <span>
 
 namespace cordite {
 
@@ -108,6 +113,14 @@ struct ViewEnvironment {
     float rotation = 0.0f;
     /// Whether it is drawn as the sky, where nothing else is.
     bool visible = false;
+    /// The environment probes that light the view in its place where their boxes are
+    /// (EnvironmentProbes::viewList()): the highest priority first, at most
+    /// kMaxViewProbes; the buffer of their harmonics (EnvironmentProbes::harmonics()) and
+    /// the array of their reflections (EnvironmentProbes::radiance()), either of which
+    /// may be null when there are none. Without harmonics the view has no probes.
+    std::span<const GpuEnvironmentProbe> probes;
+    nvrhi::IBuffer* probeHarmonics = nullptr;
+    nvrhi::ITexture* probeRadiance = nullptr;
 };
 
 class ViewBindings {
@@ -145,12 +158,27 @@ private:
     /// replacing it when it is too small. Returns false when that fails.
     [[nodiscard]] bool reserve(nvrhi::BufferHandle& buffer, size_t byteSize, uint32_t stride, const char* name);
 
+    /// Writes the probes of `environment` that fit - and, the first time, the cube of
+    /// reflections that stands in for none. Returns how many the shaders are to read:
+    /// none without the harmonics they are lit by.
+    [[nodiscard]] uint32_t writeProbes(nvrhi::ICommandList* commandList, const ViewEnvironment& environment);
+
     nvrhi::IDevice* m_device = nullptr;
     nvrhi::BufferHandle m_constants;
     nvrhi::BufferHandle m_lights;
     nvrhi::BufferHandle m_clusterGrid;
     nvrhi::BufferHandle m_lightIndices;
     nvrhi::BufferHandle m_shadowViews;
+    nvrhi::BufferHandle m_probes;
+    /// What is bound at t10 when a view has no probes: nine float4 nobody reads.
+    nvrhi::BufferHandle m_noProbeHarmonics;
+    /// The buffer of harmonics the binding set holds.
+    nvrhi::BufferHandle m_probeHarmonics;
+    /// What is bound at t11 when a view has no reflections of probes: a cube of a texel.
+    nvrhi::TextureHandle m_noProbeRadiance;
+    bool m_noProbeRadianceWritten = false;
+    /// The array of reflections the binding set holds.
+    nvrhi::TextureHandle m_probeRadiance;
     nvrhi::SamplerHandle m_shadowSampler;
     nvrhi::SamplerHandle m_environmentSampler;
     nvrhi::SamplerHandle m_skySampler;

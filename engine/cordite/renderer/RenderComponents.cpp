@@ -5,6 +5,7 @@
 #include "cordite/math/MathReflection.h"
 #include "cordite/world/Components.h"
 
+#include <algorithm>
 #include <string>
 #include <utility>
 
@@ -203,6 +204,27 @@ TypeInfo describeDecal() {
                   {.description = "Of decals that overlap, one of a higher order is laid on over one of a lower",
                    .minimum = -1000.0,
                    .maximum = 1000.0})
+        .build();
+}
+
+TypeInfo describeEnvironmentProbe() {
+    return TypeBuilder<EnvironmentProbeComponent>("EnvironmentProbe")
+        .property("blendDistance", &EnvironmentProbeComponent::blendDistance,
+                  {.description = "How far inside the faces of the entity's box the probe fades into what is "
+                                  "around it; 0 ends it sharply",
+                   .minimum = 0.0,
+                   .maximum = 100.0,
+                   .step = 0.05,
+                   .unit = "m"})
+        .property("intensity", &EnvironmentProbeComponent::intensity,
+                  {.description = "Scales the light of the picture", .minimum = 0.0, .maximum = 100.0, .step = 0.05})
+        .property("priority", &EnvironmentProbeComponent::priority,
+                  {.description = "Of probes whose boxes overlap, the higher is laid over the lower",
+                   .minimum = -1000.0,
+                   .maximum = 1000.0})
+        .property("boxProjection", &EnvironmentProbeComponent::boxProjection,
+                  {.description = "Whether reflections are looked up where they meet the box, rather than as if "
+                                  "everything were far away: for a box that is the room it is in"})
         .build();
 }
 
@@ -542,6 +564,16 @@ std::vector<RenderProblem> findRenderProblems(const World& world) {
             problems.push_back({entity, "Light has a cookie, which a point light does not throw: only spot and "
                                         "directional lights do"});
         }
+        // The box of a probe is the entity's: scaled to nothing along an axis, it has no inside.
+        if (world.has<EnvironmentProbeComponent>(entity)) {
+            const Mat4 placement = world.computeWorldMatrix(entity);
+            const float thinnest = std::min(
+                {glm::length(Vec3(placement[0])), glm::length(Vec3(placement[1])), glm::length(Vec3(placement[2]))});
+            if (!(thinnest > 1.0e-4f)) {
+                problems.push_back({entity, "EnvironmentProbe lights nothing: the entity's box has no size along one "
+                                            "of its axes"});
+            }
+        }
         if (!world.has<SceneCaptureComponent>(entity)) {
             return;
         }
@@ -567,6 +599,11 @@ Status registerRendererComponents(ComponentRegistry& registry) {
         describeEnvironment(),
         {.description = "Everything far away, as an image that lights the scene and is its sky. Of several, "
                         "the one whose entity has the lowest id is used."}));
+    CORDITE_TRY(registry.add<EnvironmentProbeComponent>(
+        describeEnvironmentProbe(),
+        {.description = "A picture of everything around the entity, taken from the scene, which lights what is in "
+                        "the entity's box from all around in the place of the environment: a room lit by its own "
+                        "walls. Taken again when the entity moves."}));
     CORDITE_TRY(registry.add<FogComponent>(
         describeFog(), {.description = "Fog: the further away something is, the more of the fog's color is seen in its "
                                        "place. Densest at the height of the entity and below, thinning out above. Of "

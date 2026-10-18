@@ -27,13 +27,15 @@ Result<FullscreenPass> createPass(nvrhi::IDevice* device, ShaderManager& shaders
 
 DeferredLightingPass::DeferredLightingPass(nvrhi::IDevice* device, nvrhi::BindingLayoutHandle gbufferLayout,
                                            FullscreenPass pass, FullscreenPass lightingOnlyPass,
-                                           FullscreenPass reflectionsPass, FullscreenPass fogLightPass)
+                                           FullscreenPass reflectionsPass, FullscreenPass fogLightPass,
+                                           FullscreenPass probesPass)
     : m_device(device),
       m_gbufferLayout(std::move(gbufferLayout)),
       m_pass(std::move(pass)),
       m_lightingOnlyPass(std::move(lightingOnlyPass)),
       m_reflectionsPass(std::move(reflectionsPass)),
-      m_fogLightPass(std::move(fogLightPass)) {}
+      m_fogLightPass(std::move(fogLightPass)),
+      m_probesPass(std::move(probesPass)) {}
 
 Result<DeferredLightingPass> DeferredLightingPass::create(nvrhi::IDevice* device, ShaderManager& shaders,
                                                           nvrhi::IBindingLayout* viewLayout) {
@@ -65,8 +67,14 @@ Result<DeferredLightingPass> DeferredLightingPass::create(nvrhi::IDevice* device
                                                                 .stage = ShaderStage::Pixel,
                                                                 .defines = {{"FOG_LIGHT_ONLY", "1"}}},
                                                                viewLayout, gbufferLayout));
+    CORDITE_TRY_ASSIGN(FullscreenPass probesPass, createPass(device, shaders, "Probes",
+                                                             {.path = kShaderPath,
+                                                              .entryPoint = kEntryPoint,
+                                                              .stage = ShaderStage::Pixel,
+                                                              .defines = {{"PROBES_ONLY", "1"}}},
+                                                             viewLayout, gbufferLayout));
     return DeferredLightingPass(device, std::move(gbufferLayout), std::move(pass), std::move(lightingOnlyPass),
-                                std::move(reflectionsPass), std::move(fogLightPass));
+                                std::move(reflectionsPass), std::move(fogLightPass), std::move(probesPass));
 }
 
 void DeferredLightingPass::draw(nvrhi::ICommandList* commandList, const SceneTargets& targets,
@@ -89,6 +97,8 @@ void DeferredLightingPass::draw(nvrhi::ICommandList* commandList, const SceneTar
         pass = &m_reflectionsPass;
     } else if (mode == DeferredLightingMode::FogLight) {
         pass = &m_fogLightPass;
+    } else if (mode == DeferredLightingMode::Probes) {
+        pass = &m_probesPass;
     }
     pass->draw(commandList, targets.lightingFramebuffer(), bindingSets);
 }

@@ -93,6 +93,23 @@ TEST_SUITE("Transform") {
         CHECK(glm::length(decomposed.rotation) == doctest::Approx(1.0f).epsilon(1e-4));
     }
 
+    TEST_CASE("a matrix is made of numbers when all sixteen of its numbers are, and the inverse of a flat one is "
+              "not") {
+        CHECK(isFinite(Mat4(1.0f)));
+        const float infinity = std::numeric_limits<float>::infinity();
+        for (glm::length_t column = 0; column < 4; ++column) {
+            for (glm::length_t row = 0; row < 4; ++row) {
+                for (const float none : {infinity, -infinity, std::numeric_limits<float>::quiet_NaN()}) {
+                    Mat4 matrix(1.0f);
+                    matrix[column][row] = none;
+                    CHECK_FALSE(isFinite(matrix));
+                }
+            }
+        }
+        CHECK(isFinite(glm::inverse(Transform{.scale = Vec3(2.0f)}.toMatrix())));
+        CHECK_FALSE(isFinite(glm::inverse(Transform{.scale = Vec3(1.0f, 0.0f, 1.0f)}.toMatrix())));
+    }
+
     TEST_CASE("four numbers are made a rotation, and what is a rotation already is left bit for bit") {
         // Glm's quaternions are written (w, x, y, z).
         const Quat made = normalizeRotation(Quat(2.0f, 0.0f, 2.0f, 0.0f));

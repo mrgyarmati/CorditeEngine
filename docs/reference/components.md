@@ -138,6 +138,17 @@ Everything far away, as an image that lights the scene and is its sky. Of severa
 | `rotationDegrees` | float | `0.0` | -360.0 to 360.0 | Turns the image about the vertical axis, counter-clockwise seen from above |
 | `visible` | bool | `true` |  | Draws the image where nothing else is, as the sky; without, it only lights the scene and shows in reflections |
 
+## EnvironmentProbe
+
+A picture of everything around the entity, taken from the scene, which lights what is in the entity's box from all around in the place of the environment: a room lit by its own walls. Taken again when the entity moves.
+
+| Property | Kind | Default | Values | Meaning |
+|---|---|---|---|---|
+| `blendDistance` | float | `1.0` | 0.0 to 100.0; m | How far inside the faces of the entity's box the probe fades into what is around it; 0 ends it sharply |
+| `intensity` | float | `1.0` | 0.0 to 100.0 | Scales the light of the picture |
+| `priority` | int | `0` | -1000.0 to 1000.0 | Of probes whose boxes overlap, the higher is laid over the lower |
+| `boxProjection` | bool | `true` |  | Whether reflections are looked up where they meet the box, rather than as if everything were far away: for a box that is the room it is in |
+
 ## Fog
 
 Fog: the further away something is, the more of the fog's color is seen in its place. Densest at the height of the entity and below, thinning out above. Of several, the one whose entity has the lowest id is used.

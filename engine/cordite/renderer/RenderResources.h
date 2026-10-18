@@ -136,6 +136,10 @@ public:
     /// refreshed since the last call, everything is dropped and rebuilt on demand.
     void beginFrame();
 
+    /// The revision of the asset database (AssetDatabase::revision()) the resources were
+    /// brought up to by the last beginFrame(): another one means the assets were read anew.
+    [[nodiscard]] uint64_t assetRevision() const { return m_assetRevision; }
+
     /// The mesh for an asset id, or null when the id is nil or the mesh cannot be
     /// loaded. The pointer is valid until the next beginFrame().
     [[nodiscard]] const GpuMesh* mesh(const Uuid& id);

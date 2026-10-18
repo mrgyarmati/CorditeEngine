@@ -4,7 +4,6 @@
 #include "cordite/core/Log.h"
 
 #include <algorithm>
-#include <cmath>
 #include <utility>
 
 namespace cordite {
@@ -12,17 +11,6 @@ namespace {
 
 /// Room for a few figures before the buffer has to grow.
 constexpr size_t kInitialJointCapacity = 256;
-
-bool isFinite(const Mat4& matrix) {
-    for (glm::length_t column = 0; column < 4; ++column) {
-        for (glm::length_t row = 0; row < 4; ++row) {
-            if (!std::isfinite(matrix[column][row])) {
-                return false;
-            }
-        }
-    }
-    return true;
-}
 
 } // namespace
 

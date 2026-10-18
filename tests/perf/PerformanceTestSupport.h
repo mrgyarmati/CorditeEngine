@@ -183,6 +183,10 @@ inline Json describeScene(const SceneRenderStatistics& statistics) {
     environment["made"] = statistics.environmentsMade;
     environment["bytes"] = statistics.environmentBytes;
     scene["environment"] = std::move(environment);
+    Json probes = Json::object();
+    probes["captures"] = statistics.probeCaptures;
+    probes["bytes"] = statistics.probeBytes;
+    scene["probes"] = std::move(probes);
     Json occlusion = Json::object();
     occlusion["bytes"] = statistics.ambientOcclusionBytes;
     scene["ambientOcclusion"] = std::move(occlusion);

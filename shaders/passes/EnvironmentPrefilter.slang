@@ -9,9 +9,13 @@
 // Engine 4", 2013).
 //
 // One face of one level is drawn at a time, from the image of everything around
-// (equirectUv() in common/Math.slang says which direction is where in it).
+// (equirectUv() in common/Math.slang says which direction is where in it). Compiled a
+// second time with CUBE_SOURCE, for the pictures of environment probes
+// (EnvironmentMaps::prefilterCube): from a cube map of everything around rather than an
+// image.
 
 #include "common/Brdf.slang"
+#include "common/CubeMap.slang"
 #include "common/Fullscreen.slang"
 #include "common/Math.slang"
 
@@ -34,38 +38,23 @@ cbuffer EnvironmentPrefilterConstants : register(b0, space0)
     float prefilterPadding2;
 };
 
+#if defined(CUBE_SOURCE)
+// A cube map of everything around, with all its smaller levels.
+TextureCube<float4> source : register(t0, space0);
+#else
 // The image of everything around, with all its smaller levels.
 Texture2D<float4> source : register(t0, space0);
+#endif
 SamplerState sourceSampler : register(s0, space0);
 
-// The direction a place on a face of a cube map stands for: `uv` is (0, 0) at the top
-// left of the face. This is how a GPU finds the face and the place for a direction,
-// the other way round.
-float3 faceDirection(uint faceIndex, float2 uv)
+// The light of everything around from `direction`, from level `level` of the source.
+float3 sourceLight(float3 direction, float level)
 {
-    const float2 place = uv * 2.0 - 1.0;
-    float3 direction = float3(-place.x, -place.y, -1.0);
-    if (faceIndex == 0)
-    {
-        direction = float3(1.0, -place.y, -place.x);
-    }
-    else if (faceIndex == 1)
-    {
-        direction = float3(-1.0, -place.y, place.x);
-    }
-    else if (faceIndex == 2)
-    {
-        direction = float3(place.x, 1.0, place.y);
-    }
-    else if (faceIndex == 3)
-    {
-        direction = float3(place.x, -1.0, -place.y);
-    }
-    else if (faceIndex == 4)
-    {
-        direction = float3(place.x, -place.y, 1.0);
-    }
-    return normalize(direction);
+#if defined(CUBE_SOURCE)
+    return source.SampleLevel(sourceSampler, direction, level).rgb;
+#else
+    return source.SampleLevel(sourceSampler, equirectUv(direction), level).rgb;
+#endif
 }
 
 // The `index`-th of `count` points spread evenly over a square (Hammersley).
@@ -97,7 +86,7 @@ float4 environmentPrefilterPixel(FullscreenVaryings input) : SV_Target0
     {
         // A mirror: the light of the one direction, from the level of the image whose
         // pixels are as large as this texel.
-        return float4(source.SampleLevel(sourceSampler, equirectUv(normal), max(sourceLevel, 0.0)).rgb, 1.0);
+        return float4(sourceLight(normal, max(sourceLevel, 0.0)), 1.0);
     }
 
     // Seen and lit along the normal: what the blur looks like from straight on, which
@@ -123,7 +112,7 @@ float4 environmentPrefilterPixel(FullscreenVaryings input) : SV_Target0
         const float density = distributionGgx(nDotH, alpha) * 0.25;
         const float covered = 1.0 / (float(sampleCount) * max(density, 1.0e-6));
         const float level = max(0.5 * log2(covered * sourceDensity) + 1.0, 0.0);
-        light += source.SampleLevel(sourceSampler, equirectUv(towards), level).rgb * nDotL;
+        light += sourceLight(towards, level) * nDotL;
         weights += nDotL;
     }
     return float4(light / max(weights, 1.0e-5), 1.0);

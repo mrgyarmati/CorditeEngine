@@ -522,6 +522,21 @@ Status EditorApp::registerApplicationCommands() {
     }));
 
     CORDITE_TRY(m_commands.add({
+        .name = "probes.capture",
+        .description = "Takes the pictures of all environment probes again, in the next frames: what is around them "
+                       "has changed - a wall was moved, a light turned on - and they still show it as it was. A "
+                       "probe whose entity moves is taken again by itself. Returns how many probes have their "
+                       "pictures waiting to be taken.",
+        .parameters = {},
+        .handler = [this](const Json& /*parameters*/) -> Result<Json> {
+            m_engine->sceneRenderer().retakeProbes();
+            Json result = Json::object();
+            result["probes"] = m_engine->sceneRenderer().probes().count();
+            return result;
+        },
+    }));
+
+    CORDITE_TRY(m_commands.add({
         .name = "viewport.frame",
         .description = "Moves the viewport camera so that an entity is in view, keeping the viewing direction - "
                        "or, without one, what is selected, as F does. What is framed is what the camera "
@@ -737,7 +752,8 @@ Status EditorApp::registerApplicationCommands() {
             "blurred each pixel is by the depth of field (focus: black where it is sharp, red in "
             "front of that and blue behind), the light the shafts of the sun add, alone "
             "(lightShafts), what the lights throw towards the viewer from the fog in front of "
-            "each pixel, alone (fogLight: black where they throw nothing), or the level of "
+            "each pixel, alone (fogLight: black where they throw nothing), which environment probes "
+            "light each surface (probes: a color for each probe, grey for the environment), or the level of "
             "detail each mesh is drawn at (lod: the mesh itself "
             "grey, then green, yellow, orange and red as the levels get coarser). Returns the view "
             "now shown and all there are; without a parameter it changes nothing.",
@@ -1559,6 +1575,10 @@ void EditorApp::drawViewMenu() {
         ImGui::EndMenu();
     }
     ImGui::MenuItem("Statistics", nullptr, &m_showStatistics);
+    // The probes show what was around them when they were taken.
+    if (ImGui::MenuItem("Capture probes")) {
+        m_submittedLines.emplace_back("probes.capture");
+    }
     ImGui::Separator();
     // The style changes between frames, where commands run: changed in the middle of one,
     // what is pushed onto it would be popped back to the old theme.

@@ -17,7 +17,10 @@
 #include "cordite/platform/InputMap.h"
 #include "cordite/platform/KeyCodes.h"
 #include "cordite/renderer/CameraView.h"
+#include "cordite/renderer/EnvironmentProbes.h"
+#include "cordite/renderer/FramePacer.h"
 #include "cordite/renderer/RenderComponents.h"
+#include "cordite/renderer/SceneRenderer.h"
 #include "cordite/scripting/ScriptComponents.h"
 #include "cordite/scripting/ScriptSystem.h"
 #include "cordite/shader_compiler/EngineShaderCache.h"
@@ -179,19 +182,22 @@ TEST_SUITE("Engine") {
             // meshes as they are and for skinned ones, and each of those also working out
             // where a vertex was, for the depth pre-pass and the base pass - the pixel
             // shaders of its six mesh passes and the masked depth of the pre-pass, the
-            // lighting in its four forms, the debug view, the display encoding, what makes
-            // the cube map of an environment, the two of the decals, the two of the ambient
-            // occlusion, the two of what lights throw into a fog, the three of the light shafts, the three of the depth of field, the
-            // three of the motion blur, and the six that finish the picture: three for the
-            // bloom, one for the exposure, the last pass and the anti-aliasing.
-            CHECK(engine->shaders().stats().compilations == 44);
+            // lighting in its five forms, the debug view, the display encoding, what makes
+            // the cube map of an environment - from an image, and from the picture of a
+            // probe - the three that take a probe's picture (its faces, their levels, its
+            // harmonics), the two of the decals, the two of the ambient occlusion, the two
+            // of what lights throw into a fog, the three of the light shafts, the three of
+            // the depth of field, the three of the motion blur, and the six that finish the
+            // picture: three for the bloom, one for the exposure, the last pass and the
+            // anti-aliasing.
+            CHECK(engine->shaders().stats().compilations == 49);
             CHECK(engine->shaders().stats().diskHits == 0);
         }
 
         const std::unique_ptr<Engine> engine = createEngine(desc);
         runFrames(*engine, 1);
         CHECK(engine->shaders().stats().compilations == 0);
-        CHECK(engine->shaders().stats().diskHits == 44);
+        CHECK(engine->shaders().stats().diskHits == 49);
         checkNoValidationIssues(engine->graphics());
     }
 
@@ -819,6 +825,50 @@ TEST_SUITE("Engine") {
         for (const ScriptProblem& problem : engine->scripts().problems()) {
             FAIL_CHECK(problem.message);
         }
+        checkNoValidationIssues(engine->graphics());
+    }
+
+    TEST_CASE("a frame of a game draws at most a probe's six views, every scene capture and its own, and the frames "
+              "that wait for the GPU have room for what they draw") {
+        const Project project = test::unwrap(loadProject(test::sourceDirectory() / "samples" / "showcase"));
+        EngineDesc desc = headlessDesc(UVec2(320, 180));
+        desc.assetDirectory = project.assetDirectory();
+        const std::unique_ptr<Engine> engine = createEngine(desc);
+        World& world = engine->world();
+        REQUIRE(loadScene(project.startScenePath(), world, engine->components()).has_value());
+
+        // As many scene captures as a frame draws, all of them every frame: the security
+        // camera's, and copies of it ...
+        const Entity security = world.findByName("Security camera");
+        REQUIRE(world.has<SceneCaptureComponent>(security));
+        for (uint32_t copy = 1; copy < kMaxSceneCaptures; ++copy) {
+            const Entity entity = world.createEntity("Another security camera");
+            world.transform(entity) = world.transform(security);
+            world.add<CameraComponent>(entity) = *world.tryGet<CameraComponent>(security);
+            world.add<SceneCaptureComponent>(entity) = *world.tryGet<SceneCaptureComponent>(security);
+        }
+        // ... and, beside the stage's, probes enough to keep taking them through more frames
+        // than wait for the GPU: what all of those frames draw is on its way at once.
+        constexpr uint32_t kFrames = FramePacer::kDefaultFramesInFlight + 3;
+        for (uint32_t index = 1; index < kFrames * kMaxProbeCapturesPerFrame; ++index) {
+            const Entity probe = world.createEntity("Probe");
+            world.transform(probe).position = Vec3(0.5f * static_cast<float>(index) - 2.0f, 1.0f, 0.0f);
+            world.transform(probe).scale = Vec3(4.0f);
+            world.add<EnvironmentProbeComponent>(probe);
+        }
+
+        for (uint32_t frame = 0; frame < kFrames; ++frame) {
+            CAPTURE(frame);
+            runFrames(*engine, 1);
+            const SceneRenderStatistics& statistics = engine->statistics().scene;
+            CHECK(statistics.probeCaptures == kMaxProbeCapturesPerFrame);
+            CHECK(statistics.captures == kMaxSceneCaptures);
+            CHECK(statistics.views == kMaxProbeCapturesPerFrame * kCubeFaceCount + kMaxSceneCaptures + 1);
+        }
+        // Every probe has been taken, and none is taken again.
+        runFrames(*engine, 1);
+        CHECK(engine->statistics().scene.probeCaptures == 0);
+        CHECK(engine->statistics().scene.views == kMaxSceneCaptures + 1);
         checkNoValidationIssues(engine->graphics());
     }
 

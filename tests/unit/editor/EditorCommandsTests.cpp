@@ -188,7 +188,7 @@ TEST_SUITE("EditorCommands") {
     TEST_CASE("component.types describes what can be edited") {
         CommandFixture fixture;
         const Json types = fixture.run("component.types");
-        REQUIRE(types.size() == 12);
+        REQUIRE(types.size() == 13);
 
         CHECK(types[0]["name"] == "Transform");
         CHECK(types[0]["optional"] == false);
@@ -231,6 +231,9 @@ TEST_SUITE("EditorCommands") {
 
         // The image of an environment is a texture; how far it is turned has a range.
         CHECK(types[6]["name"] == "Environment");
+        CHECK(types[7]["name"] == "EnvironmentProbe");
+        CHECK(types[7]["properties"][0]["name"] == "blendDistance");
+        CHECK(types[7]["properties"][0]["unit"] == "m");
         CHECK(types[6]["properties"][0]["name"] == "texture");
         CHECK(types[6]["properties"][0]["semantic"] == "asset");
         CHECK(types[6]["properties"][0]["assetType"] == "Texture");
@@ -241,45 +244,45 @@ TEST_SUITE("EditorCommands") {
         CHECK(types[6]["properties"][3]["type"] == "bool");
 
         // What a fog is measured in is said with its numbers.
-        CHECK(types[7]["name"] == "Fog");
-        CHECK(types[7]["properties"][0]["name"] == "color");
-        CHECK(types[7]["properties"][0]["semantic"] == "color");
-        CHECK(types[7]["properties"][1]["name"] == "density");
-        CHECK(types[7]["properties"][1]["unit"] == "1/m");
-        CHECK(types[7]["properties"][1]["minimum"] == 0.0);
-        CHECK(types[7]["properties"][1]["maximum"] == 10.0);
-        CHECK(types[7]["properties"][3]["name"] == "startDistance");
-        CHECK(types[7]["properties"][3]["unit"] == "m");
+        CHECK(types[8]["name"] == "Fog");
+        CHECK(types[8]["properties"][0]["name"] == "color");
+        CHECK(types[8]["properties"][0]["semantic"] == "color");
+        CHECK(types[8]["properties"][1]["name"] == "density");
+        CHECK(types[8]["properties"][1]["unit"] == "1/m");
+        CHECK(types[8]["properties"][1]["minimum"] == 0.0);
+        CHECK(types[8]["properties"][1]["maximum"] == 10.0);
+        CHECK(types[8]["properties"][3]["name"] == "startDistance");
+        CHECK(types[8]["properties"][3]["unit"] == "m");
 
         // A decal lays a material on, and says over how many degrees it fades.
-        CHECK(types[8]["name"] == "Decal");
-        CHECK(types[8]["properties"][0]["name"] == "material");
-        CHECK(types[8]["properties"][0]["semantic"] == "asset");
-        CHECK(types[8]["properties"][0]["assetType"] == "Material");
-        CHECK(types[8]["properties"][2]["name"] == "fadeAngle");
-        CHECK(types[8]["properties"][2]["unit"] == "deg");
-        CHECK(types[8]["properties"][2]["minimum"] == 10.0);
-        CHECK(types[8]["properties"][2]["maximum"] == 90.0);
+        CHECK(types[9]["name"] == "Decal");
+        CHECK(types[9]["properties"][0]["name"] == "material");
+        CHECK(types[9]["properties"][0]["semantic"] == "asset");
+        CHECK(types[9]["properties"][0]["assetType"] == "Material");
+        CHECK(types[9]["properties"][2]["name"] == "fadeAngle");
+        CHECK(types[9]["properties"][2]["unit"] == "deg");
+        CHECK(types[9]["properties"][2]["minimum"] == 10.0);
+        CHECK(types[9]["properties"][2]["maximum"] == 90.0);
 
         // A scene capture names a render target, and says how long it keeps a picture.
-        CHECK(types[9]["name"] == "SceneCapture");
-        CHECK(types[9]["properties"][0]["name"] == "target");
-        CHECK(types[9]["properties"][0]["assetType"] == "RenderTarget");
-        CHECK(types[9]["properties"][1]["unit"] == "s");
+        CHECK(types[10]["name"] == "SceneCapture");
+        CHECK(types[10]["properties"][0]["name"] == "target");
+        CHECK(types[10]["properties"][0]["assetType"] == "RenderTarget");
+        CHECK(types[10]["properties"][1]["unit"] == "s");
 
         // The settings a component takes over from a struct it is built on are its own
         // properties like any other.
-        CHECK(types[10]["name"] == "PostProcess");
-        CHECK(types[10]["properties"][0]["name"] == "global");
-        CHECK(types[10]["properties"][4]["name"] == "exposureMode");
-        CHECK(types[10]["properties"][4]["options"] == json(R"(["manual", "automatic"])"));
-        CHECK(types[10]["properties"][10]["name"] == "toneMapper");
-        CHECK(types[10]["properties"][10]["options"] == json(R"(["filmic", "aces", "linear"])"));
-        CHECK(types[10]["properties"][21]["name"] == "colorLut");
-        CHECK(types[10]["properties"][21]["assetType"] == "Texture");
+        CHECK(types[11]["name"] == "PostProcess");
+        CHECK(types[11]["properties"][0]["name"] == "global");
+        CHECK(types[11]["properties"][4]["name"] == "exposureMode");
+        CHECK(types[11]["properties"][4]["options"] == json(R"(["manual", "automatic"])"));
+        CHECK(types[11]["properties"][10]["name"] == "toneMapper");
+        CHECK(types[11]["properties"][10]["options"] == json(R"(["filmic", "aces", "linear"])"));
+        CHECK(types[11]["properties"][21]["name"] == "colorLut");
+        CHECK(types[11]["properties"][21]["assetType"] == "Texture");
 
-        CHECK(types[11]["name"] == "Label");
-        CHECK(types[11]["properties"][1]["readOnly"] == true);
+        CHECK(types[12]["name"] == "Label");
+        CHECK(types[12]["properties"][1]["readOnly"] == true);
     }
 
     TEST_CASE("a scene is lit by commands: lights are made, changed and taken back like everything else") {

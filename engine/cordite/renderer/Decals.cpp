@@ -13,17 +13,6 @@ namespace {
 /// one that is flat has no inside to lay anything on.
 constexpr float kMinBoxVolume = 1.0e-9f;
 
-bool isFiniteMatrix(const Mat4& matrix) {
-    for (int column = 0; column < 4; ++column) {
-        for (int row = 0; row < 4; ++row) {
-            if (!std::isfinite(matrix[column][row])) {
-                return false;
-            }
-        }
-    }
-    return true;
-}
-
 /// The way the depth of a point in a decal grows, from the inverse of its world matrix:
 /// its third row is how much the box's Z changes along each axis of the world, and the
 /// depth is minus that Z. decalProjection() of shaders/common/Decals.slang does the same.
@@ -69,7 +58,7 @@ void SceneDecals::collect(const World& world) {
         const Mat4& worldFromDecal = placement.matrix;
         // A box that is flat, or not made of numbers, has nothing inside to lay on.
         const float volume = std::abs(glm::determinant(Mat3(worldFromDecal)));
-        if (!isFiniteMatrix(worldFromDecal) || !(volume > kMinBoxVolume)) {
+        if (!isFinite(worldFromDecal) || !(volume > kMinBoxVolume)) {
             continue;
         }
         const float opacity = std::isfinite(decal.opacity) ? std::clamp(decal.opacity, 0.0f, 1.0f) : 0.0f;

@@ -1788,6 +1788,27 @@
             }
         },
         {
+            // An environment probe: a picture of everything around the middle of the stage,
+            // taken from the scene itself when the scene is first drawn, which lights what
+            // is in the probe's box from all around in the place of the sky - the floor, the
+            // wall and the lamp in the reflections of the rack's balls, where the sky alone
+            // would show only the sky. The box is the entity's: a cube of one metre, scaled
+            // to the stage and placed at its middle, from where the picture is taken.
+            // Towards its faces it fades into the sky over "blendDistance" metres;
+            // "boxProjection" looks up what a surface reflects where its reflection meets
+            // the box. Of probes whose boxes overlap, the one of the higher "priority" is laid
+            // over the other. The picture is taken again when the entity moves, and in the
+            // editor when View > Capture probes asks.
+            "id": "10000000-0000-4000-8000-00000000004c",
+            "name": "Stage probe",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-00000000001e",
+            "components": {
+                "Transform": { "position": [0.4, 2.0, -0.8], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [14.0, 6.0, 12.0] },
+                "EnvironmentProbe": { "blendDistance": 2.0, "intensity": 1.0, "priority": 0, "boxProjection": true }
+            }
+        },
+        {
             // The renderer works out light, without an upper limit; a screen shows colors
             // between black and white. What happens in between - exposure, bloom, tone
             // mapping, grading - is set by PostProcess components.

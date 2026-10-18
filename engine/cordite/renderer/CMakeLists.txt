@@ -30,6 +30,8 @@ cordite_add_module(renderer
         EnvironmentLight.h
         EnvironmentMaps.cpp
         EnvironmentMaps.h
+        EnvironmentProbes.cpp
+        EnvironmentProbes.h
         Fog.cpp
         Fog.h
         FramePacer.cpp

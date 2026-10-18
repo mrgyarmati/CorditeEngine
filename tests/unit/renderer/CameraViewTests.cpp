@@ -7,7 +7,6 @@
 #include "support/MathTestSupport.h"
 #include "support/TestSupport.h"
 
-#include <cmath>
 #include <limits>
 
 using namespace cordite;
@@ -19,17 +18,6 @@ namespace {
 Vec3 project(const CameraView& view, const Vec3& point) {
     const Vec4 clip = view.viewProjection * Vec4(point, 1.0f);
     return Vec3(clip) / clip.w;
-}
-
-bool isFinite(const Mat4& matrix) {
-    for (int column = 0; column < 4; ++column) {
-        for (int row = 0; row < 4; ++row) {
-            if (!std::isfinite(matrix[column][row])) {
-                return false;
-            }
-        }
-    }
-    return true;
 }
 
 Mat4 placedAt(const Vec3& position, const Quat& rotation = kIdentityQuat, const Vec3& scale = Vec3(1.0f)) {

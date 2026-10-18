@@ -135,6 +135,7 @@ this order. Then each step, with its shader in `shaders/`:
 | Lights, sorted into clusters, and their cookies | `LightClusters.h`, `SceneLights.h`, `LightCookies.h` | `common/Lights.slang` | "Lights are found through clusters, built on the CPU", "Brightness is set for artists, computed in radiance", "A cookie is a layer of one array, filled on the CPU" |
 | Deferred lighting | `DeferredLightingPass.h` | `passes/DeferredLighting.slang`, `common/SceneLighting.slang`, `common/Brdf.slang` | "Solid surfaces are shaded deferred, translucent ones forward" |
 | The environment | `EnvironmentMaps.h`, `EnvironmentLight.h` | `common/Environment.slang`, `passes/EnvironmentPrefilter.slang` | "An environment is one image, and three things are made of it" |
+| Environment probes | `EnvironmentProbes.h` | `common/Environment.slang`, `common/CubeMap.slang`, `passes/ProbeFace.slang`, `passes/ProbeDownsample.slang`, `passes/ProbeHarmonics.slang` | "A probe is a picture the renderer takes of its own scene" |
 | Fog | `Fog.h` | `common/Fog.slang` | "Fog is a formula in the lighting, not a pass" |
 | Lights that light the fog | `VolumetricFog.h`, `VolumetricFogPass.h`, `ComputePass.h` | `common/FogVolume.slang`, `common/VolumetricFog.slang`, `passes/FogScattering.slang`, `passes/FogIntegration.slang` | "The fog's light is a volume over the view, worked out by compute shaders" |
 | Translucent surfaces | `MeshDrawList.h` | `passes/MeshForward.slang` | |
