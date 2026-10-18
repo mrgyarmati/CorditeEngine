@@ -70,6 +70,11 @@ struct ScreenEffectsQualitySettings {
     uint32_t fogVolumeMaxCells = 120;
     /// ... and this many deep, from the camera to how far the fog is lit.
     uint32_t fogVolumeSlices = 48;
+    /// Reflections from the screen (ScreenReflections.h) are followed for one pixel in this
+    /// many, each way, ...
+    uint32_t reflectionDivisor = 2;
+    /// ... in this many steps across the picture.
+    uint32_t reflectionSteps = 16;
 
     bool operator==(const ScreenEffectsQualitySettings&) const = default;
 };

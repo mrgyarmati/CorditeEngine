@@ -49,6 +49,24 @@
             }
         },
         {
+            // A plate of polished steel in front of the crate: a built-in plane laid four
+            // millimetres over the floor (materials/mirror_plate.material.json). It is
+            // smooth enough for the reflections from the screen: the crate is reflected in
+            // it as the picture shows it, and where a reflection leaves the picture, the sky
+            // and the stage probe are reflected instead.
+            "id": "10000000-0000-4000-8000-00000000004d",
+            "name": "Mirror plate",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-000000000001",
+            "components": {
+                "Transform": { "position": [2.25, 0.004, 0.5], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [1.0, 1.0, 0.9] },
+                "MeshRenderer": {
+                    "mesh": "8db36b6b-2606-8b2d-b7f0-6bd7af0a9d8c",
+                    "materials": ["319feb86-2a08-80ea-8628-d34689ce9e1d"]
+                }
+            }
+        },
+        {
             "id": "10000000-0000-4000-8000-00000000000b",
             "name": "Wall",
             "enabled": true,
@@ -1511,8 +1529,8 @@
                 // what is seen through it, after everything the scene says (see "Look"
                 // below), and to no other view. A map is no photograph: no curve
                 // ("linear" cuts off what is brighter than white), no bloom, no grade, no
-                // depth of field - nothing is blurred in front or behind - no light shafts
-                // and no motion blur.
+                // depth of field - nothing is blurred in front or behind - no light shafts,
+                // no reflections from the screen and no motion blur.
                 "PostProcess": {
                     "global": true,
                     "priority": 0,
@@ -1543,6 +1561,10 @@
                     "ambientOcclusionIntensity": 1.0,
                     "ambientOcclusionRadius": 0.5,
                     "ambientOcclusionBias": 2.0,
+                    "reflectionIntensity": 0.0,
+                    "reflectionMaxRoughness": 0.4,
+                    "reflectionMaxDistance": 20.0,
+                    "reflectionThickness": 0.3,
                     "focusDistance": 10.0,
                     "focusRange": 2.0,
                     "focusTransition": 5.0,
@@ -1839,6 +1861,13 @@
             // looked for that stand in its light, in metres; its bias, in degrees, how far
             // above a surface something must rise to count.
             //
+            // Reflections from the screen are part of the look as well: what the reflection
+            // of a smooth surface meets in the picture - the crate in the mirror plate - is what it
+            // reflects, in the place of the sky and the stage probe. Up to a roughness of 0.4,
+            // fully up to half of that; followed twenty metres, through things taken to be
+            // thirty centimetres thick (View > Render view > Screen reflections shows what
+            // they put in place).
+            //
             // And depth of field, as a lens has it: what is eight metres from the camera -
             // the stage, seen from the main camera - is sharp, and so is everything from
             // five metres in front of that to five behind. Over the next fifteen metres
@@ -1893,6 +1922,10 @@
                     "ambientOcclusionIntensity": 1.4,
                     "ambientOcclusionRadius": 0.6,
                     "ambientOcclusionBias": 2.0,
+                    "reflectionIntensity": 1.0,
+                    "reflectionMaxRoughness": 0.4,
+                    "reflectionMaxDistance": 20.0,
+                    "reflectionThickness": 0.3,
                     "focusDistance": 8.0,
                     "focusRange": 5.0,
                     "focusTransition": 15.0,
@@ -1950,6 +1983,10 @@
                     "ambientOcclusionIntensity": 1.8,
                     "ambientOcclusionRadius": 0.4,
                     "ambientOcclusionBias": 2.0,
+                    "reflectionIntensity": 1.0,
+                    "reflectionMaxRoughness": 0.4,
+                    "reflectionMaxDistance": 20.0,
+                    "reflectionThickness": 0.3,
                     "focusDistance": 4.0,
                     "focusRange": 2.5,
                     "focusTransition": 10.0,

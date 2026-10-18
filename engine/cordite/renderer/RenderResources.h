@@ -99,6 +99,10 @@ struct GpuMaterial {
     /// Whether the material has a normal texture. A decal of one that has none leaves the
     /// normals it lands on as they are.
     bool hasNormalTexture = false;
+    /// The least roughness a texel of the material can have: its roughness - or nothing,
+    /// when its metallic-roughness texture can make it less. Reflections from the screen
+    /// are drawn only for a view in which something can be smooth enough to take them.
+    float leastRoughness = 1.0f;
     /// Counts up with every material created; see GpuMesh::serial.
     uint32_t serial = 0;
 };

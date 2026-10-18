@@ -28,11 +28,35 @@ float3 storableLight(float3 light)
     return min(light, float3(kMostLight));
 }
 
-// The light of everything around a scene, as it leaves a surface towards the viewer:
-// that of the sky and the ground of its ambient lights, and that of its environment.
+// Everything around a scene as it reaches a surface seen along `toViewer`: the sky and the
+// ground of its ambient lights, its environment and its probes.
+SurroundingLight surroundingLight(Surface surface, float3 toViewer)
+{
+    const SurroundingLight hemisphere = hemisphereSurroundings(surface, toViewer, skyColor, groundColor);
+    const SurroundingLight environment = environmentSurroundings(surface, toViewer);
+    SurroundingLight light;
+    light.diffuse = hemisphere.diffuse + environment.diffuse;
+    light.reflected = hemisphere.reflected + environment.reflected;
+    return light;
+}
+
+// How much of the light it reflects from all around a surface seen along `toViewer` sends
+// towards the viewer.
+float3 surroundingsReflectance(Surface surface, float3 toViewer)
+{
+    const float nDotV = max(dot(surface.normal, toViewer), 1.0e-4);
+    return environmentReflectance(specularColor(surface), saturate(surface.roughness), nDotV);
+}
+
+// The light of everything around a scene, as it leaves a surface towards the viewer. Both
+// parts are dimmed where the material says less of the surroundings is seen, in its
+// crevices. What the reflections from the screen put in the place of the reflected part
+// (passes/ScreenReflectionComposite.slang) is weighed the same way.
 float3 shadeSurroundings(Surface surface, float3 toViewer)
 {
-    return shadeHemisphere(surface, toViewer, skyColor, groundColor) + shadeEnvironment(surface, toViewer);
+    const SurroundingLight light = surroundingLight(surface, toViewer);
+    return (light.diffuse * diffuseColor(surface) + light.reflected * surroundingsReflectance(surface, toViewer)) *
+           surface.occlusion;
 }
 
 // `uv` is where the surface is in the picture, from (0, 0) at the top left to (1, 1):

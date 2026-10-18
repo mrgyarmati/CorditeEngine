@@ -50,6 +50,8 @@ std::string_view nameOf(RenderDebugView view) {
             return "fogLight";
         case RenderDebugView::Probes:
             return "probes";
+        case RenderDebugView::ScreenReflections:
+            return "screenReflections";
         case RenderDebugView::Lod:
             return "lod";
     }
@@ -102,6 +104,8 @@ std::string_view displayNameOf(RenderDebugView view) {
             return "Fog light";
         case RenderDebugView::Probes:
             return "Probes";
+        case RenderDebugView::ScreenReflections:
+            return "Screen reflections";
         case RenderDebugView::Lod:
             return "Levels of detail";
     }

@@ -137,7 +137,7 @@ by accident.
 | `rhi` | `core`, `math`, `platform` | Vulkan device, swapchain and texture readback over NVRHI |
 | `shaders` | `core` | Shader requests and permutation keys, disk cache, `ShaderLibrary` |
 | `shader_compiler` | `core`, `shaders` | Slang to SPIR-V compiler, and the cache of the engine's shaders compiled ahead that an exported game ships (`EngineShaderCache.h`); not linked into exported games |
-| `renderer` | `core`, `math`, `assets`, `world`, `animation`, `rhi`, `shaders` | The scene renderer and what it is made of: GPU copies of assets, the mesh passes, the G-buffer and its lighting, the lights of a world and the clusters they are sorted into, their cookies, their shadow maps and the atlas those share, what finishes the picture (exposure, bloom, tone mapping, grading), the environment (the sky and what it lights), environment probes (pictures of the scene that light it in the environment's place), ambient occlusion from the screen, fog and what lights throw into it, decals, levels of detail, scene captures, the debug views, scene targets, the `MeshRenderer`, `Light`, `AmbientLight`, `Environment`, `EnvironmentProbe`, `Fog`, `Decal`, `SceneCapture` and `PostProcess` components; camera views, debug lines, GPU timing, GPU shader management |
+| `renderer` | `core`, `math`, `assets`, `world`, `animation`, `rhi`, `shaders` | The scene renderer and what it is made of: GPU copies of assets, the mesh passes, the G-buffer and its lighting, the lights of a world and the clusters they are sorted into, their cookies, their shadow maps and the atlas those share, what finishes the picture (exposure, bloom, tone mapping, grading), the environment (the sky and what it lights), environment probes (pictures of the scene that light it in the environment's place), ambient occlusion and reflections from the screen, fog and what lights throw into it, decals, levels of detail, scene captures, the debug views, scene targets, the `MeshRenderer`, `Light`, `AmbientLight`, `Environment`, `EnvironmentProbe`, `Fog`, `Decal`, `SceneCapture` and `PostProcess` components; camera views, debug lines, GPU timing, GPU shader management |
 | `ui` | `core`, `math`, `platform`, `rhi`, `shaders`, `renderer` | The immediate-mode interface: the Dear ImGui context and its NVRHI renderer; its typefaces and icons, compiled in; its themes, and the widgets it draws the same way everywhere |
 | `engine` | all of the above but `shader_compiler` | `Engine`: owns the subsystems, the assets, the world and the interface, and runs the frame loop; projects; a game made of a project (`Game`); placing models; checking the assets a scene uses |
 | `editor` | `engine` and below, `shader_compiler` | The editor: the scene document, undoable actions, scene and asset commands, panels, `EditorApp`; making a game of a project (`GameExport`) (not linked into exported games) |
@@ -307,8 +307,8 @@ Vulkan directly. Step-by-step guide for adding a pass:
   texture before the widget that shows it, never after.
 - **Meshes are drawn by `SceneRenderer`**, into a `SceneTargets` per view, in this
   order: shadow maps, depth pre-pass, base pass (fills the G-buffer), decals, ambient
-  occlusion, what lights throw into the fog, deferred lighting, forward pass, light
-  shafts, depth of field, post-processing. Solid surfaces - opaque and masked - go through the G-buffer; only
+  occlusion, what lights throw into the fog, deferred lighting, reflections from the
+  screen, forward pass, light shafts, depth of field, post-processing. Solid surfaces - opaque and masked - go through the G-buffer; only
   translucent ones are drawn forward. Front faces wind counter-clockwise; depth is reversed. Draws that share
   mesh, submesh and material are instanced, and sorted by the serial numbers of their
   GPU resources, never by address, so that two runs issue the same draw calls in the
@@ -644,6 +644,36 @@ Vulkan directly. Step-by-step guide for adding a pass:
   What it looks like is the scene's to say (`PostProcess`: intensity, radius, bias);
   what it costs is the view's (`ScreenEffectsQuality`). Surfaces drawn forward get
   none: they are not in the depth buffer.
+- **What a reflection meets on the screen takes the place of what the surroundings
+  would have it reflect** (`ScreenReflectionPass`, after the lighting and before the
+  forward pass): the scene color is copied, the reflection of each pixel is followed
+  through the depth buffer in even steps across the picture (`traceScreenReflection`),
+  and where it meets something the light the lighting gave that pixel replaces the
+  reflected part of `surroundingLight` - the sky and ground of the ambient lights, the
+  environment, the probes - weighed by `surroundingsReflectance` and the surface's
+  occlusion, and seen through the fog between the viewer and the surface, as the
+  lighting weighed what it replaces. That holds to the bit only because both read one
+  surface (`surfaceAt` in `common/GBufferSurface.slang`) through the same functions:
+  never work out the surroundings a second way. Where nothing is met, the pixel is
+  copied unchanged, and a test holds that to the bit. The walk sets out a pixel's
+  width above the surface - the depth buffer holds a surface at the middles of its
+  pixels, which a reflection that grazes it would seem to pass behind - and what lies
+  outside the picture, or beyond the far plane, is met by nothing. What is met is as
+  sharp as a mirror's reflection and is not blurred for rough surfaces, so surfaces
+  rougher than `reflectionMaxRoughness` take nothing from it; trust also fades at the
+  borders of the picture and towards `reflectionMaxDistance`. The arithmetic is written
+  down twice, in `ScreenReflections.cpp` and `common/ScreenReflections.slang`: tests
+  hold the first against geometry and the pictures against both. Where in the picture
+  a reflection met something is kept in 16 bits: half floats put it pixels off at the
+  far side of a large picture. Below the high quality the reflection of a block's first
+  pixel serves the four pixels of the block, each with its own roughness - no upsampling
+  that keeps to edges, as the ambient occlusion has - so the border of a smooth surface
+  whose block starts on a rough pixel has a pixel without one. What it looks like is the scene's (`PostProcess`), what
+  it costs the view's (`ScreenEffectsQuality`); probes are taken without it
+  (`SceneRenderSettings::screenReflections`), and surfaces drawn forward get none. A view
+  in which nothing can be smoother than that - no solid material, no decal
+  (`GpuMaterial::leastRoughness`, where a texture of roughness counts as smooth) - draws
+  none and pays nothing (`SceneRenderer::hasSurfaceSmootherThan`).
 - **Fog is in the way of everything a viewer sees** (`Fog.h`, `common/Fog.slang`).
   `shadeSurface` ends with it, so solid and translucent surfaces are in it alike; the
   lighting pass lays it over the sky and the background, where nothing was drawn. It
@@ -695,8 +725,8 @@ Vulkan directly. Step-by-step guide for adding a pass:
   something to look at: a channel, a mask, a count. A view of the G-buffer is a `case`
   in `passes/DebugView.slang`; one that is not drawn from the G-buffer is drawn by the
   pass it is about, in a mode of its own - lighting only and reflections by the lighting,
-  the focus by the depth of field, over the lit picture, and the light shafts by
-  theirs, alone over black. The editor's menu and `viewport.debugView` list them all
+  the focus by the depth of field, over the lit picture, and the light shafts and the
+  reflections from the screen by theirs, alone over black. The editor's menu and `viewport.debugView` list them all
   from `kRenderDebugViews`.
 - **Uploads go through `RenderResources`.** It records them on a command list of its
   own, created with `setEnableImmediateExecution(false)` - NVRHI allows only one

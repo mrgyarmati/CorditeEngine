@@ -50,21 +50,27 @@ ScreenEffectsQualitySettings screenEffectsSettingsFor(ScreenEffectsQuality quali
                     .ambientOcclusionSteps = 2,
                     .fogVolumeTile = 16,
                     .fogVolumeMaxCells = 120,
-                    .fogVolumeSlices = 48};
+                    .fogVolumeSlices = 48,
+                    .reflectionDivisor = 2,
+                    .reflectionSteps = 16};
         case ScreenEffectsQuality::Medium:
             return {.ambientOcclusionDivisor = 2,
                     .ambientOcclusionSlices = 2,
                     .ambientOcclusionSteps = 4,
                     .fogVolumeTile = 12,
                     .fogVolumeMaxCells = 160,
-                    .fogVolumeSlices = 64};
+                    .fogVolumeSlices = 64,
+                    .reflectionDivisor = 2,
+                    .reflectionSteps = 32};
         case ScreenEffectsQuality::High:
             return {.ambientOcclusionDivisor = 1,
                     .ambientOcclusionSlices = 3,
                     .ambientOcclusionSteps = 5,
                     .fogVolumeTile = 8,
                     .fogVolumeMaxCells = 240,
-                    .fogVolumeSlices = 80};
+                    .fogVolumeSlices = 80,
+                    .reflectionDivisor = 1,
+                    .reflectionSteps = 64};
     }
     return {};
 }

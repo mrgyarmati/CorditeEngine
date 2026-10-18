@@ -255,6 +255,10 @@ How the picture is finished - exposure, bloom, tone mapping, grading - everywher
 | `ambientOcclusionIntensity` | float | `1.0` | 0.0 to 4.0 | Ambient occlusion: how much darker the light from all around gets in creases and under things. 0 not at all, 1 as the geometry says, more exaggerated |
 | `ambientOcclusionRadius` | float | `0.5` | 0.01 to 10.0; m | Ambient occlusion: how far from a point things are looked for that stand in its light |
 | `ambientOcclusionBias` | float | `2.0` | 0.0 to 30.0; deg | Ambient occlusion: how far something has to rise above a surface before it counts; more hides streaks on surfaces seen at a low angle |
+| `reflectionIntensity` | float | `1.0` | 0.0 to 1.0 | Reflections from the screen: how much of what a reflection meets in the picture takes the place of what the surroundings would have it reflect. 0 none, 1 all |
+| `reflectionMaxRoughness` | float | `0.4` | 0.0 to 1.0 | Reflections from the screen: the roughest surface that takes anything from them; those up to half as rough take all of it. They are not blurred |
+| `reflectionMaxDistance` | float | `20.0` | 0.1 to 1000.0; m | Reflections from the screen: how far a reflection is followed |
+| `reflectionThickness` | float | `0.3` | 0.001 to 100.0; m | Reflections from the screen: how thick what was drawn is taken to be; a reflection that passes further behind it goes on |
 | `focusDistance` | float | `10.0` | 0.0 to 10000.0; m | Depth of field: how far from the camera what is sharp is, along the way it looks |
 | `focusRange` | float | `2.0` | 0.0 to 10000.0; m | Depth of field: how far in front of the focus distance and behind it everything stays sharp |
 | `focusTransition` | float | `5.0` | 0.0 to 10000.0; m | Depth of field: over how many metres beyond that the blur grows to its most; with nothing, what is not sharp is blurred at its most |

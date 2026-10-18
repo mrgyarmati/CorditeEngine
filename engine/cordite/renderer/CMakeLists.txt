@@ -80,6 +80,10 @@ cordite_add_module(renderer
         ScenePostProcess.h
         ScreenEffects.cpp
         ScreenEffects.h
+        ScreenReflectionPass.cpp
+        ScreenReflectionPass.h
+        ScreenReflections.cpp
+        ScreenReflections.h
         ShadowAtlas.cpp
         ShadowAtlas.h
         ShadowPlan.cpp

@@ -186,18 +186,19 @@ TEST_SUITE("Engine") {
             // the cube map of an environment - from an image, and from the picture of a
             // probe - the three that take a probe's picture (its faces, their levels, its
             // harmonics), the two of the decals, the two of the ambient occlusion, the two
-            // of what lights throw into a fog, the three of the light shafts, the three of
-            // the depth of field, the three of the motion blur, and the six that finish the
-            // picture: three for the bloom, one for the exposure, the last pass and the
-            // anti-aliasing.
-            CHECK(engine->shaders().stats().compilations == 49);
+            // of what lights throw into a fog, the three of the reflections from the screen
+            // (what is found, and putting it in place - also alone, for their debug view),
+            // the three of the light shafts, the three of the depth of field, the three of
+            // the motion blur, and the six that finish the picture: three for the bloom, one
+            // for the exposure, the last pass and the anti-aliasing.
+            CHECK(engine->shaders().stats().compilations == 52);
             CHECK(engine->shaders().stats().diskHits == 0);
         }
 
         const std::unique_ptr<Engine> engine = createEngine(desc);
         runFrames(*engine, 1);
         CHECK(engine->shaders().stats().compilations == 0);
-        CHECK(engine->shaders().stats().diskHits == 49);
+        CHECK(engine->shaders().stats().diskHits == 52);
         checkNoValidationIssues(engine->graphics());
     }
 
@@ -635,7 +636,7 @@ TEST_SUITE("Engine") {
 
         // Everything in the scene that is enabled was found; none of it failed to load.
         const SceneRenderStatistics& statistics = engine->sceneRenderer().statistics();
-        CHECK(statistics.meshRenderers == 37);
+        CHECK(statistics.meshRenderers == 38);
         // The cable of the hoist is skinned to six joints, and it swings: a game lets
         // time pass, and the animator's clock has moved on by the two frames.
         CHECK(statistics.skinnedMeshes == 1);
@@ -818,7 +819,7 @@ TEST_SUITE("Engine") {
         CHECK(world.findByName("Plinth").isNull());
         CHECK_FALSE(world.findByName("Clock").isNull());
         CHECK(engine->statistics().physics.bodies == 19);
-        CHECK(engine->sceneRenderer().statistics().meshRenderers == 37);
+        CHECK(engine->sceneRenderer().statistics().meshRenderers == 38);
         const Entity back = world.findByName("Sentry");
         REQUIRE_FALSE(back.isNull());
         CHECK_NEAR(world.transform(back).position, Vec3(-0.8f, 0.0f, -3.9f), 5.0e-2f);

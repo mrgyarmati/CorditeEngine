@@ -13,7 +13,6 @@
 #include "support/MathTestSupport.h"
 
 #include <fmt/format.h>
-#include <glm/gtc/packing.hpp>
 #include <nvrhi/nvrhi.h>
 
 #include <algorithm>
@@ -21,7 +20,6 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
-#include <cstring>
 #include <limits>
 #include <string>
 #include <vector>
@@ -29,23 +27,12 @@
 using namespace cordite;
 using cordite::test::at;
 using cordite::test::checkNoValidationIssues;
+using cordite::test::HalfPicture;
 using cordite::test::SceneFixture;
+using cordite::test::sceneLight;
 using cordite::test::unwrap;
 
 namespace {
-
-/// Four half floats a texel, read back.
-struct HalfPicture {
-    TexturePixels pixels;
-
-    [[nodiscard]] Vec3 at(uint32_t x, uint32_t y) const {
-        REQUIRE(pixels.format == nvrhi::Format::RGBA16_FLOAT);
-        std::array<uint16_t, 3> halves{};
-        std::memcpy(halves.data(), pixels.data.data() + (static_cast<size_t>(y) * pixels.width + x) * 8,
-                    sizeof(halves));
-        return {glm::unpackHalf1x16(halves[0]), glm::unpackHalf1x16(halves[1]), glm::unpackHalf1x16(halves[2])};
-    }
-};
 
 /// Takes the pictures of the probes of the scene that need them, as a frame of a game
 /// would before its view.
@@ -69,11 +56,6 @@ void takeAllProbes(SceneFixture& scene) {
         }
     }
     FAIL("the probes are still being taken after a frame for every probe there can be");
-}
-
-/// The light of the scene color of the picture last drawn.
-HalfPicture sceneLight(SceneFixture& scene) {
-    return {unwrap(readTexture(*scene.context.graphics, scene.targets.sceneColor()))};
 }
 
 /// The mean of the four pixels that meet at the corner (x, y). On a ball whose middle is
@@ -492,6 +474,37 @@ TEST_SUITE("EnvironmentProbes") {
         const Vec3 seen = sceneLight(scene).at(column, 32);
         CAPTURE(seen);
         CHECK(glm::distance(seen, share * Vec3(1.0f, 0.2f, 0.2f) + (1.0f - share) * Vec3(0.2f, 1.0f, 0.2f)) < 0.02f);
+        checkNoValidationIssues(*scene.context.graphics);
+    }
+
+    TEST_CASE("a probe's picture is taken without reflections from the screen, whether the views have them or not") {
+        SceneFixture scene;
+        scene.writeMaterial("mirror", R"("baseColor": [1, 1, 1, 1], "metallic": 1, "roughness": 0)");
+        scene.writeFlatMaterial("wall", Vec3(0.2f, 0.8f, 0.4f));
+        scene.open();
+        // A mirror floor a metre under the probe, and a wall of light on it in front of the
+        // probe: the screen would show the wall in the floor.
+        scene.add(BuiltinMesh::Plane, scene.material("mirror"), at(Vec3(0.0f, -1.0f, 0.0f), Vec3(10.0f, 1.0f, 10.0f)));
+        scene.add(BuiltinMesh::Cube, scene.material("wall"), at(Vec3(0.0f, 0.0f, -2.05f), Vec3(6.0f, 2.0f, 0.1f)));
+        addProbe(scene, Vec3(0.0f), 8.0f);
+        const auto faces = [&](bool screenReflections) {
+            SceneRenderSettings settings = SceneFixture::flatSettings();
+            settings.screenEffectsQuality = ScreenEffectsQuality::High;
+            settings.screenReflections = screenReflections;
+            scene.renderer->retakeProbes();
+            takeProbes(scene, settings);
+            std::vector<std::vector<std::byte>> pictures;
+            for (uint32_t face = 0; face < kCubeFaceCount; ++face) {
+                pictures.push_back(
+                    unwrap(readTexture(*scene.context.graphics, scene.renderer->probes().captureCube(), 0, face)).data);
+            }
+            return pictures;
+        };
+        CHECK(faces(true) == faces(false));
+        // The floor under the wall, as the face towards -Z sees it, reflects nothing there is.
+        const HalfPicture front{
+            unwrap(readTexture(*scene.context.graphics, scene.renderer->probes().captureCube(), 0, 5))};
+        CHECK(front.at(kProbeFaceSize / 2, kProbeFaceSize * 7 / 8) == Vec3(0.0f));
         checkNoValidationIssues(*scene.context.graphics);
     }
 

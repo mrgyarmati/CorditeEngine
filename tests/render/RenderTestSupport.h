@@ -71,6 +71,16 @@ nvrhi::TextureHandle createColorTarget(nvrhi::IDevice* device, uint32_t width, u
 /// Reads a color texture into an Rgba8 image. BGRA textures are converted.
 Image readToImage(GraphicsDevice& device, nvrhi::ITexture* texture);
 
+/// A texture of four half floats a texel (RGBA16_FLOAT), read back: light as it was worked
+/// out, before anything made a picture of it.
+struct HalfPicture {
+    TexturePixels pixels;
+
+    /// The red, green and blue of the texel at `x`, `y`. Fails the test for a texture of
+    /// another format.
+    [[nodiscard]] Vec3 at(uint32_t x, uint32_t y) const;
+};
+
 /// Compares a rendered image with tests/render/references/<name>.png. On a mismatch the
 /// actual image and a difference visualization are written to tests/render/output/.
 void checkAgainstReference(const Image& actual, std::string_view name,

@@ -716,6 +716,10 @@ TEST_SUITE("RenderComponents") {
         component.ambientOcclusionIntensity = 1.5f;
         component.ambientOcclusionRadius = 0.75f;
         component.ambientOcclusionBias = 4.0f;
+        component.reflectionIntensity = 0.5f;
+        component.reflectionMaxRoughness = 0.25f;
+        component.reflectionMaxDistance = 12.5f;
+        component.reflectionThickness = 0.125f;
         component.focusDistance = 12.5f;
         component.focusRange = 1.5f;
         component.focusTransition = 6.0f;
@@ -740,6 +744,8 @@ TEST_SUITE("RenderComponents") {
             "colorLut": "11111111-2222-4333-8444-555555555555", "colorLutIntensity": 0.5,
             "vignette": 0.375, "chromaticAberration": 0.25, "filmGrain": 0.125,
             "ambientOcclusionIntensity": 1.5, "ambientOcclusionRadius": 0.75, "ambientOcclusionBias": 4.0,
+            "reflectionIntensity": 0.5, "reflectionMaxRoughness": 0.25, "reflectionMaxDistance": 12.5,
+            "reflectionThickness": 0.125,
             "focusDistance": 12.5, "focusRange": 1.5, "focusTransition": 6.0,
             "nearBlur": 0.25, "farBlur": 0.75, "blurSize": 0.015625,
             "lightShaftIntensity": 0.75, "lightShaftThreshold": 8.0, "lightShaftLength": 0.625,
@@ -810,6 +816,13 @@ TEST_SUITE("RenderComponents") {
                  R"({"ambientOcclusionRadius": 11.0})",
                  R"({"ambientOcclusionBias": -1.0})",
                  R"({"ambientOcclusionBias": 31.0})",
+                 R"({"reflectionIntensity": -0.1})",
+                 R"({"reflectionIntensity": 1.5})",
+                 R"({"reflectionMaxRoughness": 1.5})",
+                 R"({"reflectionMaxDistance": 0.0})",
+                 R"({"reflectionMaxDistance": 2000.0})",
+                 R"({"reflectionThickness": 0.0})",
+                 R"({"reflectionThickness": 200.0})",
                  R"({"sharpen": 1.0})",
                  R"({"exposure": 0.5, "vignette": 9.0})",
              }) {

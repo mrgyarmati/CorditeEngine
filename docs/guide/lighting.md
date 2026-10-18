@@ -122,6 +122,23 @@ out from the screen (screen-space ambient occlusion) and applies it to ambient a
 environment light only - direct light and shadows are not touched. Its `intensity`, `radius`
 and `bias` are post-processing settings (below); what it costs is a quality setting.
 
+## Reflections from the screen
+
+A shiny surface reflects the environment, or the picture of a probe - neither of which has the
+barrel that stands on the floor. Cordite also looks for what a reflection meets in the picture
+itself (screen-space reflections), and where it finds something, that is what the surface
+reflects: a wet floor shows the crate on it. What is not on the screen - behind the camera,
+off the edge of the picture, hidden behind something - cannot be found, and there the
+environment or the probe is reflected as before; towards the edges of the picture the two
+fade into each other. What is found is as sharp as in a mirror, so only smooth surfaces take
+it: up to `reflectionMaxRoughness`, fully up to half of that. `reflectionIntensity` says how
+much it counts (0 switches it off), `reflectionMaxDistance` how far a reflection is followed,
+and `reflectionThickness` how thick things are taken to be - a reflection that passes further
+behind something goes on past it. These are post-processing settings; the quality says how
+finely reflections are followed, and the `off` quality draws none; nor does a view in which
+nothing is smooth enough to take them. Translucent surfaces get none. The render view "screen
+reflections" shows what they put in place, over black.
+
 ## Post-processing
 
 The renderer computes light; post-processing makes a picture of it. Its settings are those
@@ -138,6 +155,7 @@ of the **PostProcess** component:
 | Light shafts | `lightShaftIntensity`, `lightShaftThreshold`, `lightShaftLength` |
 | Motion blur | `motionBlur` |
 | Ambient occlusion | `ambientOcclusionIntensity`, `ambientOcclusionRadius`, `ambientOcclusionBias` |
+| Reflections from the screen | `reflectionIntensity`, `reflectionMaxRoughness`, `reflectionMaxDistance`, `reflectionThickness` |
 | Anti-aliasing | how far the smoothing follows edges |
 
 Where the settings apply:
@@ -195,7 +213,7 @@ editor together with a neutral table, and use the graded table.
 ## Quality
 
 What a picture costs - the size of the shadow atlas, how many samples ambient occlusion
-takes, how far anti-aliasing searches - is a quality of the view, not of the scene: `low`,
+takes, in how many steps reflections are followed, how far anti-aliasing searches - is a quality of the view, not of the scene: `low`,
 `medium` or `high`, chosen in the editor's View > Quality menu (`viewport.quality`). The look
 stays the same at every quality; only detail and cost change. At a lower quality, meshes
 also change to their coarser levels of detail sooner.
@@ -205,7 +223,8 @@ also change to their coarser levels of detail sooner.
 View > Render view shows the channels of the renderer instead of the finished picture: base
 color, normals, roughness, metallic, specular, occlusion, emissive, depth, how many lights
 each pixel has, the shadow cascades, ambient occlusion, fog, lighting only, reflections,
-wireframe, overdraw, depth of field, light shafts, the fog's light, the probes, levels of detail and motion
+wireframe, overdraw, depth of field, light shafts, the fog's light, the probes, the reflections from the
+screen, levels of detail and motion
 (`viewport.debugView`
 for scripts and agents). Use them to find out why something looks the way it does - a wrong normal map, a
 light with too small a range, a surface outside every cascade. View > Statistics shows what

@@ -14,7 +14,6 @@
 #include "support/MathTestSupport.h"
 
 #include <fmt/format.h>
-#include <glm/gtc/packing.hpp>
 #include <nvrhi/nvrhi.h>
 
 #include <algorithm>
@@ -22,7 +21,6 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
-#include <cstring>
 #include <initializer_list>
 #include <limits>
 #include <vector>
@@ -30,8 +28,10 @@
 using namespace cordite;
 using cordite::test::at;
 using cordite::test::checkNoValidationIssues;
+using cordite::test::HalfPicture;
 using cordite::test::kBackground;
 using cordite::test::SceneFixture;
+using cordite::test::sceneLight;
 using cordite::test::unwrap;
 
 namespace {
@@ -44,24 +44,6 @@ SceneRenderSettings litFogSettings(ScreenEffectsQuality quality = ScreenEffectsQ
     SceneRenderSettings settings = SceneFixture::flatSettings();
     settings.screenEffectsQuality = quality;
     return settings;
-}
-
-/// Four half floats a texel, read back.
-struct HalfPicture {
-    TexturePixels pixels;
-
-    [[nodiscard]] Vec3 at(uint32_t x, uint32_t y) const {
-        REQUIRE(pixels.format == nvrhi::Format::RGBA16_FLOAT);
-        std::array<uint16_t, 3> halves{};
-        std::memcpy(halves.data(), pixels.data.data() + (static_cast<size_t>(y) * pixels.width + x) * 8,
-                    sizeof(halves));
-        return {glm::unpackHalf1x16(halves[0]), glm::unpackHalf1x16(halves[1]), glm::unpackHalf1x16(halves[2])};
-    }
-};
-
-/// The light of the scene color of the picture last drawn, as it was worked out.
-HalfPicture sceneLight(SceneFixture& scene) {
-    return {unwrap(readTexture(*scene.context.graphics, scene.targets.sceneColor()))};
 }
 
 /// Checks a light against what it is to be, to what a half float holds.

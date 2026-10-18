@@ -92,12 +92,17 @@ enum class RenderDebugView : uint8_t {
     /// probe of the view, by its place among them, mixed by their shares; grey for what
     /// the environment lights. Drawn by the lighting; translucent surfaces are left out.
     Probes,
+    /// What the reflections from the screen put in the place of the surroundings'
+    /// reflections (ScreenReflections.h): the light they met, as much as it is trusted,
+    /// over black - which is all there is where they met nothing, and in a view that draws
+    /// none. Drawn by their own pass over the lit picture; translucent surfaces are left out.
+    ScreenReflections,
     /// The level of detail each mesh is drawn at (LevelOfDetail.h): the mesh itself grey,
     /// its coarser levels green, yellow, orange and red, shaded by the way they face.
     Lod,
 };
 
-inline constexpr std::array<RenderDebugView, 23> kRenderDebugViews = {
+inline constexpr std::array<RenderDebugView, 24> kRenderDebugViews = {
     RenderDebugView::None,
     RenderDebugView::BaseColor,
     RenderDebugView::Normals,
@@ -120,6 +125,7 @@ inline constexpr std::array<RenderDebugView, 23> kRenderDebugViews = {
     RenderDebugView::LightShafts,
     RenderDebugView::FogLight,
     RenderDebugView::Probes,
+    RenderDebugView::ScreenReflections,
     RenderDebugView::Lod,
 };
 

@@ -88,6 +88,8 @@
 #include "cordite/renderer/ScenePostProcess.h"
 #include "cordite/renderer/SceneTargets.h"
 #include "cordite/renderer/ScreenEffects.h"
+#include "cordite/renderer/ScreenReflectionPass.h"
+#include "cordite/renderer/ScreenReflections.h"
 #include "cordite/renderer/ShaderManager.h"
 #include "cordite/renderer/ShadowAtlas.h"
 #include "cordite/renderer/ShadowPlan.h"
@@ -167,6 +169,10 @@ struct SceneRenderSettings {
     /// (EnvironmentProbes.h). Their own pictures are taken without them: light bounces
     /// once.
     bool environmentProbes = true;
+    /// Whether what the reflections of surfaces meet in the picture takes the place of the
+    /// surroundings' reflections, as much as the look of the scene and the screen effects
+    /// quality say (ScreenReflections.h). The pictures of probes are taken without them.
+    bool screenReflections = true;
     /// What the picture is finished with, and what its screen effects look like. Left
     /// empty, the PostProcess components of the world say (ScenePostProcess.h). A tool
     /// or a test that wants one look whatever the scene says sets it here.
@@ -314,6 +320,11 @@ struct SceneRenderStatistics {
     /// (SceneTargets::prepareLightShafts). Over the views of a frame it is the largest of
     /// them.
     uint64_t lightShaftBytes = 0;
+    /// The memory of the two images the reflections from the screen of the view are drawn
+    /// with, in bytes: a copy of the scene color and what was found, eight bytes a texel
+    /// each (SceneTargets::prepareScreenReflections). Over the views of a frame it is the
+    /// largest of them.
+    uint64_t screenReflectionBytes = 0;
     /// The memory of the two volumes what lights throw into the fog of the view is worked
     /// out in, in bytes: four half floats for every box of its grid, twice
     /// (SceneTargets::prepareFogVolume). Over the views of a frame it is the largest of them.
@@ -407,6 +418,7 @@ private:
         VolumetricFogPass fogLight;
         EnvironmentProbes probes;
         LightShaftPass lightShafts;
+        ScreenReflectionPass screenReflections;
         DepthOfFieldPass depthOfField;
         MotionBlurPass motionBlur;
         PostProcessPass postProcess;
@@ -499,6 +511,18 @@ private:
     /// Adds the light shafts of the scene's sun to the scene color of `targets`, as `look`
     /// says, or - in their debug view - puts them in its place; gives back the images they
     /// are worked out in when the view has none.
+    /// Puts what the reflections of the view's surfaces meet in its picture in the place of
+    /// the surroundings' reflections - or shows it, in the debug view of its own - after the
+    /// lighting and before anything is drawn over it.
+    /// Whether anything the view lays into its G-buffer - a solid mesh, or a decal on one -
+    /// can be smoother than `maxRoughness`: without, reflections from the screen change
+    /// nothing, and are not drawn.
+    [[nodiscard]] bool hasSurfaceSmootherThan(float maxRoughness) const;
+
+    void drawScreenReflections(nvrhi::ICommandList* commandList, SceneTargets& targets,
+                               nvrhi::IBindingSet* viewBindings, const PostProcessSettings& look,
+                               const SceneRenderSettings& settings, RenderDebugView debugView);
+
     void drawLightShafts(nvrhi::ICommandList* commandList, SceneTargets& targets, nvrhi::IBindingSet* viewBindings,
                          const CameraView& view, const PostProcessSettings& look, bool isFinished,
                          RenderDebugView debugView);

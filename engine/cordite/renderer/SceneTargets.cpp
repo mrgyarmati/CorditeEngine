@@ -215,6 +215,65 @@ uint64_t SceneTargets::tracedOcclusionBytes() const {
     return uint64_t{desc.width} * desc.height * 4;
 }
 
+Status SceneTargets::prepareScreenReflections(nvrhi::IDevice* device, uint32_t divisor) {
+    CORDITE_ASSERT(isValid() && device != nullptr && divisor >= 1 && divisor <= 4,
+                   "the reflections from the screen need valid targets, a device and a divisor from 1 to 4");
+    if (!isValid() || device == nullptr || divisor < 1 || divisor > 4) {
+        return makeError(ErrorCode::InvalidArgument,
+                         "the reflections from the screen need valid targets, a device and a divisor from 1 to 4");
+    }
+    if (m_reflectionSource && m_reflectionHits && m_reflectionDivisor == divisor) {
+        return {};
+    }
+    releaseScreenReflections();
+
+    // Copied into, never drawn into - but a render target all the same, which is what the
+    // copy of one render target into another wants.
+    nvrhi::TextureHandle source =
+        createTexture(device, m_size, nvrhi::Format::RGBA16_FLOAT, m_debugName + " reflection source",
+                      nvrhi::ResourceStates::ShaderResource);
+    // A texel for every block of pixels, the last of which may hang over the edge. Places
+    // in the picture are kept in 16 bits: half floats would put them two pixels off at the
+    // far side of a picture two thousand pixels wide.
+    const UVec2 size = (m_size + UVec2(divisor - 1)) / divisor;
+    nvrhi::TextureHandle hits = createTexture(device, size, nvrhi::Format::RGBA16_UNORM,
+                                              m_debugName + " reflection hits", nvrhi::ResourceStates::ShaderResource);
+    nvrhi::FramebufferHandle framebuffer;
+    if (hits) {
+        framebuffer = device->createFramebuffer(nvrhi::FramebufferDesc().addColorAttachment(hits));
+    }
+    if (!source || !framebuffer) {
+        return makeError(ErrorCode::DeviceError,
+                         "cannot create the images the reflections from the screen of '{}' are drawn with, {}x{} "
+                         "and {}x{}",
+                         m_debugName, m_size.x, m_size.y, size.x, size.y);
+    }
+    m_reflectionSource = std::move(source);
+    m_reflectionHits = std::move(hits);
+    m_reflectionHitsFramebuffer = std::move(framebuffer);
+    m_reflectionDivisor = divisor;
+    return {};
+}
+
+void SceneTargets::releaseScreenReflections() {
+    // What a command list on its way still uses is kept alive by that list.
+    m_reflectionHitsFramebuffer = nullptr;
+    m_reflectionHits = nullptr;
+    m_reflectionSource = nullptr;
+    m_reflectionDivisor = 0;
+}
+
+uint64_t SceneTargets::screenReflectionBytes() const {
+    // Four half floats a texel in the copy, four 16-bit numbers in what was found.
+    uint64_t bytes = 0;
+    for (nvrhi::ITexture* texture : std::array<nvrhi::ITexture*, 2>{m_reflectionSource, m_reflectionHits}) {
+        if (texture != nullptr) {
+            bytes += uint64_t{texture->getDesc().width} * texture->getDesc().height * 8;
+        }
+    }
+    return bytes;
+}
+
 Status SceneTargets::prepareAliased(nvrhi::IDevice* device) {
     CORDITE_ASSERT(isValid() && device != nullptr, "the picture before anti-aliasing needs valid targets and a device");
     if (!isValid() || device == nullptr) {

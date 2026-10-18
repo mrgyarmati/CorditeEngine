@@ -408,6 +408,10 @@ TEST_SUITE("PostProcessSettings") {
         broken.vignette = notANumber;
         broken.chromaticAberration = notANumber;
         broken.filmGrain = notANumber;
+        broken.reflectionIntensity = notANumber;
+        broken.reflectionMaxRoughness = notANumber;
+        broken.reflectionMaxDistance = notANumber;
+        broken.reflectionThickness = notANumber;
         const PostProcessSettings mended = sanitized(broken);
         CHECK(mended.exposure == defaults.exposure);
         CHECK(mended.autoExposureMinimum == defaults.autoExposureMinimum);
@@ -431,6 +435,10 @@ TEST_SUITE("PostProcessSettings") {
         CHECK(mended.ambientOcclusionIntensity == defaults.ambientOcclusionIntensity);
         CHECK(mended.ambientOcclusionRadius == defaults.ambientOcclusionRadius);
         CHECK(mended.ambientOcclusionBias == defaults.ambientOcclusionBias);
+        CHECK(mended.reflectionIntensity == defaults.reflectionIntensity);
+        CHECK(mended.reflectionMaxRoughness == defaults.reflectionMaxRoughness);
+        CHECK(mended.reflectionMaxDistance == defaults.reflectionMaxDistance);
+        CHECK(mended.reflectionThickness == defaults.reflectionThickness);
 
         // The most stops are not fewer than the fewest, even when it is the fewest that
         // were out of range, or the most that were no number.
@@ -472,6 +480,31 @@ TEST_SUITE("PostProcessSettings") {
         occluded.ambientOcclusionBias = -5.0f;
         CHECK(sanitized(occluded).ambientOcclusionIntensity == 0.0f);
         CHECK(sanitized(occluded).ambientOcclusionBias == 0.0f);
+
+        // The reflections from the screen: at most all of them, of surfaces up to the
+        // roughest, followed from a tenth of a metre to a kilometre, through things from a
+        // millimetre to a hundred metres thick.
+        PostProcessSettings reflecting;
+        reflecting.reflectionIntensity = 0.5f;
+        reflecting.reflectionMaxRoughness = 0.25f;
+        reflecting.reflectionMaxDistance = 50.0f;
+        reflecting.reflectionThickness = 0.5f;
+        CHECK(sanitized(reflecting).reflectionIntensity == 0.5f);
+        CHECK(sanitized(reflecting).reflectionMaxRoughness == 0.25f);
+        CHECK(sanitized(reflecting).reflectionMaxDistance == 50.0f);
+        CHECK(sanitized(reflecting).reflectionThickness == 0.5f);
+        reflecting.reflectionIntensity = 2.0f;
+        reflecting.reflectionMaxRoughness = -1.0f;
+        reflecting.reflectionMaxDistance = 0.0f;
+        reflecting.reflectionThickness = 1000.0f;
+        CHECK(sanitized(reflecting).reflectionIntensity == 1.0f);
+        CHECK(sanitized(reflecting).reflectionMaxRoughness == 0.0f);
+        CHECK(sanitized(reflecting).reflectionMaxDistance == 0.1f);
+        CHECK(sanitized(reflecting).reflectionThickness == 100.0f);
+        reflecting.reflectionMaxDistance = 5000.0f;
+        reflecting.reflectionThickness = 0.0f;
+        CHECK(sanitized(reflecting).reflectionMaxDistance == 1000.0f);
+        CHECK(sanitized(reflecting).reflectionThickness == 0.001f);
     }
 
     TEST_CASE("blending settings blends their numbers and switches the rest half way") {
@@ -486,6 +519,10 @@ TEST_SUITE("PostProcessSettings") {
         from.ambientOcclusionIntensity = 0.0f;
         from.ambientOcclusionRadius = 0.2f;
         from.ambientOcclusionBias = 0.0f;
+        from.reflectionIntensity = 0.0f;
+        from.reflectionMaxRoughness = 0.2f;
+        from.reflectionMaxDistance = 10.0f;
+        from.reflectionThickness = 0.1f;
         from.focusDistance = 4.0f;
         from.focusRange = 0.0f;
         from.focusTransition = 2.0f;
@@ -506,6 +543,10 @@ TEST_SUITE("PostProcessSettings") {
         to.ambientOcclusionIntensity = 2.0f;
         to.ambientOcclusionRadius = 1.0f;
         to.ambientOcclusionBias = 8.0f;
+        to.reflectionIntensity = 1.0f;
+        to.reflectionMaxRoughness = 0.6f;
+        to.reflectionMaxDistance = 30.0f;
+        to.reflectionThickness = 0.5f;
         to.focusDistance = 8.0f;
         to.focusRange = 4.0f;
         to.focusTransition = 6.0f;
@@ -531,6 +572,10 @@ TEST_SUITE("PostProcessSettings") {
         CHECK(quarter.ambientOcclusionIntensity == doctest::Approx(0.5f));
         CHECK(quarter.ambientOcclusionRadius == doctest::Approx(0.4f));
         CHECK(quarter.ambientOcclusionBias == doctest::Approx(2.0f));
+        CHECK(std::abs(quarter.reflectionIntensity - 0.25f) < 1.0e-6f);
+        CHECK(std::abs(quarter.reflectionMaxRoughness - 0.3f) < 1.0e-6f);
+        CHECK(std::abs(quarter.reflectionMaxDistance - 15.0f) < 1.0e-5f);
+        CHECK(std::abs(quarter.reflectionThickness - 0.2f) < 1.0e-6f);
         CHECK(quarter.focusDistance == doctest::Approx(5.0f));
         CHECK(quarter.focusRange == doctest::Approx(1.0f));
         CHECK(quarter.focusTransition == doctest::Approx(3.0f));

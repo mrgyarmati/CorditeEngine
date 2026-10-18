@@ -204,10 +204,10 @@ float3 probeSharesColor(float3 position)
     return color + float3(0.25) * left;
 }
 
-// The light leaving a surface towards the viewer that comes from all around it: scattered
-// inside it, and reflected off it. Both are taken from the probes whose boxes it is in -
-// each its share of what the probes above it left - and the rest from the environment.
-float3 shadeEnvironment(Surface surface, float3 toViewer)
+// The light that comes to a surface seen along `toViewer` from the probes whose boxes it is
+// in - each its share of what the probes above it left - and the rest from the
+// environment: for its diffuse color and for its reflections (SurroundingLight).
+SurroundingLight environmentSurroundings(Surface surface, float3 toViewer)
 {
     const float roughness = saturate(surface.roughness);
     const float3 direction = reflectionDirection(surface.normal, toViewer, roughness);
@@ -234,9 +234,8 @@ float3 shadeEnvironment(Surface surface, float3 toViewer)
         diffuseLight += environmentDiffuseLight(surface.normal) * left;
         reflectedLight += environmentReflectedLight(direction, roughness) * left;
     }
-    const float nDotV = max(dot(surface.normal, toViewer), 1.0e-4);
-    const float3 reflectance = environmentReflectance(specularColor(surface), roughness, nDotV);
-    // Like the light of a sky and a ground (shadeHemisphere): both parts are dimmed
-    // where the material says less of the surroundings is seen, in its crevices.
-    return (diffuseLight * diffuseColor(surface) + reflectedLight * reflectance) * surface.occlusion;
+    SurroundingLight light;
+    light.diffuse = diffuseLight;
+    light.reflected = reflectedLight;
+    return light;
 }

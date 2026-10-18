@@ -5,8 +5,13 @@
 #include "cordite/shader_compiler/EngineShaderCache.h"
 
 #include <fmt/format.h>
+#include <glm/gtc/packing.hpp>
 
 #include <algorithm>
+#include <array>
+#include <cstddef>
+#include <cstdint>
+#include <cstring>
 #include <optional>
 #include <string>
 #include <utility>
@@ -112,6 +117,15 @@ nvrhi::TextureHandle createColorTarget(nvrhi::IDevice* device, uint32_t width, u
     nvrhi::TextureHandle texture = device->createTexture(desc);
     REQUIRE(texture);
     return texture;
+}
+
+Vec3 HalfPicture::at(uint32_t x, uint32_t y) const {
+    REQUIRE(pixels.format == nvrhi::Format::RGBA16_FLOAT);
+    REQUIRE(x < pixels.width);
+    REQUIRE(y < pixels.height);
+    std::array<uint16_t, 3> halves{};
+    std::memcpy(halves.data(), pixels.data.data() + (static_cast<size_t>(y) * pixels.width + x) * 8, sizeof(halves));
+    return {glm::unpackHalf1x16(halves[0]), glm::unpackHalf1x16(halves[1]), glm::unpackHalf1x16(halves[2])};
 }
 
 Image readToImage(GraphicsDevice& device, nvrhi::ITexture* texture) {

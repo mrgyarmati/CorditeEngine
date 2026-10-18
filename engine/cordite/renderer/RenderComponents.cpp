@@ -459,6 +459,31 @@ TypeInfo describePostProcess() {
                    .maximum = 30.0,
                    .step = 0.1,
                    .unit = "deg"})
+        .property("reflectionIntensity", &Component::reflectionIntensity,
+                  {.description = "Reflections from the screen: how much of what a reflection meets in the picture "
+                                  "takes the place of what the surroundings would have it reflect. 0 none, 1 all",
+                   .minimum = 0.0,
+                   .maximum = 1.0,
+                   .step = 0.01})
+        .property("reflectionMaxRoughness", &Component::reflectionMaxRoughness,
+                  {.description = "Reflections from the screen: the roughest surface that takes anything from "
+                                  "them; those up to half as rough take all of it. They are not blurred",
+                   .minimum = 0.0,
+                   .maximum = 1.0,
+                   .step = 0.01})
+        .property("reflectionMaxDistance", &Component::reflectionMaxDistance,
+                  {.description = "Reflections from the screen: how far a reflection is followed",
+                   .minimum = 0.1,
+                   .maximum = 1000.0,
+                   .step = 0.1,
+                   .unit = "m"})
+        .property("reflectionThickness", &Component::reflectionThickness,
+                  {.description = "Reflections from the screen: how thick what was drawn is taken to be; a "
+                                  "reflection that passes further behind it goes on",
+                   .minimum = 0.001,
+                   .maximum = 100.0,
+                   .step = 0.01,
+                   .unit = "m"})
         .property("focusDistance", &Component::focusDistance,
                   {.description = "Depth of field: how far from the camera what is sharp is, along the way it looks",
                    .minimum = 0.0,

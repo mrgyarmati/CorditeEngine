@@ -194,6 +194,33 @@ public:
     /// The memory of that image, in bytes: nothing when there is none.
     [[nodiscard]] uint64_t tracedOcclusionBytes() const;
 
+    /// Makes sure there are the images the reflections from the screen are drawn with
+    /// (ScreenReflectionPass): a copy of the scene color, as large as the view, and an
+    /// image of what was found, with a texel for every `divisor` pixels each way (1 to 4).
+    /// Makes them, or replaces those of another divisor. Fails when the device cannot
+    /// create them; the targets then hold none.
+    [[nodiscard]] Status prepareScreenReflections(nvrhi::IDevice* device, uint32_t divisor);
+
+    /// Lets go of those images: for a view that draws no reflections from the screen any
+    /// more.
+    void releaseScreenReflections();
+
+    /// The copy of the scene color that prepareScreenReflections() made, which the
+    /// reflections are taken from while the scene color is drawn into. Null before that
+    /// call and after releaseScreenReflections().
+    [[nodiscard]] nvrhi::ITexture* reflectionSource() const { return m_reflectionSource; }
+
+    /// What was found, and the framebuffer that draws into it: where in the picture the
+    /// reflection of a pixel met what was drawn (r, g), how much that is trusted (b) and
+    /// whether it met anything (a), in numbers of 16 bits from 0 to 1. Null before
+    /// prepareScreenReflections() and after releaseScreenReflections().
+    [[nodiscard]] nvrhi::ITexture* reflectionHits() const { return m_reflectionHits; }
+
+    [[nodiscard]] nvrhi::IFramebuffer* reflectionHitsFramebuffer() const { return m_reflectionHitsFramebuffer; }
+
+    /// The memory of those images, in bytes: nothing when there are none.
+    [[nodiscard]] uint64_t screenReflectionBytes() const;
+
     /// Makes sure there is an image for the finished picture to be drawn into before
     /// its edges are smoothed (PostProcessPass): as large as the display image, in the
     /// colors of a display, with the brightness of each pixel in alpha. Fails when the
@@ -359,6 +386,11 @@ private:
     nvrhi::TextureHandle m_tracedOcclusion;
     /// The divisor m_tracedOcclusion was made for.
     uint32_t m_tracedOcclusionDivisor = 0;
+    nvrhi::TextureHandle m_reflectionSource;
+    nvrhi::TextureHandle m_reflectionHits;
+    nvrhi::FramebufferHandle m_reflectionHitsFramebuffer;
+    /// The divisor m_reflectionHits was made for.
+    uint32_t m_reflectionDivisor = 0;
     nvrhi::TextureHandle m_display;
     nvrhi::TextureHandle m_aliased;
     nvrhi::TextureHandle m_decalNormals;

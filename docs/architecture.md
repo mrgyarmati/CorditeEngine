@@ -933,6 +933,43 @@ Decisions:
   it left: a small probe of a higher priority can be laid inside a large one, and what
   the probes leave goes to the environment.
 
+### A reflection found on the screen replaces the surroundings' exactly
+
+A shiny surface reflects pictures taken from far away - the environment - or at a point of the
+scene - a probe: never what stands beside it now. Reflections from the screen follow each
+reflection through the depth buffer of the picture that has just been lit, and where it meets
+something, the light of that pixel is what the surface reflects.
+
+Decisions:
+
+- **After the lighting, in the picture of the same frame.** The engines of the time followed
+  reflections into the picture of the frame before, moved to where it would be now: a history
+  the view keeps, a frame of lag, and nothing at all in the frame after a cut. Here they are
+  followed into the light the lighting has just worked out, before translucent surfaces are
+  drawn: two runs give the same picture, and a test can say what a pixel must be. What is
+  given up is what the lighting has not drawn yet - translucent surfaces are not reflected -
+  and the reflections that the surfaces met have of their own, which they had in the frame
+  before and have not yet.
+- **Replaced, not added.** The lighting has reflected the surroundings already; the second
+  pass takes back what it added and puts what was met in its place, weighed the same way and
+  seen through the same fog. That holds to the bit only because both read one surface
+  (`surfaceAt`, `common/GBufferSurface.slang`) through one function (`surroundingLight`), for
+  which the lighting's arithmetic was split in two - the light for the diffuse color and the
+  light that is reflected - before anything is weighed. Where nothing is met, the pixel is
+  copied, and a test holds it against a picture drawn without.
+- **Sharp, and so for smooth surfaces only.** A blur of what is met, wider for rougher
+  surfaces, needs a pass for every roughness or a chain of smaller pictures; without one, a
+  rough surface would show a sharp reflection beside the blurred one of its surroundings.
+  What the screen gives fades out with roughness instead, up to `reflectionMaxRoughness`.
+- **Even steps across the picture, refined by halving.** The simplest walk that finds where a
+  floor reflects a wall to within a pixel (M. McGuire and M. Mara's, without the pyramid of
+  depths). It costs the quality's steps for every pixel, for one pixel in four below the high
+  quality.
+- **Set out a pixel's width above the surface.** The depth buffer holds a surface as it is at
+  the middles of its pixels. A reflection that grazes the floor it leaves found the floor's
+  own pixels in front of it, half a pixel's width away - at any angle, which is why the
+  offset is a pixel's width in metres and not a distance chosen once.
+
 ### Fog is a formula in the lighting, not a pass
 
 Fog takes light away on its way to the viewer and puts its own color in its place:

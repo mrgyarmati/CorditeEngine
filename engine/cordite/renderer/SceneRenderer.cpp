@@ -285,6 +285,7 @@ SceneRenderStatistics& SceneRenderStatistics::operator+=(const SceneRenderStatis
     ambientOcclusionBytes = std::max(ambientOcclusionBytes, other.ambientOcclusionBytes);
     depthOfFieldBytes = std::max(depthOfFieldBytes, other.depthOfFieldBytes);
     lightShaftBytes = std::max(lightShaftBytes, other.lightShaftBytes);
+    screenReflectionBytes = std::max(screenReflectionBytes, other.screenReflectionBytes);
     fogVolumeBytes = std::max(fogVolumeBytes, other.fogVolumeBytes);
     motionBlurBytes = std::max(motionBlurBytes, other.motionBlurBytes);
     shadowPass += other.shadowPass;
@@ -338,6 +339,8 @@ Result<std::unique_ptr<SceneRenderer>> SceneRenderer::create(nvrhi::IDevice* dev
     CORDITE_TRY_ASSIGN(VolumetricFogPass fogLight, VolumetricFogPass::create(device, shaders, viewLayout));
     CORDITE_TRY_ASSIGN(EnvironmentProbes probes, EnvironmentProbes::create(device, shaders));
     CORDITE_TRY_ASSIGN(LightShaftPass lightShafts, LightShaftPass::create(device, shaders, viewLayout));
+    CORDITE_TRY_ASSIGN(ScreenReflectionPass screenReflections,
+                       ScreenReflectionPass::create(device, shaders, viewLayout));
     CORDITE_TRY_ASSIGN(DepthOfFieldPass depthOfField, DepthOfFieldPass::create(device, shaders, viewLayout));
     CORDITE_TRY_ASSIGN(MotionBlurPass motionBlur, MotionBlurPass::create(device, shaders, viewLayout));
     CORDITE_TRY_ASSIGN(PostProcessPass postProcess, PostProcessPass::create(device, shaders));
@@ -358,6 +361,7 @@ Result<std::unique_ptr<SceneRenderer>> SceneRenderer::create(nvrhi::IDevice* dev
                   .fogLight = std::move(fogLight),
                   .probes = std::move(probes),
                   .lightShafts = std::move(lightShafts),
+                  .screenReflections = std::move(screenReflections),
                   .depthOfField = std::move(depthOfField),
                   .motionBlur = std::move(motionBlur),
                   .postProcess = std::move(postProcess)};
@@ -537,6 +541,7 @@ void SceneRenderer::captureProbes(nvrhi::ICommandList* commandList, const World&
     captured.antiAliasing = AntiAliasing::Off;
     captured.motionBlur = false;
     captured.environmentProbes = false;
+    captured.screenReflections = false;
     captured.deltaSeconds = 0.0f;
     for (const ProbeCapture& capture : captures) {
         captured.viewEntity = capture.id;
@@ -758,8 +763,10 @@ void SceneRenderer::render(nvrhi::ICommandList* commandList, const World& world,
     targets.clear(commandList, settings.backgroundColor);
     if (debugView == RenderDebugView::Wireframe || debugView == RenderDebugView::Overdraw ||
         debugView == RenderDebugView::Lod) {
-        // What draws every mesh itself shows no G-buffer, and nothing laid onto one.
+        // What draws every mesh itself shows no G-buffer, nothing laid onto one, and nothing
+        // reflected in one.
         targets.releaseDecalNormals();
+        targets.releaseScreenReflections();
     }
     if (debugView == RenderDebugView::Wireframe) {
         m_statistics.forwardPass =
@@ -805,6 +812,7 @@ void SceneRenderer::render(nvrhi::ICommandList* commandList, const World& world,
             m_passes.lighting.draw(commandList, targets, viewBindings, lightingModeOf(debugView));
         }
         ++m_statistics.screenPasses;
+        drawScreenReflections(commandList, targets, viewBindings, look, settings, debugView);
         if (debugView == RenderDebugView::None) {
             m_statistics.forwardPass = m_passes.forward.draw(commandList, targets.sceneFramebuffer(),
                                                              m_drawList.blendedBatches(), meshBindings);
@@ -824,6 +832,7 @@ void SceneRenderer::render(nvrhi::ICommandList* commandList, const World& world,
     m_statistics.ambientOcclusionBytes = targets.tracedOcclusionBytes();
     m_statistics.depthOfFieldBytes = targets.depthOfFieldBytes();
     m_statistics.lightShaftBytes = targets.lightShaftBytes();
+    m_statistics.screenReflectionBytes = targets.screenReflectionBytes();
     m_statistics.fogVolumeBytes = targets.fogVolumeBytes();
     m_statistics.motionBlurBytes = targets.motionBlurBytes();
     m_statistics.decalBytes = targets.decalNormalBytes();
@@ -899,6 +908,38 @@ void SceneRenderer::drawDecals(nvrhi::ICommandList* commandList, SceneTargets& t
         // A view that has none gives back what they read.
         targets.releaseDecalNormals();
     }
+}
+
+bool SceneRenderer::hasSurfaceSmootherThan(float maxRoughness) const {
+    const auto smooth = [&](const GpuMaterial& material) { return material.leastRoughness < maxRoughness; };
+    return std::ranges::any_of(
+               m_drawList.solidBatches(),
+               [&](const MeshBatch& batch) { return batch.material != nullptr && smooth(*batch.material); }) ||
+           std::ranges::any_of(m_decals.decals(),
+                               [&](const SceneDecal& decal) { return smooth(m_resources->material(decal.material)); });
+}
+
+void SceneRenderer::drawScreenReflections(nvrhi::ICommandList* commandList, SceneTargets& targets,
+                                          nvrhi::IBindingSet* viewBindings, const PostProcessSettings& look,
+                                          const SceneRenderSettings& settings, RenderDebugView debugView) {
+    const bool shows = debugView == RenderDebugView::ScreenReflections;
+    uint32_t passes = 0;
+    if (debugView == RenderDebugView::None || shows) {
+        // A view told to draw none shows black in their debug view: nothing is put in place.
+        ScreenReflectionSettings reflections = settings.screenReflections
+                                                   ? screenReflectionSettingsFor(look, settings.screenEffectsQuality)
+                                                   : ScreenReflectionSettings{};
+        // Nor does a view of which nothing is smooth enough to take them: it pays nothing.
+        if (!hasSurfaceSmootherThan(reflections.maxRoughness)) {
+            reflections.intensity = 0.0f;
+        }
+        passes = m_passes.screenReflections.draw(commandList, targets, viewBindings, reflections, shows);
+    }
+    if (passes == 0) {
+        // A view that draws none gives back what they were drawn with.
+        targets.releaseScreenReflections();
+    }
+    m_statistics.screenPasses += passes;
 }
 
 void SceneRenderer::drawLightShafts(nvrhi::ICommandList* commandList, SceneTargets& targets,

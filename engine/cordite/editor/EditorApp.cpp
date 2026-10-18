@@ -753,7 +753,9 @@ Status EditorApp::registerApplicationCommands() {
             "front of that and blue behind), the light the shafts of the sun add, alone "
             "(lightShafts), what the lights throw towards the viewer from the fog in front of "
             "each pixel, alone (fogLight: black where they throw nothing), which environment probes "
-            "light each surface (probes: a color for each probe, grey for the environment), or the level of "
+            "light each surface (probes: a color for each probe, grey for the environment), what the "
+            "reflections from the screen put in the place of the surroundings' reflections, alone "
+            "(screenReflections: black where they meet nothing), or the level of "
             "detail each mesh is drawn at (lod: the mesh itself "
             "grey, then green, yellow, orange and red as the levels get coarser). Returns the view "
             "now shown and all there are; without a parameter it changes nothing.",

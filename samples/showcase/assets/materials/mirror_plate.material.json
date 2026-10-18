@@ -1,0 +1,10 @@
+// A plate of polished steel laid on the floor: a metal as smooth as a mirror. A surface
+// this smooth takes what its reflections meet on the screen - the crate in front of it
+// stands in it - and where they meet nothing, the sky and the stage probe as before.
+{
+    "format": "cordite.material",
+    "version": 1,
+    "baseColor": [0.75, 0.75, 0.77, 1],
+    "roughness": 0.05,
+    "metallic": 1
+}

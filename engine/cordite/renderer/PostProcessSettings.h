@@ -213,6 +213,21 @@ struct PostProcessSettings {
     /// streaks a surface seen at a low angle can show, and takes from shallow creases.
     float ambientOcclusionBias = 2.0f;
 
+    /// Reflections from the screen (ScreenReflections.h): how much of what a reflection
+    /// meets in the picture takes the place of what the surroundings - the environment, the
+    /// probes, the ambient lights - would have it reflect: 0 none, which costs nothing, to 1.
+    /// What is met is as sharp as in a mirror; it is not blurred for a rough surface.
+    float reflectionIntensity = 1.0f;
+    /// Reflections from the screen: the roughest surface that takes anything from them -
+    /// those up to half as rough take all of it - up to 1. Kept low, because what they
+    /// give is sharp where the surroundings' reflections are blurred.
+    float reflectionMaxRoughness = 0.4f;
+    /// Reflections from the screen: how far a reflection is followed, in metres.
+    float reflectionMaxDistance = 20.0f;
+    /// Reflections from the screen: how thick what was drawn is taken to be, in metres. A
+    /// reflection that passes further behind it than that went behind it, and goes on.
+    float reflectionThickness = 0.3f;
+
     /// Depth of field: how far from the camera what is sharp is, in metres - along the
     /// way the camera looks (focusBlur()).
     float focusDistance = 10.0f;

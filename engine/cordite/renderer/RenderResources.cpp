@@ -645,6 +645,8 @@ Result<GpuMaterial> RenderResources::createMaterial(const MaterialData& material
     gpuMaterial.alphaMode = material.alphaMode;
     gpuMaterial.doubleSided = material.doubleSided;
     gpuMaterial.hasNormalTexture = !material.normalTexture.isNil();
+    gpuMaterial.leastRoughness =
+        material.metallicRoughnessTexture.isNil() ? std::clamp(material.roughness, 0.0f, 1.0f) : 0.0f;
     gpuMaterial.serial = m_nextSerial++;
     ++m_statistics.materialCount;
     return gpuMaterial;

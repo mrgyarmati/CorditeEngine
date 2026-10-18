@@ -393,4 +393,9 @@ inline Image makeBumpNormalMap(uint32_t size, uint32_t cells) {
     return image;
 }
 
+/// The light of the scene color of the picture `scene` last drew, as it was worked out.
+inline HalfPicture sceneLight(SceneFixture& scene) {
+    return {unwrap(readTexture(*scene.context.graphics, scene.targets.sceneColor()))};
+}
+
 } // namespace cordite::test

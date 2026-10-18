@@ -32,18 +32,20 @@
         // the capsule and the torus look the same at a coarser level of detail, in every
         // pass and shadow map, and so are drawn with a half to an eighth of theirs. Meshes
         // of one kind at different levels are draw calls of their own. The capture draws
-        // the stage again, from the wall, with its shadow maps.
-        "drawCalls": 330,
+        // the stage again, from the wall, with its shadow maps. The mirror plate in front of
+        // the crate is a draw call in each pass that sees it.
+        "drawCalls": 335,
         "triangles": 32000,
         "captures": 1,
         // Passes over the whole picture: the two of the ambient occlusion, the two of what
-        // the lights throw into the haze, the lighting, the three of the depth of field, and
+        // the lights throw into the haze, the lighting, the two of the reflections from the
+        // screen, the three of the depth of field, and
         // what finishes the picture as the scene says - five levels of bloom down and up,
         // the automatic exposure, the final pass and the smoothing of its edges - for each
         // view; the three of the motion blur, for each view too, which goes on from the
         // frame before; and the five of the light shafts of the capture, which looks
         // towards the sun.
-        "screenPasses": 51,
+        "screenPasses": 55,
         // The image the ambient occlusion is worked out in: at medium quality a texel
         // for one pixel in four of the 960 by 540 the tests draw, two half floats each.
         "ambientOcclusionBytes": 518400,
@@ -53,6 +55,10 @@
         // The main camera has the sun behind it, the capture does not: its light shafts are
         // worked out at half its size, four half floats a texel, in two images.
         "lightShaftBytes": 147456,
+        // The reflections from the screen of the main camera's view: a copy of its light,
+        // four half floats a pixel, and what was found for one pixel in four at medium
+        // quality, four 16-bit numbers each.
+        "screenReflectionBytes": 5184000,
         // The haze is lit by the lights: what they throw into it is worked out for a grid
         // of boxes of twelve pixels at medium quality - 80 by 45 of them over the main
         // camera's picture, 64 slices deep - in two volumes of four half floats a box.
@@ -157,6 +163,9 @@
         // says nothing: bloom, the final pass and the smoothing of its edges.
         "screenPasses": 14,
         "ambientOcclusionBytes": 518400,
+        // Nothing in the field is smooth enough to take reflections from the screen: they
+        // are not drawn, and cost nothing.
+        "screenReflectionBytes": 0,
         // A scene that says nothing has no depth of field, and no light shafts; the field
         // has no decals.
         "depthOfFieldBytes": 0,
@@ -200,6 +209,7 @@
         "drawCalls": 165,
         "screenPasses": 14,
         "ambientOcclusionBytes": 518400,
+        "screenReflectionBytes": 0,
         "depthOfFieldBytes": 0,
         "lightShaftBytes": 0,
         "fogVolumeBytes": 0,

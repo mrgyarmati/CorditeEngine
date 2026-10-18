@@ -178,6 +178,12 @@ PostProcessSettings sanitized(const PostProcessSettings& settings) {
     result.ambientOcclusionRadius =
         within(settings.ambientOcclusionRadius, 0.01f, 10.0f, defaults.ambientOcclusionRadius);
     result.ambientOcclusionBias = within(settings.ambientOcclusionBias, 0.0f, 30.0f, defaults.ambientOcclusionBias);
+    result.reflectionIntensity = within(settings.reflectionIntensity, 0.0f, 1.0f, defaults.reflectionIntensity);
+    result.reflectionMaxRoughness =
+        within(settings.reflectionMaxRoughness, 0.0f, 1.0f, defaults.reflectionMaxRoughness);
+    result.reflectionMaxDistance =
+        within(settings.reflectionMaxDistance, 0.1f, 1000.0f, defaults.reflectionMaxDistance);
+    result.reflectionThickness = within(settings.reflectionThickness, 0.001f, 100.0f, defaults.reflectionThickness);
     result.focusDistance = within(settings.focusDistance, 0.0f, kMaxFocusDistance, defaults.focusDistance);
     result.focusRange = within(settings.focusRange, 0.0f, kMaxFocusDistance, defaults.focusRange);
     result.focusTransition = within(settings.focusTransition, 0.0f, kMaxFocusDistance, defaults.focusTransition);
@@ -219,6 +225,10 @@ PostProcessSettings blend(const PostProcessSettings& from, const PostProcessSett
     result.ambientOcclusionIntensity = mix(from.ambientOcclusionIntensity, to.ambientOcclusionIntensity, t);
     result.ambientOcclusionRadius = mix(from.ambientOcclusionRadius, to.ambientOcclusionRadius, t);
     result.ambientOcclusionBias = mix(from.ambientOcclusionBias, to.ambientOcclusionBias, t);
+    result.reflectionIntensity = mix(from.reflectionIntensity, to.reflectionIntensity, t);
+    result.reflectionMaxRoughness = mix(from.reflectionMaxRoughness, to.reflectionMaxRoughness, t);
+    result.reflectionMaxDistance = mix(from.reflectionMaxDistance, to.reflectionMaxDistance, t);
+    result.reflectionThickness = mix(from.reflectionThickness, to.reflectionThickness, t);
     result.focusDistance = mix(from.focusDistance, to.focusDistance, t);
     result.focusRange = mix(from.focusRange, to.focusRange, t);
     result.focusTransition = mix(from.focusTransition, to.focusTransition, t);

@@ -135,20 +135,25 @@ float3 hemisphereLight(float3 direction, float3 skyColor, float3 groundColor)
     return lerp(groundColor, skyColor, direction.y * 0.5 + 0.5);
 }
 
-// The light leaving the surface towards the viewer under hemisphere ambient light.
-float3 shadeHemisphere(Surface surface, float3 toViewer, float3 skyColor, float3 groundColor)
+// What the surroundings of a surface send towards it, in two parts: the light that its
+// diffuse color scatters (`diffuse`: what a white, matte surface would give off) and the
+// light that it reflects (`reflected`: what a mirror would). Neither is weighed by the
+// material yet, nor dimmed by its occlusion (shadeSurroundings() in SceneLighting.slang).
+struct SurroundingLight
 {
-    const float nDotV = max(dot(surface.normal, toViewer), 1.0e-4);
-    const float3 reflected = reflect(-toViewer, surface.normal);
+    float3 diffuse;
+    float3 reflected;
+};
 
-    const float3 diffuse = diffuseColor(surface) * hemisphereLight(surface.normal, skyColor, groundColor);
+// The light of a sky above and a ground below, as it reaches a surface seen along
+// `toViewer`.
+SurroundingLight hemisphereSurroundings(Surface surface, float3 toViewer, float3 skyColor, float3 groundColor)
+{
+    SurroundingLight light;
+    light.diffuse = hemisphereLight(surface.normal, skyColor, groundColor);
     // A rough surface reflects a blur of its surroundings; towards full roughness that
     // is the same light the diffuse term sees.
-    const float3 reflectedLight = lerp(hemisphereLight(reflected, skyColor, groundColor),
-                                       hemisphereLight(surface.normal, skyColor, groundColor),
-                                       surface.roughness);
-    const float3 specular =
-        reflectedLight * environmentReflectance(specularColor(surface), surface.roughness, nDotV);
-
-    return (diffuse + specular) * surface.occlusion;
+    light.reflected =
+        lerp(hemisphereLight(reflect(-toViewer, surface.normal), skyColor, groundColor), light.diffuse, surface.roughness);
+    return light;
 }

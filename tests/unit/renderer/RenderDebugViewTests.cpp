@@ -63,8 +63,10 @@ TEST_SUITE("RenderDebugView") {
         CHECK(displayNameOf(RenderDebugView::LightShafts) == "Light shafts");
         CHECK(displayNameOf(RenderDebugView::FogLight) == "Fog light");
         CHECK(displayNameOf(RenderDebugView::Probes) == "Probes");
+        CHECK(displayNameOf(RenderDebugView::ScreenReflections) == "Screen reflections");
+        CHECK(nameOf(RenderDebugView::ScreenReflections) == "screenReflections");
         CHECK(displayNameOf(RenderDebugView::Lod) == "Levels of detail");
-        CHECK(kRenderDebugViews.size() == 23);
+        CHECK(kRenderDebugViews.size() == 24);
     }
 
     TEST_CASE("a view is found by its name, whatever the case, and nothing else is") {
