@@ -61,7 +61,8 @@ cordite-editor --headless --project my-game --exec build-scene.json --frames 1 -
 | `asset.preview` | A picture of an asset, saved as a PNG |
 | `asset.listen` | Hear a sound of the assets, also while the scene is not played |
 | `script.api` | Every function scripts can call, and every function the engine calls in a script |
-| `editor.screenshot` | The editor's window, or the viewport, as a PNG |
+| `editor.screenshot` | The editor's window, or a viewport, as a PNG |
+| `viewport.open`, `viewport.list` | Another viewport beside the first; which are open, and which was used last |
 | `editor.statistics` | What a frame costs |
 | `input.inject` | Press keys and buttons, move the pointer, drop files - between frames |
 | `project.export` | Export the game |

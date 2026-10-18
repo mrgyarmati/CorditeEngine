@@ -264,6 +264,8 @@ cordite_add_test_suite(render
         render/DecalTests.cpp
         render/DepthOfFieldTests.cpp
         render/EditorAppTests.cpp
+        render/EditorTestSupport.h
+        render/EditorViewportTests.cpp
         render/EnvironmentProbeTests.cpp
         render/EngineTests.cpp
         render/EnvironmentTests.cpp

@@ -111,6 +111,12 @@ constexpr float kSameSpotTolerance = 1.0f;
 /// A press and release further apart than this many pixels is a drag, not a click.
 constexpr float kClickTolerance = 4.0f;
 
+/// What the window of a viewport says on its tab: "Viewport" for the first, which every
+/// layout knows by that name, and "Viewport 2" and on for the others.
+std::string viewportTitle(uint32_t number) {
+    return number == 1 ? std::string("Viewport") : fmt::format("Viewport {}", number);
+}
+
 /// Whether an entity draws a mesh that can be loaded. A mesh that cannot was reported
 /// by the renderer, and is simply not there for the editor either.
 bool drawsMesh(EditorContext& context, Entity entity) {
@@ -373,18 +379,50 @@ std::string_view nameOf(ViewportCamera camera) {
     return "unknown";
 }
 
+std::optional<ViewportCamera> viewportCameraFromName(std::string_view name) {
+    for (const ViewportCamera camera : {ViewportCamera::Editor, ViewportCamera::Game}) {
+        if (name == nameOf(camera)) {
+            return camera;
+        }
+    }
+    return std::nullopt;
+}
+
 ViewportPanel::ViewportPanel(SceneRenderer& sceneRenderer, const PhysicsSystem& physics,
-                             const SceneRenderSettings& gameSettings, DebugLinePass linePass)
+                             const SceneRenderSettings& gameSettings, const ViewportSettings& settings, uint32_t number,
+                             DebugLinePass linePass)
     : m_sceneRenderer(&sceneRenderer),
       m_physics(&physics),
       m_gameSettings(&gameSettings),
+      m_settings(&settings),
+      m_number(number),
+      m_title(viewportTitle(number)),
+      m_windowName(windowName(icons::kViewport, m_title)),
+      m_windowId("###" + m_title),
       m_linePass(std::move(linePass)) {}
 
-Result<std::unique_ptr<ViewportPanel>> ViewportPanel::create(Engine& engine) {
+Result<std::unique_ptr<ViewportPanel>> ViewportPanel::create(Engine& engine, const ViewportSettings& settings,
+                                                             uint32_t number) {
+    if (number < 1 || number > kMaxViewports) {
+        return makeError(ErrorCode::OutOfRange, "there is no viewport {}: they are numbered from 1 to {}", number,
+                         kMaxViewports);
+    }
     CORDITE_TRY_ASSIGN(DebugLinePass linePass,
                        DebugLinePass::create(engine.graphics().device(), engine.shaderManager()));
-    return std::unique_ptr<ViewportPanel>(
-        new ViewportPanel(engine.sceneRenderer(), engine.physics(), engine.renderSettings(), std::move(linePass)));
+    return std::unique_ptr<ViewportPanel>(new ViewportPanel(
+        engine.sceneRenderer(), engine.physics(), engine.renderSettings(), settings, number, std::move(linePass)));
+}
+
+SceneRenderSettings ViewportPanel::qualitySettings(float deltaSeconds, double timeSeconds) const {
+    SceneRenderSettings settings;
+    settings.shadowQuality = m_settings->shadowQuality;
+    settings.screenEffectsQuality = m_settings->screenEffectsQuality;
+    settings.postProcessQuality = m_settings->postProcessQuality;
+    settings.lodErrorPixels = m_settings->lodErrorPixels;
+    settings.antiAliasing = m_settings->antiAliasing;
+    settings.deltaSeconds = deltaSeconds;
+    settings.timeSeconds = timeSeconds;
+    return settings;
 }
 
 void ViewportPanel::collectLines(EditorContext& context, const CameraView& view) {
@@ -440,7 +478,18 @@ void ViewportPanel::collectLines(EditorContext& context, const CameraView& view)
 }
 
 Status ViewportPanel::render(nvrhi::IDevice* device, nvrhi::ICommandList* commandList, EditorContext& context,
-                             UVec2 size, float deltaSeconds, double timeSeconds, WorldClock clock) {
+                             UVec2 size, float deltaSeconds, double timeSeconds, WorldClock clock,
+                             SceneCaptures captures) {
+    const World& world = context.world();
+    if (captures == SceneCaptures::Draw) {
+        // What the cameras of the scene see goes into their render targets first: the view
+        // may show it. A capture is a game's view of the world - with the game's background,
+        // whoever's camera the viewport looks through, and the same whichever viewport draws it.
+        SceneRenderSettings captured = qualitySettings(deltaSeconds, timeSeconds);
+        captured.backgroundColor = m_gameSettings->backgroundColor;
+        m_sceneRenderer->renderCaptures(commandList, world, captured);
+    }
+
     if (!m_targets.isValid()) {
         CORDITE_TRY_ASSIGN(m_targets, SceneTargets::create(device, size, "Viewport"));
     } else {
@@ -449,13 +498,12 @@ Status ViewportPanel::render(nvrhi::IDevice* device, nvrhi::ICommandList* comman
 
     // Through the camera of the game where that is asked for and the scene has one:
     // what a player sees. Otherwise through the editor's, with what an editor adds.
-    const World& world = context.world();
     const float aspect = static_cast<float>(size.x) / static_cast<float>(size.y);
     const Entity gameCamera = m_viewCamera == ViewportCamera::Game ? findGameCamera(world) : Entity{};
     const auto* gameLens = world.tryGet<CameraComponent>(gameCamera);
     m_showsGame = gameLens != nullptr;
 
-    SceneRenderSettings settings;
+    SceneRenderSettings settings = qualitySettings(deltaSeconds, timeSeconds);
     if (m_showsGame) {
         // Shaken where it shakes: a game's camera holds still until the game plays.
         m_view = makeCameraView(world, gameCamera, aspect);
@@ -476,20 +524,10 @@ Status ViewportPanel::render(nvrhi::IDevice* device, nvrhi::ICommandList* comman
         settings.motionBlur = false;
     }
     settings.debugView = m_debugView;
-    settings.shadowQuality = m_shadowQuality;
-    settings.screenEffectsQuality = m_screenEffectsQuality;
-    settings.postProcessQuality = m_postProcessQuality;
-    settings.lodErrorPixels = m_lodErrorPixels;
-    settings.antiAliasing = m_antiAliasing;
-    settings.deltaSeconds = deltaSeconds;
-    settings.timeSeconds = timeSeconds;
     // A scene that is being started has no lights yet, and would be black - which is
     // what a game that has none is.
     settings.defaultLighting = m_showsGame ? m_gameSettings->defaultLighting : true;
-    // What the cameras of the scene see goes into their render targets first: the view
-    // may show it.
-    m_sceneRenderer->renderCaptures(commandList, context.world(), settings);
-    m_sceneRenderer->render(commandList, context.world(), m_view, m_targets, settings);
+    m_sceneRenderer->render(commandList, world, m_view, m_targets, settings);
 
     // Over the finished image, in display colors, but still behind what is nearer.
     m_linePass.draw(commandList, m_targets.overlayFramebuffer(), m_gridLines.vertices(),
@@ -507,9 +545,9 @@ Status ViewportPanel::render(nvrhi::IDevice* device, nvrhi::ICommandList* comman
     // The gizmo of the selection, over all of it: on the entity that was selected last.
     m_gizmoLines.clear();
     if (const Entity primary = context.primarySelection(); !m_showsGame && !primary.isNull()) {
-        const GizmoFrame frame =
-            gizmoFrame(world.worldMatrix(primary), m_gizmoSpace, m_gizmoMode, m_view, Vec2(size), gizmoPixelScale());
-        drawGizmo(m_gizmoLines, m_gizmoMode, frame, m_held ? m_held->drag.handle : m_hoveredHandle);
+        const GizmoFrame frame = gizmoFrame(world.worldMatrix(primary), m_settings->gizmoSpace, m_settings->gizmoMode,
+                                            m_view, Vec2(size), gizmoPixelScale());
+        drawGizmo(m_gizmoLines, m_settings->gizmoMode, frame, m_held ? m_held->drag.handle : m_hoveredHandle);
         m_linePass.draw(commandList, m_targets.overlayFramebuffer(), m_gizmoLines.vertices(),
                         {.viewProjection = m_view.viewProjection, .depthTest = false});
     }
@@ -578,10 +616,12 @@ Entity ViewportPanel::pick(EditorContext& context, Vec2 pixel) const {
     return hitEntity;
 }
 
-void ViewportPanel::draw(Engine& engine, EditorContext& context, WorldClock clock) {
+void ViewportPanel::draw(Engine& engine, EditorContext& context, ViewportFrame& frame,
+                         std::vector<std::string>& submittedLines) {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-    static const std::string kName = windowName(icons::kViewport, "Viewport");
-    const bool visible = ImGui::Begin(kName.c_str());
+    // The first viewport is always there; the others can be closed.
+    bool open = true;
+    const bool visible = ImGui::Begin(m_windowName.c_str(), m_number == 1 ? nullptr : &open);
     ImGui::PopStyleVar();
 
     bool hovered = false;
@@ -592,9 +632,13 @@ void ViewportPanel::draw(Engine& engine, EditorContext& context, WorldClock cloc
         const UVec2 size(static_cast<uint32_t>(std::max(available.x * scale.x, 1.0f)),
                          static_cast<uint32_t>(std::max(available.y * scale.y, 1.0f)));
 
-        if (available.x >= 1.0f && available.y >= 1.0f &&
-            reportIfFailed(render(engine.graphics().device(), engine.commandList(), context, size,
-                                  engine.deltaSeconds(), engine.timeSeconds(), clock))) {
+        // Of the viewports of a frame, the first that draws a picture draws the scene
+        // captures before it - not one whose tab is behind another, which draws nothing.
+        const SceneCaptures captures = frame.capturesDrawn ? SceneCaptures::AlreadyDrawn : SceneCaptures::Draw;
+        const bool draws = available.x >= 1.0f && available.y >= 1.0f;
+        frame.capturesDrawn = frame.capturesDrawn || draws;
+        if (draws && reportIfFailed(render(engine.graphics().device(), engine.commandList(), context, size,
+                                           engine.deltaSeconds(), engine.timeSeconds(), frame.clock, captures))) {
             const ImVec2 origin = ImGui::GetCursorScreenPos();
             ImGui::Image(UiSystem::textureId(m_targets.display()), available);
             hovered = ImGui::IsItemHovered();
@@ -632,13 +676,15 @@ void ViewportPanel::draw(Engine& engine, EditorContext& context, WorldClock cloc
             }
         }
     }
+    // Dear ImGui gives the focus to a window that the left button clicks. A viewport whose
+    // camera the right button turns, or the middle one slides, is the one used last as well.
+    if (hovered && (ImGui::IsMouseClicked(ImGuiMouseButton_Right) || ImGui::IsMouseClicked(ImGuiMouseButton_Middle))) {
+        ImGui::SetWindowFocus();
+    }
+    m_focused = ImGui::IsWindowFocused();
     ImGui::End();
-
-    // F frames what is selected, wherever the pointer is - but not into a text being typed,
-    // nor while the camera is being steered.
-    if (!m_showsGame && engine.input().wasKeyPressed(Key::F) && !ImGui::GetIO().WantTextInput &&
-        !m_camera.isNavigating()) {
-        frameSelection(context);
+    if (!open) {
+        submittedLines.push_back(fmt::format(R"(viewport.close {{"viewport": {}}})", m_number));
     }
 
     // The editor's camera is flown only while it is the one that is looked through.
@@ -703,14 +749,15 @@ bool ViewportPanel::updateGizmo(EditorContext& context, Vec2 pixel, bool hovered
         return false;
     }
     const Vec2 viewport(m_targets.size());
+    const GizmoMode mode = m_settings->gizmoMode;
     const GizmoFrame frame =
-        gizmoFrame(world.worldMatrix(primary), m_gizmoSpace, m_gizmoMode, m_view, viewport, gizmoPixelScale());
-    m_hoveredHandle = pickHandle(m_gizmoMode, frame, m_view, viewport, pixel, gizmoPixelScale());
+        gizmoFrame(world.worldMatrix(primary), m_settings->gizmoSpace, mode, m_view, viewport, gizmoPixelScale());
+    m_hoveredHandle = pickHandle(mode, frame, m_view, viewport, pixel, gizmoPixelScale());
     if (m_hoveredHandle == GizmoHandle::None) {
         return false;
     }
     if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
-        HeldGizmo held{.drag = beginDrag(m_gizmoMode, m_hoveredHandle, frame, m_view, viewport, pixel)};
+        HeldGizmo held{.drag = beginDrag(mode, m_hoveredHandle, frame, m_view, viewport, pixel)};
         const ComponentDescriptor* transform = context.components().find("Transform");
         for (const Entity entity : movedTogether(context)) {
             const Entity parent = world.parent(entity);
@@ -764,6 +811,14 @@ void ViewportPanel::dragHeld(World& world, Vec2 pixel) {
                 break;
         }
     }
+}
+
+void ViewportPanel::release(EditorContext& context, Window* window) {
+    releaseGizmo(context);
+    if (m_pointerCaptured && window != nullptr) {
+        window->setCursorMode(CursorMode::Normal);
+    }
+    m_pointerCaptured = false;
 }
 
 void ViewportPanel::releaseGizmo(EditorContext& context) {

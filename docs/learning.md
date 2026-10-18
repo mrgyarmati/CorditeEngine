@@ -225,15 +225,17 @@ same frames, which is what lets tests compare pictures.
 
 Read: `editor/EditorContext.h`, `editor/EditorActions.h`, `editor/EditorCommands.h`,
 `editor/CommandRegistry.h`, `editor/UndoStack.h`, `editor/PlayMode.h`,
-`editor/EditorApp.h`; architecture.md "The editor", "Undo stores ids and validated patches",
-"A scene is played in the world it is edited in".
+`editor/EditorApp.h`, `editor/ViewportPanel.h`; architecture.md "The editor", "Undo stores ids
+and validated patches", "A scene is played in the world it is edited in", "The viewports of an
+editor share what a picture costs".
 
 Four layers: the document; every edit as an undoable action; every action as a named command
 with JSON in and out; and the interface on top. Nothing exists only in the interface, which is
 why an AI agent can do everything a person can (see the [automation
 guide](guide/automation.md)). The interface is Dear ImGui and runs without a window too, so
 `tests/render/EditorAppTests.cpp` clicks through menus and compares pictures of the whole
-editor.
+editor, and `tests/render/EditorViewportTests.cpp` opens viewports, docks them and clicks into
+them.
 
 ## 14. Shipping a game
 

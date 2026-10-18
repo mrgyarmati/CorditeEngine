@@ -528,6 +528,42 @@ queued like a line of the console, so that what a click does is what a script ca
 do; what each button does in each state is a list (`documentButtons`, `playButtons`)
 that tests hold without drawing it.
 
+### The viewports of an editor share what a picture costs
+
+The brief asks for more than one viewport: the game's view beside the one that is
+flown, a render view beside the picture. An editor has up to four, each a panel of its
+own.
+
+Decisions:
+
+- **A viewport's own are what it shows; what it costs is the editor's.** Each has its
+  camera, the camera it looks through, its render view and its colliders. The quality
+  and the gizmo are one for all of them (`ViewportSettings`): the renderer has one atlas
+  of shadow maps, which it makes anew whenever its size changes - two viewports at two
+  shadow qualities would make 64 or 256 MB anew twice a frame - and the textures are the
+  program's already. Unity and Unreal Engine set what the views of an editor may cost
+  for the editor too.
+- **Numbered places, not a list.** A window is known by its id, which a layout remembers.
+  A viewport keeps its number until it is closed, the lowest free one is given next, and
+  one that is opened again has the id - and the place - it had. Four, because each is a
+  view of a frame, and the views of the frames on their way through the GPU share a
+  number of versions of their constants that a `static_assert` adds up.
+- **The one used last.** The View menu, F and the commands that name no viewport act on
+  it: a person who types a command in the console is looking at one viewport. In a
+  batch run it changes only by what a script does - opening one, bringing one to the
+  front - so a script is as repeatable with four viewports as with one.
+- **Captures once a frame.** The cameras of the scene draw into their targets before the
+  first viewport that draws, for all of them, as a game draws them - with the game's
+  background, whatever that viewport looks through. Drawn by each, they would be drawn
+  four times, their intervals would pass four times as fast, and what they show would
+  depend on which viewport came first.
+- **Placed by splitting a dock node, before the dock space is laid out.** A viewport
+  without a place goes beside another, as Dear ImGui's dock builder splits its node;
+  one that was open before goes back to the node Dear ImGui keeps for a window that is
+  closed. Views along the axes of the world, without perspective, are not built: the
+  cascades of the sun's shadow are slices of what a camera sees from where it is, which
+  an orthographic camera far back would spend on empty space.
+
 ### The editor's user interface is Dear ImGui
 
 ImGui is the standard immediate-mode UI library for tools. Immediate mode suits an
@@ -2303,9 +2339,10 @@ The entities of the scene are others afterwards - new handles, the same ids. The
 editor already refers to entities by id wherever something lasts: the selection,
 the history. Both survive playing for that reason, without a line written for it.
 
-While a scene plays the viewport looks through the camera of the game, as the game
+While a scene plays the first viewport looks through the camera of the game, as the game
 itself would draw it, because that is what playing is for; it can be told to look
-through the editor's camera again, to fly around a game that runs.
+through the editor's camera again, to fly around a game that runs, and the other
+viewports go on looking through what they looked through.
 
 ### What is edited while a scene plays goes with the game
 

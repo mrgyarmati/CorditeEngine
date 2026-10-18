@@ -193,6 +193,10 @@ struct SceneRenderSettings {
 /// views of the few frames on their way through the GPU share kMaxViewsInFlight.
 inline constexpr uint32_t kMaxSceneCaptures = 4;
 
+/// The most views a program may draw of its own in a frame, for the same reason: a game's
+/// one, or the viewports of an editor and the preview of an asset.
+inline constexpr uint32_t kMaxProgramViews = 5;
+
 /// One word for everything a view may cost: what a player picks in the options of a
 /// game. The look is the same at every quality; what changes is how finely it is
 /// worked out.

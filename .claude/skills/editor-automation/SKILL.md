@@ -239,12 +239,12 @@ scene black. Lights are components like any other:
   4) that share its `shadowDistance`. Stripes on lit surfaces: raise `shadowBias` or
   `shadowNormalOffset` a little. Shadows that start away from what casts them: lower
   them.
-- `viewport.quality {"preset": "low"}` sets how much the picture in the viewport may
-  cost, by one word (`low`, `medium`, `high`); `{"shadows": "off"}`,
+- `viewport.quality {"preset": "low"}` sets how much the pictures of the viewports may
+  cost - of all of them - by one word (`low`, `medium`, `high`); `{"shadows": "off"}`,
   `{"effects": "off"}` and `{"postProcess": "off"}` set the shadows, what is worked
   out from the screen (ambient occlusion) and the finishing of the picture alone
   (`off`, `low`, `medium`, `high`). It is the editor's view, not a setting of the
-  scene. With `postProcess` off the viewport shows the light as the renderer worked it
+  scene. With `postProcess` off a viewport shows the light as the renderer worked it
   out - no exposure, no bloom, no curve, no grade - which is the picture to judge
   materials and lights by. `{"antiAliasing": "off"}` leaves the steps of slanted
   edges as they are and `"fxaa"` smooths them (the default); no preset changes it.
@@ -288,9 +288,10 @@ its simulation, its sounds - play it:
 - `play.pause` holds the game, `play.resume` lets it go on, and `play.step {"frames":
   N}` lets a held game pass exactly N frames and runs them - for looking at what
   happens one frame at a time.
-- The viewport shows the game through its own camera while it plays, so a screenshot
-  with `viewportOnly` is the player's picture. `viewport.show {"camera": "editor"}`
-  looks at the running game from where the editor's camera is instead.
+- The first viewport shows the game through its own camera while it plays, so a
+  screenshot with `viewportOnly` of it is the player's picture. `viewport.show
+  {"camera": "editor"}` looks at the running game from where the editor's camera is
+  instead; other viewports keep the cameras they had.
 - Everything that asks about the scene asks about the game while it plays:
   `entity.get`, `component.get`, `physics.raycast`, `editor.statistics` (which then
   reports scripts, steps of the simulation and voices), screenshots. `input.inject`
@@ -311,7 +312,18 @@ its simulation, its sounds - play it:
 - `editor.screenshot {"path": ...}` saves the whole editor window after letting the
   layout settle.
 - `editor.screenshot {"path": ..., "viewportOnly": true, "width": W, "height": H}`
-  saves the scene alone, at any size.
+  saves the scene alone, at any size - as the viewport used last shows it, or the one
+  `"viewport": N` names.
+- `viewport.open` opens another viewport - up to four - beside the first, with a camera
+  that starts where the one used last is, and returns its number; `{"camera": "game"}`
+  has it look through the game's. From then on it is the one used last: every command
+  of a viewport that names none (`viewport.lookAt`, `frame`, `show`, `debugView`,
+  `camera`, `editor.screenshot` with `viewportOnly`) is about it, until another is
+  opened, brought to the front (`editor.focusPanel {"panel": "viewport2"}`; `"viewport"`
+  is the first) or closed (`viewport.close {"viewport": N}`, after which the first is).
+  `viewport.list` says which are open and which is used last. In a script that has
+  several, name the viewport: `{"viewport": 2}`. Quality and the gizmo are those of all
+  of them.
 - `editor.focusPanel {"panel": "console"}` brings a panel to the front of those it
   shares its place with - the console is behind the assets until then, or until a
   command fails - and
@@ -327,7 +339,7 @@ its simulation, its sounds - play it:
   it. To move something, set its `Transform` with `component.set`: that is what dragging
   the gizmo does, one step to undo.
 - `viewport.lookAt {"position": [x,y,z], "target": [x,y,z]}` and
-  `viewport.frame {"entity": ...}` place the viewport camera first; `viewport.frame`
+  `viewport.frame {"entity": ...}` place the camera of a viewport first; `viewport.frame`
   without an entity frames the selection, meshes by their size, as F does.
 - `viewport.show {"camera": "game"}` looks through the camera the game renders from
   - the first enabled primary `Camera` of the scene - and draws nothing an editor
@@ -441,8 +453,10 @@ CORDITE_TRY(commands.add({
 - The description and the parameter descriptions are all an agent knows about the
   command. Say what it does and what it returns.
 - Return something a caller can use next (the entity's `id` and `path`), or null.
-- A command that needs a running editor (frames, the viewport camera, the window) is
-  registered in `EditorApp::registerApplicationCommands` instead.
+- A command that needs a running editor (frames, the window) is registered in
+  `EditorApp::registerApplicationCommands` instead, and one about the viewports in
+  `EditorApp::registerViewportCommands`; one about a single viewport takes
+  `viewportParameter()` and finds it with `viewportOf`.
 
 Test it in `tests/unit/editor/EditorCommandsTests.cpp`: add the name to the catalogue
 list, exercise it, and add its failure cases to the "mistakes" table.

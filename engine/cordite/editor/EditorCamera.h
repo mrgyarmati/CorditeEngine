@@ -22,7 +22,8 @@
 /// - hold Alt and the left button and move the pointer to turn around what the camera
 ///   looks at - the centre of what it framed or looked at last, focusDistance() ahead.
 ///
-/// F frames what is selected; the viewport does that, which knows the selection.
+/// F frames what is selected; the editor does that, which knows the selection, with the
+/// camera of the viewport that was used last.
 
 #include "cordite/math/Math.h"
 #include "cordite/platform/Input.h"
@@ -49,6 +50,11 @@ public:
     /// lookAt() looked at or frame() framed last, wherever the camera has moved since. The
     /// wheel brings the camera nearer it; once there, the point is a little further on.
     [[nodiscard]] float focusDistance() const { return m_focusDistance; }
+
+    /// The same camera standing still: where this one is, looking the same way through the
+    /// same lens and turning around the same point, with no button held that steers it.
+    /// What another viewport starts from.
+    [[nodiscard]] EditorCamera atRest() const;
 
     /// Puts the camera at `position`, looking at `target`.
     void lookAt(const Vec3& position, const Vec3& target);

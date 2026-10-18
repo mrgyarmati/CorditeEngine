@@ -193,8 +193,10 @@ TEST_SUITE("UiTheme") {
         CHECK(dark.TabBorderSize == 0.0f);
         CHECK(dark.ChildBorderSize == 0.0f);
         CHECK(dark.Colors[ImGuiCol_BorderShadow].w == 0.0f);
-        // Docked panels have no menu button in front of their tabs.
+        // Docked panels have no menu button in front of their tabs, and no button after them
+        // that closes them all: a panel that can be closed has a button on its tab.
         CHECK(dark.WindowMenuButtonPosition == ImGuiDir_None);
+        CHECK_FALSE(dark.DockingNodeHasCloseButton);
 
         // On white a field needs an edge to be seen at all.
         ImGuiStyle light;

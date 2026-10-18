@@ -391,8 +391,10 @@ Vulkan directly. Step-by-step guide for adding a pass:
   Where nothing was drawn the sky is seen, which moves as the camera turns and not as
   it goes (`motionOfSky`). Translucent surfaces have the motion of what is behind them.
 - **A scene capture draws a camera of the scene into a render target**
-  (`SceneRenderer::renderCaptures`, called by `Engine::drawWorld` and the editor's
-  viewport before their own view): each `SceneCapture` is a view of its own, through the
+  (`SceneRenderer::renderCaptures`, called by `Engine::drawWorld` before its view, and by
+  the first of the editor's viewports that draws in a frame before its own, with the
+  game's background whatever that viewport looks through - once, for all of them:
+  `ViewportFrame`): each `SceneCapture` is a view of its own, through the
   `Camera` of its entity with the aspect of its target, finished like a game's and then
   copied into the target - so one that sees its own picture sees the frame before, and
   nothing is read while it is written. A frame draws `kMaxSceneCaptures` at the most, by
@@ -974,7 +976,7 @@ Step-by-step guide: [work-with-assets](.claude/skills/work-with-assets/SKILL.md)
   model or a prefab as placed, whole, in an editor's stand-in light and the finishing
   of `PostProcessSettings` at its defaults - so it looks like what the renderer makes
   of the asset, and changes with it. It is drawn with the shadow quality of the
-  viewport: the renderer has one atlas, and makes it anew whenever its size changes.
+  viewports: the renderer has one atlas, and makes it anew whenever its size changes.
   A texture is its own picture. A preview draws when what it is asked for changes,
   and remembers a failure, so that it can be asked in every frame.
 - **The showcase's textures, models and sounds are generated**, by `tools/sample-assets`.
@@ -1393,9 +1395,12 @@ Step-by-step guide: [work-with-assets](.claude/skills/work-with-assets/SKILL.md)
 - **An axis has the value of the binding that is moved furthest**, not the sum: a
   stick and the keys beside it do not add up to twice the speed.
 - **Whatever a hand can do, `input.inject` can**, between frames - which is how tests
-  and agents press keys. It reaches `Engine::input()`, so the editor's interface
-  sees it as well. That includes dropping files onto the window from a file manager
-  (`Input::droppedFiles()`, for one frame), which the editor imports.
+  and agents press keys. It reaches `Engine::input()`, and without a window the
+  pointer of the editor's interface follows it as well - its keys do not: a shortcut
+  of Dear ImGui (W, E, R, Ctrl+Z) is pressed in a test with `ImGuiIO::AddKeyEvent`
+  (`EditorViewportTests`, `PropertyEditorTests`). That includes dropping files onto
+  the window from a file manager (`Input::droppedFiles()`, for one frame), which the
+  editor imports.
 - **The showcase binds every kind of control**: the `samples` test fails for a kind
   of binding that its input map does not use.
 
@@ -1739,13 +1744,32 @@ panels, EditorApp    the interface, built on the three layers above
   (`EditorActions::recordComponentEdits`). A handle that is let go of where it was taken
   hold of has changed nothing - not a last digit - and is no step. A drag is an edit of
   `Transform`, which `component.set` makes as well; `viewport.gizmo` says and sets the mode.
-- **The viewport looks through the editor's camera or the game's**
+- **A viewport looks through the editor's camera or the game's**
   (`ViewportCamera`, `viewport.show {"camera": "game"}`). The game's is the camera the
   game is seen through (`findGameCamera`: the cut of a sequence that plays, or else the
   first enabled primary camera of the scene), drawn as `Engine::drawWorld` draws it -
   the game's background, no default light - and with nothing over it: no grid, no
-  markers, no picking, no flying. Playing switches to it and stopping switches
-  back. What an editor adds to the picture belongs to the editor's view only.
+  markers, no picking, no flying. Playing switches the first viewport to it, and stopping
+  switches it back; the others keep their cameras. What an editor adds to the picture
+  belongs to the editor's view only.
+- **An editor has up to four viewports** (`kMaxViewports`; `viewport.open`,
+  `viewport.close`, `viewport.list`; View > Open viewport), each a `ViewportPanel` with a
+  number and a window of its own: `###Viewport` for the first, which is always there and
+  keeps the place layouts remember for it, `###Viewport 2` and on for the others. Its own
+  are its camera - which starts where that of the one used last is - the camera it looks
+  through, its render view and its colliders. What a picture costs is not: the quality
+  and the gizmo are the editor's (`ViewportSettings`), because the renderer has one shadow
+  atlas, made anew whenever its size changes, and the textures are the program's. The
+  View menu, F and the commands that name no viewport act on the one used last
+  (`activeViewport`): whose window had the focus last - Dear ImGui gives it for a click of
+  the left button, the viewport for the others - or that was opened or brought to the
+  front (`editor.focusPanel`, "viewport2"); after it is closed, the first. A viewport
+  without a place in the layout is split off another before it is first drawn - the
+  second to the right of the first, the third below it, the fourth below the second - and
+  one that is opened again goes back to where it was: Dear ImGui keeps the dock node of a
+  window that is closed, empty and hidden. A viewport that is closed lets go first: a
+  drag of its gizmo is a step of the history, and the pointer is unlocked
+  (`ViewportPanel::release`).
 - **Batch mode is the test and agent entry point:** `cordite-editor --headless --project
   P --exec script.json --frames N --screenshot out.png`. Exit status: 0 success, 1
   could not run, 2 GPU validation issues, 3 a script step failed. The script's outcome
@@ -2129,6 +2153,11 @@ body explaining what changed and why. One logical change per commit.
 - An ImGui widget gets its keyboard shortcuts - Ctrl+A in a text field - a frame
   after it became active, not in the same one. A test that types into the interface
   waits that frame; see `PropertyEditorTests`.
+- `ImGui::Shortcut` gives a key to a shortcut from the frame after the one it was asked
+  for in: what it asks is the route of the next frame. A shortcut that is asked for only
+  while something allows it loses the first press after a frame in which it was not -
+  the gizmo's E, pressed right after the camera was flown. Ask for it in every frame,
+  then decide whether to act (`EditorApp::handleGizmoShortcuts`).
 - A JSON object that has a key twice is refused by `parseJson`. The library behind it
   keeps one of the two values and says nothing, which is how a budget for the joints
   of the physics went unchecked: it had the name of another. Text that is put

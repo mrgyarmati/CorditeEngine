@@ -149,11 +149,11 @@ It takes no parameters.
 
 ## editor.focusPanel
 
-Brings one of the editor's panels to the front of those it shares its place with, as a click on its tab does, so that it is what a screenshot shows. It is in front once a frame has been drawn.
+Brings one of the editor's panels to the front of those it shares its place with, as a click on its tab does, so that it is what a screenshot shows. It is in front once a frame has been drawn. A viewport brought to the front is the one used last from then on.
 
 | Parameter | Kind | Needed | Meaning |
 |---|---|---|---|
-| `panel` | string | yes | The panel: "hierarchy", "inspector", "viewport", "console" or "assets". |
+| `panel` | string | yes | The panel: "hierarchy", "inspector", "viewport", "console" or "assets" - or "viewport2" and on, the viewports opened besides the first, while they are open. |
 
 ## editor.redo
 
@@ -171,12 +171,13 @@ Lets the editor run for a number of frames, so that what was changed is drawn.
 
 ## editor.screenshot
 
-Saves a PNG image of the editor window, or of the scene alone as the viewport shows it. Returns the path and the size of the image.
+Saves a PNG image of the editor window, or of the scene alone as a viewport shows it. Returns the path and the size of the image.
 
 | Parameter | Kind | Needed | Meaning |
 |---|---|---|---|
 | `path` | string | yes | Where to save the image. Missing directories are created. |
 | `viewportOnly` | boolean | no | Save the scene without the interface around it. Defaults to false. |
+| `viewport` | integer | no | With viewportOnly: which viewport, by its number. Defaults to the one used last. |
 | `width` | integer | no | With viewportOnly: the image width in pixels. Defaults to the width of the editor window. |
 | `height` | integer | no | With viewportOnly: the image height in pixels. Defaults to the height of the editor window. |
 
@@ -367,7 +368,7 @@ It takes no parameters.
 
 ## play.start
 
-Plays the scene in the editor: from the next frame on its scripts run, its bodies move and its sounds are heard, and the viewport shows it through the camera of the game (viewport.show changes that). Nothing of it stays: play.stop puts the scene back as it was, and what is edited while it plays goes with the game. Returns what play.status returns.
+Plays the scene in the editor: from the next frame on its scripts run, its bodies move and its sounds are heard, and the first viewport shows it through the camera of the game (viewport.show changes that); the others keep their cameras. Nothing of it stays: play.stop puts the scene back as it was, and what is edited while it plays goes with the game. Returns what play.status returns.
 
 It takes no parameters.
 
@@ -387,7 +388,7 @@ Lets a game that is paused go on for a number of frames, runs those frames, and 
 
 ## play.stop
 
-Stops playing: the scripts end, and the scene is what it was when play.start was called - its entities, its history, what is selected of what is still there.
+Stops playing: the scripts end, and the scene is what it was when play.start was called - its entities, its history, what is selected of what is still there. The first viewport looks through the camera it looked through before.
 
 It takes no parameters.
 
@@ -496,48 +497,75 @@ Selects exactly the given entities; an empty list clears the selection. The enti
 
 ## viewport.camera
 
-Returns where the viewport camera is and which way it looks.
+Returns where the camera of a viewport is and which way it looks.
 
-It takes no parameters.
+| Parameter | Kind | Needed | Meaning |
+|---|---|---|---|
+| `viewport` | integer | no | Which viewport, by its number: 1 is the first. Defaults to the one used last. |
+
+## viewport.close
+
+Closes a viewport other than the first, which is always there. A drag of the gizmo in it ends where it is, as a step of the history. After the viewport used last is closed, the first is the one used last. Returns what viewport.list returns.
+
+| Parameter | Kind | Needed | Meaning |
+|---|---|---|---|
+| `viewport` | integer | yes | Which viewport, by its number: 2 and on. |
 
 ## viewport.debugView
 
-Chooses what the viewport shows: the lit picture ("none") or a debug view of the renderer - one thing the G-buffer holds, with what decals laid on (baseColor, normals, roughness, metallic, specular, occlusion, emissive, depth), how many point and spot lights each pixel has to ask (lightCount: dark for none, blue for one, through green to red for eight and more), which cascade of the sun's shadow each pixel is looked up in (shadowCascades: red, green, blue, yellow from the nearest on; grey where the sun casts none), how much of the light from all around gets to each surface past what stands around it (ambientOcclusion: white is all of it), how much of each pixel is fog (fog: white where nothing shows through), how far and which way each pixel moved since the picture before (motion: black where nothing moved, red to the right, yellow-green up, cyan to the left, blue-purple down, brighter the further), the light without the materials (lightingOnly), what the surroundings give every surface to reflect, each of them made a perfect mirror (reflections), the edges of the triangles (wireframe), how often each pixel is drawn (overdraw), how blurred each pixel is by the depth of field (focus: black where it is sharp, red in front of that and blue behind), the light the shafts of the sun add, alone (lightShafts), what the lights throw towards the viewer from the fog in front of each pixel, alone (fogLight: black where they throw nothing), which environment probes light each surface (probes: a color for each probe, grey for the environment), what the reflections from the screen put in the place of the surroundings' reflections, alone (screenReflections: black where they meet nothing), or the level of detail each mesh is drawn at (lod: the mesh itself grey, then green, yellow, orange and red as the levels get coarser). Returns the view now shown and all there are; without a parameter it changes nothing.
+Chooses what a viewport shows: the lit picture ("none") or a debug view of the renderer - one thing the G-buffer holds, with what decals laid on (baseColor, normals, roughness, metallic, specular, occlusion, emissive, depth), how many point and spot lights each pixel has to ask (lightCount: dark for none, blue for one, through green to red for eight and more), which cascade of the sun's shadow each pixel is looked up in (shadowCascades: red, green, blue, yellow from the nearest on; grey where the sun casts none), how much of the light from all around gets to each surface past what stands around it (ambientOcclusion: white is all of it), how much of each pixel is fog (fog: white where nothing shows through), how far and which way each pixel moved since the picture before (motion: black where nothing moved, red to the right, yellow-green up, cyan to the left, blue-purple down, brighter the further), the light without the materials (lightingOnly), what the surroundings give every surface to reflect, each of them made a perfect mirror (reflections), the edges of the triangles (wireframe), how often each pixel is drawn (overdraw), how blurred each pixel is by the depth of field (focus: black where it is sharp, red in front of that and blue behind), the light the shafts of the sun add, alone (lightShafts), what the lights throw towards the viewer from the fog in front of each pixel, alone (fogLight: black where they throw nothing), which environment probes light each surface (probes: a color for each probe, grey for the environment), what the reflections from the screen put in the place of the surroundings' reflections, alone (screenReflections: black where they meet nothing), or the level of detail each mesh is drawn at (lod: the mesh itself grey, then green, yellow, orange and red as the levels get coarser). Returns the view now shown and all there are; without a parameter it changes nothing.
 
 | Parameter | Kind | Needed | Meaning |
 |---|---|---|---|
 | `view` | string | no | The view to show, by one of the names above. |
+| `viewport` | integer | no | Which viewport, by its number: 1 is the first. Defaults to the one used last. |
 
 ## viewport.frame
 
-Moves the viewport camera so that an entity is in view, keeping the viewing direction - or, without one, what is selected, as F does. What is framed is what the camera orbits about with Alt and the left button.
+Moves the camera of a viewport so that an entity is in view, keeping the viewing direction - or, without one, what is selected, as F does. What is framed is what the camera orbits about with Alt and the left button.
 
 | Parameter | Kind | Needed | Meaning |
 |---|---|---|---|
 | `entity` | string | no | The entity, by id, path or name. Without it, the selection. |
 | `radius` | number | no | The size of the area to show around the entity, in metres. Defaults to 1. Only with `entity`: the selection is framed by its own size. |
+| `viewport` | integer | no | Which viewport, by its number: 1 is the first. Defaults to the one used last. |
 
 ## viewport.gizmo
 
-Says what the gizmo of the selection does - translate, rotate or scale it - and along whose axes, the world's or the entity's own (scale is always along the entity's own); given either, changes it. The gizmo is drawn on the entity selected last and moves every selected entity that does not hang under another selected one. Dragging it is an edit of their Transform, one step to undo, which component.set makes as well.
+Says what the gizmo of the selection does - translate, rotate or scale it - and along whose axes, the world's or the entity's own (scale is always along the entity's own); given either, changes it - in every viewport. The gizmo is drawn on the entity selected last and moves every selected entity that does not hang under another selected one. Dragging it is an edit of their Transform, one step to undo, which component.set makes as well.
 
 | Parameter | Kind | Needed | Meaning |
 |---|---|---|---|
 | `mode` | string | no | "translate", "rotate" or "scale". |
 | `space` | string | no | "world" or "local". |
 
+## viewport.list
+
+Lists the viewports that are open: for each its number (`viewport`), through whose camera it shows the scene (`camera`, and `showsGame`: whether its last picture was the game's), its render view (`debugView`) and whether it draws the colliders of all entities; and `active`, the number of the one used last - clicked into or brought to the front - which the View menu, F and the commands that name no viewport act on.
+
+It takes no parameters.
+
 ## viewport.lookAt
 
-Places the viewport camera at a position, looking at a target point.
+Places the camera of a viewport at a position, looking at a target point.
 
 | Parameter | Kind | Needed | Meaning |
 |---|---|---|---|
 | `position` | array | yes | Where the camera goes: [x, y, z] in metres. |
 | `target` | array | yes | The point it looks at: [x, y, z] in metres. |
+| `viewport` | integer | no | Which viewport, by its number: 1 is the first. Defaults to the one used last. |
+
+## viewport.open
+
+Opens another viewport beside those that are open - up to 4 - with a camera of its own, which starts where the camera of the viewport used last is. A viewport has its own camera, render view and colliders; what its picture may cost and what the gizmo does are those of every viewport. The one that is opened is the one used last from then on: a command of a viewport that names none is about it. Returns its number, the lowest that is not open.
+
+| Parameter | Kind | Needed | Meaning |
+|---|---|---|---|
+| `camera` | string | no | Through whose eyes it shows the scene: "editor" (the default) or "game". |
 
 ## viewport.quality
 
-Chooses how much the picture in the viewport may cost. "preset" sets everything by one word ("low", "medium", "high") - also the largest side the textures keep, 1024, 2048 and 4096 texels, which every view of the editor shares; "shadows" sets the shadows alone ("off" draws none; the others give the shadow maps of a view an atlas of 2048, 4096 and 8192 texels a side to share), "effects" what is worked out from the screen - ambient occlusion ("off" draws none; "low" and "medium" work it out for one pixel in four, "high" for every pixel) - and "postProcess" the finishing of the picture alone ("off" shows the light as the renderer worked it out, without exposure, bloom, tone mapping or grading), and "lodErrorPixels" how large the error of a level of detail may look, in pixels (a preset sets 2, 1 and a half; 0 draws every mesh at its finest). "antiAliasing" says how the steps of slanted edges are smoothed in a finished picture: "fxaa" from the picture itself, "off" not at all; no preset changes it. Returns what is now in use and all there is to choose from; without parameters it changes nothing. A game sets its own quality; this is the editor's view of the scene.
+Chooses how much the pictures of the viewports may cost - of all of them: they share one atlas of shadow maps and the textures. "preset" sets everything by one word ("low", "medium", "high") - also the largest side the textures keep, 1024, 2048 and 4096 texels, which every view of the editor shares; "shadows" sets the shadows alone ("off" draws none; the others give the shadow maps of a view an atlas of 2048, 4096 and 8192 texels a side to share), "effects" what is worked out from the screen - ambient occlusion ("off" draws none; "low" and "medium" work it out for one pixel in four, "high" for every pixel) - and "postProcess" the finishing of the picture alone ("off" shows the light as the renderer worked it out, without exposure, bloom, tone mapping or grading), and "lodErrorPixels" how large the error of a level of detail may look, in pixels (a preset sets 2, 1 and a half; 0 draws every mesh at its finest). "antiAliasing" says how the steps of slanted edges are smoothed in a finished picture: "fxaa" from the picture itself, "off" not at all; no preset changes it. Returns what is now in use and all there is to choose from; without parameters it changes nothing. A game sets its own quality; this is that of the editor's views of the scene.
 
 | Parameter | Kind | Needed | Meaning |
 |---|---|---|---|
@@ -550,9 +578,10 @@ Chooses how much the picture in the viewport may cost. "preset" sets everything 
 
 ## viewport.show
 
-Chooses through whose eyes the viewport shows the scene, and what it draws over it. `camera` is "editor" - the editor's own camera, with the grid, the markers and the frames around what is selected - or "game": the camera the game renders from, the first enabled primary one, and nothing but what a player sees; a scene without such a camera is shown through the editor's. `colliders` draws the collider and the joint of every entity that has one, and the capsule of every character, as lines (those of selected entities and of what hangs below them are always drawn). Returns what is asked for now, and `showsGame`: whether the last picture was the game's. Without a parameter it changes nothing.
+Chooses through whose eyes a viewport shows the scene, and what it draws over it. `camera` is "editor" - the editor's own camera, with the grid, the markers and the frames around what is selected - or "game": the camera the game renders from, the first enabled primary one, and nothing but what a player sees; a scene without such a camera is shown through the editor's. `colliders` draws the collider and the joint of every entity that has one, and the capsule of every character, as lines (those of selected entities and of what hangs below them are always drawn). Returns what is asked for now, and `showsGame`: whether the last picture was the game's. Without a parameter it changes nothing.
 
 | Parameter | Kind | Needed | Meaning |
 |---|---|---|---|
 | `camera` | string | no | Whose camera to look through: "editor" or "game". |
 | `colliders` | boolean | no | Draw the colliders, the joints and the characters of all entities. |
+| `viewport` | integer | no | Which viewport, by its number: 1 is the first. Defaults to the one used last. |

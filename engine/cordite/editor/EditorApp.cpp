@@ -110,6 +110,52 @@ Result<uint32_t> countParameter(const Json& parameters, const char* name, double
     return static_cast<uint32_t>(value);
 }
 
+/// The parameter by which a command that is about one viewport is told which.
+CommandParameter viewportParameter() {
+    return {"viewport", Type::Integer, "Which viewport, by its number: 1 is the first. Defaults to the one used last.",
+            false};
+}
+
+/// Where a viewport goes in the layout when it has no place of its own: beside which other
+/// one, and on which side of it.
+struct ViewportPlace {
+    uint32_t beside = 1;
+    ImGuiDir side = ImGuiDir_Right;
+};
+
+/// The second to the right of the first, the third below the first, the fourth below the
+/// second: four are a grid of two by two. A viewport is given the lowest number that is not
+/// open, so the one it goes beside is open.
+ViewportPlace placeOfViewport(uint32_t number) {
+    switch (number) {
+        case 2:
+            return {.beside = 1, .side = ImGuiDir_Right};
+        case 3:
+            return {.beside = 1, .side = ImGuiDir_Down};
+        default:
+            return {.beside = 2, .side = ImGuiDir_Down};
+    }
+}
+
+/// The dock node a window is in, or goes back to when it is drawn again: what the window, or
+/// what Dear ImGui remembers of it, says. 0 for none.
+ImGuiID dockIdOf(const std::string& windowId) {
+    if (const ImGuiWindow* window = ImGui::FindWindowByName(windowId.c_str())) {
+        return window->DockId;
+    }
+    if (const ImGuiWindowSettings* settings = ImGui::FindWindowSettingsByID(ImHashStr(windowId.c_str()))) {
+        return settings->DockId;
+    }
+    return 0;
+}
+
+/// The dock node of that id if a window can be docked into it: one that is there and is not
+/// split. Null otherwise.
+ImGuiDockNode* leafNode(ImGuiID id) {
+    ImGuiDockNode* node = id == 0 ? nullptr : ImGui::DockBuilderGetNode(id);
+    return node != nullptr && node->IsLeafNode() ? node : nullptr;
+}
+
 /// Docks the panels where they go when no layout was remembered from an earlier session.
 void buildDefaultLayout(ImGuiID dockSpaceId) {
     ImGui::DockBuilderRemoveNode(dockSpaceId);
@@ -209,9 +255,10 @@ Result<std::unique_ptr<EditorApp>> EditorApp::create(const EditorAppDesc& desc) 
     CORDITE_TRY(registerScriptCommands(app->m_commands, app->m_engine->scripts()));
     CORDITE_TRY(registerAssetBrowserCommands(app->m_commands, *app->m_context, app->m_assets.browser()));
     CORDITE_TRY(app->registerApplicationCommands());
+    CORDITE_TRY(app->registerViewportCommands());
     CORDITE_TRY(app->registerPlayCommands());
     CORDITE_TRY(app->registerProjectCommands());
-    CORDITE_TRY_ASSIGN(app->m_viewport, ViewportPanel::create(*app->m_engine));
+    CORDITE_TRY_ASSIGN(app->m_viewports.front(), ViewportPanel::create(*app->m_engine, app->m_viewportSettings));
 
     if (!scene.empty()) {
         CORDITE_TRY(app->m_context->openScene(scene));
@@ -329,10 +376,15 @@ void EditorApp::runCommandLine(std::string_view line) {
     }
 }
 
-Result<Image> EditorApp::captureViewport(UVec2 size) {
+Result<Image> EditorApp::captureViewport(UVec2 size, uint32_t viewport) {
     CORDITE_ASSERT(!m_engine->isFrameOpen(), "the viewport cannot be captured during a frame");
     if (m_engine->isFrameOpen()) {
         return makeError(ErrorCode::InvalidState, "the viewport cannot be captured during a frame");
+    }
+    ViewportPanel* const panel = findViewport(viewport);
+    if (panel == nullptr) {
+        return makeError(ErrorCode::NotFound, "viewport {} is not open; the open ones are {}", viewport,
+                         openViewportNumbers());
     }
 
     m_engine->updateWorld(WorldClock::Stopped);
@@ -344,13 +396,150 @@ Result<Image> EditorApp::captureViewport(UVec2 size) {
     commandList->open();
     // A picture of this moment: no time has passed since the viewport was last drawn.
     const Status rendered =
-        m_viewport->render(device, commandList, *m_context, size, 0.0f, m_engine->timeSeconds(), WorldClock::Stopped);
+        panel->render(device, commandList, *m_context, size, 0.0f, m_engine->timeSeconds(), WorldClock::Stopped);
     commandList->close();
     CORDITE_TRY(rendered);
     device->executeCommandList(commandList);
 
-    CORDITE_TRY_ASSIGN(TexturePixels pixels, readTexture(m_engine->graphics(), m_viewport->targets().display()));
+    CORDITE_TRY_ASSIGN(TexturePixels pixels, readTexture(m_engine->graphics(), panel->targets().display()));
     return Image::fromPixels(pixels.width, pixels.height, ImageFormat::Rgba8, std::move(pixels.data));
+}
+
+ViewportPanel* EditorApp::findViewport(uint32_t number) {
+    return number >= 1 && number <= kMaxViewports ? m_viewports[number - 1].get() : nullptr;
+}
+
+ViewportPanel& EditorApp::activePanel() {
+    ViewportPanel* const active = findViewport(m_activeViewport);
+    // Closing the one used last makes the first the one used last.
+    CORDITE_ASSERT(active != nullptr, "the viewport used last is open");
+    return active != nullptr ? *active : viewport();
+}
+
+std::string EditorApp::openViewportNumbers() const {
+    std::vector<uint32_t> open;
+    for (const std::unique_ptr<ViewportPanel>& viewport : m_viewports) {
+        if (viewport) {
+            open.push_back(viewport->number());
+        }
+    }
+    std::string numbers;
+    for (size_t index = 0; index < open.size(); ++index) {
+        if (index > 0) {
+            numbers += index + 1 == open.size() ? " and " : ", ";
+        }
+        numbers += std::to_string(open[index]);
+    }
+    return numbers;
+}
+
+Result<ViewportPanel*> EditorApp::viewportOf(const Json& parameters) {
+    const auto named = parameters.find("viewport");
+    if (named == parameters.end()) {
+        return &activePanel();
+    }
+    // Checked to be a whole number already; one far out of range is no number of a viewport.
+    const auto number = named->get<double>();
+    ViewportPanel* const viewport =
+        number >= 1.0 && number <= kMaxViewports ? findViewport(static_cast<uint32_t>(number)) : nullptr;
+    if (viewport == nullptr) {
+        return makeError(ErrorCode::NotFound, "there is no viewport {} open; the open ones are {}",
+                         named->is_number_integer() ? named->dump() : fmt::format("{}", number), openViewportNumbers());
+    }
+    return viewport;
+}
+
+Result<uint32_t> EditorApp::openViewport(ViewportCamera camera) {
+    const auto free = std::ranges::find_if(m_viewports, [](const auto& viewport) { return viewport == nullptr; });
+    if (free == m_viewports.end()) {
+        return makeError(ErrorCode::InvalidState, "{} viewports are open, as many as there can be; close one first",
+                         kMaxViewports);
+    }
+    const auto number = static_cast<uint32_t>(free - m_viewports.begin()) + 1;
+    CORDITE_TRY_ASSIGN(std::unique_ptr<ViewportPanel> viewport,
+                       ViewportPanel::create(*m_engine, m_viewportSettings, number));
+    // It looks from where the one used last does - and Dear ImGui gives its window the focus
+    // when it first appears, which keeps it the one used last.
+    viewport->camera() = activePanel().camera().atRest();
+    viewport->setViewCamera(camera);
+    *free = std::move(viewport);
+    m_activeViewport = number;
+    m_viewportsToPlace.push_back(number);
+    return number;
+}
+
+Status EditorApp::closeViewport(uint32_t number) {
+    if (number == 1) {
+        return makeError(ErrorCode::InvalidArgument, "the first viewport is always there and cannot be closed");
+    }
+    ViewportPanel* const viewport = findViewport(number);
+    if (viewport == nullptr) {
+        return makeError(ErrorCode::NotFound, "viewport {} is not open; the open ones are {}", number,
+                         openViewportNumbers());
+    }
+    // A drag of its gizmo ends where it is, and is a step of the history; a pointer that steers
+    // its camera is free again.
+    viewport->release(*m_context, m_engine->window());
+    m_viewports[number - 1].reset();
+    std::erase(m_viewportsToPlace, number);
+    if (m_activeViewport == number) {
+        m_activeViewport = 1;
+        // And has the focus: Dear ImGui would give it to whichever window is in front, which
+        // may be another viewport.
+        m_panelToFocus = ViewportPanel::kWindowId;
+    }
+    return {};
+}
+
+Json EditorApp::describeViewports() const {
+    Json viewports = Json::array();
+    for (const std::unique_ptr<ViewportPanel>& viewport : m_viewports) {
+        if (viewport) {
+            Json entry = Json::object();
+            entry["viewport"] = viewport->number();
+            entry["camera"] = nameOf(viewport->viewCamera());
+            entry["showsGame"] = viewport->showsGame();
+            entry["debugView"] = nameOf(viewport->debugView());
+            entry["colliders"] = viewport->showsColliders();
+            viewports.push_back(std::move(entry));
+        }
+    }
+    Json result = Json::object();
+    result["active"] = m_activeViewport;
+    result["viewports"] = std::move(viewports);
+    return result;
+}
+
+void EditorApp::placeOpenedViewports(ImGuiID dockSpaceId) {
+    bool split = false;
+    for (const uint32_t number : std::exchange(m_viewportsToPlace, {})) {
+        const ViewportPanel* const viewport = findViewport(number);
+        // One that was open before goes back where it was: Dear ImGui keeps the place of a
+        // window that is closed, and gives the room to what is beside it meanwhile.
+        if (viewport == nullptr || leafNode(dockIdOf(viewport->windowId())) != nullptr) {
+            continue;
+        }
+        const ViewportPlace place = placeOfViewport(number);
+        const ViewportPanel* const neighbour = findViewport(place.beside);
+        ImGuiDockNode* node = neighbour == nullptr ? nullptr : leafNode(dockIdOf(neighbour->windowId()));
+        if (node == nullptr) {
+            // Beside one that floats: beside the first, if that is docked.
+            node = leafNode(dockIdOf(ViewportPanel::kWindowId));
+        }
+        if (node == nullptr) {
+            // Nothing to be docked beside: it floats, where Dear ImGui puts a new window.
+            continue;
+        }
+        // What was in the node goes to the other side - and what windows remember of it goes
+        // with them, those that are not drawn yet too.
+        ImGuiID placed = 0;
+        ImGui::DockBuilderSplitNode(node->ID, place.side, 0.5f, &placed, nullptr);
+        ImGui::DockBuilderDockWindow(viewport->windowId().c_str(), placed);
+        split = true;
+    }
+    if (split) {
+        ImGui::DockBuilderFinish(dockSpaceId);
+    }
 }
 
 Status EditorApp::registerApplicationCommands() {
@@ -369,11 +558,13 @@ Status EditorApp::registerApplicationCommands() {
 
     CORDITE_TRY(m_commands.add({
         .name = "editor.screenshot",
-        .description = "Saves a PNG image of the editor window, or of the scene alone as the viewport shows it. "
+        .description = "Saves a PNG image of the editor window, or of the scene alone as a viewport shows it. "
                        "Returns the path and the size of the image.",
         .parameters = {{"path", Type::String, "Where to save the image. Missing directories are created."},
                        {"viewportOnly", Type::Boolean,
                         "Save the scene without the interface around it. Defaults to false.", false},
+                       {"viewport", Type::Integer,
+                        "With viewportOnly: which viewport, by its number. Defaults to the one used last.", false},
                        {"width", Type::Integer,
                         "With viewportOnly: the image width in pixels. Defaults to the "
                         "width of the editor window.",
@@ -387,12 +578,13 @@ Status EditorApp::registerApplicationCommands() {
 
             Result<Image> image = makeError(ErrorCode::Unknown, "no image");
             if (jsonGetOr<bool>(parameters, "viewportOnly", false)) {
+                CORDITE_TRY_ASSIGN(const ViewportPanel* const viewport, viewportOf(parameters));
                 const UVec2 windowSize = m_engine->renderSize();
                 CORDITE_TRY_ASSIGN(const uint32_t width,
                                    countParameter(parameters, "width", windowSize.x, kMaxCaptureDimension));
                 CORDITE_TRY_ASSIGN(const uint32_t height,
                                    countParameter(parameters, "height", windowSize.y, kMaxCaptureDimension));
-                image = captureViewport(UVec2(width, height));
+                image = captureViewport(UVec2(width, height), viewport->number());
             } else {
                 CORDITE_TRY(runFrames(kSettleFrames));
                 image = m_engine->captureFrame();
@@ -476,18 +668,40 @@ Status EditorApp::registerApplicationCommands() {
         .name = "editor.focusPanel",
         .description = "Brings one of the editor's panels to the front of those it shares its place with, as a "
                        "click on its tab does, so that it is what a screenshot shows. It is in front once a "
-                       "frame has been drawn.",
+                       "frame has been drawn. A viewport brought to the front is the one used last from then on.",
         .parameters = {{"panel", Type::String,
-                        "The panel: \"hierarchy\", \"inspector\", \"viewport\", \"console\" or \"assets\"."}},
+                        "The panel: \"hierarchy\", \"inspector\", \"viewport\", \"console\" or \"assets\" - or "
+                        "\"viewport2\" and on, the viewports opened besides the first, while they are open."}},
         .handler = [this](const Json& parameters) -> Result<Json> {
             const std::string panel = parameters.at("panel").get<std::string>();
+            // The viewports besides the first are panels while they are open.
+            std::vector<std::string> openViewports;
+            for (const std::unique_ptr<ViewportPanel>& viewport : m_viewports) {
+                if (viewport && viewport->number() > 1) {
+                    openViewports.push_back(fmt::format("viewport{}", viewport->number()));
+                    if (panel == openViewports.back()) {
+                        m_panelToFocus = viewport->windowId();
+                        m_activeViewport = viewport->number();
+                        Json result = Json::object();
+                        result["panel"] = panel;
+                        return result;
+                    }
+                }
+            }
             const auto found =
                 std::ranges::find(kDockedPanels, std::string_view(panel), &std::pair<const char*, const char*>::first);
             if (found == kDockedPanels.end()) {
+                std::string viewports;
+                for (const std::string& name : openViewports) {
+                    viewports += fmt::format(", \"{}\"", name);
+                }
                 return makeError(ErrorCode::InvalidArgument,
-                                 "there is no panel '{}'; use \"hierarchy\", \"inspector\", \"viewport\", \"console\" "
-                                 "or \"assets\"",
-                                 panel);
+                                 "there is no panel '{}'; use \"hierarchy\", \"inspector\", \"viewport\"{}, "
+                                 "\"console\" or \"assets\"",
+                                 panel, viewports);
+            }
+            if (found->second == std::string_view(ViewportPanel::kWindowId)) {
+                m_activeViewport = 1;
             }
             m_panelToFocus = found->second;
             Json result = Json::object();
@@ -506,23 +720,7 @@ Status EditorApp::registerApplicationCommands() {
         },
     }));
 
-    CORDITE_TRY(m_commands.add({
-        .name = "viewport.lookAt",
-        .description = "Places the viewport camera at a position, looking at a target point.",
-        .parameters = {{"position", Type::Array, "Where the camera goes: [x, y, z] in metres."},
-                       {"target", Type::Array, "The point it looks at: [x, y, z] in metres."}},
-        .handler = [this](const Json& parameters) -> Result<Json> {
-            Vec3 position(0.0f);
-            Vec3 target(0.0f);
-            if (!fromJson(parameters.at("position"), position) || !fromJson(parameters.at("target"), target)) {
-                return makeError(ErrorCode::InvalidArgument, "'position' and 'target' must be arrays of 3 numbers");
-            }
-            camera().lookAt(position, target);
-            return Json(nullptr);
-        },
-    }));
-
-    CORDITE_TRY(m_commands.add({
+    return m_commands.add({
         .name = "probes.capture",
         .description = "Takes the pictures of all environment probes again, in the next frames: what is around them "
                        "has changed - a wall was moved, a light turned on - and they still show it as it was. A "
@@ -535,25 +733,99 @@ Status EditorApp::registerApplicationCommands() {
             result["probes"] = m_engine->sceneRenderer().probes().count();
             return result;
         },
+    });
+}
+
+Status EditorApp::registerViewportCommands() {
+    CORDITE_TRY(m_commands.add({
+        .name = "viewport.open",
+        .description = fmt::format(
+            "Opens another viewport beside those that are open - up to {} - with a camera of its own, which starts "
+            "where the camera of the viewport used last is. A viewport has its own camera, render view and "
+            "colliders; what its picture may cost and what the gizmo does are those of every viewport. The one "
+            "that is opened is the one used last from then on: a command of a viewport that names none is about "
+            "it. Returns its number, the lowest that is not open.",
+            kMaxViewports),
+        .parameters = {{"camera", Type::String,
+                        "Through whose eyes it shows the scene: \"editor\" (the default) or \"game\".", false}},
+        .handler = [this](const Json& parameters) -> Result<Json> {
+            ViewportCamera camera = ViewportCamera::Editor;
+            if (const auto name = jsonGetOr<std::string>(parameters, "camera", ""); !name.empty()) {
+                const std::optional<ViewportCamera> named = viewportCameraFromName(name);
+                if (!named) {
+                    return makeError(ErrorCode::InvalidArgument, "'{}' is no camera of a viewport; use editor or game",
+                                     name);
+                }
+                camera = *named;
+            }
+            CORDITE_TRY_ASSIGN(const uint32_t number, openViewport(camera));
+            Json result = Json::object();
+            result["viewport"] = number;
+            return result;
+        },
+    }));
+
+    CORDITE_TRY(m_commands.add({
+        .name = "viewport.close",
+        .description = "Closes a viewport other than the first, which is always there. A drag of the gizmo in "
+                       "it ends where it is, as a step of the history. After the viewport used last is closed, "
+                       "the first is the one used last. Returns what viewport.list returns.",
+        .parameters = {{"viewport", Type::Integer, "Which viewport, by its number: 2 and on."}},
+        .handler = [this](const Json& parameters) -> Result<Json> {
+            CORDITE_TRY_ASSIGN(const ViewportPanel* const viewport, viewportOf(parameters));
+            CORDITE_TRY(closeViewport(viewport->number()));
+            return describeViewports();
+        },
+    }));
+
+    CORDITE_TRY(m_commands.add({
+        .name = "viewport.list",
+        .description = "Lists the viewports that are open: for each its number (`viewport`), through whose camera "
+                       "it shows the scene (`camera`, and `showsGame`: whether its last picture was the game's), "
+                       "its render view (`debugView`) and whether it draws the colliders of all entities; and "
+                       "`active`, the number of the one used last - clicked into or brought to the front - which "
+                       "the View menu, F and the commands that name no viewport act on.",
+        .parameters = {},
+        .handler = [this](const Json& /*parameters*/) -> Result<Json> { return describeViewports(); },
+    }));
+
+    CORDITE_TRY(m_commands.add({
+        .name = "viewport.lookAt",
+        .description = "Places the camera of a viewport at a position, looking at a target point.",
+        .parameters = {{"position", Type::Array, "Where the camera goes: [x, y, z] in metres."},
+                       {"target", Type::Array, "The point it looks at: [x, y, z] in metres."},
+                       viewportParameter()},
+        .handler = [this](const Json& parameters) -> Result<Json> {
+            CORDITE_TRY_ASSIGN(ViewportPanel* const viewport, viewportOf(parameters));
+            Vec3 position(0.0f);
+            Vec3 target(0.0f);
+            if (!fromJson(parameters.at("position"), position) || !fromJson(parameters.at("target"), target)) {
+                return makeError(ErrorCode::InvalidArgument, "'position' and 'target' must be arrays of 3 numbers");
+            }
+            viewport->camera().lookAt(position, target);
+            return Json(nullptr);
+        },
     }));
 
     CORDITE_TRY(m_commands.add({
         .name = "viewport.frame",
-        .description = "Moves the viewport camera so that an entity is in view, keeping the viewing direction - "
-                       "or, without one, what is selected, as F does. What is framed is what the camera "
-                       "orbits about with Alt and the left button.",
+        .description = "Moves the camera of a viewport so that an entity is in view, keeping the viewing "
+                       "direction - or, without one, what is selected, as F does. What is framed is what the "
+                       "camera orbits about with Alt and the left button.",
         .parameters = {{"entity", Type::String, "The entity, by id, path or name. Without it, the selection.", false},
                        {"radius", Type::Number,
                         "The size of the area to show around the entity, in metres. Defaults to 1. Only with "
                         "`entity`: the selection is framed by its own size.",
-                        false}},
+                        false},
+                       viewportParameter()},
         .handler = [this](const Json& parameters) -> Result<Json> {
+            CORDITE_TRY_ASSIGN(ViewportPanel* const viewport, viewportOf(parameters));
             if (!parameters.contains("entity")) {
                 if (parameters.contains("radius")) {
                     return makeError(ErrorCode::InvalidArgument,
                                      "'radius' is the size around an entity; the selection is framed by its own size");
                 }
-                if (!m_viewport->frameSelection(*m_context)) {
+                if (!viewport->frameSelection(*m_context)) {
                     return makeError(ErrorCode::InvalidArgument, "nothing is selected to frame; name an entity");
                 }
                 return Json(nullptr);
@@ -564,14 +836,14 @@ Status EditorApp::registerApplicationCommands() {
             if (!(radius > 0.0f)) {
                 return makeError(ErrorCode::OutOfRange, "'radius' must be positive, got {}", radius);
             }
-            camera().frame(Vec3(m_context->world().computeWorldMatrix(entity)[3]), radius);
+            viewport->camera().frame(Vec3(m_context->world().computeWorldMatrix(entity)[3]), radius);
             return Json(nullptr);
         },
     }));
 
     CORDITE_TRY(m_commands.add({
         .name = "viewport.show",
-        .description = "Chooses through whose eyes the viewport shows the scene, and what it draws over it. "
+        .description = "Chooses through whose eyes a viewport shows the scene, and what it draws over it. "
                        "`camera` is \"editor\" - the editor's own camera, with the grid, the markers and the "
                        "frames around what is selected - or \"game\": the camera the game renders from, the "
                        "first enabled primary one, and nothing but what a player sees; a scene without "
@@ -582,23 +854,25 @@ Status EditorApp::registerApplicationCommands() {
                        "game's. Without a parameter it changes nothing.",
         .parameters = {{"camera", Type::String, "Whose camera to look through: \"editor\" or \"game\".", false},
                        {"colliders", Type::Boolean,
-                        "Draw the colliders, the joints and the characters of all entities.", false}},
+                        "Draw the colliders, the joints and the characters of all entities.", false},
+                       viewportParameter()},
         .handler = [this](const Json& parameters) -> Result<Json> {
+            CORDITE_TRY_ASSIGN(ViewportPanel* const viewport, viewportOf(parameters));
             if (const auto name = jsonGetOr<std::string>(parameters, "camera", ""); !name.empty()) {
-                if (name != nameOf(ViewportCamera::Editor) && name != nameOf(ViewportCamera::Game)) {
+                const std::optional<ViewportCamera> camera = viewportCameraFromName(name);
+                if (!camera) {
                     return makeError(ErrorCode::InvalidArgument,
                                      "'{}' is no camera of the viewport; use editor or game", name);
                 }
-                m_viewport->setViewCamera(name == nameOf(ViewportCamera::Game) ? ViewportCamera::Game
-                                                                               : ViewportCamera::Editor);
+                viewport->setViewCamera(*camera);
             }
             if (parameters.contains("colliders")) {
-                m_viewport->setShowColliders(jsonGetOr<bool>(parameters, "colliders", false));
+                viewport->setShowColliders(jsonGetOr<bool>(parameters, "colliders", false));
             }
             Json shown = Json::object();
-            shown["camera"] = nameOf(m_viewport->viewCamera());
-            shown["showsGame"] = m_viewport->showsGame();
-            shown["colliders"] = m_viewport->showsColliders();
+            shown["camera"] = nameOf(viewport->viewCamera());
+            shown["showsGame"] = viewport->showsGame();
+            shown["colliders"] = viewport->showsColliders();
             return shown;
         },
     }));
@@ -606,7 +880,8 @@ Status EditorApp::registerApplicationCommands() {
     CORDITE_TRY(m_commands.add({
         .name = "viewport.quality",
         .description =
-            "Chooses how much the picture in the viewport may cost. \"preset\" sets everything by "
+            "Chooses how much the pictures of the viewports may cost - of all of them: they share one "
+            "atlas of shadow maps and the textures. \"preset\" sets everything by "
             "one word (\"low\", \"medium\", \"high\") - also the largest side the textures keep, 1024, "
             "2048 and 4096 texels, which every view of the editor shares; \"shadows\" sets the shadows alone (\"off\" "
             "draws none; the others give the shadow maps of a view an atlas of 2048, 4096 and 8192 "
@@ -619,8 +894,8 @@ Status EditorApp::registerApplicationCommands() {
             "finest). \"antiAliasing\" says how the steps of slanted edges are "
             "smoothed in a finished picture: \"fxaa\" from the picture itself, \"off\" not at all; "
             "no preset changes it. Returns what is now in use and all there is to choose from; "
-            "without parameters it changes nothing. A game sets its own quality; this is the "
-            "editor's view of the scene.",
+            "without parameters it changes nothing. A game sets its own quality; this is that of the "
+            "editor's views of the scene.",
         .parameters = {{"preset", Type::String,
                         "Sets shadows, screen effects and finishing together, by one of the names above.", false},
                        {"shadows", Type::String, "The quality of the shadows; applied after the preset.", false},
@@ -637,10 +912,10 @@ Status EditorApp::registerApplicationCommands() {
             // All of them are checked before any of them is applied.
             SceneRenderSettings wanted;
             std::optional<RenderQuality> chosenPreset;
-            wanted.shadowQuality = m_viewport->shadowQuality();
-            wanted.screenEffectsQuality = m_viewport->screenEffectsQuality();
-            wanted.postProcessQuality = m_viewport->postProcessQuality();
-            wanted.lodErrorPixels = m_viewport->lodErrorPixels();
+            wanted.shadowQuality = m_viewportSettings.shadowQuality;
+            wanted.screenEffectsQuality = m_viewportSettings.screenEffectsQuality;
+            wanted.postProcessQuality = m_viewportSettings.postProcessQuality;
+            wanted.lodErrorPixels = m_viewportSettings.lodErrorPixels;
             if (const auto name = jsonGetOr<std::string>(parameters, "preset", ""); !name.empty()) {
                 const std::optional<RenderQuality> preset = renderQualityFromName(name);
                 if (!preset) {
@@ -688,7 +963,7 @@ Status EditorApp::registerApplicationCommands() {
                 }
                 wanted.lodErrorPixels = pixels;
             }
-            wanted.antiAliasing = m_viewport->antiAliasing();
+            wanted.antiAliasing = m_viewportSettings.antiAliasing;
             if (const auto name = jsonGetOr<std::string>(parameters, "antiAliasing", ""); !name.empty()) {
                 const std::optional<AntiAliasing> antiAliasing = antiAliasingFromName(name);
                 if (!antiAliasing) {
@@ -699,11 +974,11 @@ Status EditorApp::registerApplicationCommands() {
                 }
                 wanted.antiAliasing = *antiAliasing;
             }
-            m_viewport->setShadowQuality(wanted.shadowQuality);
-            m_viewport->setScreenEffectsQuality(wanted.screenEffectsQuality);
-            m_viewport->setPostProcessQuality(wanted.postProcessQuality);
-            m_viewport->setLodErrorPixels(wanted.lodErrorPixels);
-            m_viewport->setAntiAliasing(wanted.antiAliasing);
+            m_viewportSettings.shadowQuality = wanted.shadowQuality;
+            m_viewportSettings.screenEffectsQuality = wanted.screenEffectsQuality;
+            m_viewportSettings.postProcessQuality = wanted.postProcessQuality;
+            m_viewportSettings.lodErrorPixels = wanted.lodErrorPixels;
+            m_viewportSettings.antiAliasing = wanted.antiAliasing;
             RenderResources& resources = m_engine->sceneRenderer().resources();
             if (chosenPreset) {
                 resources.setTextureLimit(textureLimitFor(*chosenPreset));
@@ -745,7 +1020,7 @@ Status EditorApp::registerApplicationCommands() {
     CORDITE_TRY(m_commands.add({
         .name = "viewport.debugView",
         .description =
-            "Chooses what the viewport shows: the lit picture (\"none\") or a debug view of the "
+            "Chooses what a viewport shows: the lit picture (\"none\") or a debug view of the "
             "renderer - one thing the G-buffer holds, with what decals laid on (baseColor, normals, "
             "roughness, metallic, specular, occlusion, emissive, depth), how many point and spot lights each pixel "
             "has to ask (lightCount: dark for none, blue for one, through green to red for eight "
@@ -769,22 +1044,24 @@ Status EditorApp::registerApplicationCommands() {
             "detail each mesh is drawn at (lod: the mesh itself "
             "grey, then green, yellow, orange and red as the levels get coarser). Returns the view "
             "now shown and all there are; without a parameter it changes nothing.",
-        .parameters = {{"view", Type::String, "The view to show, by one of the names above.", false}},
+        .parameters = {{"view", Type::String, "The view to show, by one of the names above.", false},
+                       viewportParameter()},
         .handler = [this](const Json& parameters) -> Result<Json> {
+            CORDITE_TRY_ASSIGN(ViewportPanel* const viewport, viewportOf(parameters));
             if (const auto name = jsonGetOr<std::string>(parameters, "view", ""); !name.empty()) {
                 const std::optional<RenderDebugView> view = renderDebugViewFromName(name);
                 if (!view) {
                     return makeError(ErrorCode::InvalidArgument,
                                      "'{}' is not a view; viewport.debugView without parameters lists them", name);
                 }
-                m_viewport->setDebugView(*view);
+                viewport->setDebugView(*view);
             }
             Json views = Json::array();
             for (const RenderDebugView view : kRenderDebugViews) {
                 views.push_back(nameOf(view));
             }
             Json result = Json::object();
-            result["view"] = nameOf(m_viewport->debugView());
+            result["view"] = nameOf(viewport->debugView());
             result["views"] = std::move(views);
             return result;
         },
@@ -794,9 +1071,10 @@ Status EditorApp::registerApplicationCommands() {
         .name = "viewport.gizmo",
         .description = "Says what the gizmo of the selection does - translate, rotate or scale it - and along "
                        "whose axes, the world's or the entity's own (scale is always along the entity's own); "
-                       "given either, changes it. The gizmo is drawn on the entity selected last and moves "
-                       "every selected entity that does not hang under another selected one. Dragging it is "
-                       "an edit of their Transform, one step to undo, which component.set makes as well.",
+                       "given either, changes it - in every viewport. The gizmo is drawn on the entity selected "
+                       "last and moves every selected entity that does not hang under another selected one. "
+                       "Dragging it is an edit of their Transform, one step to undo, which component.set makes "
+                       "as well.",
         .parameters = {{"mode", Type::String, "\"translate\", \"rotate\" or \"scale\".", false},
                        {"space", Type::String, "\"world\" or \"local\".", false}},
         .handler = [this](const Json& parameters) -> Result<Json> {
@@ -818,28 +1096,30 @@ Status EditorApp::registerApplicationCommands() {
                 }
             }
             if (mode) {
-                m_viewport->setGizmoMode(*mode);
+                m_viewportSettings.gizmoMode = *mode;
             }
             if (space) {
-                m_viewport->setGizmoSpace(*space);
+                m_viewportSettings.gizmoSpace = *space;
             }
             Json result = Json::object();
-            result["mode"] = std::string(nameOf(m_viewport->gizmoMode()));
-            result["space"] = std::string(nameOf(m_viewport->gizmoSpace()));
+            result["mode"] = std::string(nameOf(m_viewportSettings.gizmoMode));
+            result["space"] = std::string(nameOf(m_viewportSettings.gizmoSpace));
             return result;
         },
     }));
 
     return m_commands.add({
         .name = "viewport.camera",
-        .description = "Returns where the viewport camera is and which way it looks.",
-        .parameters = {},
-        .handler = [this](const Json& /*parameters*/) -> Result<Json> {
+        .description = "Returns where the camera of a viewport is and which way it looks.",
+        .parameters = {viewportParameter()},
+        .handler = [this](const Json& parameters) -> Result<Json> {
+            CORDITE_TRY_ASSIGN(const ViewportPanel* const viewport, viewportOf(parameters));
+            const EditorCamera& camera = viewport->camera();
             Json result = Json::object();
-            result["position"] = toJson(camera().position());
-            result["forward"] = toJson(camera().forward());
-            result["yawDegrees"] = jsonFromFloat(camera().yawDegrees());
-            result["pitchDegrees"] = jsonFromFloat(camera().pitchDegrees());
+            result["position"] = toJson(camera.position());
+            result["forward"] = toJson(camera.forward());
+            result["yawDegrees"] = jsonFromFloat(camera.yawDegrees());
+            result["pitchDegrees"] = jsonFromFloat(camera.pitchDegrees());
             return result;
         },
     });
@@ -1145,7 +1425,7 @@ Result<Image> EditorApp::previewImage(const Uuid& asset, uint32_t size) {
     AssetPreview preview;
     commandList->open();
     const Status shown = preview.show(m_engine->sceneRenderer(), device, commandList, m_context->assets(),
-                                      m_context->components(), asset, size, m_viewport->shadowQuality());
+                                      m_context->components(), asset, size, m_viewportSettings.shadowQuality);
     commandList->close();
     CORDITE_TRY(shown);
     device->executeCommandList(commandList);
@@ -1190,16 +1470,17 @@ Status EditorApp::registerPlayCommands() {
     CORDITE_TRY(m_commands.add({
         .name = "play.start",
         .description = "Plays the scene in the editor: from the next frame on its scripts run, its bodies move "
-                       "and its sounds are heard, and the viewport shows it through the camera of the game "
-                       "(viewport.show changes that). Nothing of it stays: play.stop puts the scene back as "
-                       "it was, and what is edited while it plays goes with the game. Returns what "
-                       "play.status returns.",
+                       "and its sounds are heard, and the first viewport shows it through the camera of the "
+                       "game (viewport.show changes that); the others keep their cameras. Nothing of it stays: "
+                       "play.stop puts the scene back as it was, and what is edited while it plays goes with "
+                       "the game. Returns what play.status returns.",
         .parameters = {},
         .handler = [this](const Json& /*parameters*/) -> Result<Json> {
             CORDITE_TRY(m_play->start());
-            // A game is looked at through its own camera, until somebody says otherwise.
-            m_viewBeforePlay = m_viewport->viewCamera();
-            m_viewport->setViewCamera(ViewportCamera::Game);
+            // A game is looked at through its own camera, until somebody says otherwise - in
+            // the first viewport, beside which the others go on showing what they showed.
+            m_viewBeforePlay = viewport().viewCamera();
+            viewport().setViewCamera(ViewportCamera::Game);
             return describePlay();
         },
     }));
@@ -1207,11 +1488,12 @@ Status EditorApp::registerPlayCommands() {
     CORDITE_TRY(m_commands.add({
         .name = "play.stop",
         .description = "Stops playing: the scripts end, and the scene is what it was when play.start was called "
-                       "- its entities, its history, what is selected of what is still there.",
+                       "- its entities, its history, what is selected of what is still there. The first "
+                       "viewport looks through the camera it looked through before.",
         .parameters = {},
         .handler = [this](const Json& /*parameters*/) -> Result<Json> {
             CORDITE_TRY(m_play->stop());
-            m_viewport->setViewCamera(m_viewBeforePlay);
+            viewport().setViewCamera(m_viewBeforePlay);
             return describePlay();
         },
     }));
@@ -1264,7 +1546,7 @@ void EditorApp::drawInterface() {
     handleShortcuts();
     drawMainMenu();
     // The bars come before the dock space, which has the room they leave.
-    drawToolbar(documentButtons(*m_context), gizmoButtons(m_viewport->gizmoMode(), m_viewport->gizmoSpace()),
+    drawToolbar(documentButtons(*m_context), gizmoButtons(m_viewportSettings.gizmoMode, m_viewportSettings.gizmoSpace),
                 playButtons(m_play->state()), m_submittedLines);
     const StatusBarState status{
         .message = m_console.newestMessage(LogLevel::Info),
@@ -1287,9 +1569,24 @@ void EditorApp::drawInterface() {
             m_panelToFocus = AssetBrowserPanel::kWindowId;
         }
     }
+    // Before the dock space is laid out: where the viewports opened since the last frame go is
+    // part of its layout.
+    placeOpenedViewports(dockSpaceId);
     ImGui::DockSpaceOverViewport(dockSpaceId, ImGui::GetMainViewport());
 
-    m_viewport->draw(*m_engine, *m_context, m_play->clock());
+    // The first of them that draws a picture draws the scene captures, for all of them. The
+    // one whose window has the focus is the one used last; with the focus elsewhere, the one
+    // used last stays what it was.
+    ViewportFrame frame{.clock = m_play->clock()};
+    for (const std::unique_ptr<ViewportPanel>& viewport : m_viewports) {
+        if (viewport) {
+            viewport->draw(*m_engine, *m_context, frame, m_submittedLines);
+            if (viewport->isFocused()) {
+                m_activeViewport = viewport->number();
+            }
+        }
+    }
+    handleFrameShortcut();
     m_hierarchy.draw(*m_context);
     m_inspector.draw(*m_context);
     m_console.draw(m_submittedLines);
@@ -1299,7 +1596,7 @@ void EditorApp::drawInterface() {
         console != nullptr && console->DockId != 0) {
         ImGui::SetNextWindowDockID(console->DockId, ImGuiCond_FirstUseEver);
     }
-    m_assets.draw(*m_engine, *m_context, m_viewport->shadowQuality(), m_submittedLines);
+    m_assets.draw(*m_engine, *m_context, m_viewportSettings.shadowQuality, m_submittedLines);
     drawFileDialog();
     // What the user asked for and did not get is said in the console, which may be behind
     // the assets: it comes to the front for it.
@@ -1367,22 +1664,43 @@ void EditorApp::handleShortcuts() {
 
 void EditorApp::handleGizmoShortcuts() {
     const ImGuiInputFlags route = ImGuiInputFlags_RouteGlobal;
-    // What the gizmo does, as in the editors people know - unless the camera is being flown,
-    // which takes the same keys.
-    if (!m_viewport->camera().isNavigating() && !m_viewport->isDraggingGizmo()) {
-        if (ImGui::Shortcut(ImGuiKey_W, route)) {
-            m_viewport->setGizmoMode(GizmoMode::Translate);
-        }
-        if (ImGui::Shortcut(ImGuiKey_E, route)) {
-            m_viewport->setGizmoMode(GizmoMode::Rotate);
-        }
-        if (ImGui::Shortcut(ImGuiKey_R, route)) {
-            m_viewport->setGizmoMode(GizmoMode::Scale);
-        }
-        if (ImGui::Shortcut(ImGuiKey_X, route)) {
-            m_viewport->setGizmoSpace(m_viewport->gizmoSpace() == GizmoSpace::World ? GizmoSpace::Local
-                                                                                    : GizmoSpace::World);
-        }
+    // What the gizmo does, as in the editors people know - unless a camera is being flown,
+    // which takes the same keys, or the gizmo is being dragged in a viewport. The keys are
+    // asked for in every frame all the same: Dear ImGui gives a key to a shortcut from the
+    // frame after the one it was asked for in, and would lose the first that is pressed
+    // after a frame in which it was not.
+    const bool translate = ImGui::Shortcut(ImGuiKey_W, route);
+    const bool rotate = ImGui::Shortcut(ImGuiKey_E, route);
+    const bool scale = ImGui::Shortcut(ImGuiKey_R, route);
+    const bool switchSpace = ImGui::Shortcut(ImGuiKey_X, route);
+    const bool busy = std::ranges::any_of(m_viewports, [](const std::unique_ptr<ViewportPanel>& viewport) {
+        return viewport && (viewport->camera().isNavigating() || viewport->isDraggingGizmo());
+    });
+    if (busy) {
+        return;
+    }
+    if (translate) {
+        m_viewportSettings.gizmoMode = GizmoMode::Translate;
+    }
+    if (rotate) {
+        m_viewportSettings.gizmoMode = GizmoMode::Rotate;
+    }
+    if (scale) {
+        m_viewportSettings.gizmoMode = GizmoMode::Scale;
+    }
+    if (switchSpace) {
+        m_viewportSettings.gizmoSpace =
+            m_viewportSettings.gizmoSpace == GizmoSpace::World ? GizmoSpace::Local : GizmoSpace::World;
+    }
+}
+
+void EditorApp::handleFrameShortcut() {
+    // F frames what is selected in the viewport used last, wherever the pointer is - but not
+    // into a text being typed, nor while its camera is being steered, nor through the game's.
+    ViewportPanel& viewport = activePanel();
+    if (!viewport.showsGame() && m_engine->input().wasKeyPressed(Key::F) && !ImGui::GetIO().WantTextInput &&
+        !viewport.camera().isNavigating()) {
+        viewport.frameSelection(*m_context);
     }
 }
 
@@ -1538,26 +1856,39 @@ void EditorApp::drawViewMenu() {
     if (!ImGui::BeginMenu("View")) {
         return;
     }
+    // What is about one viewport is about the one used last - which is said, when there are
+    // several of them.
+    ViewportPanel& viewport = activePanel();
+    const auto open =
+        static_cast<uint32_t>(std::ranges::count_if(m_viewports, [](const auto& panel) { return panel != nullptr; }));
+    if (open > 1) {
+        ImGui::SeparatorText(viewport.title().c_str());
+    }
     // What the viewport shows: the picture, or a look into the renderer.
-    if (const auto view = chooseFromMenu("Render view", kRenderDebugViews, m_viewport->debugView())) {
-        m_viewport->setDebugView(*view);
+    if (const auto view = chooseFromMenu("Render view", kRenderDebugViews, viewport.debugView())) {
+        viewport.setDebugView(*view);
     }
     // Through whose eyes: the editor's camera, or the one the game renders from.
-    const bool game = m_viewport->viewCamera() == ViewportCamera::Game;
+    const bool game = viewport.viewCamera() == ViewportCamera::Game;
     if (ImGui::MenuItem("Game camera", nullptr, game)) {
-        m_viewport->setViewCamera(game ? ViewportCamera::Editor : ViewportCamera::Game);
+        viewport.setViewCamera(game ? ViewportCamera::Editor : ViewportCamera::Game);
     }
     // What is drawn over the scene that is not part of it.
-    if (ImGui::MenuItem("Colliders", nullptr, m_viewport->showsColliders())) {
-        m_viewport->setShowColliders(!m_viewport->showsColliders());
+    if (ImGui::MenuItem("Colliders", nullptr, viewport.showsColliders())) {
+        viewport.setShowColliders(!viewport.showsColliders());
     }
-    // What the picture in the viewport may cost: everything by one word, or piece by piece.
+    ImGui::Separator();
+    // Another, beside those that are open: between frames, where commands run.
+    if (ImGui::MenuItem("Open viewport", nullptr, false, open < kMaxViewports)) {
+        m_submittedLines.emplace_back("viewport.open");
+    }
+    // What the pictures of the viewports may cost: everything by one word, or piece by piece.
     if (ImGui::BeginMenu("Quality")) {
         SceneRenderSettings current;
-        current.shadowQuality = m_viewport->shadowQuality();
-        current.screenEffectsQuality = m_viewport->screenEffectsQuality();
-        current.postProcessQuality = m_viewport->postProcessQuality();
-        current.lodErrorPixels = m_viewport->lodErrorPixels();
+        current.shadowQuality = m_viewportSettings.shadowQuality;
+        current.screenEffectsQuality = m_viewportSettings.screenEffectsQuality;
+        current.postProcessQuality = m_viewportSettings.postProcessQuality;
+        current.lodErrorPixels = m_viewportSettings.lodErrorPixels;
         const std::optional<RenderQuality> preset = renderQualityOf(current);
         for (const RenderQuality quality : kRenderQualities) {
             const std::string label(displayNameOf(quality));
@@ -1568,19 +1899,20 @@ void EditorApp::drawViewMenu() {
             }
         }
         ImGui::Separator();
-        if (const auto quality = chooseFromMenu("Shadows", kShadowQualities, m_viewport->shadowQuality())) {
-            m_viewport->setShadowQuality(*quality);
+        if (const auto quality = chooseFromMenu("Shadows", kShadowQualities, m_viewportSettings.shadowQuality)) {
+            m_viewportSettings.shadowQuality = *quality;
         }
         if (const auto quality =
-                chooseFromMenu("Screen effects", kScreenEffectsQualities, m_viewport->screenEffectsQuality())) {
-            m_viewport->setScreenEffectsQuality(*quality);
+                chooseFromMenu("Screen effects", kScreenEffectsQualities, m_viewportSettings.screenEffectsQuality)) {
+            m_viewportSettings.screenEffectsQuality = *quality;
         }
         if (const auto quality =
-                chooseFromMenu("Post-processing", kPostProcessQualities, m_viewport->postProcessQuality())) {
-            m_viewport->setPostProcessQuality(*quality);
+                chooseFromMenu("Post-processing", kPostProcessQualities, m_viewportSettings.postProcessQuality)) {
+            m_viewportSettings.postProcessQuality = *quality;
         }
-        if (const auto antiAliasing = chooseFromMenu("Anti-aliasing", kAntiAliasingModes, m_viewport->antiAliasing())) {
-            m_viewport->setAntiAliasing(*antiAliasing);
+        if (const auto antiAliasing =
+                chooseFromMenu("Anti-aliasing", kAntiAliasingModes, m_viewportSettings.antiAliasing)) {
+            m_viewportSettings.antiAliasing = *antiAliasing;
         }
         ImGui::EndMenu();
     }

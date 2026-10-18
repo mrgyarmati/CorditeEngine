@@ -24,6 +24,7 @@
 #include "cordite/shaders/EngineShaders.h"
 #include "cordite/world/SceneSerializer.h"
 
+#include "render/EditorTestSupport.h"
 #include "render/RenderTestSupport.h"
 #include "support/MathTestSupport.h"
 
@@ -46,58 +47,18 @@
 using namespace cordite;
 using cordite::test::checkAgainstReference;
 using cordite::test::checkNoValidationIssues;
+using cordite::test::createEditor;
+using cordite::test::createEditorForPicture;
+using cordite::test::headlessDesc;
+using cordite::test::json;
+using cordite::test::quoted;
+using cordite::test::refusal;
+using cordite::test::run;
+using cordite::test::showcaseProject;
 using cordite::test::TempDirectory;
 using cordite::test::unwrap;
 
 namespace {
-
-std::filesystem::path showcaseProject() {
-    return test::sourceDirectory() / "samples" / "showcase";
-}
-
-EditorAppDesc headlessDesc(UVec2 size = UVec2(1280, 720)) {
-    EditorAppDesc desc;
-    desc.engine.headless = true;
-    desc.engine.validation = true;
-    desc.engine.renderSize = size;
-    desc.engine.fixedTimeStep = 1.0 / 60.0;
-    // Tests must not depend on where the engine would look for shaders by default.
-    desc.engine.shaderDirectory = test::shaderDirectory();
-    return desc;
-}
-
-std::unique_ptr<EditorApp> createEditor(const EditorAppDesc& desc) {
-    Result<std::unique_ptr<EditorApp>> editor = EditorApp::create(desc);
-    REQUIRE_MESSAGE(editor.has_value(), test::errorOf(editor));
-    return std::move(*editor);
-}
-
-Json json(std::string_view text) {
-    return unwrap(parseJson(text));
-}
-
-/// Runs a command that is expected to succeed.
-Json run(EditorApp& editor, std::string_view command, std::string_view parameters = "{}") {
-    const Result<Json> result = editor.commands().execute(command, json(parameters));
-    REQUIRE_MESSAGE(result.has_value(), test::errorOf(result));
-    return *result;
-}
-
-/// Runs a command that is expected to fail, and returns why it did.
-Error refusal(EditorApp& editor, std::string_view command, std::string_view parameters = "{}") {
-    const Result<Json> result = editor.commands().execute(command, json(parameters));
-    REQUIRE_FALSE(result.has_value());
-    return result.error();
-}
-
-/// An editor for a picture of its whole window. The console is one of its panels, and
-/// shows what was logged - by this test or by any that ran before it in the same
-/// process: the log is emptied first, so that the picture does not depend on which
-/// tests those were.
-std::unique_ptr<EditorApp> createEditorForPicture(const EditorAppDesc& desc) {
-    Log::clearHistory();
-    return createEditor(desc);
-}
 
 /// The rows of a picture from `first` up to `last`, as a picture of their own.
 Image rowsOf(const Image& picture, uint32_t first, uint32_t last) {
@@ -105,11 +66,6 @@ Image rowsOf(const Image& picture, uint32_t first, uint32_t last) {
     const auto rowBytes = static_cast<std::ptrdiff_t>(picture.rowBytes());
     std::vector<std::byte> rows(pixels.begin() + first * rowBytes, pixels.begin() + last * rowBytes);
     return unwrap(Image::fromPixels(picture.width(), last - first, picture.format(), std::move(rows)));
-}
-
-/// A JSON string literal holding a path, quoted and escaped.
-std::string quoted(const std::filesystem::path& path) {
-    return Json(pathToUtf8(path)).dump();
 }
 
 } // namespace
@@ -1448,7 +1404,7 @@ TEST_SUITE("EditorApp") {
         CHECK(answer["postProcess"] == "medium");
         CHECK(answer["antiAliasing"] == "fxaa");
         CHECK(answer["antiAliasingModes"] == json(R"(["off", "fxaa"])"));
-        CHECK(editor->viewport().antiAliasing() == AntiAliasing::Fxaa);
+        CHECK(editor->viewportSettings().antiAliasing == AntiAliasing::Fxaa);
         CHECK(answer["presets"] == json(R"(["low", "medium", "high"])"));
         CHECK(answer["shadowQualities"] == json(R"(["off", "low", "medium", "high"])"));
         CHECK(answer["effectsQualities"] == json(R"(["off", "low", "medium", "high"])"));
@@ -1458,9 +1414,9 @@ TEST_SUITE("EditorApp") {
         // And to the budget of the project: the showcase names one.
         REQUIRE(editor->runFrames(1).has_value());
         CHECK(run(*editor, "editor.statistics")["resources"]["textureBudgetBytes"] == uint64_t{64} << 20);
-        CHECK(editor->viewport().shadowQuality() == ShadowQuality::Medium);
-        CHECK(editor->viewport().screenEffectsQuality() == ScreenEffectsQuality::Medium);
-        CHECK(editor->viewport().postProcessQuality() == PostProcessQuality::Medium);
+        CHECK(editor->viewportSettings().shadowQuality == ShadowQuality::Medium);
+        CHECK(editor->viewportSettings().screenEffectsQuality == ScreenEffectsQuality::Medium);
+        CHECK(editor->viewportSettings().postProcessQuality == PostProcessQuality::Medium);
         const Image medium = unwrap(editor->captureViewport(UVec2(320, 180)));
 
         // Without shadows the picture is another one: the showcase has three lights
@@ -1469,7 +1425,7 @@ TEST_SUITE("EditorApp") {
         CHECK(answer["shadows"] == "off");
         CHECK(answer["postProcess"] == "medium");
         CHECK(answer["preset"].is_null());
-        CHECK(editor->viewport().shadowQuality() == ShadowQuality::Off);
+        CHECK(editor->viewportSettings().shadowQuality == ShadowQuality::Off);
         const Image without = unwrap(editor->captureViewport(UVec2(320, 180)));
         CHECK(unwrap(compareImages(medium, without)).differingPixels > 500);
 
@@ -1485,7 +1441,7 @@ TEST_SUITE("EditorApp") {
             CHECK(answer["effects"] == std::string(preset));
             CHECK(answer["postProcess"] == std::string(preset));
             CHECK(answer["lodErrorPixels"] == lodErrorPixels);
-            CHECK(editor->viewport().lodErrorPixels() == lodErrorPixels);
+            CHECK(editor->viewportSettings().lodErrorPixels == lodErrorPixels);
             // A preset sets how large the textures of the editor are kept, as a game's quality
             // does: from the next frame on.
             CHECK(answer["textureLimit"] == textureLimitFor(*renderQualityFromName(preset)));
@@ -1516,7 +1472,7 @@ TEST_SUITE("EditorApp") {
             CAPTURE(std::string(wrong));
             CHECK_FALSE(editor->commands().execute("viewport.quality", json(wrong)).has_value());
         }
-        CHECK(editor->viewport().lodErrorPixels() == 32.0f);
+        CHECK(editor->viewportSettings().lodErrorPixels == 32.0f);
         run(*editor, "viewport.quality", R"({"preset": "medium"})");
 
         // A picture that is not finished is the light as the renderer worked it out: no
@@ -1524,7 +1480,7 @@ TEST_SUITE("EditorApp") {
         answer = run(*editor, "viewport.quality", R"({"postProcess": "off"})");
         CHECK(answer["postProcess"] == "off");
         CHECK(answer["shadows"] == "medium");
-        CHECK(editor->viewport().postProcessQuality() == PostProcessQuality::Off);
+        CHECK(editor->viewportSettings().postProcessQuality == PostProcessQuality::Off);
         const Image unfinished = unwrap(editor->captureViewport(UVec2(320, 180)));
         CHECK(unwrap(compareImages(medium, unfinished, {.channelTolerance = 16})).differingPixels > 5000);
 
@@ -1538,7 +1494,7 @@ TEST_SUITE("EditorApp") {
         CHECK(answer["effects"] == "off");
         CHECK(answer["shadows"] == "medium");
         CHECK(answer["preset"].is_null());
-        CHECK(editor->viewport().screenEffectsQuality() == ScreenEffectsQuality::Off);
+        CHECK(editor->viewportSettings().screenEffectsQuality == ScreenEffectsQuality::Off);
         const Image withoutEffects = unwrap(editor->captureViewport(UVec2(320, 180)));
         CHECK(unwrap(compareImages(medium, withoutEffects, {.channelTolerance = 3})).differingPixels > 200);
         CHECK(unwrap(compareImages(medium, withoutEffects, {.channelTolerance = 40})).differingPixels < 80);
@@ -1551,7 +1507,7 @@ TEST_SUITE("EditorApp") {
         answer = run(*editor, "viewport.quality", R"({"antiAliasing": "off"})");
         CHECK(answer["antiAliasing"] == "off");
         CHECK(answer["preset"] == "medium");
-        CHECK(editor->viewport().antiAliasing() == AntiAliasing::Off);
+        CHECK(editor->viewportSettings().antiAliasing == AntiAliasing::Off);
         const Image stepped = unwrap(editor->captureViewport(UVec2(320, 180)));
         const ImageComparison steps = unwrap(compareImages(medium, stepped, {.channelTolerance = 24}));
         CHECK(steps.differingPixels > 50);
@@ -1560,7 +1516,7 @@ TEST_SUITE("EditorApp") {
         CHECK(answer["antiAliasing"] == "off");
         answer = run(*editor, "viewport.quality", R"({"antiAliasing": "FXAA"})");
         CHECK(answer["antiAliasing"] == "fxaa");
-        CHECK(editor->viewport().antiAliasing() == AntiAliasing::Fxaa);
+        CHECK(editor->viewportSettings().antiAliasing == AntiAliasing::Fxaa);
 
         // A preset and single settings in one call: the preset first, then the rest.
         answer = run(*editor, "viewport.quality", R"({"preset": "high", "shadows": "LOW"})");
@@ -1580,10 +1536,10 @@ TEST_SUITE("EditorApp") {
             REQUIRE_FALSE(unknown.has_value());
             CHECK(unknown.error().code == ErrorCode::InvalidArgument);
             CHECK(unknown.error().message.find("ultra") != std::string::npos);
-            CHECK(editor->viewport().shadowQuality() == ShadowQuality::Low);
-            CHECK(editor->viewport().screenEffectsQuality() == ScreenEffectsQuality::High);
-            CHECK(editor->viewport().postProcessQuality() == PostProcessQuality::High);
-            CHECK(editor->viewport().antiAliasing() == AntiAliasing::Fxaa);
+            CHECK(editor->viewportSettings().shadowQuality == ShadowQuality::Low);
+            CHECK(editor->viewportSettings().screenEffectsQuality == ScreenEffectsQuality::High);
+            CHECK(editor->viewportSettings().postProcessQuality == PostProcessQuality::High);
+            CHECK(editor->viewportSettings().antiAliasing == AntiAliasing::Fxaa);
         }
         checkNoValidationIssues(editor->engine().graphics());
     }
@@ -2112,16 +2068,16 @@ TEST_SUITE("EditorApp") {
         const Json turned = run(*editor, "viewport.gizmo", R"({"mode": "Rotate", "space": "local"})");
         CHECK(turned["mode"] == "rotate");
         CHECK(turned["space"] == "local");
-        CHECK(editor->viewport().gizmoMode() == GizmoMode::Rotate);
-        CHECK(editor->viewport().gizmoSpace() == GizmoSpace::Local);
+        CHECK(editor->viewportSettings().gizmoMode == GizmoMode::Rotate);
+        CHECK(editor->viewportSettings().gizmoSpace == GizmoSpace::Local);
 
         // What is wrong changes nothing, not even what was right beside it.
         const Error wrongSpace = refusal(*editor, "viewport.gizmo", R"({"mode": "scale", "space": "parent"})");
         CHECK(wrongSpace.code == ErrorCode::InvalidArgument);
         CHECK(wrongSpace.message.find("'parent'") != std::string::npos);
         CHECK(refusal(*editor, "viewport.gizmo", R"({"mode": "move"})").code == ErrorCode::InvalidArgument);
-        CHECK(editor->viewport().gizmoMode() == GizmoMode::Rotate);
-        CHECK(editor->viewport().gizmoSpace() == GizmoSpace::Local);
+        CHECK(editor->viewportSettings().gizmoMode == GizmoMode::Rotate);
+        CHECK(editor->viewportSettings().gizmoSpace == GizmoSpace::Local);
     }
 
     TEST_CASE("a handle of the gizmo is dragged with the pointer, and moves what is selected") {

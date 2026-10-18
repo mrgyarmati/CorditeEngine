@@ -13,10 +13,20 @@
 /// Asked to, it shows the scene through the camera of the game instead
 /// (ViewportCamera::Game): what a player sees, and nothing an editor adds.
 ///
-/// @code
-/// CORDITE_TRY_ASSIGN(auto viewport, ViewportPanel::create(engine));
+/// An editor has up to kMaxViewports of them, each with a number, a window and a camera of
+/// its own. What a picture may cost and what the gizmo does are theirs together
+/// (ViewportSettings), and so are the pictures of the scene captures, which the first of
+/// them that draws in a frame draws for all (ViewportFrame).
 ///
-/// viewport->draw(engine, context);                 // once per frame, as a window
+/// @code
+/// ViewportSettings settings;                       // outlives the panels
+/// CORDITE_TRY_ASSIGN(auto viewport, ViewportPanel::create(engine, settings));
+/// CORDITE_TRY_ASSIGN(auto second, ViewportPanel::create(engine, settings, 2));
+///
+/// // Once per frame, each as a window:
+/// ViewportFrame frame{.clock = WorldClock::Stopped};
+/// viewport->draw(engine, context, frame, submittedLines);
+/// second->draw(engine, context, frame, submittedLines);
 ///
 /// // Or without any interface, into a command list of the caller's:
 /// CORDITE_TRY(viewport->render(device, commandList, context, {1920, 1080}));
@@ -43,10 +53,62 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <string>
 #include <string_view>
 #include <vector>
 
 namespace cordite {
+
+/// How many viewports an editor has open at the most. Each is a view of the scene
+/// renderer, which has room for so many in a frame (kMaxProgramViews).
+inline constexpr uint32_t kMaxViewports = 4;
+static_assert(kMaxViewports + 1 <= kMaxProgramViews,
+              "the viewports of an editor and the preview of an asset are views of a frame of its program");
+
+/// What every viewport of an editor shares: how much its picture may cost - the renderer
+/// has one shadow atlas, which it makes anew whenever its size changes, and one set of
+/// textures - and what the gizmo of the selection does.
+struct ViewportSettings {
+    /// How much the shadows may cost.
+    ShadowQuality shadowQuality = ShadowQuality::Medium;
+    /// How much the effects that are worked out from the screen may cost: ambient
+    /// occlusion and the reflections from the screen. Off draws none.
+    ScreenEffectsQuality screenEffectsQuality = ScreenEffectsQuality::Medium;
+    /// How much finishing the picture may cost; Off shows the light as the renderer
+    /// worked it out.
+    PostProcessQuality postProcessQuality = PostProcessQuality::Medium;
+    /// How large the error of a level of detail may look, in pixels
+    /// (SceneRenderSettings::lodErrorPixels): part of the quality, like the above.
+    float lodErrorPixels = 1.0f;
+    /// How the edges of the finished picture are smoothed.
+    AntiAliasing antiAliasing = AntiAliasing::Fxaa;
+    /// What the gizmo of the selection does - move, turn or scale it - and along whose
+    /// axes. It is drawn on the entity that was selected last, and moves every selected
+    /// entity that does not hang under another selected one.
+    GizmoMode gizmoMode = GizmoMode::Translate;
+    GizmoSpace gizmoSpace = GizmoSpace::World;
+};
+
+/// What the viewports of an editor share in a frame, handed from one ViewportPanel::draw
+/// to the next.
+struct ViewportFrame {
+    /// Whether time passes for the world, as Engine::updateWorld was told (see
+    /// ViewportPanel::render()).
+    WorldClock clock = WorldClock::Stopped;
+    /// Whether one of them has drawn the scene captures and taken the pictures of the probes
+    /// this frame: the first that draws its picture does, for all of them. Drawn by each,
+    /// they would be drawn as often as there are viewports, and their intervals would pass
+    /// as many times as fast.
+    bool capturesDrawn = false;
+};
+
+/// Whether ViewportPanel::render() draws what the cameras of the scene see into their
+/// render targets, and takes the pictures of the probes that wait, before its own picture.
+enum class SceneCaptures : uint8_t {
+    Draw,
+    /// Another view of the frame has drawn them.
+    AlreadyDrawn,
+};
 
 /// Through whose eyes the viewport shows the scene.
 enum class ViewportCamera : uint8_t {
@@ -63,19 +125,43 @@ enum class ViewportCamera : uint8_t {
 /// The lowercase name: "editor", "game".
 std::string_view nameOf(ViewportCamera camera);
 
+/// The camera of that name (nameOf), or nothing when there is none of it.
+[[nodiscard]] std::optional<ViewportCamera> viewportCameraFromName(std::string_view name);
+
 class ViewportPanel {
 public:
-    /// What the window is known by: its place in a layout is remembered by it, whatever its
-    /// tab shows (windowName() in UiWidgets.h).
+    /// What the window of the first viewport is known by: its place in a layout is
+    /// remembered by it, whatever its tab shows (windowName() in UiWidgets.h). The others
+    /// are known by their titles, "###Viewport 2" and on (windowId()).
     static constexpr const char* kWindowId = "###Viewport";
 
-    /// The engine, whose scene renderer the panel draws with, must outlive the panel.
-    [[nodiscard]] static Result<std::unique_ptr<ViewportPanel>> create(Engine& engine);
+    /// The engine, whose scene renderer the panel draws with, and the settings, which every
+    /// viewport of an editor shares and which say what its pictures may cost, must outlive
+    /// the panel. `number` is which viewport it is, from 1 to kMaxViewports: what its
+    /// window is called and known by.
+    [[nodiscard]] static Result<std::unique_ptr<ViewportPanel>> create(Engine& engine, const ViewportSettings& settings,
+                                                                       uint32_t number = 1);
+
+    /// Which viewport it is: 1 for the first.
+    [[nodiscard]] uint32_t number() const { return m_number; }
+
+    /// What its tab says: "Viewport" for the first, "Viewport 2" and on for the others.
+    [[nodiscard]] const std::string& title() const { return m_title; }
+
+    /// What its window is known by: kWindowId for the first, "###Viewport 2" and on for the
+    /// others.
+    [[nodiscard]] const std::string& windowId() const { return m_windowId; }
 
     /// Draws the panel as its own window, renders the scene into it and handles the
-    /// pointer and the keyboard. Only during a frame. `clock` says whether time passes
-    /// for the world in it, as Engine::updateWorld was told (see render()).
-    void draw(Engine& engine, EditorContext& context, WorldClock clock);
+    /// pointer. Only during a frame. The first viewport of `frame` that draws its picture
+    /// draws the scene captures before it, for all of them. A viewport other than the first
+    /// has a button that closes its window, which asks for that with a command line added
+    /// to `submittedLines`: closing a viewport is the editor's (viewport.close).
+    void draw(Engine& engine, EditorContext& context, ViewportFrame& frame, std::vector<std::string>& submittedLines);
+
+    /// Whether its window had the focus of the interface when it was last drawn: it was
+    /// clicked into with any button, or brought to the front.
+    [[nodiscard]] bool isFocused() const { return m_focused; }
 
     /// Renders the scene into targets() at the given size in pixels, without any
     /// interface around it. The command list must be open, and the world transforms up
@@ -85,10 +171,12 @@ public:
     /// same moment - and `timeSeconds` the time: see SceneRenderSettings. `clock` says
     /// whether time passes for the world: what moves is blurred, through the camera of
     /// the game, only while it does - an edit is no motion. The editor's own camera never
-    /// blurs.
+    /// blurs. `captures` says whether what the cameras of the scene see is drawn first, as
+    /// a game draws it - with the game's background, whoever's camera the viewport looks
+    /// through - which the picture may show.
     [[nodiscard]] Status render(nvrhi::IDevice* device, nvrhi::ICommandList* commandList, EditorContext& context,
                                 UVec2 size, float deltaSeconds = 0.0f, double timeSeconds = 0.0,
-                                WorldClock clock = WorldClock::Stopped);
+                                WorldClock clock = WorldClock::Stopped, SceneCaptures captures = SceneCaptures::Draw);
 
     /// What render() drew into. The display image holds the finished picture.
     [[nodiscard]] const SceneTargets& targets() const { return m_targets; }
@@ -98,34 +186,6 @@ public:
     [[nodiscard]] RenderDebugView debugView() const { return m_debugView; }
 
     void setDebugView(RenderDebugView view) { m_debugView = view; }
-
-    /// How much the shadows the viewport shows may cost.
-    [[nodiscard]] ShadowQuality shadowQuality() const { return m_shadowQuality; }
-
-    void setShadowQuality(ShadowQuality quality) { m_shadowQuality = quality; }
-
-    /// How much the effects that are worked out from the screen may cost in the
-    /// viewport: ambient occlusion, so far. Off draws none.
-    [[nodiscard]] ScreenEffectsQuality screenEffectsQuality() const { return m_screenEffectsQuality; }
-
-    void setScreenEffectsQuality(ScreenEffectsQuality quality) { m_screenEffectsQuality = quality; }
-
-    /// How much finishing the picture the viewport shows may cost; Off shows the light
-    /// as the renderer worked it out.
-    [[nodiscard]] PostProcessQuality postProcessQuality() const { return m_postProcessQuality; }
-
-    void setPostProcessQuality(PostProcessQuality quality) { m_postProcessQuality = quality; }
-
-    /// How large the error of a level of detail may look in the viewport's picture, in
-    /// pixels (SceneRenderSettings::lodErrorPixels): part of the quality, like the above.
-    [[nodiscard]] float lodErrorPixels() const { return m_lodErrorPixels; }
-
-    void setLodErrorPixels(float pixels) { m_lodErrorPixels = pixels; }
-
-    /// How the edges of the finished picture are smoothed in the viewport.
-    [[nodiscard]] AntiAliasing antiAliasing() const { return m_antiAliasing; }
-
-    void setAntiAliasing(AntiAliasing antiAliasing) { m_antiAliasing = antiAliasing; }
 
     /// Through whose eyes the scene is shown. What is asked for, and what the last
     /// render() came to: the game is shown only where the scene has a camera for it.
@@ -142,25 +202,20 @@ public:
 
     void setShowColliders(bool show) { m_showColliders = show; }
 
-    /// What the gizmo of the selection does - move, turn or scale it - and along whose
-    /// axes. It is drawn on the entity that was selected last, and moves every selected
-    /// entity that does not hang under another selected one.
-    [[nodiscard]] GizmoMode gizmoMode() const { return m_gizmoMode; }
-
-    void setGizmoMode(GizmoMode mode) { m_gizmoMode = mode; }
-
-    [[nodiscard]] GizmoSpace gizmoSpace() const { return m_gizmoSpace; }
-
-    void setGizmoSpace(GizmoSpace space) { m_gizmoSpace = space; }
-
     /// Moves the camera so that what is selected fills the view - its meshes as they are
     /// posed, and where the rest is - keeping the direction it looks in, and makes the middle
     /// of it what the camera orbits. Returns false, and moves nothing, when nothing is
-    /// selected. F does this.
+    /// selected. F does this in the viewport that was used last.
     bool frameSelection(EditorContext& context);
 
     /// Whether a handle of the gizmo is held: a drag is under way.
     [[nodiscard]] bool isDraggingGizmo() const { return m_held.has_value(); }
+
+    /// Lets go of what the viewport holds of the interface, before it is closed: a handle of
+    /// the gizmo - what the drag changed becomes one step of the history, where it was let
+    /// go of - and the pointer, which steering the camera hides and locks to `window` (null
+    /// without one).
+    void release(EditorContext& context, Window* window);
 
     /// The view the scene was last drawn from, and where the top-left corner of its picture
     /// was on the screen, in interface pixels: for what has to point at something in it.
@@ -179,9 +234,12 @@ public:
 
 private:
     ViewportPanel(SceneRenderer& sceneRenderer, const PhysicsSystem& physics, const SceneRenderSettings& gameSettings,
-                  DebugLinePass linePass);
+                  const ViewportSettings& settings, uint32_t number, DebugLinePass linePass);
 
     void collectLines(EditorContext& context, const CameraView& view);
+    /// What every view the viewport draws starts from, whoever's camera it is: the quality
+    /// all the viewports share, and the time it is drawn at.
+    [[nodiscard]] SceneRenderSettings qualitySettings(float deltaSeconds, double timeSeconds) const;
 
     /// Finds the handle of the gizmo under the pointer, takes hold of one that is pressed,
     /// and moves, turns or scales what is selected while it is held. Returns whether the
@@ -215,17 +273,21 @@ private:
     /// What the colliders that are made of meshes are made of.
     const PhysicsSystem* m_physics;
     ColliderOutlines m_colliderOutlines;
-    /// How the game draws its world: what the game's camera is shown with.
+    /// How the game draws its world: what the game's camera, and the scene captures, are
+    /// shown with.
     const SceneRenderSettings* m_gameSettings;
+    /// What every viewport of the editor shares.
+    const ViewportSettings* m_settings;
+    uint32_t m_number;
+    std::string m_title;
+    /// What its window is called - its icon and its title - and known by.
+    std::string m_windowName;
+    std::string m_windowId;
+    bool m_focused = false;
     DebugLinePass m_linePass;
     SceneTargets m_targets;
     EditorCamera m_camera;
     RenderDebugView m_debugView = RenderDebugView::None;
-    ShadowQuality m_shadowQuality = ShadowQuality::Medium;
-    ScreenEffectsQuality m_screenEffectsQuality = ScreenEffectsQuality::Medium;
-    PostProcessQuality m_postProcessQuality = PostProcessQuality::Medium;
-    float m_lodErrorPixels = 1.0f;
-    AntiAliasing m_antiAliasing = AntiAliasing::Fxaa;
     bool m_showColliders = false;
     ViewportCamera m_viewCamera = ViewportCamera::Editor;
     /// Whether the last render() was through the camera of the game.
@@ -239,8 +301,6 @@ private:
     DebugDraw m_selectionLines;
     /// True while the pointer is locked to the window for steering the camera.
     bool m_pointerCaptured = false;
-    GizmoMode m_gizmoMode = GizmoMode::Translate;
-    GizmoSpace m_gizmoSpace = GizmoSpace::World;
     /// The handle under the pointer in the last frame, which is drawn in the color of what
     /// is selected; and the one that is held.
     GizmoHandle m_hoveredHandle = GizmoHandle::None;

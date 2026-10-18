@@ -87,8 +87,11 @@ void applySizes(ImGuiStyle& style, UiTheme theme) {
     style.DockingSeparatorSize = 2.0f;
 
     // No menu button in front of the tabs of docked panels: what it offers is done by
-    // dragging a tab.
+    // dragging a tab. And no button at the end of them that closes all of a place's panels
+    // that can be closed: a tab closes its own, as in Unity and Unreal Engine, and one
+    // button for each is enough.
     style.WindowMenuButtonPosition = ImGuiDir_None;
+    style.DockingNodeHasCloseButton = false;
     style.ColorButtonPosition = ImGuiDir_Right;
 }
 

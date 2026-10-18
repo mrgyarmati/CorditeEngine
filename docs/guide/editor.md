@@ -43,6 +43,22 @@ project. View > Theme switches between a dark and a light theme.
 | **Alt** + left mouse button | Orbit around what you look at |
 | **F** | Frame the selection |
 
+## More than one viewport
+
+View > Open viewport opens another viewport beside the first - up to four, each with a camera
+of its own, which starts where the camera of the viewport you used last is. One can show the
+scene through the game's camera while you work in another, or a render view beside the
+picture. The tab of each viewport after the first has a button that closes it; the first is
+always there. A viewport that is opened again comes back to where it was.
+
+The View menu and **F** act on the viewport you used last - the one you clicked in, with any
+button, or brought to the front. Quality is that of every viewport at once, and so is what
+the gizmo does. Playing shows the game in the first viewport; the others keep their cameras.
+
+`viewport.open`, `viewport.close` and `viewport.list` do the same from the console. The other
+commands of a viewport take its number, `{"viewport": 2}`, and without one are about the
+viewport you used last.
+
 ## Selecting and changing things
 
 - Click an entity in the viewport or the Hierarchy to select it; **Ctrl**+click adds to the
@@ -68,18 +84,19 @@ A scene is a file of its own (`.scene.json`) among the assets: File > New scene,
 ## Playing
 
 Press **Play** (**F5**): the scene runs as it would in the game - scripts, physics, sound and
-animation - seen through the game's camera, in the same window. **F6** pauses and resumes,
+animation - seen through the game's camera, in the first viewport. **F6** pauses and resumes,
 **F10** steps a single frame while paused, and **Stop** (**Shift+F5**) puts the scene back
 exactly as it was before you pressed Play. Changes made while playing are part of the game,
 not of the scene: they are gone when it stops.
 
-View > Game camera switches the viewport between the editor's camera and the game's at any
-time; View > Colliders draws the shapes of physics.
+View > Game camera switches the viewport you used last between the editor's camera and the
+game's at any time; View > Colliders draws the shapes of physics.
 
 ## The other menus
 
 - **View** - Render view (the channels of the renderer: base color, normals, lighting only,
-  shadow cascades and more), Game camera, Colliders, Quality, Theme, Statistics.
+  shadow cascades and more), Game camera, Colliders, Open viewport, Quality, Theme,
+  Statistics.
 - **Entity** - create entities; Make prefab of the selection.
 - **Assets** - Refresh, Place model, Place prefab.
 - **File** - New project and Open project (the editor begins again on the project),

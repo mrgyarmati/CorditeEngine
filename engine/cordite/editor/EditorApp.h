@@ -37,10 +37,16 @@
 ///
 /// Besides the scene-editing and asset commands (see EditorCommands.h) the application
 /// adds the ones that need a running editor: `editor.screenshot`, `editor.runFrames`,
-/// `editor.statistics`, `editor.showPanel`, `editor.exit`, `viewport.lookAt`,
-/// `viewport.frame`, `viewport.camera` and `viewport.debugView` - and those that play the
-/// scene (PlayMode.h): `play.start`, `play.stop`, `play.pause`, `play.resume`, `play.step`
-/// and `play.status`.
+/// `editor.statistics`, `editor.showPanel`, `editor.focusPanel`, `editor.exit`, those of
+/// the viewports - `viewport.open`, `viewport.close`, `viewport.list`, `viewport.lookAt`,
+/// `viewport.frame`, `viewport.show`, `viewport.camera`, `viewport.debugView`,
+/// `viewport.quality` and `viewport.gizmo` - and those that play the scene (PlayMode.h):
+/// `play.start`, `play.stop`, `play.pause`, `play.resume`, `play.step` and `play.status`.
+///
+/// An editor has up to kMaxViewports viewports. The first is always there; the others are
+/// opened and closed. What one of them is told without being named is told to the one
+/// that was used last (activeViewport()); what their pictures cost and what the gizmo does
+/// is theirs together (viewportSettings()).
 
 #include "cordite/assets/AssetDatabase.h"
 #include "cordite/assets/Image.h"
@@ -65,6 +71,7 @@
 
 #include <imgui.h>
 
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
@@ -139,9 +146,10 @@ public:
     /// its parameters as a JSON object. The outcome is logged.
     void runCommandLine(std::string_view line);
 
-    /// Renders the scene as the viewport shows it, without any interface, at the given
-    /// size and returns the image. Never call this during a frame.
-    [[nodiscard]] Result<Image> captureViewport(UVec2 size);
+    /// Renders the scene as a viewport shows it - the first, unless another is named by its
+    /// number - without any interface, at the given size and returns the image. Fails for
+    /// a viewport that is not open. Never call this during a frame.
+    [[nodiscard]] Result<Image> captureViewport(UVec2 size, uint32_t viewport = 1);
 
     [[nodiscard]] Engine& engine() { return *m_engine; }
 
@@ -149,9 +157,21 @@ public:
 
     [[nodiscard]] CommandRegistry& commands() { return m_commands; }
 
-    [[nodiscard]] EditorCamera& camera() { return m_viewport->camera(); }
+    /// The camera of the first viewport.
+    [[nodiscard]] EditorCamera& camera() { return viewport().camera(); }
 
-    [[nodiscard]] ViewportPanel& viewport() { return *m_viewport; }
+    /// The first viewport, which is always there.
+    [[nodiscard]] ViewportPanel& viewport() { return *m_viewports.front(); }
+
+    /// A viewport by its number, from 1 to kMaxViewports; null when that one is not open.
+    [[nodiscard]] ViewportPanel* findViewport(uint32_t number);
+
+    /// The number of the viewport that the menus, F and the commands that name none act on:
+    /// the one whose window had the focus last, or that was opened last.
+    [[nodiscard]] uint32_t activeViewport() const { return m_activeViewport; }
+
+    /// What every viewport shares: what its picture may cost, and what the gizmo does.
+    [[nodiscard]] const ViewportSettings& viewportSettings() const { return m_viewportSettings; }
 
     [[nodiscard]] const AssetBrowserPanel& assetBrowser() const { return m_assets; }
 
@@ -172,8 +192,29 @@ private:
     EditorApp() = default;
 
     [[nodiscard]] Status registerApplicationCommands();
+    [[nodiscard]] Status registerViewportCommands();
     [[nodiscard]] Status registerPlayCommands();
     [[nodiscard]] Status registerProjectCommands();
+    /// Opens the viewport of the lowest number that is not open, looking from where the
+    /// active one does, through `camera`, and makes it the active one. Returns its number;
+    /// fails when kMaxViewports are open.
+    [[nodiscard]] Result<uint32_t> openViewport(ViewportCamera camera);
+    /// Closes a viewport other than the first, after it has let go of what it held. The first
+    /// is active after the active one is closed.
+    [[nodiscard]] Status closeViewport(uint32_t number);
+    /// The viewport a command is about: the one its "viewport" parameter names by its number,
+    /// or the active one. Fails, naming the open ones, for one that is not open.
+    [[nodiscard]] Result<ViewportPanel*> viewportOf(const Json& parameters);
+    /// The viewport used last, which is always open.
+    [[nodiscard]] ViewportPanel& activePanel();
+    /// The numbers of the open viewports, for a message: "1, 2 and 4".
+    [[nodiscard]] std::string openViewportNumbers() const;
+    /// What viewport.list returns: the active viewport, and what each that is open shows.
+    [[nodiscard]] Json describeViewports() const;
+    /// Gives the viewports that were opened since the last frame a place in the layout of
+    /// the dock space before they are drawn: beside the others, unless a place is kept for
+    /// them.
+    void placeOpenedViewports(ImGuiID dockSpaceId);
     /// Asks for files dropped onto the window from outside to be brought into the assets.
     void importDroppedFiles();
     /// Asks for the assets to be read again when files of theirs were changed by another
@@ -202,6 +243,8 @@ private:
     void handleShortcuts();
     /// W, E, R and X: what the gizmo does, and along whose axes.
     void handleGizmoShortcuts();
+    /// F: frames what is selected in the active viewport.
+    void handleFrameShortcut();
     /// Copying, cutting, pasting, duplicating and deleting entities.
     void handleEntityShortcuts();
     void updateWindowTitle();
@@ -227,11 +270,18 @@ private:
     std::unique_ptr<Engine> m_engine;
     std::unique_ptr<EditorContext> m_context;
     std::unique_ptr<PlayMode> m_play;
-    /// Through whose eyes the viewport showed the scene before it was played.
+    /// Through whose eyes the first viewport showed the scene before it was played.
     ViewportCamera m_viewBeforePlay = ViewportCamera::Editor;
     CommandRegistry m_commands;
 
-    std::unique_ptr<ViewportPanel> m_viewport;
+    // Before the viewports, which refer to it.
+    ViewportSettings m_viewportSettings;
+    /// The viewports that are open, by their numbers less one; the first is always there.
+    std::array<std::unique_ptr<ViewportPanel>, kMaxViewports> m_viewports;
+    uint32_t m_activeViewport = 1;
+    /// The viewports opened since the last frame, in the order they were opened: they are
+    /// given a place before they are first drawn.
+    std::vector<uint32_t> m_viewportsToPlace;
     HierarchyPanel m_hierarchy;
     InspectorPanel m_inspector;
     ConsolePanel m_console;

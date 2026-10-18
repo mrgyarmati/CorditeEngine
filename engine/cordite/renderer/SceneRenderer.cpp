@@ -23,10 +23,6 @@
 namespace cordite {
 namespace {
 
-/// The most views a program draws of its own in a frame: a game's one, or an editor's
-/// viewport and the preview of an asset.
-constexpr uint32_t kMaxProgramViews = 2;
-
 // Every view of a frame - the pictures of a probe, the scene captures, and the program's
 // own - rewrites the per-view constants, and each version stays in use until the GPU has
 // drawn the frame. FramePacer lets kDefaultFramesInFlight frames wait for the GPU while the

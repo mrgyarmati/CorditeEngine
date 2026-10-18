@@ -44,6 +44,14 @@ void EditorCamera::setOrientation(float yawDegrees, float pitchDegrees) {
     m_pitchDegrees = std::clamp(pitchDegrees, -kMaxPitchDegrees, kMaxPitchDegrees);
 }
 
+EditorCamera EditorCamera::atRest() const {
+    EditorCamera camera = *this;
+    camera.m_looking = false;
+    camera.m_panning = false;
+    camera.m_orbiting = false;
+    return camera;
+}
+
 void EditorCamera::lookAt(const Vec3& position, const Vec3& target) {
     m_position = position;
     m_focusDistance = std::max(glm::distance(position, target), kMinimumFocusDistance);
