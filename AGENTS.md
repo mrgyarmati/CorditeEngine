@@ -164,11 +164,13 @@ by a `Release` build. `export_smoke` exports the showcase and plays it from wher
 put, with nothing of the build beside it. On macOS a game is an application bundle
 (`GameLayout::Bundle`): the destination is `<name>.app` itself - the editor adds the `.app`
 (`gameDestinationFor`) - with the program in `Contents/MacOS`, `Contents/Info.plist`
-(`bundleInfoPlist`, the identifier the project's `bundleIdentifier`) and everything else in
-`Contents/Resources`, which is where the program looks for its game (`gameDirectoryOf`);
-the record says how a game is laid out, and a game laid out one way is not replaced the
-other way. All of it is paths and text, tested on every system with the layout asked for;
-a bundle has not been run on a Mac.
+(`bundleInfoPlist`, the identifier the project's `bundleIdentifier`), the Vulkan it draws
+with in `Contents/Frameworks` - MoltenVK, pinned for macOS and copied beside the player by
+the build, which the program of a bundle loads directly (`kBundledVulkanLibrary`,
+`bundledLibrary`) - and everything else in `Contents/Resources`, which is where the program
+looks for its game (`gameDirectoryOf`); the record says how a game is laid out, and a game
+laid out one way is not replaced the other way. All of it but loading MoltenVK is paths and
+text, tested on every system with the layout asked for; a bundle has not been run on a Mac.
 
 **A game that someone plays has their settings** (`engine/GameSettings.h`): the whole
 screen or a window and its size, vsync, the quality of the pictures, the volumes - in

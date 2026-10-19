@@ -3,9 +3,11 @@
 #include "cordite/assets/Image.h"
 #include "cordite/core/FileSystem.h"
 #include "cordite/core/Json.h"
+#include "cordite/core/Log.h"
 #include "cordite/core/Platform.h"
 #include "cordite/engine/Game.h"
 #include "cordite/engine/Project.h"
+#include "cordite/rhi/GraphicsDevice.h"
 
 #include "support/TestSupport.h"
 
@@ -160,6 +162,34 @@ TEST_SUITE("GameExport") {
         CHECK_FALSE(std::filesystem::exists(made.program));
         CHECK(unwrap(loadProject(again.game)).settings.name == "Depot 2");
         CHECK(unwrap(readTextFile(bundle / "README.txt")) == "how to play");
+    }
+
+    TEST_CASE("a bundle brings the Vulkan that is beside the player, and says so when there is none") {
+        const ExportFixture fixture;
+        const std::filesystem::path bundle = fixture.directory.path() / "games" / "Depot.app";
+        const std::filesystem::path frameworks = bundle / "Contents" / "Frameworks";
+        {
+            const test::LogCapture capture(LogLevel::Warn);
+            REQUIRE(exportGame(fixture.project, fixture.desc(bundle, GameLayout::Bundle)).has_value());
+            CHECK(capture.contains(std::string(kBundledVulkanLibrary) + " is not beside"));
+        }
+        CHECK_FALSE(std::filesystem::exists(frameworks));
+
+        // Where the build put MoltenVK beside the player, the bundle brings it - where its
+        // program looks for it - and counts it.
+        REQUIRE(writeTextFile(fixture.player.parent_path() / pathFromUtf8(kBundledVulkanLibrary), "Vulkan on Metal")
+                    .has_value());
+        const test::LogCapture capture(LogLevel::Warn);
+        const GameExport made = unwrap(exportGame(fixture.project, fixture.desc(bundle, GameLayout::Bundle)));
+        CHECK_FALSE(capture.contains("is not beside"));
+        CHECK(unwrap(readTextFile(frameworks / pathFromUtf8(kBundledVulkanLibrary))) == "Vulkan on Metal");
+        CHECK(bundledLibrary(made.program, kBundledVulkanLibrary) == frameworks / pathFromUtf8(kBundledVulkanLibrary));
+        // A game of Windows and Linux has the Vulkan of its system.
+        const std::filesystem::path directory = fixture.directory.path() / "games" / "Depot";
+        const GameExport plain = unwrap(exportGame(fixture.project, fixture.desc(directory)));
+        CHECK_FALSE(std::filesystem::exists(directory / pathFromUtf8(kBundledVulkanLibrary)));
+        // Beside what a directory holds, the bundle has its Info.plist and its Vulkan.
+        CHECK(made.files == plain.files + 2);
     }
 
     TEST_CASE("a bundle is called so, and a game is not replaced by one laid out the other way") {

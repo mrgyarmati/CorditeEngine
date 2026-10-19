@@ -16,8 +16,9 @@
 /// On Windows and Linux all of that is side by side in the destination. On macOS a game is
 /// an application bundle (GameLayout::Bundle): the destination is the bundle, `<name>.app`,
 /// with the program in Contents/MacOS, what the system is told of it in
-/// Contents/Info.plist (bundleInfoPlist()), and the rest in Contents/Resources, where the
-/// program looks for its game (gameDirectoryOf()).
+/// Contents/Info.plist (bundleInfoPlist()), the Vulkan it draws with in Contents/Frameworks
+/// (MoltenVK, kBundledVulkanLibrary, which the build puts beside the player), and the rest
+/// in Contents/Resources, where the program looks for its game (gameDirectoryOf()).
 ///
 /// @code
 /// CORDITE_TRY_ASSIGN(const Project project, loadProject("samples/showcase"));
@@ -74,7 +75,9 @@ struct GameExportDesc {
     /// finds them (engineShaderDirectory()).
     std::filesystem::path shaderDirectory;
     /// The program of a game, with the `licenses` directory beside it that the build puts
-    /// there. Empty: cordite-player beside the program that is running.
+    /// there - and on macOS MoltenVK, which a bundle brings; without it the game draws with
+    /// the Vulkan of the system, which is said. Empty: cordite-player beside the program
+    /// that is running.
     std::filesystem::path player;
     /// How the game is laid out. Empty: as the games of this system are
     /// (nativeGameLayout()).

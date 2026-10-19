@@ -37,6 +37,13 @@ namespace cordite {
 
 struct VulkanContext;
 
+/// The Vulkan that a game exported as an application bundle of macOS brings with it, in the
+/// bundle's Contents/Frameworks (GameExport.h): MoltenVK, which runs Vulkan on Metal and
+/// which macOS does not have. A program in such a bundle loads it directly, without the
+/// Vulkan loader - and so without validation layers, which a game does not use; every other
+/// program uses the Vulkan of the system.
+inline constexpr std::string_view kBundledVulkanLibrary = "libMoltenVK.dylib";
+
 enum class AdapterType : uint8_t {
     Discrete,
     Integrated,

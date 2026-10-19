@@ -7,6 +7,7 @@
 #include "cordite/core/Platform.h"
 #include "cordite/core/Version.h"
 #include "cordite/engine/Engine.h"
+#include "cordite/rhi/GraphicsDevice.h"
 #include "cordite/shader_compiler/EngineShaderCache.h"
 
 #include <fmt/format.h>
@@ -300,6 +301,17 @@ Status writeGame(const Project& project, const GameExportDesc& desc, GameLayout 
         CORDITE_TRY(writeTextFile(information, bundleInfoPlist(project.settings, pathToUtf8(made.program.filename()),
                                                                kMinimumSystemVersion)));
         countFile(information, made);
+        // Vulkan, which macOS does not have: what the build put beside the player.
+        const std::filesystem::path vulkan = player.parent_path() / pathFromUtf8(kBundledVulkanLibrary);
+        if (fileExists(vulkan)) {
+            CORDITE_TRY(copyFile(
+                vulkan, desc.destination / "Contents" / "Frameworks" / pathFromUtf8(kBundledVulkanLibrary), made));
+        } else {
+            CORDITE_LOG_WARN("Editor",
+                             "{} is not beside {}: the game draws with the Vulkan of the system it runs on, which a "
+                             "Mac has only with the Vulkan SDK",
+                             kBundledVulkanLibrary, pathToUtf8(player));
+        }
     }
 
     // What the game has instead of a compiler: the engine's shaders, compiled, where its

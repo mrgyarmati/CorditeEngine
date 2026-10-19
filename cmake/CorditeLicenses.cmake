@@ -34,6 +34,10 @@ set(CORDITE_SHIPPED_LICENSES
     "tl-expected|${tl_expected_SOURCE_DIR}/COPYING"
     "vulkan-headers|${vulkan_headers_SOURCE_DIR}/LICENSE.md"
     "xxhash|${xxhash_SOURCE_DIR}/LICENSE")
+# A game of macOS brings MoltenVK in its bundle, and its notice with it.
+if(APPLE)
+    list(APPEND CORDITE_SHIPPED_LICENSES "moltenvk|${moltenvk_SOURCE_DIR}/LICENSE")
+endif()
 
 set(cordite_license_directory "${CMAKE_BINARY_DIR}/bin/$<CONFIG>/licenses")
 set(cordite_license_copies "")

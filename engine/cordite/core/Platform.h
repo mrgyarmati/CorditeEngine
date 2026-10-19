@@ -30,6 +30,12 @@ std::filesystem::path executableDirectory();
 /// @endcode
 [[nodiscard]] std::optional<std::filesystem::path> applicationBundleOf(const std::filesystem::path& program);
 
+/// The library `fileName` that the application bundle `program` is in brings with it, in its
+/// Contents/Frameworks, where macOS keeps those; nullopt for a program in no bundle
+/// (applicationBundleOf()), and for a bundle without such a file.
+[[nodiscard]] std::optional<std::filesystem::path> bundledLibrary(const std::filesystem::path& program,
+                                                                  std::string_view fileName);
+
 /// Returns true when a debugger is attached. Always false on platforms without a cheap
 /// way to tell (Linux, macOS).
 bool isDebuggerPresent();

@@ -87,6 +87,19 @@ std::optional<std::filesystem::path> applicationBundleOf(const std::filesystem::
     return bundle;
 }
 
+std::optional<std::filesystem::path> bundledLibrary(const std::filesystem::path& program, std::string_view fileName) {
+    const std::optional<std::filesystem::path> bundle = applicationBundleOf(program);
+    if (!bundle || fileName.empty()) {
+        return std::nullopt;
+    }
+    std::filesystem::path library = *bundle / "Contents" / "Frameworks" / pathFromUtf8(fileName);
+    std::error_code error;
+    if (!std::filesystem::is_regular_file(library, error)) {
+        return std::nullopt;
+    }
+    return library;
+}
+
 bool isDebuggerPresent() {
 #if CORDITE_PLATFORM_WINDOWS
     return IsDebuggerPresent() != FALSE;

@@ -62,7 +62,8 @@ licenses they carry inside them. The Open Font License allows fonts to be bundle
 software of any license, as long as they are not sold by themselves and the license
 goes with them: a package of the editor or of a game has to carry the license texts
 of these three (`LICENSE.txt` of Inter, `OFL.txt` of JetBrains Mono, `LICENSE` of
-Lucide), which packaging (milestone 12) is to put in.
+Lucide), which the build copies into `licenses/` beside the programs and an export ships
+with every game.
 
 ## Compiled into the engine: data
 
@@ -83,6 +84,19 @@ it made is used:
 The fit is of GGX with Smith's height-correlated visibility, which is the GGX of
 `shaders/common/Brdf.slang`; `RectLightsTests` holds it to that GGX, added up over the
 rectangles and the sky it reflects.
+
+## Shipped with games on macOS
+
+| Library | Version | License | Used for |
+|---------|---------|---------|----------|
+| [MoltenVK](https://github.com/KhronosGroup/MoltenVK) | 1.4.2 (official prebuilt binaries, `MoltenVK-macos.tar`) | Apache-2.0 | Vulkan on Metal, which macOS does not have: the library a game exported there brings in `Contents/Frameworks` of its bundle, and loads directly, without the Vulkan loader |
+
+Only a build on macOS downloads it. Building it from source takes Xcode and scripts of its
+own, so the dynamic library of its publisher is pinned by hash instead, as Slang's are; the
+build copies it beside the player, with its notice into `licenses/`, and an export puts it
+into the bundle (`editor/GameExport.h`). MoltenVK's own guide describes embedding it so. The
+editor and the tests on a Mac use the Vulkan the system has - the Vulkan SDK's - with its
+validation layers.
 
 ## Linked into the editor and tools, not into exported games
 

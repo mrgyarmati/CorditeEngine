@@ -50,6 +50,25 @@ TEST_SUITE("Platform") {
         CHECK_FALSE(applicationBundleOf(executablePath()).has_value());
     }
 
+    TEST_CASE("a library that a bundle brings is in its Frameworks, and nowhere else") {
+        const test::TempDirectory directory;
+        const std::filesystem::path bundle = directory.path() / "Depot.app";
+        const std::filesystem::path program = bundle / "Contents" / "MacOS" / "Depot";
+        const std::filesystem::path frameworks = bundle / "Contents" / "Frameworks";
+        CHECK_FALSE(bundledLibrary(program, "libMoltenVK.dylib").has_value());
+        REQUIRE(writeTextFile(frameworks / "libMoltenVK.dylib", "a library").has_value());
+        CHECK(bundledLibrary(program, "libMoltenVK.dylib") == frameworks / "libMoltenVK.dylib");
+        CHECK_FALSE(bundledLibrary(program, "libOther.dylib").has_value());
+        CHECK_FALSE(bundledLibrary(program, "").has_value());
+        // A directory of that name is no library.
+        REQUIRE(ensureDirectory(frameworks / "libFolder.dylib").has_value());
+        CHECK_FALSE(bundledLibrary(program, "libFolder.dylib").has_value());
+        // A program in no bundle brings none, whatever is beside it.
+        const std::filesystem::path plain = directory.path() / "Depot" / "Contents";
+        REQUIRE(writeTextFile(plain / "Frameworks" / "libMoltenVK.dylib", "a library").has_value());
+        CHECK_FALSE(bundledLibrary(plain / "MacOS" / "Depot", "libMoltenVK.dylib").has_value());
+    }
+
     TEST_CASE("environmentVariable returns nullopt for unset variables") {
         CHECK_FALSE(environmentVariable("CORDITE_TEST_VARIABLE_THAT_IS_NEVER_SET").has_value());
         // PATH exists on every supported platform.

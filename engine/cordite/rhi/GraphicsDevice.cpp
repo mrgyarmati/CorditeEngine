@@ -1,6 +1,8 @@
 #include "cordite/rhi/GraphicsDevice.h"
 
+#include "cordite/core/FileSystem.h"
 #include "cordite/core/Log.h"
+#include "cordite/core/Platform.h"
 #include "cordite/core/StringUtils.h"
 #include "cordite/core/Version.h"
 #include "cordite/core/memory/Memory.h"
@@ -11,6 +13,8 @@
 
 #include <algorithm>
 #include <atomic>
+#include <filesystem>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <stdexcept>
@@ -180,6 +184,19 @@ void selectFeatures(const FeatureChain& supported, FeatureChain& enabled) {
     vulkan13.dynamicRendering = VK_TRUE;
     vulkan13.synchronization2 = VK_TRUE;
     vulkan13.maintenance4 = supported13.maintenance4;
+}
+
+/// The Vulkan library: on macOS MoltenVK, where the application bundle that the program is
+/// in brings it (kBundledVulkanLibrary), and otherwise the system's. Throws
+/// std::runtime_error when the library cannot be loaded.
+std::unique_ptr<vk::detail::DynamicLoader> loadVulkan() {
+#if CORDITE_PLATFORM_MACOS
+    if (const std::optional<std::filesystem::path> bundled = bundledLibrary(executablePath(), kBundledVulkanLibrary)) {
+        CORDITE_LOG_INFO("RHI", "drawing with the Vulkan of the bundle, {}", pathToUtf8(*bundled));
+        return std::make_unique<vk::detail::DynamicLoader>(pathToUtf8(*bundled));
+    }
+#endif
+    return std::make_unique<vk::detail::DynamicLoader>();
 }
 
 } // namespace
@@ -434,7 +451,7 @@ void GraphicsDevice::Impl::createDevice(const AdapterCandidate& candidate, bool 
 
 Status GraphicsDevice::Impl::initialize(const GraphicsDeviceDesc& desc) {
     try {
-        loader = std::make_unique<vk::detail::DynamicLoader>();
+        loader = loadVulkan();
     } catch (const std::runtime_error&) {
         return makeError(ErrorCode::Unsupported,
                          "the Vulkan runtime library was not found; install or update the graphics drivers");

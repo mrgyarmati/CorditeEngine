@@ -2527,7 +2527,8 @@ distribution channel takes.
 
 The player links the engine and nothing of the editor. It needs no file of the build
 either: the C runtime is linked in, Vulkan is loaded from the system when the program
-starts, the shaders are compiled in its cache. A test exports the showcase and plays it
+starts - on macOS, which has none, from the bundle, see below - the shaders are compiled in
+its cache. A test exports the showcase and plays it
 from where it was put.
 
 An export writes, last, a record that it made the directory (`.cordite/export.json`), with
@@ -2550,6 +2551,15 @@ bundle taken for a directory would have its `Contents` left behind. Whether a pr
 a bundle is told by the shape of its path (`applicationBundleOf`), and the layout can be asked
 for on any system, so that every part of a bundle is made and checked by the tests on Windows;
 what only a Mac can tell - that it starts from the Finder - has not been tried.
+
+macOS has no Vulkan, so a bundle brings one: MoltenVK, in `Contents/Frameworks`, which the
+program loads by its path, directly - MoltenVK is a Vulkan implementation that an application
+may link without the Vulkan loader, as its own guide describes. The loader would add a manifest
+of the driver, the search for it in the bundle (which depends on its version) and nothing a
+game uses: validation layers are for development, which on a Mac uses the loader of the
+Vulkan SDK. The library is the one MoltenVK's publisher builds, pinned for macOS alone, since
+building it takes Xcode and scripts of its own; without it beside the player an export still
+makes the bundle, and says that it draws with the system's Vulkan.
 
 ### The notices of the libraries go with the program
 

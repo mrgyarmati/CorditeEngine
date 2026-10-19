@@ -464,6 +464,25 @@ if(CORDITE_SLANG_RUNTIME_FILES)
     set_target_properties(cordite_slang_runtime PROPERTIES FOLDER "Cordite/Build")
 endif()
 
+# --- MoltenVK: Vulkan on Metal, which a game of macOS brings in its bundle ---------------
+# macOS has no Vulkan of its own. A game exported there as an application bundle brings
+# MoltenVK in its Contents/Frameworks, and its program loads it directly, without the Vulkan
+# loader (GraphicsDevice.cpp); the build puts it beside the player, where the export takes it
+# from. Building MoltenVK takes Xcode and scripts of its own, so the library its publisher
+# builds is pinned instead, as Slang's is.
+set(CORDITE_MOLTENVK_LIBRARY "")
+if(APPLE)
+    cordite_declare_dependency(moltenvk
+        URL https://github.com/KhronosGroup/MoltenVK/releases/download/v1.4.2/MoltenVK-macos.tar
+        SHA256 f95765a6229cb7b915990a2890ce12ebe36a730b021545d3d52ae69ce4c4024e
+        SOURCES_ONLY)
+    FetchContent_MakeAvailable(moltenvk)
+    set(CORDITE_MOLTENVK_LIBRARY "${moltenvk_SOURCE_DIR}/MoltenVK/dynamic/dylib/macOS/libMoltenVK.dylib")
+    if(NOT EXISTS "${CORDITE_MOLTENVK_LIBRARY}")
+        message(FATAL_ERROR "MoltenVK is not at ${CORDITE_MOLTENVK_LIBRARY}; correct cmake/CorditeDependencies.cmake.")
+    endif()
+endif()
+
 # --- doctest: unit test framework -------------------------------------------------------
 if(CORDITE_BUILD_TESTS)
     cordite_declare_dependency(doctest

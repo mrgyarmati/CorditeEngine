@@ -45,6 +45,7 @@ On macOS a game is exported as an application bundle, which the Finder shows as 
 builds/MyGame.app/Contents/
     Info.plist            what macOS is told of the game: its name, its program, its identifier
     MacOS/MyGame          the game's program
+    Frameworks/           MoltenVK, the Vulkan the program draws with
     Resources/            the project file, the assets, .cordite and licenses, as above
 ```
 
@@ -57,9 +58,10 @@ the project file, made of a domain of yours:
 
 Without one, the bundle says `local.cordite.MyGame`, which belongs to nobody. Exporting into
 the same bundle again replaces it, as for a directory; a bundle is never replaced by a
-directory, nor a directory by a bundle. The program of a bundle draws with the system's
-Vulkan - on a Mac, MoltenVK, which comes with the Vulkan SDK. Bundles have been made and
-checked on Windows by the engine's tests, and not yet run on a Mac.
+directory, nor a directory by a bundle. A bundle brings the Vulkan it draws with, which macOS
+does not have: MoltenVK, in `Contents/Frameworks`, so the people who play need nothing
+installed. Bundles have been made and checked on Windows by the engine's tests, and not yet
+run on a Mac.
 
 ## The settings of the person who plays
 
