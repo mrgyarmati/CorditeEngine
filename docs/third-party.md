@@ -64,6 +64,25 @@ goes with them: a package of the editor or of a game has to carry the license te
 of these three (`LICENSE.txt` of Inter, `OFL.txt` of JetBrains Mono, `LICENSE` of
 Lucide), which packaging (milestone 12) is to put in.
 
+## Compiled into the engine: data
+
+| Data | Version | License | Used for |
+|------|---------|---------|----------|
+| [ltc_code](https://github.com/selfshadow/ltc_code) | commit `31e5e96` (2019-04-15) | BSD-2-Clause, with a request to cite the paper | The fit of GGX by linearly transformed cosines that what a rectangle of light gives a shiny surface is worked out with: the two tables of `fit/results/ltc.js` |
+
+The numbers of the two tables are compiled into the `renderer` module
+(`cmake/CorditeEmbedNumbers.cmake`, `engine/cordite/renderer/RectLights.cpp`); nothing else
+of the repository is built. Its authors ask that the paper be cited where its code or what
+it made is used:
+
+> Eric Heitz, Jonathan Dupuy, Stephen Hill and David Neubelt. Real-Time Polygonal-Light
+> Shading with Linearly Transformed Cosines. ACM Transactions on Graphics (Proceedings of
+> ACM SIGGRAPH 2016) 35(4), 2016. Project page: https://eheitzresearch.wordpress.com/415-2/
+
+The fit is of GGX with Smith's height-correlated visibility, which is the GGX of
+`shaders/common/Brdf.slang`; `RectLightsTests` holds it to that GGX, added up over the
+rectangles and the sky it reflects.
+
 ## Linked into the editor and tools, not into exported games
 
 | Library | Version | License | Used for |

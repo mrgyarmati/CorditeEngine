@@ -21,6 +21,7 @@ set(CORDITE_SHIPPED_LICENSES
     "inter|${inter_SOURCE_DIR}/LICENSE.txt"
     "jetbrains-mono|${jetbrains_mono_SOURCE_DIR}/OFL.txt"
     "jolt-physics|${joltphysics_SOURCE_DIR}/LICENSE"
+    "ltc-code|${ltc_code_SOURCE_DIR}/LICENSE"
     "lua|${PROJECT_SOURCE_DIR}/cmake/licenses/lua.txt"
     "lucide|${lucide_SOURCE_DIR}/LICENSE"
     "meshoptimizer|${meshoptimizer_SOURCE_DIR}/LICENSE.md"

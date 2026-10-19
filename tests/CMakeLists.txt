@@ -157,7 +157,8 @@ cordite_add_test_suite(shaders
         cordite::shaders)
 
 # The parts of the renderer that need no GPU: view matrices, debug geometry, the
-# components, and the lights of a world and the clusters they are sorted into.
+# components, the lights of a world and the clusters they are sorted into, and what a
+# rectangle of light gives a surface.
 cordite_add_test_suite(renderer
     SOURCES
         unit/renderer/AmbientOcclusionTests.cpp
@@ -174,6 +175,7 @@ cordite_add_test_suite(renderer
         unit/renderer/MotionBlurTests.cpp
         unit/renderer/MotionVectorsTests.cpp
         unit/renderer/PostProcessSettingsTests.cpp
+        unit/renderer/RectLightsTests.cpp
         unit/renderer/RenderComponentsTests.cpp
         unit/renderer/RenderDebugViewTests.cpp
         unit/renderer/RenderQualityTests.cpp

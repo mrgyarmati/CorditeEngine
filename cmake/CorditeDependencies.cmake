@@ -251,6 +251,17 @@ cordite_declare_dependency(lucide
     SHA256 c4d7d11a4c5ebd5e6dcb21c50f7fb65aeda9a48e97827d1eb4d7638fd1ec694b
     SOURCES_ONLY)
 
+# --- ltc_code: the fit of GGX by linearly transformed cosines (BSD-2-Clause) ------------
+# The tables of Heitz, Dupuy, Hill and Neubelt, "Real-Time Polygonal-Light Shading with
+# Linearly Transformed Cosines" (2016), that what a rectangle of light gives a shiny surface
+# is worked out with (renderer/RectLights.h). Nothing of it is built: the renderer compiles
+# in the numbers of fit/results/ltc.js. Its authors ask that the paper be cited where it is
+# used; docs/third-party.md does.
+cordite_declare_dependency(ltc_code
+    URL https://github.com/selfshadow/ltc_code/archive/31e5e96b54f98f33098f8503003119ba2231a1c6.tar.gz
+    SHA256 4c18b3a70ce42f23739ec5fb50e113725e8c0f9453923e70409e8315c0ac620c
+    SOURCES_ONLY)
+
 # --- miniaudio: sound - decoding, mixing, placing in space, and the devices that play it --
 # One header and one source; the cordite_miniaudio target below compiles the source.
 cordite_declare_dependency(miniaudio
@@ -262,7 +273,7 @@ FetchContent_MakeAvailable(
     fmt spdlog nlohmann_json tl_expected enkits xxhash glm
     glfw vulkan_headers nvrhi stb cli11 entt imgui
     cgltf meshoptimizer mikktspace joltphysics lua miniaudio
-    inter jetbrains_mono lucide)
+    inter jetbrains_mono lucide ltc_code)
 
 # Jolt checks itself where the engine does: in the configurations with assertions. They
 # are reported through the engine's (see cordite/physics/PhysicsWorld.cpp).

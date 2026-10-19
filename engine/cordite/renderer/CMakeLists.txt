@@ -66,6 +66,8 @@ cordite_add_module(renderer
         PostProcessPass.h
         PostProcessSettings.cpp
         PostProcessSettings.h
+        RectLights.cpp
+        RectLights.h
         RenderComponents.cpp
         RenderComponents.h
         RenderDebugView.cpp
@@ -115,3 +117,9 @@ cordite_add_module(renderer
         animation
         rhi
         shaders)
+
+# The fit of GGX by linearly transformed cosines that what a rectangle of light gives a
+# shiny surface is worked out with (RectLights.cpp): the two tables of ltc_code's
+# fit/results/ltc.js, 64 by 64 texels of four numbers each, compiled into the module.
+cordite_embed_numbers(cordite_renderer ltcMatrices "${ltc_code_SOURCE_DIR}/fit/results/ltc.js" g_ltc_1 16384)
+cordite_embed_numbers(cordite_renderer ltcMagnitudes "${ltc_code_SOURCE_DIR}/fit/results/ltc.js" g_ltc_2 16384)
