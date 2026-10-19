@@ -74,15 +74,16 @@ with their assets - in version control too - and move them along. What is inside
 mesh of a model - has an id derived from the file's and its place in the file.
 
 So renaming and moving files breaks nothing, as long as it happens in the editor: in the
-Assets panel, right-click a file and choose **Rename or move...**, or drag it onto a
-directory. Its `.meta` file goes with it and its id stays. Directories are renamed and moved
+Assets panel, right-click a file and choose **Rename or move...**, or drag it onto a folder -
+of the tree, or among the contents; onto **Assets** to move it to the top. Its `.meta` file
+goes with it and its id stays. Directories are renamed and moved
 the same way, with everything in them. What still names an old path - a line of a script,
 say - is listed, to be changed by hand.
 
 ## Bringing files in
 
 Drop files from Explorer, Finder or a file manager onto the editor window: they are copied
-into the assets, beside the chosen asset. A glTF file comes with the buffers and images it
+into the folder the Assets panel shows. A glTF file comes with the buffers and images it
 names. Agents use `asset.import`.
 
 You can also copy files into the assets directory yourself, or change them there with other
@@ -91,10 +92,35 @@ does the same by hand.
 
 ## The Assets panel
 
-The Assets panel lists the assets as a tree of directories and files, with what is inside
-files - the meshes, materials and animations of a model. Narrow it down by kind, or by typing
-part of a name. Beside the list is a picture of the chosen asset: a texture as it is, a mesh,
-a material on a ball, a model or a prefab - and for a sound, its length with a **Play** button.
+The Assets panel is laid out like the project browser of Unity and the content browser of
+Unreal Engine:
+
+```
+ Assets > models                       [All types v] [name or path ] [list][grid] [refresh]
++---------------+------------------------------------------------------+---------+
+| v Assets      |  [barrel.glb >] [crate.gltf >] [hoist.gltf <] [Frame] | picture |
+|     materials |  [Cable] [Hoist paint] ...                            | of the  |
+|    [models]   |                                                       | chosen  |
+|     prefabs   |                                                       | asset   |
++---------------+------------------------------------------------------+---------+
+ Cable  Mesh  models/hoist.gltf#mesh/1                Place  Copy id  Uses  Used by
+```
+
+- At the left, the **folders** of the project as a tree, with **builtin** - the meshes and
+  the material the engine has built in - last. Click a folder to show what is in it; its
+  arrow opens and closes it. Drag the edge of the tree to make it wider; the editor remembers
+  how wide.
+- In the middle, what the folder has in it: its folders, then its files. Show them as a
+  **grid** of tiles or as a **list**, with the two buttons at the top; the editor remembers
+  which you chose. Double-click a folder to go into it, and click a step of the path above to
+  go back up. A file with something inside it - the meshes, materials and animations of a
+  model - has an arrow: in the grid at the side of its tile, in the list before its name.
+  Click it to show what is inside after the file.
+- Narrow it down by kind, or by typing part of a name: then the folder shown, and every
+  folder below it, is searched, and what is found is listed side by side - in the list with
+  the folder each is in. Show **Assets** to search everything.
+- At the right is a picture of the chosen asset: a texture as it is, a mesh, a material on a
+  ball, a model or a prefab - and for a sound, its length with a **Play** button.
 
 - Double-click a model or a prefab to place it in the scene, or drag it onto an entity of
   the Hierarchy to place it under that entity.

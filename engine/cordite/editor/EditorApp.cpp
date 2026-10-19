@@ -240,6 +240,7 @@ Result<std::unique_ptr<EditorApp>> EditorApp::create(const EditorAppDesc& desc) 
         }
     }
     app->m_engine->ui().setTheme(app->m_preferences.theme);
+    app->m_assets.browser().setView(app->m_preferences.assetView);
 
     app->m_context =
         std::make_unique<EditorContext>(app->m_engine->world(), app->m_engine->components(), app->m_engine->assets());
@@ -1137,6 +1138,22 @@ void EditorApp::chooseTheme(UiTheme theme) {
     }
 }
 
+void EditorApp::rememberAssetView() {
+    const AssetBrowserView view = m_assets.browser().view();
+    if (view == m_preferences.assetView) {
+        return;
+    }
+    // Remembered once, whether the file can be written or not: a file that cannot be is
+    // said once, not in every frame.
+    m_preferences.assetView = view;
+    if (m_preferencesFile.empty()) {
+        return;
+    }
+    if (const Status saved = saveEditorPreferences(m_preferencesFile, m_preferences); !saved) {
+        CORDITE_LOG_WARN("Editor", "the view of the assets is used, but not remembered: {}", saved.error().message);
+    }
+}
+
 Json EditorApp::describeTheme() const {
     Json result = Json::object();
     result["theme"] = std::string(nameOf(m_engine->ui().theme()));
@@ -1602,6 +1619,7 @@ void EditorApp::drawInterface() {
         ImGui::SetNextWindowDockID(console->DockId, ImGuiCond_FirstUseEver);
     }
     m_assets.draw(*m_engine, *m_context, m_viewportSettings.shadowQuality, m_submittedLines);
+    rememberAssetView();
     drawFileDialog();
     // What the user asked for and did not get is said in the console, which may be behind
     // the assets: it comes to the front for it.

@@ -378,7 +378,7 @@ TEST_SUITE("AssetBrowser") {
         CHECK(browser.selection().isNil());
     }
 
-    TEST_CASE("an asset is revealed by opening what it is in") {
+    TEST_CASE("an asset is revealed by showing its folder and opening what it is in") {
         const BrowserProject project;
         AssetBrowser browser;
         const AssetDatabase& database = project.database();
@@ -387,18 +387,25 @@ TEST_SUITE("AssetBrowser") {
         const Uuid wheel = project.id("models/cart.gltf#mesh/1");
         const uint64_t before = browser.revision();
 
+        // One change, however much it opens.
         CHECK(browser.reveal(database, wheel));
-        CHECK(browser.revision() == before + 2);
+        CHECK(browser.revision() == before + 1);
+        CHECK(browser.folder() == "models");
+        CHECK(outline(browser.contents(database)) ==
+              Lines{"cart.gltf (model)", "  Body (mesh)", "  Wheel (mesh)", "  Paint (material)"});
         CHECK(projectOutline(browser, project) ==
               Lines{"materials/", "  paint.material.json (material)", "models/", "  cart.gltf (model)",
                     "    Body (mesh)", "    Wheel (mesh)", "    Paint (material)", "scenes/",
                     "  yard.scene.json (scene)", "scripts/", "  gate.lua (script)", "textures/", "  old/",
                     "    rust.png (texture)", "  wall.png (texture)", "top.lua (script)"});
-        // Revealing chooses nothing, and what is to be seen already is left as it is.
+        // Revealing chooses nothing, and what is shown already is left as it is.
         CHECK(browser.selection().isNil());
         CHECK(browser.reveal(database, wheel));
-        CHECK(browser.reveal(database, project.id("top.lua")));
         CHECK(browser.reveal(database, project.id("models/cart.gltf")));
+        CHECK(browser.revision() == before + 1);
+        // A file at the top is in the top.
+        CHECK(browser.reveal(database, project.id("top.lua")));
+        CHECK(browser.folder() == kTopFolder);
         CHECK(browser.revision() == before + 2);
 
         // Two directories deep, and only those are opened: the one beside them stays closed.
@@ -406,22 +413,33 @@ TEST_SUITE("AssetBrowser") {
         browser.setOpen(rowAt(browser.rows(database), "textures"), false);
         browser.setOpen(rowAt(browser.rows(database), "scripts"), false);
         CHECK(browser.reveal(database, project.id("textures/old/rust.png")));
+        CHECK(browser.folder() == "textures/old");
         const Lines revealed = projectOutline(browser, project);
         CHECK(std::ranges::find(revealed, std::string("    rust.png (texture)")) != revealed.end());
         CHECK(std::ranges::find(revealed, std::string("scripts/ ...")) != revealed.end());
-        // What is built in is in a directory too.
+        // In the tree as well, where it is the folder shown.
+        CHECK(outline(browser.folders(database)) == Lines{"Assets/", "  materials/", "  models/", "  scenes/",
+                                                          "  scripts/", "  textures/", "    old/ *", "  builtin/"});
+        // What is built in has a folder of its own.
         browser.setOpen(rowAt(browser.rows(database), "builtin"), false);
         CHECK(browser.reveal(database, builtinMeshId(BuiltinMesh::Torus)));
+        CHECK(browser.folder() == kBuiltinFolder);
         CHECK(outline(browser.rows(database)).back() == "  Default (material)");
 
-        // What the filter does not list has no row to show, and neither has what is no
-        // asset: nothing is opened for them.
+        // What the filter does not list is not shown, and is given its place all the same:
+        // there it is once the filter lists it.
         browser.setFilter({.type = AssetType::Texture});
-        const uint64_t filtered = browser.revision();
         CHECK_FALSE(browser.reveal(database, wheel));
+        CHECK(browser.folder() == "models");
+        CHECK(browser.contents(database).empty());
+        browser.setFilter({});
+        CHECK(outline(browser.contents(database))[2] == "  Wheel (mesh)");
+        // What is no asset has no place, and nothing changes for it.
+        const uint64_t revealedLast = browser.revision();
         CHECK_FALSE(browser.reveal(database, Uuid::fromName(Uuid(), "no such asset")));
         CHECK_FALSE(browser.reveal(database, Uuid()));
-        CHECK(browser.revision() == filtered);
+        CHECK(browser.revision() == revealedLast);
+        CHECK(browser.folder() == "models");
     }
 
     TEST_CASE("a directory of the project that is called builtin is not what the engine has built in") {
@@ -454,6 +472,259 @@ TEST_SUITE("AssetBrowser") {
         const Lines other = outline(browser.rows(database));
         CHECK(other[1] == "  crest.png (texture)");
         CHECK(other.back() == "builtin/ ...");
+
+        // In the tree, each is a folder of its own, shown for itself.
+        const std::vector<AssetBrowserRow> folders = browser.folders(database);
+        REQUIRE(folders.size() == 9);
+        CHECK(folders[1].label == "builtin");
+        CHECK(folders[1].key == "builtin");
+        CHECK(folders.back().label == "builtin");
+        CHECK(folders.back().key == kBuiltinFolder);
+        browser.showFolder(folders[1].key);
+        CHECK(outline(browser.contents(database)) == Lines{"crest.png (texture)"});
+        browser.showFolder(folders.back().key);
+        CHECK(browser.contents(database).size() == 8);
+        // A path finds the project's: it is found first.
+        CHECK(assetFolderAt(database, "builtin") == "builtin");
+        // And the top has both, the engine's last.
+        browser.showFolder(kTopFolder);
+        const std::vector<AssetBrowserRow> top = browser.contents(database);
+        CHECK(top.front().key == "builtin");
+        CHECK(top[top.size() - 2].key == kBuiltinFolder);
+    }
+
+    TEST_CASE("the tree of folders is the top, its directories in the order of their names, and what is built in") {
+        BrowserProject project;
+        AssetBrowser browser;
+        // The top is shown at first, and every folder is open.
+        CHECK(browser.folder() == kTopFolder);
+        const std::vector<AssetBrowserRow> folders = browser.folders(project.database());
+        CHECK(outline(folders) == Lines{"Assets/ *", "  materials/", "  models/", "  scenes/", "  scripts/",
+                                        "  textures/", "    old/", "  builtin/"});
+        CHECK(folders.front().kind == AssetBrowserRow::Kind::Directory);
+        CHECK(folders.front().label == kTopFolderLabel);
+        CHECK(folders.front().key == kTopFolder);
+        CHECK(folders.front().path.empty());
+        CHECK(folders.front().depth == 0);
+        // What has folders in it can be opened and closed; the others have nothing below them.
+        CHECK(folders.front().hasChildren);
+        CHECK(rowAt(folders, "textures").hasChildren);
+        const AssetBrowserRow old = rowAt(folders, "textures/old");
+        CHECK(old.key == "textures/old");
+        CHECK(old.depth == 2);
+        CHECK_FALSE(old.hasChildren);
+        CHECK_FALSE(old.open);
+        CHECK(old.asset.isNil());
+        // What the engine has built in, with a key no directory has.
+        CHECK(folders.back().key == kBuiltinFolder);
+        CHECK(folders.back().path == kBuiltinAssetPath);
+        CHECK(folders.back().depth == 1);
+
+        // A directory with no asset in it, or below it, is no folder the browser knows of.
+        std::filesystem::create_directories(project.root / "empty" / "deeper");
+        project.write("deep/down/below/note.lua", "return {}");
+        REQUIRE(project.assets->refresh().has_value());
+        CHECK(outline(browser.folders(project.database())) ==
+              Lines{"Assets/ *", "  deep/", "    down/", "      below/", "  materials/", "  models/", "  scenes/",
+                    "  scripts/", "  textures/", "    old/", "  builtin/"});
+        // Without a project, there is what the engine has built in.
+        const std::unique_ptr<AssetManager> bare = unwrap(AssetManager::create());
+        CHECK(outline(browser.folders(bare->database())) == Lines{"Assets/ *", "  builtin/"});
+    }
+
+    TEST_CASE("a folder of the tree is opened and closed for itself, and the filter leaves the tree as it is") {
+        const BrowserProject project;
+        AssetBrowser browser;
+        const AssetDatabase& database = project.database();
+        browser.setOpen(rowAt(browser.folders(database), "textures"), false);
+        CHECK(outline(browser.folders(database)) == Lines{"Assets/ *", "  materials/", "  models/", "  scenes/",
+                                                          "  scripts/", "  textures/ ...", "  builtin/"});
+        // It is one directory, closed in rows() as well.
+        const Lines rows = outline(browser.rows(database));
+        CHECK(std::ranges::find(rows, std::string("textures/ ...")) != rows.end());
+
+        // A filter opens everything in rows(), and nothing in the tree - in which a folder
+        // is still opened and closed.
+        browser.setFilter({.search = "rust"});
+        CHECK(outline(browser.folders(database))[5] == "  textures/ ...");
+        browser.setOpen(rowAt(browser.folders(database), "textures"), true);
+        CHECK(outline(browser.folders(database))[6] == "    old/");
+        // The top closes over everything.
+        browser.setOpen(browser.folders(database).front(), false);
+        CHECK(outline(browser.folders(database)) == Lines{"Assets/ ... *"});
+        browser.setOpen(browser.folders(database).front(), true);
+        CHECK(browser.folders(database).size() == 8);
+    }
+
+    TEST_CASE("a folder has its directories, then its files, and what is inside a file once it is opened") {
+        const BrowserProject project;
+        AssetBrowser browser;
+        const AssetDatabase& database = project.database();
+        // The top has what the engine has built in among its directories, the last of them.
+        CHECK(outline(browser.contents(database)) ==
+              Lines{"materials/", "models/", "scenes/", "scripts/", "textures/", "builtin/", "top.lua (script)"});
+
+        browser.showFolder("models");
+        CHECK(outline(browser.contents(database)) == Lines{"cart.gltf (model) ..."});
+        const AssetBrowserRow cart = browser.contents(database).front();
+        CHECK(cart.key == "models/cart.gltf");
+        CHECK(cart.hasChildren);
+        CHECK(cart.asset == project.id("models/cart.gltf"));
+        browser.setOpen(cart, true);
+        CHECK(outline(browser.contents(database)) ==
+              Lines{"cart.gltf (model)", "  Body (mesh)", "  Wheel (mesh)", "  Paint (material)"});
+
+        // A directory is shown, not opened: nothing is below it here.
+        browser.showFolder("textures");
+        CHECK(outline(browser.contents(database)) == Lines{"old/", "wall.png (texture)"});
+        const AssetBrowserRow old = browser.contents(database).front();
+        CHECK(old.kind == AssetBrowserRow::Kind::Directory);
+        CHECK(old.key == "textures/old");
+        CHECK(old.path == "textures/old");
+        CHECK_FALSE(old.hasChildren);
+        CHECK(isMovableDirectory(old));
+
+        // What the engine has built in is what its folder has, in no file.
+        browser.showFolder(kBuiltinFolder);
+        CHECK(outline(browser.contents(database)) == Lines{"Cube (mesh)", "Sphere (mesh)", "Plane (mesh)",
+                                                           "Cylinder (mesh)", "Cone (mesh)", "Capsule (mesh)",
+                                                           "Torus (mesh)", "Default (material)"});
+        // The chosen asset is marked.
+        browser.select(builtinMeshId(BuiltinMesh::Sphere));
+        CHECK(outline(browser.contents(database))[1] == "Sphere (mesh) *");
+    }
+
+    TEST_CASE("a search shows what it finds in the folder and below it, side by side") {
+        const BrowserProject project;
+        AssetBrowser browser;
+        const AssetDatabase& database = project.database();
+        // At the top, everywhere - what is built in too - and what is inside a closed file.
+        browser.setFilter({.type = AssetType::Mesh});
+        CHECK(outline(browser.contents(database)) == Lines{"Body (mesh)", "Wheel (mesh)", "Cube (mesh)",
+                                                           "Sphere (mesh)", "Plane (mesh)", "Cylinder (mesh)",
+                                                           "Cone (mesh)", "Capsule (mesh)", "Torus (mesh)"});
+        // In a folder, what is in it and below it.
+        browser.showFolder("models");
+        CHECK(outline(browser.contents(database)) == Lines{"Body (mesh)", "Wheel (mesh)"});
+        browser.showFolder(kBuiltinFolder);
+        CHECK(browser.contents(database).size() == 7);
+        browser.showFolder("textures");
+        CHECK(browser.contents(database).empty());
+        // By text, whatever its case, two directories down.
+        browser.setFilter({.search = "RUST"});
+        CHECK(outline(browser.contents(database)) == Lines{"rust.png (texture)"});
+        const AssetBrowserRow rust = browser.contents(database).front();
+        CHECK(rust.path == "textures/old/rust.png");
+        CHECK(rust.depth == 0);
+        CHECK(rust.matches);
+        browser.showFolder("scripts");
+        CHECK(browser.contents(database).empty());
+        // A file that is open shows nothing under what it finds: all of it is side by side.
+        browser.setFilter({});
+        browser.showFolder("models");
+        browser.setOpen(rowAt(browser.contents(database), "models/cart.gltf"), true);
+        browser.setFilter({.search = "cart"});
+        CHECK(outline(browser.contents(database)) ==
+              Lines{"cart.gltf (model)", "Body (mesh)", "Wheel (mesh)", "Paint (material)"});
+    }
+
+    TEST_CASE("a folder that is gone shows the nearest folder above it, and is shown again when it is back") {
+        BrowserProject project;
+        AssetBrowser browser;
+        browser.showFolder("textures/old");
+        CHECK(browser.shownFolder(project.database()) == "textures/old");
+        REQUIRE(std::filesystem::remove(project.root / "textures" / "old" / "rust.png"));
+        REQUIRE(project.assets->refresh().has_value());
+        // It stays the folder, and the one above it is shown meanwhile.
+        CHECK(browser.folder() == "textures/old");
+        CHECK(browser.shownFolder(project.database()) == "textures");
+        CHECK(outline(browser.contents(project.database())) == Lines{"wall.png (texture)"});
+        CHECK(outline(browser.folders(project.database()))[5] == "  textures/ *");
+
+        project.write("textures/old/rust.png", "");
+        REQUIRE(project.assets->refresh().has_value());
+        CHECK(browser.shownFolder(project.database()) == "textures/old");
+        // What was never a folder shows the nearest above it that is: a file is no folder.
+        browser.showFolder("models/cart.gltf");
+        CHECK(browser.shownFolder(project.database()) == "models");
+        browser.showFolder("nowhere/at/all");
+        CHECK(browser.shownFolder(project.database()) == kTopFolder);
+        // Written as no path is, it is no folder either.
+        browser.showFolder("/textures");
+        CHECK(browser.shownFolder(project.database()) == kTopFolder);
+        browser.showFolder(kBuiltinFolder);
+        CHECK(browser.shownFolder(project.database()) == kBuiltinFolder);
+    }
+
+    TEST_CASE("showing a folder opens the folders above it, and is one change") {
+        const BrowserProject project;
+        AssetBrowser browser;
+        const AssetDatabase& database = project.database();
+        browser.setOpen(rowAt(browser.folders(database), "textures"), false);
+        browser.setOpen(browser.folders(database).front(), false);
+        const uint64_t before = browser.revision();
+
+        browser.showFolder("textures/old");
+        CHECK(browser.revision() == before + 1);
+        CHECK(outline(browser.folders(database)) == Lines{"Assets/", "  materials/", "  models/", "  scenes/",
+                                                          "  scripts/", "  textures/", "    old/ *", "  builtin/"});
+        browser.showFolder("textures/old");
+        CHECK(browser.revision() == before + 1);
+        // Not the folder itself: what is in it is not asked for.
+        browser.setOpen(rowAt(browser.folders(database), "textures"), false);
+        browser.showFolder("textures");
+        CHECK(outline(browser.folders(database))[5] == "  textures/ ... *");
+        browser.showFolder(kBuiltinFolder);
+        CHECK(browser.folders(database).back().selected);
+        CHECK_FALSE(browser.folders(database).front().selected);
+    }
+
+    TEST_CASE("the way to a folder is the top, and each directory it is in down to it") {
+        const AssetFolderStep top{.label = "Assets", .key = "", .path = ""};
+        CHECK(folderSteps(kTopFolder) == std::vector<AssetFolderStep>{top});
+        const AssetFolderStep textures{.label = "textures", .key = "textures", .path = "textures"};
+        const AssetFolderStep old{.label = "old", .key = "textures/old", .path = "textures/old"};
+        CHECK(folderSteps("textures/old") == std::vector<AssetFolderStep>{top, textures, old});
+        // What the engine has built in is in the top, and is known by a key no path has.
+        const AssetFolderStep builtin{.label = "builtin", .key = "#builtin", .path = "builtin"};
+        CHECK(folderSteps(kBuiltinFolder) == std::vector<AssetFolderStep>{top, builtin});
+    }
+
+    TEST_CASE("a folder is found by its path, whatever is listed, and nothing else is a folder") {
+        BrowserProject project;
+        AssetBrowser browser;
+        browser.setFilter({.type = AssetType::Scene});
+        CHECK(assetFolderAt(project.database(), "") == std::string(kTopFolder));
+        CHECK(assetFolderAt(project.database(), "textures/old") == "textures/old");
+        CHECK(assetFolderAt(project.database(), "builtin") == std::string(kBuiltinFolder));
+        for (const std::string_view path :
+             {"textures/wall.png", "nowhere", "textures/", "/textures", "TEXTURES", "#builtin", "models/cart.gltf"}) {
+            CAPTURE(std::string(path));
+            CHECK_FALSE(assetFolderAt(project.database(), path).has_value());
+        }
+        std::filesystem::create_directories(project.root / "empty");
+        REQUIRE(project.assets->refresh().has_value());
+        CHECK_FALSE(assetFolderAt(project.database(), "empty").has_value());
+    }
+
+    TEST_CASE("the contents are shown as a grid at first, or as a list, by name") {
+        AssetBrowser browser;
+        CHECK(browser.view() == AssetBrowserView::Grid);
+        // What is listed is the same either way.
+        const uint64_t before = browser.revision();
+        browser.setView(AssetBrowserView::List);
+        CHECK(browser.view() == AssetBrowserView::List);
+        CHECK(browser.revision() == before);
+
+        CHECK(nameOf(AssetBrowserView::List) == "list");
+        CHECK(nameOf(AssetBrowserView::Grid) == "grid");
+        for (const AssetBrowserView view : kAssetBrowserViews) {
+            CHECK(assetBrowserViewFromName(nameOf(view)) == view);
+        }
+        CHECK(assetBrowserViewFromName("Grid") == AssetBrowserView::Grid);
+        CHECK(assetBrowserViewFromName("LIST") == AssetBrowserView::List);
+        CHECK_FALSE(assetBrowserViewFromName("tiles").has_value());
+        CHECK_FALSE(assetBrowserViewFromName("").has_value());
     }
 
     TEST_CASE("without a project the browser lists what the engine has built in") {

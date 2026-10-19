@@ -996,8 +996,8 @@ Step-by-step guide: [work-with-assets](.claude/skills/work-with-assets/SKILL.md)
   move leaves the two - one may move without the other where the way between them stays
   the same - and the project's start scene and input map follow it.
 - **A file from elsewhere is brought in by a copy** (`asset.import`,
-  `editor/AssetImport.h`, or dropped onto the editor's window - into the directory of
-  the asset chosen in the browser): a glTF file brings what it names by where it is,
+  `editor/AssetImport.h`, or dropped onto the editor's window - into the folder the
+  browser shows, `importDirectory`): a glTF file brings what it names by where it is,
   to the same places beside it, and a .meta beside a file stays behind - in this
   project the file is new. Everything is checked before the first copy, and a copy
   that fails takes the others back.
@@ -1719,12 +1719,27 @@ panels, EditorApp    the interface, built on the three layers above
 - **History entries hold ids and validated patches**, never `Entity` handles, component
   pointers or references into the world.
 - **A panel that shows more than what is there is a model and a window.** What the
-  Assets panel lists - its rows, its filter, what is open, what is chosen - is
-  `AssetBrowser`: no ImGui in it, tested without a window, and asked by the command
-  `assets.browse`, so that what a person sees is what a script is told.
-  `AssetBrowserPanel` draws it and turns clicks into command lines
-  (`placeAssetCommand`), which it hands on as the console does. Build the next panel
-  the same way: what it decides is tested where no pixel is involved.
+  Assets panel shows - the tree of folders, the folder shown and what it has in it,
+  the filter, what is open, what is chosen, the list or the grid - is `AssetBrowser`:
+  no ImGui in it, tested without a window, and asked by the command `assets.browse`,
+  so that what a person sees is what a script is told. `AssetBrowserPanel` draws it
+  and turns clicks into command lines (`placeAssetCommand`), which it hands on as the
+  console does. Build the next panel the same way: what it decides is tested where no
+  pixel is involved.
+- **The Assets panel is laid out as the browsers of Unity and Unreal Engine are**: the
+  tree of folders at the left (`folders()`), what the folder chosen there has in it
+  beside it (`contents()`) - its directories, then its files, what is inside a file
+  after it once its arrow opens it - as a grid of tiles or a list, with the way to the
+  folder above, each step a button back up (`folderSteps`). A folder is a key
+  (`AssetBrowserRow::key`), not a path: what the engine has built in is a folder
+  (`kBuiltinFolder`) beside a project's directory that may have its name. A search
+  looks in the folder shown and below it, and lists what it finds side by side; the
+  tree is not narrowed by it. A folder that is gone - moved, emptied - shows the
+  nearest above it while it is gone (`shownFolder()`), as a chosen asset stays chosen.
+  Choosing an asset from outside the panel shows the folder it is in (`reveal`). The
+  grid or the list is a person's choice, kept in the editor's preferences
+  (`EditorPreferences::assetView`), and a batch run has the grid. A double click on
+  a model or a prefab places it, as it did; a directory is gone into by one.
 - **What the user asked for and did not get is said in the console, and the console
   comes to the front for it.** A failed edit is logged with `reportIfFailed`, a
   failed line by the console - under the two categories `reportsFailedAction` knows -
@@ -1855,11 +1870,11 @@ panels, EditorApp    the interface, built on the three layers above
   frame when it is called during one). ImGui pops what was pushed onto its style back
   to what it was, and a style replaced in the middle of a frame would keep colors of
   the old theme. The View menu queues `editor.theme` for that reason.
-- **What a person chose about the editor is theirs, not a project's**: the theme is
-  kept in `editor-preferences.json` in their configuration directory
-  (`EditorPreferences`, `userConfigurationDirectory`). A batch run reads and writes
-  none, and is drawn in the default theme, so its pictures do not depend on who runs
-  it.
+- **What a person chose about the editor is theirs, not a project's**: the theme and
+  how the Assets panel shows a folder are kept in `editor-preferences.json` in their
+  configuration directory (`EditorPreferences`, `userConfigurationDirectory`). A batch
+  run reads and writes none, and is drawn in the default theme with the grid, so its
+  pictures do not depend on who runs it.
 
 ## Testing
 
@@ -2192,6 +2207,13 @@ body explaining what changed and why. One logical change per commit.
 - An ImGui widget gets its keyboard shortcuts - Ctrl+A in a text field - a frame
   after it became active, not in the same one. A test that types into the interface
   waits that frame; see `PropertyEditorTests`.
+- `ImGui::SetScrollHereY` in a region that is laid out for the first time - the frame an
+  editor starts in, or the one a panel first shows - scrolls by what that frame thought
+  was there, and the scroll is gone by the next: the reference picture of the assets
+  showed the chosen tile out of sight that way, while a batch run that drew frames first
+  was right. The Assets panel scrolls to an asset chosen from outside in two frames
+  (`kRevealFrames` in `AssetBrowserPanel.cpp`); something that must be scrolled to in
+  the first frames of a panel does the same.
 - `ImGui::Shortcut` gives a key to a shortcut from the frame after the one it was asked
   for in: what it asks is the route of the next frame. A shortcut that is asked for only
   while something allows it loses the first press after a frame in which it was not -

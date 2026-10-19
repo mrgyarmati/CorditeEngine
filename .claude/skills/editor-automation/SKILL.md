@@ -84,7 +84,7 @@ Do not guess command or property names; ask the editor.
 | `asset.import` | Bring files from elsewhere into the assets (`{"files": ["C:/Downloads/crate.glb"], "to": "props"}`): copies, a glTF file with the files it names; new ids. Not undoable |
 | `asset.move` | Rename or move the file of an asset, with its .meta (`{"asset": ..., "to": "textures/brick.png"}`); returns `mentions`, what still names the old path. Not undoable |
 | `asset.moveDirectory` | Rename or move a directory of the assets with all in it (`{"from": "textures/old", "to": "art/textures"}`): every asset keeps its id; returns every asset that moved, with its `mentions`. Not undoable |
-| `assets.browse` | What the Assets panel lists, as rows with their depth: directories, files, what is inside files. With `type`, `search`, `select`, `open` or `close` it sets that first |
+| `assets.browse` | What the Assets panel shows: the tree of folders (`folders`), the folder shown (`folder`) and what it has in it (`contents`), the grid or the list (`view`), and all of it as one tree (`rows`). With `type`, `search`, `select`, `folder`, `view`, `open` or `close` it sets that first |
 | `scene.validate` | References to assets that are missing or of the wrong kind, and colliders that no shape or body can be made of |
 | `editor.statistics` | What the last frame cost: CPU and GPU time, draw calls, triangles, lights, shadow maps, memory on the GPU |
 | `physics.raycast` | What a ray hits first - or, with a `radius`, a ball moved along it: the entity, the distance, the point and the normal |
@@ -329,8 +329,9 @@ its simulation, its sounds - play it:
 - `editor.focusPanel {"panel": "console"}` brings a panel to the front of those it
   shares its place with - the console is behind the assets until then, or until a
   command fails - and
-  `assets.browse {"type": "prefab"}` or `{"select": "models/crate.gltf#mesh/0"}` sets
-  what the Assets panel shows before the picture is taken. A command that fails
+  `assets.browse {"type": "prefab"}`, `{"select": "models/crate.gltf#mesh/0"}` - which
+  shows the folder it is in - or `{"folder": "textures", "view": "list"}` sets what the
+  Assets panel shows before the picture is taken. A command that fails
   brings the console back to the front.
 - `editor.theme {"theme": "light"}` draws the interface in the light theme from the
   next frame on, `"dark"` in the default one; `editor.theme` alone says which is in

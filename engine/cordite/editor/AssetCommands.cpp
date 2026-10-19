@@ -281,17 +281,10 @@ std::string assetTypeNames() {
     return names;
 }
 
-/// What the browser lists, as `assets.browse` returns it.
-Json describeBrowser(const AssetBrowser& browser, const AssetDatabase& database) {
-    Json result = Json::object();
-    const AssetBrowserFilter& filter = browser.filter();
-    result["type"] = filter.type ? Json(std::string(nameOf(*filter.type))) : Json(nullptr);
-    result["search"] = filter.search;
-    const AssetInfo* selected = database.find(browser.selection());
-    result["selected"] = selected != nullptr ? describeAsset(*selected) : Json(nullptr);
-
-    Json rows = Json::array();
-    for (const AssetBrowserRow& row : browser.rows(database)) {
+/// Rows of the browser, as `assets.browse` returns them.
+Json describeRows(const std::vector<AssetBrowserRow>& rows) {
+    Json described = Json::array();
+    for (const AssetBrowserRow& row : rows) {
         const bool isAsset = row.kind == AssetBrowserRow::Kind::Asset;
         Json entry = Json::object();
         entry["kind"] = isAsset ? "asset" : "directory";
@@ -309,9 +302,25 @@ Json describeBrowser(const AssetBrowser& browser, const AssetDatabase& database)
         if (row.selected) {
             entry["selected"] = true;
         }
-        rows.push_back(std::move(entry));
+        described.push_back(std::move(entry));
     }
-    result["rows"] = std::move(rows);
+    return described;
+}
+
+/// What the browser shows, as `assets.browse` returns it.
+Json describeBrowser(const AssetBrowser& browser, const AssetDatabase& database) {
+    Json result = Json::object();
+    const AssetBrowserFilter& filter = browser.filter();
+    result["type"] = filter.type ? Json(std::string(nameOf(*filter.type))) : Json(nullptr);
+    result["search"] = filter.search;
+    const AssetInfo* selected = database.find(browser.selection());
+    result["selected"] = selected != nullptr ? describeAsset(*selected) : Json(nullptr);
+    result["view"] = std::string(nameOf(browser.view()));
+    // By its path, as the parameter takes it: the last step of the way to it.
+    result["folder"] = folderSteps(browser.shownFolder(database)).back().path;
+    result["folders"] = describeRows(browser.folders(database));
+    result["contents"] = describeRows(browser.contents(database));
+    result["rows"] = describeRows(browser.rows(database));
     return result;
 }
 
@@ -340,9 +349,31 @@ Status applyBrowse(AssetBrowser& browser, const EditorContext& context, const Js
         } else {
             CORDITE_TRY_ASSIGN(const AssetInfo* asset, context.resolveAsset(reference));
             browser.select(asset->id);
-            // Shown, where the filter lists it: what it is in is opened.
+            // Shown, where the filter lists it: its folder, and what it is in opened.
             browser.reveal(database, asset->id);
         }
+    }
+    // After the choice, which shows a folder of its own: the folder asked for is the one
+    // shown.
+    if (parameters.contains("folder")) {
+        const std::string path = parameters.at("folder").get<std::string>();
+        const std::optional<std::string> folder = assetFolderAt(database, trim(path));
+        if (!folder) {
+            return makeError(ErrorCode::NotFound,
+                             "the assets have no folder '{}': a folder is a directory with an asset in it or below "
+                             "it, \"\" the top and \"{}\" what the engine has built in",
+                             path, kBuiltinAssetPath);
+        }
+        browser.showFolder(*folder);
+    }
+    if (parameters.contains("view")) {
+        const std::string name = parameters.at("view").get<std::string>();
+        const std::optional<AssetBrowserView> view = assetBrowserViewFromName(name);
+        if (!view) {
+            return makeError(ErrorCode::InvalidArgument, "'{}' is not a view of the assets; use {} or {}", name,
+                             nameOf(AssetBrowserView::List), nameOf(AssetBrowserView::Grid));
+        }
+        browser.setView(*view);
     }
 
     for (const bool open : {true, false}) {
@@ -367,12 +398,17 @@ Status applyBrowse(AssetBrowser& browser, const EditorContext& context, const Js
 Status registerAssetBrowserCommands(CommandRegistry& commands, EditorContext& context, AssetBrowser& browser) {
     return commands.add({
         .name = "assets.browse",
-        .description = "Says what the Assets panel lists, and sets what it lists: the assets of the project as a "
-                       "tree of directories, files and what is inside files, narrowed down to one type, to a text, "
-                       "or to both. It can choose an asset in the panel, and open or close a directory or a file. "
-                       "Returns the rows from top to bottom, each with how far in it is (\"depth\"); what is below "
-                       "a row that is closed is not among them, and while something is left out every row is "
-                       "open. Without parameters it changes nothing.",
+        .description =
+            "Says what the Assets panel shows, and sets what it shows: a tree of the folders of the project "
+            "(\"folders\", the one shown \"selected\"), and beside it what the folder shown has in it "
+            "(\"contents\") - its directories, then its files, each followed by what is inside it once it is "
+            "opened - as a list or as a grid of tiles. A type, a text or both narrow the contents down to "
+            "every asset asked for in the folder and below it, side by side. It can show another folder, "
+            "choose an asset - which shows the folder it is in - open or close a folder of the tree or a file, "
+            "and switch between the list and the grid. Returns those, and all the assets as one tree "
+            "(\"rows\"), in which every row is open while something is left out. Every row has how far in it "
+            "is (\"depth\"); what is below a row that is closed is not among them. Without parameters it "
+            "changes nothing.",
         .parameters =
             {{"type", Type::String,
               fmt::format("Only assets of this type: {} - or \"{}\" for those of every type.", assetTypeNames(),
@@ -382,14 +418,19 @@ Status registerAssetBrowserCommands(CommandRegistry& commands, EditorContext& co
               R"(Only assets with this text in their name or in their path, whatever the case. "" for all of them.)",
               false},
              {"select", Type::String,
-              R"(The asset to choose: its id, or its path as a row has it. "" for none. What it is in - its )"
-              "directories, the file it is inside - is opened, so that it is among the rows; an asset the "
-              "filter leaves out is chosen all the same, and shows once it is listed.",
+              R"(The asset to choose: its id, or its path as a row has it. "" for none. The folder it is in is )"
+              "shown, and the file it is inside opened, so that it is among the contents; an asset the filter "
+              "leaves out is chosen all the same, and shows once it is listed.",
               false},
+             {"folder", Type::String,
+              R"(The folder to show, by its path as the tree has it: "" for the top of the asset directory, )"
+              R"("models/props" for a directory, "builtin" for what the engine has built in - a directory of )"
+              "the project with that name is found first. It is shown after the asset to choose.",
+              false},
+             {"view", Type::String, "How the contents are shown: list, or grid.", false},
              {"open", Type::String,
-              R"(The path of a directory or of a file whose rows are to be shown: "models", "models/crate.gltf".)",
-              false},
-             {"close", Type::String, "The path of a directory or of a file whose rows are to be hidden.", false}},
+              R"(The path of a folder or of a file whose rows are to be shown: "models", "models/crate.gltf".)", false},
+             {"close", Type::String, "The path of a folder or of a file whose rows are to be hidden.", false}},
         .handler = [&context, &browser](const Json& parameters) -> Result<Json> {
             AssetBrowser changed = browser;
             CORDITE_TRY(applyBrowse(changed, context, parameters));

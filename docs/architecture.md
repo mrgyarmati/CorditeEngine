@@ -476,15 +476,25 @@ history holds.
 
 ### The asset browser is a list that is worked out, and a window that draws it
 
-The Assets panel shows the assets of a project as a tree: directories, the files in
-them, and - for a model - what is inside the file. Which rows there are, in which
-order, which of them are open, what a filter leaves of them and which asset is chosen
-is decided by `AssetBrowser`, a class without a line of interface code in it. It makes
-the rows anew from the asset database whenever it is asked, and keeps no pointer into
-it, so the rows are right after the assets were read again. `AssetBrowserPanel` asks
-for them when the database or the browser has changed, draws what fits in its window,
-and turns a double click into the line `asset.instantiate {...}` for the console to
-run.
+The Assets panel shows the assets of a project as the browsers of Unity and Unreal
+Engine do: the folders as a tree, and beside it what the folder chosen there has in it -
+its directories, its files, and for a model what is inside the file - as a grid of tiles
+or a list. Which rows there are, in which order, which of them are open, which folder is
+shown, what a filter leaves of them and which asset is chosen is decided by
+`AssetBrowser`, a class without a line of interface code in it. It makes the rows anew
+from the asset database whenever it is asked, and keeps no pointer into it, so the rows
+are right after the assets were read again. `AssetBrowserPanel` asks for them when the
+database or the browser has changed, draws what fits in its window, and turns a double
+click into the line `asset.instantiate {...}` for the console to run.
+
+A folder is known by a key, not by its path: what the engine has built in is a folder
+of its own, which a project may have a directory of the same name beside. The folder
+that was chosen stays chosen while it is gone - a refresh in the middle of a move - and
+the nearest folder above it is shown meanwhile, as a chosen asset that is gone stays
+chosen. A search looks in the folder shown and below it, as Unity's does once a folder
+is chosen: in the top it looks everywhere, and a click on a folder of the tree, which
+the search leaves alone, narrows it. Whether the contents are a grid or a list is the
+person's, kept with their theme, not the project's.
 
 The split is there for two reasons. What a panel decides can be tested without a
 window and without a pixel: the tests of the browser compare lists of rows. And the

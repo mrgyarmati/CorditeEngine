@@ -551,14 +551,17 @@ TEST_SUITE("EditorApp") {
         const Image fresh = pictureWithAssets(false);
 
         // A layout is remembered - and made one of an editor that had no Assets panel: the
-        // file says nothing of such a window.
+        // file says nothing of such a window, nor of the tree in it, whose width it keeps.
         static_cast<void>(pictureWithAssets(true));
         std::string remembered = unwrap(readTextFile(layout));
-        const size_t entry = remembered.find("[Window][Assets]");
-        REQUIRE(entry != std::string::npos);
-        const size_t next = remembered.find("\n[", entry);
-        REQUIRE(next != std::string::npos);
-        remembered.erase(entry, next + 1 - entry);
+        REQUIRE(remembered.find("[Window][Assets]") != std::string::npos);
+        REQUIRE(remembered.find("[Window][Assets/folders_") != std::string::npos);
+        for (size_t entry = remembered.find("[Window][Assets"); entry != std::string::npos;
+             entry = remembered.find("[Window][Assets")) {
+            const size_t next = remembered.find("\n[", entry);
+            REQUIRE(next != std::string::npos);
+            remembered.erase(entry, next + 1 - entry);
+        }
         REQUIRE(remembered.find("Assets") == std::string::npos);
         REQUIRE(remembered.find("[Window][Console]") != std::string::npos);
         REQUIRE(writeTextFile(layout, remembered).has_value());
@@ -2027,6 +2030,104 @@ TEST_SUITE("EditorApp") {
             CHECK(run(*editor, "editor.theme", R"({"theme": "light"})")["theme"] == "light");
         }
         CHECK(unwrap(loadEditorPreferences(preferences)).theme == UiTheme::Light);
+    }
+
+    TEST_CASE("how the Assets panel shows a folder is a person's choice, and is remembered") {
+        const TempDirectory directory;
+        const std::filesystem::path preferences = directory.path() / "Cordite" / "editor-preferences.json";
+        {
+            EditorAppDesc desc = headlessDesc(UVec2(640, 360));
+            desc.preferencesFile = preferences;
+            const std::unique_ptr<EditorApp> editor = createEditor(desc);
+            CHECK(run(*editor, "assets.browse")["view"] == "grid");
+            REQUIRE(editor->runFrames(1).has_value());
+            // Nothing was chosen: nothing is written.
+            CHECK_FALSE(fileExists(preferences));
+            CHECK(run(*editor, "assets.browse", R"({"view": "list"})")["view"] == "list");
+            REQUIRE(editor->runFrames(1).has_value());
+            const EditorPreferences remembered = unwrap(loadEditorPreferences(preferences));
+            CHECK(remembered.assetView == AssetBrowserView::List);
+            // The theme, which nobody chose, is written as it is.
+            CHECK(remembered.theme == UiTheme::Dark);
+        }
+        {
+            EditorAppDesc desc = headlessDesc(UVec2(640, 360));
+            desc.preferencesFile = preferences;
+            const std::unique_ptr<EditorApp> editor = createEditor(desc);
+            CHECK(run(*editor, "assets.browse")["view"] == "list");
+        }
+        // A batch run has a view of its own, whatever was chosen elsewhere, and keeps it.
+        {
+            const std::unique_ptr<EditorApp> editor = createEditor(headlessDesc(UVec2(640, 360)));
+            CHECK(run(*editor, "assets.browse")["view"] == "grid");
+            run(*editor, "assets.browse", R"({"view": "list"})");
+            REQUIRE(editor->runFrames(1).has_value());
+        }
+        CHECK(unwrap(loadEditorPreferences(preferences)).assetView == AssetBrowserView::List);
+    }
+
+    TEST_CASE("the Assets panel shows a folder clicked in its tree, and goes into one by a double click") {
+        EditorAppDesc desc = headlessDesc(UVec2(1280, 720));
+        desc.project = showcaseProject();
+        const std::unique_ptr<EditorApp> editor = createEditor(desc);
+        const AssetBrowser& browser = editor->assetBrowser().browser();
+        const AssetDatabase& database = editor->context().assets().database();
+        run(*editor, "editor.focusPanel", R"({"panel": "assets"})");
+        REQUIRE(editor->runFrames(2).has_value());
+
+        // A pane of the panel - the tree or the contents - by the name ImGui gives its region.
+        const auto pane = [](std::string_view name) {
+            const std::string wanted = fmt::format("###Assets/{}_", name);
+            for (const ImGuiWindow* window : GImGui->Windows) {
+                if (std::string_view(window->Name).find(wanted) != std::string_view::npos) {
+                    return Vec2(window->DC.CursorStartPos.x, window->DC.CursorStartPos.y);
+                }
+            }
+            FAIL("no pane " << wanted);
+            return Vec2(0.0f);
+        };
+        const auto press = [&](Vec2 at, int times) {
+            run(*editor, "input.inject", fmt::format(R"({{"mouseMove": [{}, {}]}})", at.x, at.y));
+            REQUIRE(editor->runFrames(2).has_value());
+            for (int time = 0; time < times; ++time) {
+                run(*editor, "input.inject", R"({"mouseButton": "Left", "down": true})");
+                REQUIRE(editor->runFrames(1).has_value());
+                run(*editor, "input.inject", R"({"mouseButton": "Left", "down": false})");
+                REQUIRE(editor->runFrames(1).has_value());
+            }
+            REQUIRE(editor->runFrames(1).has_value());
+        };
+
+        // The rows of the tree are a line of text apart; a click on the name of one shows it.
+        const std::vector<AssetBrowserRow> folders = browser.folders(database);
+        const auto models = std::ranges::find(folders, "models", &AssetBrowserRow::path);
+        REQUIRE(models != folders.end());
+        const auto row = static_cast<float>(models - folders.begin());
+        const float line = ImGui::GetTextLineHeightWithSpacing();
+        press(pane("folders") + Vec2(40.0f, (row + 0.4f) * line), 1);
+        CHECK(browser.folder() == "models");
+        CHECK(run(*editor, "assets.browse")["folder"] == "models");
+
+        // The top has its directories first: a double click on the first goes into it, and
+        // one click alone does not.
+        run(*editor, "assets.browse", R"({"folder": ""})");
+        REQUIRE(editor->runFrames(2).has_value());
+        const std::string first = browser.contents(database).front().key;
+        // Half a second - the clock is the engine's, a sixtieth of one a frame - is longer
+        // than a double click may take: the next two presses are one of their own, and not
+        // a second click to the one before.
+        const auto pause = [&editor] { REQUIRE(editor->runFrames(30).has_value()); };
+        press(pane("contents") + Vec2(12.0f, 12.0f), 1);
+        CHECK(browser.folder() == "");
+        pause();
+        press(pane("contents") + Vec2(12.0f, 12.0f), 2);
+        CHECK(browser.folder() == first);
+        // And the same in the list.
+        run(*editor, "assets.browse", R"({"folder": "", "view": "list"})");
+        pause();
+        press(pane("contents") + Vec2(30.0f, line * 0.4f), 2);
+        CHECK(browser.folder() == first);
+        checkNoValidationIssues(editor->engine().graphics());
     }
 
     TEST_CASE("preferences that cannot be read are said, and the editor opens with the defaults") {

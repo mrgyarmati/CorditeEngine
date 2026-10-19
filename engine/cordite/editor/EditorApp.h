@@ -225,6 +225,10 @@ private:
     /// Draws the interface in a theme from the next frame on, and remembers it in the
     /// preferences, if there is a file for them.
     void chooseTheme(UiTheme theme);
+    /// Remembers in the preferences how the Assets panel shows the contents of a folder,
+    /// when the panel or `assets.browse` has switched it - and writes them, if there is a
+    /// file for them.
+    void rememberAssetView();
     /// What editor.theme returns: the theme in use, and the names of all.
     [[nodiscard]] Json describeTheme() const;
     /// What play.status returns: whether the scene is being played, and how it goes.

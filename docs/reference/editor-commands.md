@@ -81,15 +81,17 @@ It takes no parameters.
 
 ## assets.browse
 
-Says what the Assets panel lists, and sets what it lists: the assets of the project as a tree of directories, files and what is inside files, narrowed down to one type, to a text, or to both. It can choose an asset in the panel, and open or close a directory or a file. Returns the rows from top to bottom, each with how far in it is ("depth"); what is below a row that is closed is not among them, and while something is left out every row is open. Without parameters it changes nothing.
+Says what the Assets panel shows, and sets what it shows: a tree of the folders of the project ("folders", the one shown "selected"), and beside it what the folder shown has in it ("contents") - its directories, then its files, each followed by what is inside it once it is opened - as a list or as a grid of tiles. A type, a text or both narrow the contents down to every asset asked for in the folder and below it, side by side. It can show another folder, choose an asset - which shows the folder it is in - open or close a folder of the tree or a file, and switch between the list and the grid. Returns those, and all the assets as one tree ("rows"), in which every row is open while something is left out. Every row has how far in it is ("depth"); what is below a row that is closed is not among them. Without parameters it changes nothing.
 
 | Parameter | Kind | Needed | Meaning |
 |---|---|---|---|
 | `type` | string | no | Only assets of this type: texture, mesh, material, model, scene, skeleton, animation, script, sound, prefab, renderTarget or sequence - or "all" for those of every type. |
 | `search` | string | no | Only assets with this text in their name or in their path, whatever the case. "" for all of them. |
-| `select` | string | no | The asset to choose: its id, or its path as a row has it. "" for none. What it is in - its directories, the file it is inside - is opened, so that it is among the rows; an asset the filter leaves out is chosen all the same, and shows once it is listed. |
-| `open` | string | no | The path of a directory or of a file whose rows are to be shown: "models", "models/crate.gltf". |
-| `close` | string | no | The path of a directory or of a file whose rows are to be hidden. |
+| `select` | string | no | The asset to choose: its id, or its path as a row has it. "" for none. The folder it is in is shown, and the file it is inside opened, so that it is among the contents; an asset the filter leaves out is chosen all the same, and shows once it is listed. |
+| `folder` | string | no | The folder to show, by its path as the tree has it: "" for the top of the asset directory, "models/props" for a directory, "builtin" for what the engine has built in - a directory of the project with that name is found first. It is shown after the asset to choose. |
+| `view` | string | no | How the contents are shown: list, or grid. |
+| `open` | string | no | The path of a folder or of a file whose rows are to be shown: "models", "models/crate.gltf". |
+| `close` | string | no | The path of a folder or of a file whose rows are to be hidden. |
 
 ## component.add
 

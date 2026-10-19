@@ -24,12 +24,14 @@ Json preferencesWith(std::string_view member, const Json& value) {
 TEST_SUITE("EditorPreferences") {
     TEST_CASE("preferences are written with every member, and read back as they were") {
         for (const UiTheme theme : kUiThemes) {
-            const EditorPreferences preferences{.theme = theme};
-            const Json document = editorPreferencesDocument(preferences);
-            CHECK(document ==
-                  Json::parse(fmt::format(R"({{"format": "cordite.preferences", "version": 1, "theme": "{}"}})",
-                                          nameOf(theme))));
-            CHECK(test::unwrap(parseEditorPreferences(document)) == preferences);
+            for (const AssetBrowserView view : kAssetBrowserViews) {
+                const EditorPreferences preferences{.theme = theme, .assetView = view};
+                const Json document = editorPreferencesDocument(preferences);
+                CHECK(document == Json::parse(fmt::format(R"({{"format": "cordite.preferences", "version": 1, )"
+                                                          R"("theme": "{}", "assetView": "{}"}})",
+                                                          nameOf(theme), nameOf(view))));
+                CHECK(test::unwrap(parseEditorPreferences(document)) == preferences);
+            }
         }
     }
 
@@ -37,6 +39,35 @@ TEST_SUITE("EditorPreferences") {
         const Json document = Json::parse(R"({"format": "cordite.preferences", "version": 1})");
         CHECK(test::unwrap(parseEditorPreferences(document)) == EditorPreferences{});
         CHECK(EditorPreferences{}.theme == UiTheme::Dark);
+        // The assets as tiles, as the browsers of Unity and Unreal Engine show them at first.
+        CHECK(EditorPreferences{}.assetView == AssetBrowserView::Grid);
+        // A file of an editor that had no view of the assets to remember is read as it was.
+        const EditorPreferences light =
+            test::unwrap(parseEditorPreferences(preferencesWith("theme", std::string("light"))));
+        CHECK(light.theme == UiTheme::Light);
+        CHECK(light.assetView == AssetBrowserView::Grid);
+    }
+
+    TEST_CASE("a view of the assets is found by its name, whatever its case") {
+        CHECK(test::unwrap(parseEditorPreferences(preferencesWith("assetView", "List"))).assetView ==
+              AssetBrowserView::List);
+        CHECK(test::unwrap(parseEditorPreferences(preferencesWith("assetView", "grid"))).assetView ==
+              AssetBrowserView::Grid);
+    }
+
+    TEST_CASE("a view of the assets that is not one is an error that says which there are") {
+        const Result<EditorPreferences> parsed = parseEditorPreferences(preferencesWith("assetView", "tiles"));
+        REQUIRE_FALSE(parsed.has_value());
+        CHECK(parsed.error().code == ErrorCode::ParseError);
+        CHECK(test::errorOf(parsed).find("'tiles'") != std::string::npos);
+        CHECK(test::errorOf(parsed).find("list, grid") != std::string::npos);
+        for (const Json& value : {Json(1), Json(false), Json::object(), Json(nullptr)}) {
+            CAPTURE(dumpJson(value));
+            const Result<EditorPreferences> notName = parseEditorPreferences(preferencesWith("assetView", value));
+            REQUIRE_FALSE(notName.has_value());
+            CHECK(notName.error().code == ErrorCode::ParseError);
+            CHECK(test::errorOf(notName).find("'assetView'") != std::string::npos);
+        }
     }
 
     TEST_CASE("a theme is found by its name, whatever its case") {
@@ -84,9 +115,10 @@ TEST_SUITE("EditorPreferences") {
         CHECK(test::unwrap(loadEditorPreferences(file)).theme == UiTheme::Light);
 
         // Saved again, the file is replaced whole.
-        REQUIRE(saveEditorPreferences(file, {.theme = UiTheme::Dark}).has_value());
-        CHECK(test::unwrap(loadEditorPreferences(file)).theme == UiTheme::Dark);
-        CHECK(test::unwrap(readJsonFile(file)) == editorPreferencesDocument({.theme = UiTheme::Dark}));
+        const EditorPreferences listed{.theme = UiTheme::Dark, .assetView = AssetBrowserView::List};
+        REQUIRE(saveEditorPreferences(file, listed).has_value());
+        CHECK(test::unwrap(loadEditorPreferences(file)) == listed);
+        CHECK(test::unwrap(readJsonFile(file)) == editorPreferencesDocument(listed));
     }
 
     TEST_CASE("a file that is not there gives the defaults") {

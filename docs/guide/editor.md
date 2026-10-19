@@ -25,8 +25,9 @@ The editor is laid out like Unity and Unreal Engine:
   with the button at the bottom. Numbers are dragged or typed, colors picked, assets chosen
   from a list or dropped from the Assets panel.
 - **Viewport** - the scene. Click to select; the gizmo moves, turns and scales.
-- **Assets** - the files of the project as a tree, with a picture of the chosen asset beside
-  it. See [Projects and assets](assets.md).
+- **Assets** - the folders of the project as a tree, and beside it what the folder chosen
+  there has in it, as a grid of tiles or a list, with a picture of the chosen asset. See
+  [Projects and assets](assets.md).
 - **Console** - what the engine has to say, and a command line: type a command of the
   [automation API](automation.md), such as `entity.create {"name": "Lamp"}`.
 

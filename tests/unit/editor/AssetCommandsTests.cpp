@@ -1038,7 +1038,57 @@ TEST_SUITE("AssetCommands") {
         // What has nothing below it is neither open nor closed.
         CHECK_FALSE(listed["rows"][1].contains("open"));
 
+        // What the panel shows: the tree, with the top shown, and what the top has in it, as
+        // a grid.
+        CHECK(listed["view"] == "grid");
+        CHECK(listed["folder"] == "");
+        CHECK(browserLines(listed["folders"]) == std::vector<std::string>{"Assets/ *", "  materials/", "  models/",
+                                                                          "  scenes/", "  scripts/", "  sounds/",
+                                                                          "  textures/", "  builtin/"});
+        CHECK(listed["folders"][0]["path"] == "");
+        CHECK(listed["folders"][7]["path"] == "builtin");
+        CHECK(browserLines(listed["contents"]) == std::vector<std::string>{"materials/", "models/", "scenes/",
+                                                                           "scripts/", "sounds/", "textures/",
+                                                                           "builtin/"});
+        CHECK(listed["contents"][1]["path"] == "models");
+
         CHECK(fixture.browser.revision() == revision);
+    }
+
+    TEST_CASE("assets.browse shows a folder by its path, as a list or as a grid") {
+        AssetFixture fixture;
+        Json listed = fixture.run("assets.browse", R"({"folder": "models", "view": "LIST"})");
+        CHECK(listed["folder"] == "models");
+        CHECK(listed["view"] == "list");
+        CHECK(fixture.browser.view() == AssetBrowserView::List);
+        CHECK(browserLines(listed["contents"]) == std::vector<std::string>{"cart.gltf (model) ..."});
+        CHECK(browserLines(listed["folders"])[2] == "  models/ *");
+        // A file is opened among the contents as it is among the rows.
+        listed = fixture.run("assets.browse", R"({"open": "models/cart.gltf"})");
+        CHECK(browserLines(listed["contents"]) ==
+              std::vector<std::string>{"cart.gltf (model)", "  Body (mesh)", "  Wheel (mesh)", "  Paint (material)"});
+
+        // What the engine has built in, and the top again - with blanks around it.
+        listed = fixture.run("assets.browse", R"({"folder": "builtin", "view": "grid"})");
+        CHECK(listed["folder"] == "builtin");
+        CHECK(listed["view"] == "grid");
+        CHECK(listed["contents"].size() == 8);
+        CHECK(listed["folders"].back().contains("selected"));
+        listed = fixture.run("assets.browse", R"({"folder": " "})");
+        CHECK(listed["folder"] == "");
+
+        // A search looks in the folder shown and below it, side by side.
+        listed = fixture.run("assets.browse", R"({"folder": "models", "type": "mesh"})");
+        CHECK(browserLines(listed["contents"]) == std::vector<std::string>{"Body (mesh)", "Wheel (mesh)"});
+        // The folder asked for is shown, also when an asset is chosen elsewhere.
+        listed = fixture.run("assets.browse", R"({"type": "all", "select": "textures/wall.png", "folder": "sounds"})");
+        CHECK(listed["folder"] == "sounds");
+        CHECK(listed["selected"]["path"] == "textures/wall.png");
+        CHECK(browserLines(listed["contents"]) == std::vector<std::string>{"creak.wav (sound)"});
+        // Without a folder, choosing an asset shows the folder it is in.
+        listed = fixture.run("assets.browse", R"({"select": "models/cart.gltf#mesh/0"})");
+        CHECK(listed["folder"] == "models");
+        CHECK(browserLines(listed["contents"])[1] == "  Body (mesh) *");
     }
 
     TEST_CASE("assets.browse narrows what is listed, chooses an asset and opens what it is in") {
@@ -1076,14 +1126,18 @@ TEST_SUITE("AssetCommands") {
         CHECK(listed["selected"]["path"] == "models/cart.gltf#mesh/1");
         listed = fixture.run("assets.browse", R"({"open": "models/cart.gltf"})");
         CHECK(browserLines(listed["rows"])[5] == "    Wheel (mesh) *");
-        // An asset the filter leaves out is chosen all the same, and nothing is opened for it.
-        fixture.run("assets.browse", R"({"close": "models/cart.gltf"})");
+        // An asset the filter leaves out is chosen all the same, and given its place: the
+        // folder it is in is shown, and the file it is inside opened, to be seen once the
+        // filter lists it.
+        fixture.run("assets.browse", R"({"close": "models/cart.gltf", "folder": ""})");
         listed = fixture.run("assets.browse", R"({"type": "texture", "select": "models/cart.gltf#mesh/0"})");
         CHECK(listed["selected"]["path"] == "models/cart.gltf#mesh/0");
+        CHECK(listed["folder"] == "models");
         CHECK(browserLines(listed["rows"]) == std::vector<std::string>{"textures/", "  wall.png (texture)"});
+        CHECK(listed["contents"].empty());
         listed = fixture.run("assets.browse", R"({"type": "all"})");
-        CHECK(browserLines(listed["rows"])[3] == "  cart.gltf (model) ...");
-        fixture.run("assets.browse", R"({"open": "models/cart.gltf"})");
+        CHECK(browserLines(listed["rows"])[4] == "    Body (mesh) *");
+        CHECK(browserLines(listed["contents"])[1] == "  Body (mesh) *");
         listed = fixture.run("assets.browse",
                              fmt::format(R"({{"select": "{}", "close": "models"}})", fixture.id("textures/wall.png")));
         CHECK(listed["selected"]["path"] == "textures/wall.png");
@@ -1125,12 +1179,34 @@ TEST_SUITE("AssetCommands") {
         }
         CHECK(fixture.fail("assets.browse", R"({"type": 5})").code == ErrorCode::InvalidArgument);
         CHECK(fixture.fail("assets.browse", R"({"sort": "name"})").code == ErrorCode::InvalidArgument);
+        // A folder is a directory with an asset in it, the top or what is built in.
+        for (const char* path : {"nowhere", "textures/wall.png", "models/cart.gltf", "/textures", "#builtin"}) {
+            CAPTURE(std::string(path));
+            error = fixture.fail("assets.browse", fmt::format(R"({{"folder": "{}"}})", path));
+            CHECK(error.code == ErrorCode::NotFound);
+            CHECK(error.message == fmt::format("assets.browse: the assets have no folder '{}': a folder is a directory "
+                                               "with an asset in it or below it, \"\" the top and \"builtin\" what "
+                                               "the engine has built in",
+                                               path));
+        }
+        error = fixture.fail("assets.browse", R"({"view": "tiles"})");
+        CHECK(error.code == ErrorCode::InvalidArgument);
+        CHECK(error.message == "assets.browse: 'tiles' is not a view of the assets; use list or grid");
+        CHECK(fixture.fail("assets.browse", R"({"folder": 3})").code == ErrorCode::InvalidArgument);
 
         // The first half of a request is not done when the second cannot be.
+        const AssetBrowserView view = fixture.browser.view();
+        const std::string folder = fixture.browser.folder();
         error = fixture.fail("assets.browse", R"({"type": "mesh", "search": "", "select": "", "open": "nowhere"})");
+        CHECK(error.code == ErrorCode::NotFound);
+        error = fixture.fail("assets.browse", R"({"folder": "models", "view": "tiles"})");
+        CHECK(error.code == ErrorCode::InvalidArgument);
+        error = fixture.fail("assets.browse", R"({"view": "list", "folder": "models", "close": "nowhere"})");
         CHECK(error.code == ErrorCode::NotFound);
         CHECK(fixture.browser.filter() == filter);
         CHECK(fixture.browser.selection() == selection);
+        CHECK(fixture.browser.view() == view);
+        CHECK(fixture.browser.folder() == folder);
         CHECK(fixture.browser.revision() == revision);
     }
 
@@ -1388,6 +1464,21 @@ TEST_SUITE("AssetCommands") {
         // What has no file of its own does not move.
         CHECK(dropTarget(*database.findByReference("models/cart.gltf#mesh/0"), rowOf("textures")).empty());
         CHECK(dropTarget(*database.find(builtinMeshId(BuiltinMesh::Cube)), rowOf("textures")).empty());
+
+        // Onto the top of the tree, to the top; onto a directory among the contents, into it.
+        const std::vector<AssetBrowserRow> folders = fixture.browser.folders(database);
+        const AssetBrowserRow& top = folders.front();
+        CHECK(dropTarget(material, top) == "paint.material.json");
+        CHECK(dropTarget(material, folders.back()).empty());
+        const std::vector<AssetBrowserRow> contents = fixture.browser.contents(database);
+        const auto textures = std::ranges::find(contents, "textures", &AssetBrowserRow::path);
+        REQUIRE(textures != contents.end());
+        CHECK(dropTarget(material, *textures) == "textures/paint.material.json");
+        // What is at the top already stays there.
+        fixture.writeText("notes.lua", "return {}");
+        REQUIRE(fixture.assets->refresh().has_value());
+        const AssetDatabase& refreshed = fixture.assets->database();
+        CHECK(dropTarget(*refreshed.findByReference("notes.lua"), fixture.browser.folders(refreshed).front()).empty());
     }
 
     TEST_CASE("a sound is heard by a line, and said in a few words beside the rows") {
@@ -1437,9 +1528,19 @@ TEST_SUITE("AssetCommands") {
         CHECK(directoryDropTarget("", rowOf("textures")).empty());
         // A name that only begins like another is not inside it.
         CHECK(directoryDropTarget("art", directory("artwork")) == "artwork/art");
+
+        // The top of the tree takes what is not at the top, and is itself carried nowhere.
+        const AssetBrowserRow top = fixture.browser.folders(fixture.assets->database()).front();
+        CHECK(isProjectDirectory(top));
+        CHECK_FALSE(isMovableDirectory(top));
+        CHECK(isMovableDirectory(rowOf("textures")));
+        CHECK_FALSE(isMovableDirectory(rowOf(std::string(kBuiltinAssetPath))));
+        CHECK_FALSE(isMovableDirectory(rowOf("textures/wall.png")));
+        CHECK(directoryDropTarget("art/looks", top) == "looks");
+        CHECK(directoryDropTarget("materials", top).empty());
     }
 
-    TEST_CASE("files are brought in by command, and what is dropped goes where the chosen asset is") {
+    TEST_CASE("files are brought in by command, and what is dropped goes into the folder shown") {
         AssetFixture fixture;
         const TempDirectory downloads;
         const Image image = unwrap(Image::create(2, 2, ImageFormat::Rgba8));
@@ -1450,12 +1551,18 @@ TEST_SUITE("AssetCommands") {
                           R"({"format": "cordite.asset", "version": 1, "id": "22222222-2222-4222-8222-222222222222"})")
                 .has_value());
 
-        // Where a drop goes: the directory of the chosen asset, or the top.
+        // Where a drop goes: the folder shown - the top at first, and while it is what the
+        // engine has built in. Choosing an asset shows the folder it is in.
         CHECK(importDirectory(fixture.browser, fixture.assets->database()).empty());
         fixture.run("assets.browse", R"({"select": "models/cart.gltf#mesh/0"})");
         CHECK(importDirectory(fixture.browser, fixture.assets->database()) == "models");
         fixture.run("assets.browse", fmt::format(R"({{"select": "{}"}})", builtinMeshId(BuiltinMesh::Cube).toString()));
         CHECK(importDirectory(fixture.browser, fixture.assets->database()).empty());
+        fixture.run("assets.browse", R"({"folder": "scripts"})");
+        CHECK(importDirectory(fixture.browser, fixture.assets->database()) == "scripts");
+        // Not where the chosen asset is, when another folder is shown.
+        fixture.run("assets.browse", R"({"select": "textures/wall.png", "folder": "sounds"})");
+        CHECK(importDirectory(fixture.browser, fixture.assets->database()) == "sounds");
         fixture.run("assets.browse", R"({"select": "textures/wall.png"})");
         const std::string directory = importDirectory(fixture.browser, fixture.assets->database());
         CHECK(directory == "textures");

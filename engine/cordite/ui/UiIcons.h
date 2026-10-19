@@ -86,6 +86,10 @@ inline constexpr UiIcon kMove = uiIcon<0xE124>();
 inline constexpr UiIcon kRotate = uiIcon<0xE2E9>();
 inline constexpr UiIcon kScale = uiIcon<0xE2EA>();
 inline constexpr UiIcon kSelect = uiIcon<0xE1C2>();
+inline constexpr UiIcon kList = uiIcon<0xE10B>();
+inline constexpr UiIcon kGrid = uiIcon<0xE104>();
+inline constexpr UiIcon kChevronLeft = uiIcon<0xE072>();
+inline constexpr UiIcon kChevronRight = uiIcon<0xE073>();
 
 // What there is in a scene.
 inline constexpr UiIcon kEntity = uiIcon<0xE528>();

@@ -3,25 +3,32 @@
 /// @file
 /// The editor panel that shows the assets of the project, and puts them to use.
 ///
-/// A tree of directories, files and what is inside files (AssetBrowser), with a filter
-/// by type and by text above it, the asset that is chosen below it, and beside it a
-/// picture of that asset when it has one (AssetPreview). A model or a
-/// prefab is placed in the scene by a double click or from its menu, a scene is opened
-/// from its menu, and any asset is dragged onto a property of the inspector that takes
-/// one of its kind, or - a model or a prefab - onto an entity of the hierarchy. A sound
-/// has its length beside the rows instead of a picture, and is heard with Play.
+/// Laid out as the browsers of Unity and Unreal Engine are (AssetBrowser): the tree of
+/// the folders of the project at the left; beside it what the folder chosen there has in
+/// it, as a list or as a grid of tiles, with the way to the folder above it - each step a
+/// button back up - and a filter by type and by text; at the right a picture of the
+/// chosen asset when it has one (AssetPreview); and under all of it the asset that is
+/// chosen. A directory is gone into by a double click, a file with something inside it
+/// opened by its arrow; a model or a prefab is placed in the scene by a double click or
+/// from its menu, a scene is opened from its menu, and any asset is dragged onto a
+/// property of the inspector that takes one of its kind, or - a model or a prefab - onto
+/// an entity of the hierarchy, or onto a folder to move its file there. A sound has its
+/// length at the right instead of a picture, and is heard with Play.
 ///
 /// @code
 /// AssetBrowserPanel assets;
 /// std::vector<std::string> submitted;
 /// assets.draw(engine, context, ShadowQuality::Medium, submitted);   // once per frame
 /// assets.browser().setFilter({.type = AssetType::Prefab});
+/// assets.browser().setView(AssetBrowserView::List);
 /// @endcode
 ///
 /// What the panel does it does by commands - `asset.instantiate`, `scene.open`,
 /// `asset.refresh` - which it hands to the caller as lines to run, as the console does:
 /// they change the scene and the assets, which is for between two frames, and what a
-/// click did is then in the log like what was typed.
+/// click did is then in the log like what was typed. What it shows - the folder, the
+/// filter, the view, what is chosen - it changes in its browser, which is what
+/// `assets.browse` asks.
 
 #include "cordite/assets/AssetDatabase.h"
 #include "cordite/core/Uuid.h"
@@ -30,6 +37,7 @@
 #include "cordite/editor/EditorContext.h"
 #include "cordite/engine/Engine.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -59,8 +67,37 @@ public:
     [[nodiscard]] const AssetPreview& preview() const { return m_preview; }
 
 private:
-    void drawToolbar(const AssetDatabase& database, std::vector<std::string>& submittedLines);
-    void drawRows(const EditorContext& context, std::vector<std::string>& submittedLines);
+    /// What a click on a row of the tree or of the contents asked for, to be done once
+    /// all of them have been drawn: the rows change with it.
+    struct Click {
+        /// A folder, or a file, to open or close.
+        std::optional<AssetBrowserRow> toggled;
+        /// The key of a folder to show.
+        std::optional<std::string> shown;
+        /// An asset to choose.
+        std::optional<Uuid> chosen;
+    };
+
+    /// The way to the folder shown, the filter, the switch between the list and the grid,
+    /// Refresh, and what is wrong with the asset directory.
+    void drawToolbar(const AssetDatabase& database, std::vector<std::string>& submittedLines, Click& click);
+    /// The way to the folder shown, as buttons that show the folders on it, in `width`
+    /// units of the interface - the first steps left out, when it is longer.
+    void drawSteps(float width, Click& click);
+    void drawFolders(const EditorContext& context, std::vector<std::string>& submittedLines, Click& click);
+    void drawContents(const EditorContext& context, std::vector<std::string>& submittedLines, Click& click);
+    void drawList(const EditorContext& context, std::vector<std::string>& submittedLines, Click& click);
+    void drawGrid(const EditorContext& context, std::vector<std::string>& submittedLines, Click& click);
+    /// One tile of the grid, `height` units high, with its top left corner at (`left`,
+    /// `top`) on the screen: what a click, a double click, a drag and its menu do, its face,
+    /// and the arrow of a file with something inside it.
+    void drawTile(const EditorContext& context, const AssetBrowserRow& row, float left, float top, float height,
+                  std::vector<std::string>& submittedLines, Click& click);
+    /// What a row of the tree or of the contents does that is the same whatever it looks
+    /// like, for the item drawn last: its menu, what a drag of it carries, what a drop on
+    /// it moves, and what a double click does.
+    void handleRow(const EditorContext& context, const AssetBrowserRow& row, bool doubleClicked,
+                   std::vector<std::string>& submittedLines, Click& click);
     void drawSelection(const EditorContext& context, std::vector<std::string>& submittedLines);
     /// The buttons that list what the chosen asset needs and what needs it, and their lists.
     void drawUses(const EditorContext& context, const AssetInfo& asset, std::vector<std::string>& submittedLines);
@@ -75,12 +112,24 @@ private:
     /// (`asset.listen`).
     void drawSound(Engine& engine, EditorContext& context, const AssetInfo& asset,
                    std::vector<std::string>& submittedLines);
+    /// Does what the clicks of a frame asked for, to the browser.
+    void apply(const Click& click);
+    /// The place among the contents of the asset to scroll to in this frame, if any: one
+    /// that something else than a click in here has chosen - a command - in the frame
+    /// after it was chosen, and in the one after that, since a pane drawn for the first
+    /// time does not know its size yet.
+    [[nodiscard]] std::optional<size_t> rowToReveal();
 
     AssetBrowser m_browser;
     AssetPreview m_preview;
-    /// The rows that are drawn, and what they were worked out from: they are asked for
-    /// again when the assets were read again or the browser shows something else.
-    std::vector<AssetBrowserRow> m_rows;
+    /// The rows that are drawn - of the tree, and of the folder shown - and what they were
+    /// worked out from: they are asked for again when the assets were read again or the
+    /// browser shows something else.
+    std::vector<AssetBrowserRow> m_folders;
+    std::vector<AssetBrowserRow> m_contents;
+    /// The key of the folder shown, and the way to it.
+    std::string m_shownFolder;
+    std::vector<AssetFolderStep> m_steps;
     uint64_t m_rowsOfDatabase = 0;
     uint64_t m_rowsOfBrowser = 0;
     bool m_hasRows = false;
@@ -103,9 +152,10 @@ private:
     uint64_t m_soundRevision = 0;
     bool m_soundHeard = false;
     std::string m_soundText;
-    /// The asset the rows were last drawn with as the chosen one. When something else
-    /// than a click in here chooses another - a command - the rows scroll to it.
+    /// The asset the contents were last drawn with as the chosen one, and in how many more
+    /// frames they scroll to it (rowToReveal()).
     Uuid m_shownSelection;
+    uint32_t m_revealFrames = 0;
 };
 
 } // namespace cordite

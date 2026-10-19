@@ -5,6 +5,8 @@
 #include "cordite/core/Platform.h"
 #include "cordite/core/Version.h"
 
+#include <fmt/format.h>
+
 #include <array>
 #include <optional>
 #include <string>
@@ -15,7 +17,7 @@ namespace {
 
 constexpr DocumentFormat kPreferencesFormat{
     .name = "cordite.preferences", .version = 1, .kind = "file of editor preferences"};
-constexpr std::array<std::string_view, 3> kMembers = {"format", "version", "theme"};
+constexpr std::array<std::string_view, 4> kMembers = {"format", "version", "theme", "assetView"};
 
 /// The names of the themes, for a message that says which there are.
 std::string themeNames() {
@@ -42,6 +44,20 @@ Result<UiTheme> parseTheme(const Json& value) {
     return *theme;
 }
 
+Result<AssetBrowserView> parseAssetView(const Json& value) {
+    const auto views = fmt::format("{}, {}", nameOf(AssetBrowserView::List), nameOf(AssetBrowserView::Grid));
+    if (!value.is_string()) {
+        return makeError(ErrorCode::ParseError, "'assetView' must be the name of a view ({}), got {}", views,
+                         dumpJson(value));
+    }
+    const std::string name = value.get<std::string>();
+    const std::optional<AssetBrowserView> view = assetBrowserViewFromName(name);
+    if (!view) {
+        return makeError(ErrorCode::ParseError, "there is no view of the assets '{}'; there are {}", name, views);
+    }
+    return *view;
+}
+
 } // namespace
 
 Result<EditorPreferences> parseEditorPreferences(const Json& document) {
@@ -52,12 +68,16 @@ Result<EditorPreferences> parseEditorPreferences(const Json& document) {
     if (const auto theme = document.find("theme"); theme != document.end()) {
         CORDITE_TRY_ASSIGN(preferences.theme, parseTheme(*theme));
     }
+    if (const auto view = document.find("assetView"); view != document.end()) {
+        CORDITE_TRY_ASSIGN(preferences.assetView, parseAssetView(*view));
+    }
     return preferences;
 }
 
 Json editorPreferencesDocument(const EditorPreferences& preferences) {
     Json document = makeDocument(kPreferencesFormat);
     document["theme"] = std::string(nameOf(preferences.theme));
+    document["assetView"] = std::string(nameOf(preferences.assetView));
     return document;
 }
 

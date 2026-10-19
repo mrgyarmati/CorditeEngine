@@ -11,10 +11,13 @@
 
 #include <fmt/format.h>
 #include <imgui.h>
+#include <imgui_internal.h>
 #include <misc/cpp/imgui_stdlib.h>
 
 #include <algorithm>
 #include <array>
+#include <cfloat>
+#include <cmath>
 #include <cstddef>
 #include <cstring>
 #include <optional>
@@ -24,7 +27,7 @@ namespace cordite {
 namespace {
 
 constexpr float kTypeFilterWidth = 130.0f;
-constexpr float kSearchWidth = 220.0f;
+constexpr float kSearchWidth = 180.0f;
 constexpr float kTypeColumnWidth = 90.0f;
 constexpr float kMoveFieldWidth = 420.0f;
 /// What a dragged directory of the assets carries: its path.
@@ -33,6 +36,16 @@ constexpr const char* kDirectoryPayload = "cordite.assetDirectory";
 /// least it is drawn at, in units of the interface.
 constexpr float kPictureShare = 0.4f;
 constexpr float kSmallestPicture = 32.0f;
+/// How wide the tree of folders is until it is dragged wider or narrower - which the
+/// layout then remembers - in units of the interface.
+constexpr float kFoldersWidth = 170.0f;
+/// How wide a tile of the grid is, and how large the icon on it, in units of the
+/// interface.
+constexpr float kTileWidth = 84.0f;
+constexpr float kTileIconSize = 34.0f;
+/// In how many frames the contents scroll to an asset chosen from outside: the first may
+/// lay out a pane that has not been drawn before.
+constexpr uint32_t kRevealFrames = 2;
 
 /// Rows of assets to go to: a click chooses one in the browser. An id that is no asset is
 /// said to be missing, and is nowhere to go.
@@ -118,124 +131,112 @@ void acceptMoveDrop(const AssetDatabase& database, const AssetBrowserRow& row,
     ImGui::EndDragDropTarget();
 }
 
-/// What a click did to a row.
-struct RowClick {
-    /// Its arrow - or a directory, anywhere: it is to be opened or closed.
-    bool toggled = false;
-    /// Its asset was clicked, or its menu opened: that is the asset chosen.
-    bool chosen = false;
-    /// Its menu asked for the file of its asset to be renamed or moved.
-    bool moveAsked = false;
-    /// Its menu asked for its directory to be renamed or moved.
-    bool moveDirectoryAsked = false;
-};
+/// What a row of the contents says it is where its type would be.
+std::string kindOf(const AssetBrowserRow& row) {
+    return row.kind == AssetBrowserRow::Kind::Asset ? std::string(displayNameOf(row.type)) : std::string("Folder");
+}
 
-/// Draws one row: its name, as far in as the row is, and for an asset its type in the
-/// second column, its menu and what a drag of it carries. A double click on what can be
-/// placed asks for that. `scrollHere` scrolls the rows to this one.
-RowClick drawRow(const EditorContext& context, const AssetBrowserRow& row, bool scrollHere,
-                 std::vector<std::string>& submittedLines) {
-    RowClick click;
-    const bool isAsset = row.kind == AssetBrowserRow::Kind::Asset;
-    // By what the row is, not by where: a menu that is open stays with its asset when rows
-    // above it come and go.
-    ImGui::PushID(row.path.c_str());
-    ImGui::TableNextRow();
-    ImGui::TableNextColumn();
-    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + static_cast<float>(row.depth) * ImGui::GetStyle().IndentSpacing);
+/// Where an asset that a search found is: the directory of its file - the top's name for
+/// the top - or "builtin" for what the engine has built in, which is in no file.
+std::string_view whereOf(const AssetBrowserRow& row) {
+    const std::string_view path = row.path;
+    const std::string_view file = path.substr(0, path.find('#'));
+    if (file == kBuiltinAssetPath) {
+        return kBuiltinAssetPath;
+    }
+    const size_t slash = file.find_last_of('/');
+    return slash == std::string_view::npos ? kTopFolderLabel : file.substr(0, slash);
+}
 
-    // A row of a tree whose state is the browser's: opened and closed there, and drawn
-    // here as it is. A directory opens wherever it is clicked; a file by its arrow, since
-    // a click on it chooses it.
-    ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_NoTreePushOnOpen | ImGuiTreeNodeFlags_SpanAllColumns;
-    if (!row.hasChildren) {
-        flags |= ImGuiTreeNodeFlags_Leaf;
-    } else if (isAsset) {
-        flags |= ImGuiTreeNodeFlags_OpenOnArrow;
-    }
-    if (row.selected) {
-        flags |= ImGuiTreeNodeFlags_Selected;
-    }
-    // A file that is listed for what is inside it, and not for itself.
-    const bool dimmed = isAsset && !row.matches;
-    if (dimmed) {
-        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-    }
-    ImGui::SetNextItemOpen(row.open, ImGuiCond_Always);
-    const UiIcon icon = isAsset ? iconOf(row.type) : directoryIcon(row.open);
-    ImGui::TreeNodeEx("##row", flags, "%s  %s", icon.text(), row.label.c_str());
-    if (dimmed) {
-        ImGui::PopStyleColor();
-    }
-    if (scrollHere) {
-        ImGui::SetScrollHereY();
-    }
+/// What a row is known by among the others, for ImGui: the key of a directory - which
+/// tells what the engine has built in from a directory of the same name - or the path
+/// of an asset. It stays with the row when rows before it come and go, and with it its
+/// menu.
+const char* idOf(const AssetBrowserRow& row) {
+    return row.kind == AssetBrowserRow::Kind::Directory ? row.key.c_str() : row.path.c_str();
+}
 
-    if (ImGui::IsItemToggledOpen()) {
-        click.toggled = true;
-    } else if (isAsset && ImGui::IsItemClicked(ImGuiMouseButton_Left)) {
-        click.chosen = true;
-        if (canBePlaced(row.type) && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
-            submittedLines.push_back(placeAssetCommand(context, row.asset));
-        }
+/// The face of the tile of `row`, whose top left corner is `start`: the icon of what it
+/// is, large, and its name under it - cut short with an ellipsis where it is longer than
+/// the tile; the tooltip has all of it.
+void drawTileFace(const AssetBrowserRow& row, ImVec2 start) {
+    const ImGuiStyle& style = ImGui::GetStyle();
+    ImDrawList* drawList = ImGui::GetWindowDrawList();
+    ImFont* font = ImGui::GetFont();
+    const UiIcon icon = row.kind == AssetBrowserRow::Kind::Asset ? iconOf(row.type) : directoryIcon(false);
+    const ImVec2 iconExtent = font->CalcTextSizeA(kTileIconSize, FLT_MAX, 0.0f, icon.text());
+    drawList->AddText(font, kTileIconSize,
+                      ImVec2(std::floor(start.x + (kTileWidth - iconExtent.x) * 0.5f), start.y + style.FramePadding.y),
+                      ImGui::GetColorU32(ImGuiCol_Text), icon.text());
+
+    const float labelTop = start.y + style.FramePadding.y + kTileIconSize + style.ItemInnerSpacing.y;
+    const ImVec2 labelExtent = ImGui::CalcTextSize(row.label.c_str());
+    const float labelEnd = start.x + kTileWidth - style.FramePadding.x;
+    const float labelLeft =
+        std::max(std::floor(start.x + (kTileWidth - labelExtent.x) * 0.5f), start.x + style.FramePadding.x);
+    ImGui::RenderTextEllipsis(drawList, ImVec2(labelLeft, labelTop),
+                              ImVec2(labelEnd, labelTop + ImGui::GetTextLineHeight()), labelEnd, row.label.c_str(),
+                              nullptr, &labelExtent);
+}
+
+/// The arrow at the side of the tile of a file with something inside it, whose top left
+/// corner is `start`: it shows that, after the file, or hides it again. Returns whether it
+/// was clicked.
+bool drawOpenArrow(const AssetBrowserRow& row, ImVec2 start) {
+    const ImGuiStyle& style = ImGui::GetStyle();
+    ImDrawList* drawList = ImGui::GetWindowDrawList();
+    const UiIcon arrow = row.open ? icons::kChevronLeft : icons::kChevronRight;
+    const ImVec2 glyph = ImGui::CalcTextSize(arrow.text());
+    const ImVec2 size(glyph.x + style.FramePadding.x, ImGui::GetFrameHeight());
+    const ImVec2 corner(start.x + kTileWidth - size.x,
+                        start.y + style.FramePadding.y + (kTileIconSize - size.y) * 0.5f);
+    ImGui::SetCursorScreenPos(corner);
+    const bool clicked = ImGui::InvisibleButton("open", size);
+    // Without a ground of its own until the pointer is on it: the tile has one.
+    if (ImGui::IsItemHovered()) {
+        drawList->AddRectFilled(corner, ImVec2(corner.x + size.x, corner.y + size.y),
+                                ImGui::GetColorU32(ImGuiCol_ButtonHovered), style.FrameRounding);
     }
-    if (isAsset) {
-        if (const AssetInfo* asset = context.assets().database().find(row.asset);
-            asset != nullptr && drawAssetMenu(context, *asset, submittedLines, click.moveAsked)) {
-            click.chosen = true;
-        }
-        if (ImGui::BeginDragDropSource()) {
-            ImGui::SetDragDropPayload(PropertyEditor::kAssetPayload, &row.asset, sizeof(Uuid));
-            ImGui::TextUnformatted(row.path.c_str());
-            ImGui::EndDragDropSource();
-        }
-        ImGui::TableNextColumn();
-        const std::string type(displayNameOf(row.type));
-        ImGui::TextDisabled("%s", type.c_str());
-    } else {
-        // What the engine has built in is no directory to rename, or to carry about.
-        if (isProjectDirectory(row)) {
-            if (ImGui::BeginPopupContextItem("directory_menu")) {
-                if (ImGui::MenuItem("Rename or move...")) {
-                    click.moveDirectoryAsked = true;
-                }
-                ImGui::EndPopup();
-            }
-            if (ImGui::BeginDragDropSource()) {
-                ImGui::SetDragDropPayload(kDirectoryPayload, row.path.data(), row.path.size());
-                ImGui::TextUnformatted(row.path.c_str());
-                ImGui::EndDragDropSource();
-            }
-        }
-        acceptMoveDrop(context.assets().database(), row, submittedLines);
+    drawList->AddText(
+        ImVec2(std::floor(corner.x + (size.x - glyph.x) * 0.5f), std::floor(corner.y + (size.y - glyph.y) * 0.5f)),
+        ImGui::GetColorU32(ImGuiCol_Text), arrow.text());
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) {
+        ImGui::SetTooltip("%s", row.open ? "Hide what is inside" : "Show what is inside");
     }
-    ImGui::PopID();
-    return click;
+    return clicked;
 }
 
 } // namespace
 
 void AssetBrowserPanel::draw(Engine& engine, EditorContext& context, ShadowQuality shadows,
                              std::vector<std::string>& submittedLines) {
-    // The rows scroll, in a region of their own; the window around them does not.
+    // The panes scroll, each in a region of its own; the window around them does not.
     static const std::string kName = windowName(icons::kFolder, "Assets");
     if (ImGui::Begin(kName.c_str(), nullptr, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
         const AssetDatabase& database = context.assets().database();
-        drawToolbar(database, submittedLines);
-        ImGui::Separator();
+        const auto refresh = [&] {
+            if (!m_hasRows || m_rowsOfDatabase != database.revision() || m_rowsOfBrowser != m_browser.revision()) {
+                m_folders = m_browser.folders(database);
+                m_contents = m_browser.contents(database);
+                m_shownFolder = m_browser.shownFolder(database);
+                m_steps = folderSteps(m_shownFolder);
+                m_rowsOfDatabase = database.revision();
+                m_rowsOfBrowser = m_browser.revision();
+                m_hasRows = true;
+            }
+        };
+        refresh();
+        // What a click asks for changes the rows, and is done once they have all been drawn.
+        Click click;
+        drawToolbar(database, submittedLines, click);
+        // The filter of the toolbar shows at once.
+        refresh();
 
-        if (!m_hasRows || m_rowsOfDatabase != database.revision() || m_rowsOfBrowser != m_browser.revision()) {
-            m_rows = m_browser.rows(database);
-            m_rowsOfDatabase = database.revision();
-            m_rowsOfBrowser = m_browser.revision();
-            m_hasRows = true;
-        }
-
-        // The rows, and below them - under a separator - a line for the asset that is
+        // The panes, and below them - under a separator - a line for the asset that is
         // chosen, which stays where it is however many rows there are.
         const float footerHeight = ImGui::GetFrameHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y + 1.0f;
-        // Beside the rows, a picture of the chosen asset, when it has one: square, as high as
-        // the rows are, and no wider than a share of the panel. A sound has what is said of
+        // At the right, a picture of the chosen asset, when it has one: square, as high as
+        // the panes are, and no wider than a share of the panel. A sound has what is said of
         // it there, and the button that plays it, which need no square.
         const AssetInfo* chosen = database.find(m_browser.selection());
         const ImVec2 room = ImGui::GetContentRegionAvail();
@@ -246,9 +247,16 @@ void AssetBrowserPanel::draw(Engine& engine, EditorContext& context, ShadowQuali
             pictureWidth = std::floor(room.x * kPictureShare);
         }
         const bool pictured = pictureWidth >= kSmallestPicture;
-        const float besideRows = pictured ? pictureWidth + ImGui::GetStyle().ItemSpacing.x : 0.0f;
-        if (ImGui::BeginChild("rows", ImVec2(-besideRows, -footerHeight))) {
-            drawRows(context, submittedLines);
+        const float besidePanes = pictured ? pictureWidth + ImGui::GetStyle().ItemSpacing.x : 0.0f;
+
+        // The tree is as wide as it was dragged to be, which the layout remembers.
+        if (ImGui::BeginChild("folders", ImVec2(kFoldersWidth, -footerHeight), ImGuiChildFlags_ResizeX)) {
+            drawFolders(context, submittedLines, click);
+        }
+        ImGui::EndChild();
+        ImGui::SameLine();
+        if (ImGui::BeginChild("contents", ImVec2(-besidePanes, -footerHeight))) {
+            drawContents(context, submittedLines, click);
         }
         ImGui::EndChild();
         if (pictured) {
@@ -268,8 +276,40 @@ void AssetBrowserPanel::draw(Engine& engine, EditorContext& context, ShadowQuali
         ImGui::Separator();
         drawSelection(context, submittedLines);
         drawMoveDialog(context, submittedLines);
+        apply(click);
     }
     ImGui::End();
+}
+
+void AssetBrowserPanel::apply(const Click& click) {
+    if (click.toggled) {
+        m_browser.setOpen(*click.toggled, !click.toggled->open);
+    }
+    if (click.shown) {
+        m_browser.showFolder(*click.shown);
+    }
+    if (click.chosen) {
+        // Chosen where it is seen: nothing to scroll to.
+        m_browser.select(*click.chosen);
+        m_shownSelection = *click.chosen;
+        m_revealFrames = 0;
+    }
+}
+
+std::optional<size_t> AssetBrowserPanel::rowToReveal() {
+    if (m_browser.selection() != m_shownSelection) {
+        m_shownSelection = m_browser.selection();
+        m_revealFrames = kRevealFrames;
+    }
+    if (m_revealFrames == 0) {
+        return std::nullopt;
+    }
+    --m_revealFrames;
+    const auto selected = std::ranges::find_if(m_contents, &AssetBrowserRow::selected);
+    if (selected == m_contents.end()) {
+        return std::nullopt;
+    }
+    return static_cast<size_t>(selected - m_contents.begin());
 }
 
 void AssetBrowserPanel::drawSound(Engine& engine, EditorContext& context, const AssetInfo& asset,
@@ -334,13 +374,33 @@ void AssetBrowserPanel::drawPicture(Engine& engine, EditorContext& context, Shad
     ImGui::Image(UiSystem::textureId(picture), extent);
 }
 
-void AssetBrowserPanel::drawToolbar(const AssetDatabase& database, std::vector<std::string>& submittedLines) {
+void AssetBrowserPanel::drawToolbar(const AssetDatabase& database, std::vector<std::string>& submittedLines,
+                                    Click& click) {
+    const ImGuiStyle& style = ImGui::GetStyle();
     AssetBrowserFilter filter = m_browser.filter();
     // A filter that a command has set shows in the field; what is being typed stays as
     // it is typed.
     if (trim(m_search) != filter.search) {
         m_search = filter.search;
     }
+
+    // At the right the filter, the views, Refresh and what is wrong; the way to the folder
+    // shown has what is left at the left.
+    const std::span<const std::string> problems = database.problems();
+    const std::string problemCount = fmt::format("{} problem(s)", problems.size());
+    const auto iconButtonWidth = [&style](const UiIcon& icon) {
+        return ImGui::CalcTextSize(icon.text()).x + style.FramePadding.x * 2.0f;
+    };
+    float rightWidth = kTypeFilterWidth + kSearchWidth + iconButtonWidth(icons::kList) + iconButtonWidth(icons::kGrid) +
+                       iconButtonWidth(icons::kRefresh) + style.ItemSpacing.x * 4.0f;
+    if (!problems.empty()) {
+        rightWidth += ImGui::CalcTextSize(problemCount.c_str()).x + style.ItemSpacing.x;
+    }
+    const float left = ImGui::GetCursorPosX();
+    const float room = ImGui::GetContentRegionAvail().x;
+    drawSteps(std::max(room - rightWidth - style.ItemSpacing.x, 0.0f), click);
+    ImGui::SameLine();
+    ImGui::SetCursorPosX(std::max(left + room - rightWidth, ImGui::GetCursorPosX()));
 
     ImGui::SetNextItemWidth(kTypeFilterWidth);
     const std::string current(filter.type ? displayNameOf(*filter.type) : std::string_view("All types"));
@@ -362,21 +422,47 @@ void AssetBrowserPanel::drawToolbar(const AssetDatabase& database, std::vector<s
     if (ImGui::InputTextWithHint("##search", "name or path", &m_search)) {
         filter.search = m_search;
     }
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) {
+        ImGui::SetTooltip("Finds what is in the folder shown, and below it.");
+    }
     m_browser.setFilter(std::move(filter));
 
+    // The view in use is drawn in the accent, as the tools of the toolbar are.
+    const UiPalette& palette = UiSystem::palette();
+    for (const AssetBrowserView view : kAssetBrowserViews) {
+        const bool inUse = m_browser.view() == view;
+        ImGui::SameLine();
+        if (inUse) {
+            ImGui::PushStyleColor(ImGuiCol_Button, palette.accent);
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, palette.accentStrong);
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive, palette.accentStrong);
+            ImGui::PushStyleColor(ImGuiCol_Text, palette.onAccent);
+        }
+        const UiIcon icon = view == AssetBrowserView::List ? icons::kList : icons::kGrid;
+        if (ImGui::Button(fmt::format("{}##{}", icon.text(), nameOf(view)).c_str())) {
+            m_browser.setView(view);
+        }
+        if (inUse) {
+            ImGui::PopStyleColor(4);
+        }
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) {
+            ImGui::SetTooltip("%s", view == AssetBrowserView::List ? "A list" : "A grid of tiles");
+        }
+    }
+
     ImGui::SameLine();
-    if (ImGui::Button("Refresh")) {
+    if (ImGui::Button(icons::kRefresh.text())) {
         submittedLines.emplace_back("asset.refresh");
     }
-    if (ImGui::IsItemHovered()) {
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) {
         ImGui::SetTooltip("Reads the asset directory again, after files were added, changed or removed.");
     }
 
     // What is wrong with the asset directory, where it will be seen.
-    const std::span<const std::string> problems = database.problems();
     if (!problems.empty()) {
         ImGui::SameLine();
-        ImGui::TextDisabled("%zu problem(s)", problems.size());
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextDisabled("%s", problemCount.c_str());
         if (ImGui::IsItemHovered() && ImGui::BeginTooltip()) {
             for (const std::string& problem : problems) {
                 ImGui::TextUnformatted(problem.c_str());
@@ -386,33 +472,180 @@ void AssetBrowserPanel::drawToolbar(const AssetDatabase& database, std::vector<s
     }
 }
 
-void AssetBrowserPanel::drawRows(const EditorContext& context, std::vector<std::string>& submittedLines) {
-    if (m_rows.empty()) {
-        ImGui::TextDisabled("%s", m_browser.filter().isActive() ? "No asset is of that type and has that text."
-                                                                : "There are no assets.");
+void AssetBrowserPanel::drawSteps(float width, Click& click) {
+    const ImGuiStyle& style = ImGui::GetStyle();
+    // How wide each step is, and what goes between two: a chevron with room around it.
+    std::vector<float> widths;
+    widths.reserve(m_steps.size());
+    for (const AssetFolderStep& step : m_steps) {
+        widths.push_back(ImGui::CalcTextSize(step.label.c_str()).x + style.FramePadding.x * 2.0f);
+    }
+    const float between = ImGui::CalcTextSize(icons::kChevronRight.text()).x + style.ItemSpacing.x * 2.0f;
+    const float leftOut = ImGui::CalcTextSize("...").x + style.ItemSpacing.x;
+    // The first steps are left out while the way is longer than the room - never the last,
+    // which is the folder shown.
+    size_t first = 0;
+    const auto widthFrom = [&](size_t from) {
+        float total = from > 0 ? leftOut : 0.0f;
+        for (size_t index = from; index < widths.size(); ++index) {
+            total += widths[index] + (index > from ? between : 0.0f);
+        }
+        return total;
+    };
+    while (first + 1 < m_steps.size() && widthFrom(first) > width) {
+        ++first;
+    }
+
+    // Flat, as a path is - in every theme, though the light one frames its buttons: a step
+    // is a button only where the pointer is.
+    ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_WindowBg));
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
+    ImGui::AlignTextToFramePadding();
+    if (first > 0) {
+        ImGui::TextDisabled("...");
+        ImGui::SameLine();
+    }
+    for (size_t index = first; index < m_steps.size(); ++index) {
+        const AssetFolderStep& step = m_steps[index];
+        if (index > first) {
+            ImGui::SameLine();
+            ImGui::TextDisabled("%s", icons::kChevronRight.text());
+            ImGui::SameLine();
+        }
+        ImGui::PushID(static_cast<int>(index));
+        if (index + 1 == m_steps.size()) {
+            // The folder shown: there is nowhere to go by it.
+            ImGui::TextUnformatted(step.label.c_str());
+        } else if (ImGui::Button(step.label.c_str())) {
+            click.shown = step.key;
+        }
+        ImGui::PopID();
+    }
+    ImGui::PopStyleVar();
+    ImGui::PopStyleColor();
+}
+
+void AssetBrowserPanel::drawFolders(const EditorContext& context, std::vector<std::string>& submittedLines,
+                                    Click& click) {
+    ImGuiListClipper clipper;
+    clipper.Begin(static_cast<int>(m_folders.size()));
+    while (clipper.Step()) {
+        for (int index = clipper.DisplayStart; index < clipper.DisplayEnd; ++index) {
+            const AssetBrowserRow& row = m_folders[static_cast<size_t>(index)];
+            ImGui::PushID(idOf(row));
+            ImGui::SetCursorPosX(ImGui::GetCursorPosX() +
+                                 static_cast<float>(row.depth) * ImGui::GetStyle().IndentSpacing);
+            // A row of a tree whose state is the browser's: opened and closed there, and
+            // drawn here as it is. A click on the name shows the folder; its arrow, or a
+            // double click, opens it.
+            ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_NoTreePushOnOpen | ImGuiTreeNodeFlags_OpenOnArrow |
+                                       ImGuiTreeNodeFlags_OpenOnDoubleClick | ImGuiTreeNodeFlags_SpanAvailWidth;
+            if (!row.hasChildren) {
+                flags |= ImGuiTreeNodeFlags_Leaf;
+            }
+            if (row.selected) {
+                flags |= ImGuiTreeNodeFlags_Selected;
+            }
+            ImGui::SetNextItemOpen(row.open, ImGuiCond_Always);
+            ImGui::TreeNodeEx("##folder", flags, "%s  %s", directoryIcon(row.open).text(), row.label.c_str());
+            if (ImGui::IsItemToggledOpen()) {
+                click.toggled = row;
+            } else if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) {
+                click.shown = row.key;
+            }
+            handleRow(context, row, false, submittedLines, click);
+            ImGui::PopID();
+        }
+    }
+}
+
+void AssetBrowserPanel::drawContents(const EditorContext& context, std::vector<std::string>& submittedLines,
+                                     Click& click) {
+    if (m_contents.empty()) {
+        const std::string& folder = m_steps.back().label;
+        const std::string said =
+            m_browser.filter().isActive()
+                ? fmt::format("Nothing in {} or below it is of that type and has that text.", folder)
+                : fmt::format("There is nothing in {}.", folder);
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextDisabled("%s", said.c_str());
+        ImGui::PopTextWrapPos();
         return;
     }
-    if (!ImGui::BeginTable("assets", 2, ImGuiTableFlags_ScrollY)) {
+    if (m_browser.view() == AssetBrowserView::List) {
+        drawList(context, submittedLines, click);
+    } else {
+        drawGrid(context, submittedLines, click);
+    }
+}
+
+void AssetBrowserPanel::handleRow(const EditorContext& context, const AssetBrowserRow& row, bool doubleClicked,
+                                  std::vector<std::string>& submittedLines, Click& click) {
+    const AssetDatabase& database = context.assets().database();
+    if (row.kind == AssetBrowserRow::Kind::Asset) {
+        if (doubleClicked && canBePlaced(row.type)) {
+            submittedLines.push_back(placeAssetCommand(context, row.asset));
+        }
+        bool moveAsked = false;
+        if (const AssetInfo* asset = database.find(row.asset);
+            asset != nullptr && drawAssetMenu(context, *asset, submittedLines, moveAsked)) {
+            click.chosen = row.asset;
+        }
+        if (moveAsked) {
+            m_moving = row.asset;
+            m_movingDirectory.clear();
+            m_moveTarget = row.path;
+            m_openMoveDialog = true;
+        }
+        if (ImGui::BeginDragDropSource()) {
+            ImGui::SetDragDropPayload(PropertyEditor::kAssetPayload, &row.asset, sizeof(Uuid));
+            ImGui::TextUnformatted(row.path.c_str());
+            ImGui::EndDragDropSource();
+        }
+        return;
+    }
+    if (doubleClicked) {
+        click.shown = row.key;
+    }
+    // The top is the asset directory itself, and what the engine has built in no directory:
+    // neither is renamed or carried about.
+    if (isMovableDirectory(row)) {
+        if (ImGui::BeginPopupContextItem("directory_menu")) {
+            if (ImGui::MenuItem("Rename or move...")) {
+                m_moving = Uuid();
+                m_movingDirectory = row.path;
+                m_moveTarget = row.path;
+                m_openMoveDialog = true;
+            }
+            ImGui::EndPopup();
+        }
+        if (ImGui::BeginDragDropSource()) {
+            ImGui::SetDragDropPayload(kDirectoryPayload, row.path.data(), row.path.size());
+            ImGui::TextUnformatted(row.path.c_str());
+            ImGui::EndDragDropSource();
+        }
+    }
+    acceptMoveDrop(database, row, submittedLines);
+}
+
+void AssetBrowserPanel::drawList(const EditorContext& context, std::vector<std::string>& submittedLines, Click& click) {
+    // What a search found is from anywhere below the folder: where each is, is said too, in
+    // a table of its own - of three columns, not two.
+    const bool searching = m_browser.filter().isActive();
+    if (!ImGui::BeginTable(searching ? "found" : "list", searching ? 3 : 2, ImGuiTableFlags_ScrollY)) {
         return;
     }
     ImGui::TableSetupColumn("name", ImGuiTableColumnFlags_WidthStretch);
     ImGui::TableSetupColumn("type", ImGuiTableColumnFlags_WidthFixed, kTypeColumnWidth);
-
-    // An asset that was chosen from outside the panel is scrolled to, where it is listed.
-    std::optional<size_t> reveal;
-    if (m_browser.selection() != m_shownSelection) {
-        m_shownSelection = m_browser.selection();
-        const auto selected = std::ranges::find_if(m_rows, &AssetBrowserRow::selected);
-        if (selected != m_rows.end()) {
-            reveal = static_cast<size_t>(selected - m_rows.begin());
-        }
+    if (searching) {
+        ImGui::TableSetupColumn("where", ImGuiTableColumnFlags_WidthStretch);
     }
 
-    // What a click asks for changes the rows, and is done once they have been drawn.
-    std::optional<size_t> toggled;
-    std::optional<Uuid> chosen;
+    // An asset that was chosen from outside the panel is scrolled to, where it is listed.
+    const std::optional<size_t> reveal = rowToReveal();
+
     ImGuiListClipper clipper;
-    clipper.Begin(static_cast<int>(m_rows.size()));
+    clipper.Begin(static_cast<int>(m_contents.size()));
     if (reveal) {
         // Drawn wherever it is, so that there is something to scroll to.
         clipper.IncludeItemByIndex(static_cast<int>(*reveal));
@@ -420,40 +653,123 @@ void AssetBrowserPanel::drawRows(const EditorContext& context, std::vector<std::
     while (clipper.Step()) {
         for (int index = clipper.DisplayStart; index < clipper.DisplayEnd; ++index) {
             const auto position = static_cast<size_t>(index);
-            const RowClick click = drawRow(context, m_rows[position], reveal == position, submittedLines);
-            if (click.toggled) {
-                toggled = position;
+            const AssetBrowserRow& row = m_contents[position];
+            const bool isAsset = row.kind == AssetBrowserRow::Kind::Asset;
+            ImGui::PushID(idOf(row));
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::SetCursorPosX(ImGui::GetCursorPosX() +
+                                 static_cast<float>(row.depth) * ImGui::GetStyle().IndentSpacing);
+            // A file with something inside it opens by its arrow, since a click on it
+            // chooses it; a directory is gone into by a double click.
+            ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_NoTreePushOnOpen | ImGuiTreeNodeFlags_SpanAllColumns;
+            flags |= row.hasChildren ? ImGuiTreeNodeFlags_OpenOnArrow : ImGuiTreeNodeFlags_Leaf;
+            if (row.selected) {
+                flags |= ImGuiTreeNodeFlags_Selected;
             }
-            if (click.chosen) {
-                chosen = m_rows[position].asset;
+            ImGui::SetNextItemOpen(row.open, ImGuiCond_Always);
+            const UiIcon icon = isAsset ? iconOf(row.type) : directoryIcon(false);
+            ImGui::TreeNodeEx("##row", flags, "%s  %s", icon.text(), row.label.c_str());
+            if (reveal == position) {
+                ImGui::SetScrollHereY();
             }
-            if (click.moveAsked) {
-                m_moving = m_rows[position].asset;
-                m_movingDirectory.clear();
-                m_moveTarget = m_rows[position].path;
-                m_openMoveDialog = true;
+            bool doubleClicked = false;
+            if (ImGui::IsItemToggledOpen()) {
+                click.toggled = row;
+            } else if (ImGui::IsItemClicked(ImGuiMouseButton_Left)) {
+                if (isAsset) {
+                    click.chosen = row.asset;
+                }
+                doubleClicked = ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left);
             }
-            if (click.moveDirectoryAsked) {
-                m_moving = Uuid();
-                m_movingDirectory = m_rows[position].path;
-                m_moveTarget = m_rows[position].path;
-                m_openMoveDialog = true;
+            handleRow(context, row, doubleClicked, submittedLines, click);
+            ImGui::TableNextColumn();
+            ImGui::TextDisabled("%s", kindOf(row).c_str());
+            if (searching) {
+                ImGui::TableNextColumn();
+                const std::string where(whereOf(row));
+                ImGui::TextDisabled("%s", where.c_str());
             }
+            ImGui::PopID();
         }
     }
     ImGui::EndTable();
+}
 
-    // While a filter leaves something out every row is open and stays so: a click that
-    // closed one would show nothing now, and hide it once the filter is gone.
-    if (toggled && !m_browser.filter().isActive()) {
-        const AssetBrowserRow& row = m_rows[*toggled];
-        m_browser.setOpen(row, !row.open);
+void AssetBrowserPanel::drawGrid(const EditorContext& context, std::vector<std::string>& submittedLines, Click& click) {
+    const ImGuiStyle& style = ImGui::GetStyle();
+    const float lineHeight = ImGui::GetTextLineHeight();
+    const float tileHeight = style.FramePadding.y * 2.0f + kTileIconSize + style.ItemInnerSpacing.y + lineHeight;
+    const ImVec2 pitch(kTileWidth + style.ItemSpacing.x, tileHeight + style.ItemSpacing.y);
+    // As many tiles side by side as there is room for, and at least one.
+    const int columns =
+        std::max(1, static_cast<int>((ImGui::GetContentRegionAvail().x + style.ItemSpacing.x) / pitch.x));
+    const int count = static_cast<int>(m_contents.size());
+    const int lines = (count + columns - 1) / columns;
+
+    // An asset that was chosen from outside the panel is scrolled to, where it is listed:
+    // the line it is on.
+    std::optional<int> reveal;
+    if (const std::optional<size_t> row = rowToReveal()) {
+        reveal = static_cast<int>(*row) / columns;
     }
-    if (chosen) {
-        // Chosen where it is seen: nothing to scroll to.
-        m_browser.select(*chosen);
-        m_shownSelection = *chosen;
+
+    ImGuiListClipper clipper;
+    clipper.Begin(lines, pitch.y);
+    if (reveal) {
+        clipper.IncludeItemByIndex(*reveal);
     }
+    while (clipper.Step()) {
+        for (int line = clipper.DisplayStart; line < clipper.DisplayEnd; ++line) {
+            // Each tile is put in its place: the arrow of a file is drawn after the tile,
+            // and the next tile is not placed after the arrow.
+            const ImVec2 lineStart = ImGui::GetCursorScreenPos();
+            const size_t first = static_cast<size_t>(line) * static_cast<size_t>(columns);
+            for (size_t index = first; index < std::min(first + static_cast<size_t>(columns), m_contents.size());
+                 ++index) {
+                const float left = lineStart.x + static_cast<float>(index - first) * pitch.x;
+                drawTile(context, m_contents[index], left, lineStart.y, tileHeight, submittedLines, click);
+            }
+            // The line takes its room, for the clipper and the scroll bar to count.
+            ImGui::SetCursorScreenPos(lineStart);
+            ImGui::Dummy(ImVec2(static_cast<float>(columns) * pitch.x - style.ItemSpacing.x, tileHeight));
+            if (reveal == line) {
+                ImGui::SetScrollHereY();
+            }
+        }
+    }
+}
+
+void AssetBrowserPanel::drawTile(const EditorContext& context, const AssetBrowserRow& row, float left, float top,
+                                 float height, std::vector<std::string>& submittedLines, Click& click) {
+    const ImVec2 start(left, top);
+    ImGui::PushID(idOf(row));
+    ImGui::SetCursorScreenPos(start);
+    // What is inside a file follows the file, on a ground of its own.
+    if (row.depth > 0) {
+        ImGui::GetWindowDrawList()->AddRectFilled(start, ImVec2(left + kTileWidth, top + height),
+                                                  ImGui::GetColorU32(ImGuiCol_FrameBg),
+                                                  ImGui::GetStyle().FrameRounding);
+    }
+    // The arrow of a file is drawn over the tile, and takes the pointer from it.
+    const ImGuiSelectableFlags flags =
+        ImGuiSelectableFlags_AllowDoubleClick | (row.hasChildren ? ImGuiSelectableFlags_AllowOverlap : 0);
+    bool doubleClicked = false;
+    if (ImGui::Selectable("##tile", row.selected, flags, ImVec2(kTileWidth, height))) {
+        if (row.kind == AssetBrowserRow::Kind::Asset) {
+            click.chosen = row.asset;
+        }
+        doubleClicked = ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left);
+    }
+    handleRow(context, row, doubleClicked, submittedLines, click);
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip) && !ImGui::IsDragDropActive()) {
+        ImGui::SetTooltip("%s\n%s   %s", row.label.c_str(), kindOf(row).c_str(), row.path.c_str());
+    }
+    drawTileFace(row, start);
+    if (row.hasChildren && drawOpenArrow(row, start)) {
+        click.toggled = row;
+    }
+    ImGui::PopID();
 }
 
 void AssetBrowserPanel::drawSelection(const EditorContext& context, std::vector<std::string>& submittedLines) {

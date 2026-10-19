@@ -1,22 +1,25 @@
 #pragma once
 
 /// @file
-/// What a person chose about the editor itself - its theme - kept between sessions in a
-/// file of theirs, not of a project: the same in every project they open.
+/// What a person chose about the editor itself - its theme, and how the Assets panel shows
+/// what a folder has in it - kept between sessions in a file of theirs, not of a project:
+/// the same in every project they open.
 ///
 /// @code
 /// const std::filesystem::path file = editorPreferencesFile();   // .../Cordite/editor-preferences.json
 /// CORDITE_TRY_ASSIGN(EditorPreferences preferences, loadEditorPreferences(file));
 /// preferences.theme = UiTheme::Light;
+/// preferences.assetView = AssetBrowserView::List;
 /// CORDITE_TRY(saveEditorPreferences(file, preferences));
 /// @endcode
 ///
 /// The file is a document like the engine's others (format "cordite.preferences",
-/// version 1), and is read as strictly: a member that is not known, or a theme that has
-/// no such name, is an error that names it.
+/// version 1), and is read as strictly: a member that is not known, or a theme or a view
+/// that has no such name, is an error that names it.
 
 #include "cordite/core/Json.h"
 #include "cordite/core/Result.h"
+#include "cordite/editor/AssetBrowser.h"
 #include "cordite/ui/UiTheme.h"
 
 #include <filesystem>
@@ -26,13 +29,15 @@ namespace cordite {
 struct EditorPreferences {
     /// What the interface looks like.
     UiTheme theme = UiTheme::Dark;
+    /// How the Assets panel shows what a folder has in it.
+    AssetBrowserView assetView = AssetBrowserView::Grid;
 
     bool operator==(const EditorPreferences&) const = default;
 };
 
 /// Reads preferences from a document. A member that is left out keeps its default. Fails
 /// with ParseError for what is not such a document, names an unknown member, or a theme
-/// that has no such name, and with VersionMismatch for one of a newer editor.
+/// or a view that has no such name, and with VersionMismatch for one of a newer editor.
 [[nodiscard]] Result<EditorPreferences> parseEditorPreferences(const Json& document);
 
 /// The document of preferences, with every member in it.
