@@ -175,7 +175,8 @@ TEST_SUITE("Swapchain") {
     TEST_CASE("a headless device cannot create a swapchain") {
         const std::unique_ptr<WindowSystem> windowSystem = test::unwrap(WindowSystem::create());
         const std::unique_ptr<Window> window = test::unwrap(windowSystem->createWindow({.visible = false}));
-        const std::unique_ptr<GraphicsDevice> headless = test::createTestDevice();
+        // Of Vulkan, which draws into windows; Direct3D 12 is refused otherwise, below.
+        const std::unique_ptr<GraphicsDevice> headless = test::unwrap(GraphicsDevice::create({.validation = true}));
 
         const Result<std::unique_ptr<Swapchain>> swapchain = Swapchain::create(*headless, *window);
         REQUIRE_FALSE(swapchain.has_value());

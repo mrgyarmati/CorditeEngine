@@ -532,6 +532,9 @@ TEST_SUITE("EditorViewports") {
         // A window of its own, hidden: the pointer is locked to a window.
         EditorAppDesc desc = headlessDesc(UVec2(640, 360));
         desc.engine.headless = false;
+        // A window is drawn into with Vulkan alone, so far, whatever the tests draw with.
+        desc.engine.graphicsBackend = GraphicsBackend::Vulkan;
+        desc.engine.preferredAdapter.clear();
         desc.engine.window.width = 640;
         desc.engine.window.height = 360;
         desc.engine.window.visible = false;

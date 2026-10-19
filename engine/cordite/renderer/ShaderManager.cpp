@@ -19,8 +19,16 @@ nvrhi::ShaderType toNvrhiStage(ShaderStage stage) {
 
 } // namespace
 
+ShaderTarget shaderTargetFor(nvrhi::GraphicsAPI api) {
+    return api == nvrhi::GraphicsAPI::D3D12 ? ShaderTarget::Dxil : ShaderTarget::Spirv;
+}
+
 ShaderManager::ShaderManager(nvrhi::IDevice* device, ShaderLibrary& library) : m_device(device), m_library(library) {
     CORDITE_ASSERT(device != nullptr, "ShaderManager needs a device");
+    // Without assertions, the device refuses the first shader of the other kind (get()).
+    CORDITE_ASSERT(device == nullptr || library.target() == shaderTargetFor(device->getGraphicsAPI()),
+                   "the shaders are {} and the device runs {}", nameOf(library.target()),
+                   nameOf(shaderTargetFor(device->getGraphicsAPI())));
 }
 
 Result<nvrhi::ShaderHandle> ShaderManager::get(ShaderRequest request) {

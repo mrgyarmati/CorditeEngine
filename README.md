@@ -99,10 +99,10 @@ A Vulkan 1.3 capable GPU and driver are required, with arrays of cube maps
 (`imageCubeArray`), which every desktop GPU of the last fifteen years has.
 
 Direct3D 12 is on its way to being the fallback on Windows machines without Vulkan: the
-engine's shaders are compiled to DXIL as well, and a device of Direct3D 12 can be made -
-on a GPU of feature level 11_0 and shader model 6.0, or on WARP - and draws offscreen. The
-renderer on it, drawing into a window, and choosing it by itself where Vulkan is missing
-are still to come; until then Vulkan is required.
+engine's shaders are compiled to DXIL as well, and the engine draws with Direct3D 12 - on
+a GPU of feature level 11_0 and shader model 6.0, or on WARP - without a window, where all
+but 14 of the tests on the GPU pass so far. Drawing into a window, and choosing it by itself
+where Vulkan is missing, are still to come; until then Vulkan is required.
 
 ```powershell
 ./scripts/dev.ps1 run -Target cordite-editor -- --project samples/showcase

@@ -46,8 +46,20 @@ const std::filesystem::path& compiledShaderCache();
 /// cache directory of its own, or none.
 const std::filesystem::path& sharedCacheDirectory();
 
-/// Creates a headless device with validation on. Fails the test when the machine has no
-/// usable GPU.
+/// The graphics API the GPU tests draw with, and the adapter they ask for.
+struct TestGraphics {
+    GraphicsBackend backend = GraphicsBackend::Vulkan;
+    std::string preferredAdapter;
+};
+
+/// What the environment variable CORDITE_GRAPHICS asks the GPU tests to draw with: unset
+/// or "vulkan", Vulkan; "d3d12", Direct3D 12; "warp", Direct3D 12 on WARP, its rasterizer
+/// that runs on the CPU. Fails the test for a name it does not know. Every device and
+/// engine of the tests is made with it, but those of the tests that are about one API.
+[[nodiscard]] TestGraphics testGraphics();
+
+/// Creates a headless device with validation on, of testGraphics(). Fails the test when
+/// the machine has no usable GPU.
 std::unique_ptr<GraphicsDevice> createTestDevice();
 
 /// Fails the test if the validation layers reported anything, listing what they said.

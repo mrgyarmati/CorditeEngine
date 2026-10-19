@@ -26,6 +26,8 @@ GameDesc showcaseGame(const std::filesystem::path& cache) {
     desc.directory = test::sourceDirectory() / "samples" / "showcase";
     desc.engine.headless = true;
     desc.engine.validation = true;
+    desc.engine.graphicsBackend = test::testGraphics().backend;
+    desc.engine.preferredAdapter = test::testGraphics().preferredAdapter;
     desc.engine.renderSize = UVec2(320, 180);
     desc.engine.fixedTimeStep = 1.0 / 60.0;
     desc.engine.cacheDirectory = cache;

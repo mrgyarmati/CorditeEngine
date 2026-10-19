@@ -332,9 +332,10 @@ The objects of the API outlive the NVRHI device made of them. On Direct3D 12 the
 asks for feature level 11_0 and shader model 6.0, which the engine's DXIL is compiled for;
 adapters come in the order the system prefers for performance, and WARP - the rasterizer
 of Direct3D 12 that runs on the CPU, "Microsoft Basic Render Driver" - is the last of them,
-as lavapipe is for Vulkan. That is where it stands so far: a device of Direct3D 12 draws
-offscreen and reads back, and is never chosen unless asked for; the renderer, a window and
-the choice of the API for a machine come next. Direct3D 12 is an API rather than OpenGL
+as lavapipe is for Vulkan. That is where it stands so far: an engine draws with Direct3D
+12 without a window when it is asked to, with the DXIL of its shaders, and is never put
+on it otherwise; a window and the choice of the API for a machine come next. The tests on
+the GPU run on it when `CORDITE_GRAPHICS` says so. Direct3D 12 is an API rather than OpenGL
 because its shaders are DXIL, which the Slang the engine has compiles already, and NVRHI
 has no OpenGL at all.
 

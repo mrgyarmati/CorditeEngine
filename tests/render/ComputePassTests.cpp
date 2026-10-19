@@ -69,6 +69,7 @@ TEST_SUITE("ComputePass") {
         REQUIRE_MESSAGE(created.has_value(), test::errorOf(created));
         const std::unique_ptr<SlangShaderCompiler> compiler = std::move(*created);
         ShaderLibraryDesc libraryDesc;
+        libraryDesc.target = shaderTargetFor(context.device()->getGraphicsAPI());
         libraryDesc.sourceRoots = {sources.path(), test::shaderDirectory()};
         libraryDesc.compiler = compiler.get();
         ShaderLibrary library(std::move(libraryDesc));

@@ -8,6 +8,7 @@
 #include "cordite/assets/Sound.h"
 #include "cordite/audio/AudioComponents.h"
 #include "cordite/audio/AudioSystem.h"
+#include "cordite/core/Base.h"
 #include "cordite/core/FileSystem.h"
 #include "cordite/core/Log.h"
 #include "cordite/engine/GameSettings.h"
@@ -25,6 +26,7 @@
 #include "cordite/scripting/ScriptComponents.h"
 #include "cordite/scripting/ScriptSystem.h"
 #include "cordite/shader_compiler/EngineShaderCache.h"
+#include "cordite/shaders/ShaderTypes.h"
 #include "cordite/world/Components.h"
 #include "cordite/world/SceneSerializer.h"
 
@@ -53,6 +55,8 @@ EngineDesc headlessDesc(UVec2 size = UVec2(320, 180)) {
     desc.applicationName = "Cordite engine tests";
     desc.headless = true;
     desc.validation = true;
+    desc.graphicsBackend = test::testGraphics().backend;
+    desc.preferredAdapter = test::testGraphics().preferredAdapter;
     desc.renderSize = size;
     desc.fixedTimeStep = 1.0 / 60.0;
     // Tests must not depend on where the engine would look for shaders by default.
@@ -148,6 +152,40 @@ TEST_SUITE("Engine") {
         CHECK(comparison.matches);
         CHECK(comparison.maxChannelDifference == 0);
     }
+
+#if CORDITE_PLATFORM_WINDOWS
+    TEST_CASE("an engine told to draw with Direct3D 12 draws what it draws with Vulkan, without a window") {
+        // Each with the shaders of its kind, the DXIL compiled into the cache beside the SPIR-V.
+        const auto renderTwelveFrames = [](GraphicsBackend backend) {
+            EngineDesc desc = headlessDesc();
+            desc.graphicsBackend = backend;
+            desc.preferredAdapter.clear();
+            const std::unique_ptr<Engine> engine = createEngine(desc);
+            CHECK(engine->graphics().backend() == backend);
+            CHECK(engine->shaders().target() ==
+                  (backend == GraphicsBackend::Direct3D12 ? ShaderTarget::Dxil : ShaderTarget::Spirv));
+            runFrames(*engine, 12);
+            Result<Image> frame = engine->captureFrame();
+            REQUIRE_MESSAGE(frame.has_value(), test::errorOf(frame));
+            checkNoValidationIssues(engine->graphics());
+            return std::move(*frame);
+        };
+        const Image vulkan = renderTwelveFrames(GraphicsBackend::Vulkan);
+        const Image direct3D = renderTwelveFrames(GraphicsBackend::Direct3D12);
+        const ImageComparison comparison = test::unwrap(compareImages(vulkan, direct3D, {.channelTolerance = 1}));
+        CHECK_MESSAGE(comparison.matches, comparison.differingPixels << " pixels differ");
+
+        // A window is drawn into with Vulkan alone, so far.
+        EngineDesc windowed = headlessDesc();
+        windowed.headless = false;
+        windowed.window.visible = false;
+        windowed.graphicsBackend = GraphicsBackend::Direct3D12;
+        const Result<std::unique_ptr<Engine>> refused = Engine::create(windowed);
+        REQUIRE_FALSE(refused.has_value());
+        CHECK(refused.error().code == ErrorCode::Unsupported);
+        CHECK(refused.error().message.find("Direct3D 12") != std::string::npos);
+    }
+#endif
 
     TEST_CASE("frames differ as time advances") {
         const std::unique_ptr<Engine> engine = createEngine(headlessDesc());
@@ -1535,6 +1573,9 @@ TEST_SUITE("Engine") {
     TEST_CASE("a windowed engine presents and follows window resizes") {
         EngineDesc desc = headlessDesc();
         desc.headless = false;
+        // A window is drawn into with Vulkan alone, so far, whatever the tests draw with.
+        desc.graphicsBackend = GraphicsBackend::Vulkan;
+        desc.preferredAdapter.clear();
         desc.window.title = "Cordite engine test";
         desc.window.width = 320;
         desc.window.height = 200;

@@ -300,11 +300,16 @@ Vulkan or Direct3D directly. Step-by-step guide for adding a pass:
   the `rhi` module (`DeviceBackend.h`: `vulkan/VulkanDevice.cpp`, `d3d12/D3D12Device.cpp`),
   whose objects outlive the NVRHI device made of them. Direct3D 12 asks for feature level
   11_0 and shader model 6.0, and has WARP ("Microsoft Basic Render Driver") as its last
-  adapter, as Vulkan has lavapipe. So far a device of Direct3D 12 draws offscreen and reads
-  back, and nothing chooses it unless told to: the renderer, a window (`Swapchain::create`
-  refuses one) and the choice of the API come next. Platform code stays in `.cpp` files:
-  the header declares `createD3D12Device` everywhere, and `GraphicsDevice.cpp` calls it only
-  on Windows.
+  adapter, as Vulkan has lavapipe. So far an engine draws with Direct3D 12 without a window,
+  when told to (`EngineDesc::graphicsBackend`), and nothing chooses it by itself: a window
+  (`Swapchain::create` refuses one) and the choice of the API come next. The shaders are
+  of the device's kind (`shaderTargetFor`; `ShaderManager` asserts it). Platform code stays
+  in `.cpp` files: the header declares `createD3D12Device` everywhere, and
+  `GraphicsDevice.cpp` calls it only on Windows.
+- **A vertex attribute's name is the semantic Direct3D 12 matches**, and a name that ends
+  in a digit is none it takes: what a shader numbers (`TEXCOORD0`, `TEXCOORD1`) is one
+  attribute of as many elements (`setArraySize`), laid out one after the other - which
+  Vulkan reads from locations one after the other, as it read separate attributes.
 
 - **Every GPU code path must be reachable headless.** A feature that only works with a
   window cannot be tested automatically or driven by an agent. Render to an offscreen
@@ -1967,6 +1972,13 @@ with CTest under the module name. See the skills
   /online /add-capability /capabilityname:Tools.Graphics.DirectX~~~~0.0.1.0`, as an
   administrator). A test that makes a mistake to hear the layer report it says so and
   checks nothing more where the layer is missing.
+- **The GPU tests draw with what `CORDITE_GRAPHICS` names** (`testGraphics()`): Vulkan
+  unless it is `d3d12` or `warp`. Every device and engine of the tests is made with it, but
+  those of the tests that are about one API - Vulkan's adapter, the defaults, a window -
+  which say which. No CTest runs the suite on Direct3D 12 yet: 14 of its tests do not pass
+  there so far - eight reference pictures, three of fog, the exact light of open ground,
+  the console of the editor, and a readback of a mip level, which passes alone and fails in
+  a whole run.
 - **A shader is compiled once in a run of the GPU tests** (`sharedCacheDirectory()` in
   `RenderTestSupport.h`): the `RenderContext` of every test and the engines and editors of
   the fixtures (`headlessDesc()`) share one cache for the run. Compiled anew for every test,

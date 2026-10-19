@@ -36,7 +36,8 @@ void clearTexture(GraphicsDevice& graphics, nvrhi::ITexture* texture, const nvrh
 
 TEST_SUITE("GraphicsDevice") {
     TEST_CASE("a headless device can be created and describes its adapter") {
-        const std::unique_ptr<GraphicsDevice> graphics = createTestDevice();
+        // Of Vulkan: what Direct3D 12 says of itself is tested below.
+        const std::unique_ptr<GraphicsDevice> graphics = test::unwrap(GraphicsDevice::create({.validation = true}));
 
         REQUIRE(graphics->device() != nullptr);
         CHECK_FALSE(graphics->canPresent());
@@ -54,7 +55,7 @@ TEST_SUITE("GraphicsDevice") {
     }
 
     TEST_CASE("a device draws with Vulkan unless it is told to draw with another graphics API") {
-        CHECK(createTestDevice()->backend() == GraphicsBackend::Vulkan);
+        CHECK(test::unwrap(GraphicsDevice::create({.validation = true}))->backend() == GraphicsBackend::Vulkan);
         const Result<std::unique_ptr<GraphicsDevice>> vulkan =
             GraphicsDevice::create({.backend = GraphicsBackend::Vulkan});
         REQUIRE_MESSAGE(vulkan.has_value(), test::errorOf(vulkan));
@@ -100,7 +101,7 @@ TEST_SUITE("GraphicsDevice") {
             checkNoValidationIssues(graphics);
         }
         // And Vulkan again after it.
-        CHECK(createTestDevice()->backend() == GraphicsBackend::Vulkan);
+        CHECK(test::unwrap(GraphicsDevice::create({.validation = true}))->backend() == GraphicsBackend::Vulkan);
     }
 
     TEST_CASE("the debug layer of Direct3D 12 reports misuse, where Windows has it") {
@@ -147,7 +148,7 @@ TEST_SUITE("GraphicsDevice") {
         REQUIRE_FALSE(refused.has_value());
         CHECK(refused.error().code == ErrorCode::Unsupported);
         CHECK(refused.error().message.find("Windows") != std::string::npos);
-        CHECK(createTestDevice()->backend() == GraphicsBackend::Vulkan);
+        CHECK(test::unwrap(GraphicsDevice::create({.validation = true}))->backend() == GraphicsBackend::Vulkan);
     }
 #endif
 
@@ -163,7 +164,9 @@ TEST_SUITE("GraphicsDevice") {
         const std::string name = createTestDevice()->adapter().name;
         REQUIRE(name.size() >= 3);
 
+        // Among the adapters of the same graphics API.
         GraphicsDeviceDesc desc;
+        desc.backend = test::testGraphics().backend;
         desc.preferredAdapter = toLowerAscii(name.substr(0, 3));
         const Result<std::unique_ptr<GraphicsDevice>> graphics = GraphicsDevice::create(desc);
         REQUIRE(graphics.has_value());

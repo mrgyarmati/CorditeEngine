@@ -144,6 +144,7 @@ Status Engine::Impl::initialize() {
     CORDITE_TRY_ASSIGN(windowSystem, WindowSystem::create({.headless = desc.headless}));
 
     GraphicsDeviceDesc graphicsDesc;
+    graphicsDesc.backend = desc.graphicsBackend;
     graphicsDesc.applicationName = desc.applicationName;
     graphicsDesc.validation = desc.validation;
     graphicsDesc.preferredAdapter = desc.preferredAdapter;
@@ -161,6 +162,7 @@ Status Engine::Impl::initialize() {
     }
 
     ShaderLibraryDesc libraryDesc;
+    libraryDesc.target = shaderTargetFor(graphics->device()->getGraphicsAPI());
     if (desc.shaderCompiler) {
         CORDITE_TRY_ASSIGN(const std::filesystem::path shaderDirectory, engineShaderDirectory(desc.shaderDirectory));
         CORDITE_TRY_ASSIGN(shaderCompiler, desc.shaderCompiler(shaderDirectory));

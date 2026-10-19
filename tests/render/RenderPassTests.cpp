@@ -7,6 +7,7 @@
 #include "render/RenderTestSupport.h"
 #include "support/MathTestSupport.h"
 
+#include <utility>
 #include <vector>
 
 using namespace cordite;
@@ -49,6 +50,22 @@ ShaderRequest blitRequest() {
 } // namespace
 
 TEST_SUITE("ShaderManager") {
+    TEST_CASE("a device runs the shaders of its graphics API, and a manager is made with those alone") {
+        CHECK(shaderTargetFor(nvrhi::GraphicsAPI::VULKAN) == ShaderTarget::Spirv);
+        CHECK(shaderTargetFor(nvrhi::GraphicsAPI::D3D12) == ShaderTarget::Dxil);
+
+        RenderContext context;
+        CHECK(context.library->target() == shaderTargetFor(context.device()->getGraphicsAPI()));
+#if defined(CORDITE_ENABLE_ASSERTS)
+        // A library of the other kind of code is a mistake of whoever made the two.
+        ShaderLibraryDesc other;
+        other.target = context.library->target() == ShaderTarget::Spirv ? ShaderTarget::Dxil : ShaderTarget::Spirv;
+        ShaderLibrary otherLibrary(std::move(other));
+        CHECK_THROWS_AS(ShaderManager(context.device(), otherLibrary), test::AssertionFailure);
+#endif
+        checkNoValidationIssues(*context.graphics);
+    }
+
     TEST_CASE("the same permutation is created once and shared") {
         RenderContext context;
 

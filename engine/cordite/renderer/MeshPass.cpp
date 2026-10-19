@@ -55,24 +55,32 @@ Result<MeshPass> MeshPass::create(nvrhi::IDevice* device, ShaderManager& shaders
 
     // The order matches the members of MeshVertexInput in the shader: the vertex first,
     // from buffer 0, then the instance, from buffer 1 - with MOTION, where it was as well -
-    // then, for a skinned mesh, how the vertex follows its joints, from buffer 2.
-    const auto vertexAttribute = [](const char* name, nvrhi::Format format, size_t offset) {
+    // then, for a skinned mesh, how the vertex follows its joints, from buffer 2. What the
+    // shader numbers - TEXCOORD0 and TEXCOORD1 - is one attribute of as many elements, one
+    // after the other: Direct3D 12 knows them by a name and a number, and a name that ends
+    // in a digit is none it takes; Vulkan reads the elements at locations one after the
+    // other, as it reads separate attributes.
+    const auto vertexAttribute = [](const char* name, nvrhi::Format format, size_t offset, uint32_t elements = 1) {
         return nvrhi::VertexAttributeDesc()
             .setName(name)
             .setFormat(format)
+            .setArraySize(elements)
             .setBufferIndex(0)
             .setOffset(static_cast<uint32_t>(offset))
             .setElementStride(sizeof(MeshVertex));
     };
-    const auto instanceAttribute = [](const char* name, uint32_t row) {
+    const auto instanceAttribute = [](const char* name, uint32_t firstRow, uint32_t rows = 1) {
         return nvrhi::VertexAttributeDesc()
             .setName(name)
             .setFormat(nvrhi::Format::RGBA32_FLOAT)
+            .setArraySize(rows)
             .setBufferIndex(1)
-            .setOffset(row * static_cast<uint32_t>(sizeof(Vec4)))
+            .setOffset(firstRow * static_cast<uint32_t>(sizeof(Vec4)))
             .setElementStride(kMeshInstanceStride)
             .setIsInstanced(true);
     };
+    static_assert(offsetof(MeshVertex, uv1) == offsetof(MeshVertex, uv0) + sizeof(Vec2),
+                  "the two sets of texture coordinates are one attribute of two elements");
     const auto skinAttribute = [](const char* name, nvrhi::Format format, size_t offset) {
         return nvrhi::VertexAttributeDesc()
             .setName(name)
@@ -85,17 +93,12 @@ Result<MeshPass> MeshPass::create(nvrhi::IDevice* device, ShaderManager& shaders
         vertexAttribute("POSITION", nvrhi::Format::RGB32_FLOAT, offsetof(MeshVertex, position)),
         vertexAttribute("NORMAL", nvrhi::Format::RGB32_FLOAT, offsetof(MeshVertex, normal)),
         vertexAttribute("TANGENT", nvrhi::Format::RGBA32_FLOAT, offsetof(MeshVertex, tangent)),
-        vertexAttribute("TEXCOORD0", nvrhi::Format::RG32_FLOAT, offsetof(MeshVertex, uv0)),
-        vertexAttribute("TEXCOORD1", nvrhi::Format::RG32_FLOAT, offsetof(MeshVertex, uv1)),
-        instanceAttribute("WORLD0", 0),
-        instanceAttribute("WORLD1", 1),
-        instanceAttribute("WORLD2", 2),
+        vertexAttribute("TEXCOORD", nvrhi::Format::RG32_FLOAT, offsetof(MeshVertex, uv0), 2),
+        instanceAttribute("WORLD", 0, 3),
         instanceAttribute("PARAMETERS", 3),
     };
     if (desc.motion) {
-        attributes.push_back(instanceAttribute("PREVIOUSWORLD0", 4));
-        attributes.push_back(instanceAttribute("PREVIOUSWORLD1", 5));
-        attributes.push_back(instanceAttribute("PREVIOUSWORLD2", 6));
+        attributes.push_back(instanceAttribute("PREVIOUSWORLD", 4, 3));
     }
     // A mesh that is not skinned has all but the two of the skin, which come last.
     const auto rigidCount = static_cast<uint32_t>(attributes.size());

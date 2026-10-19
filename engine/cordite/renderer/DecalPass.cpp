@@ -92,29 +92,28 @@ Result<DecalPass> DecalPass::create(nvrhi::IDevice* device, ShaderManager& shade
         shaders.get({.path = "passes/Decal.slang", .entryPoint = "decalPixel", .stage = ShaderStage::Pixel}));
 
     // The position of a vertex of the cube, from buffer 0, then the decal, from buffer 1.
-    const auto instanceAttribute = [](const char* name, uint32_t row) {
+    // The rows the shader numbers - BOX0 to BOX2 - are one attribute of as many elements,
+    // as the mesh passes have theirs (MeshPass.cpp says why).
+    const auto instanceAttribute = [](const char* name, uint32_t firstRow, uint32_t rows) {
         return nvrhi::VertexAttributeDesc()
             .setName(name)
             .setFormat(nvrhi::Format::RGBA32_FLOAT)
+            .setArraySize(rows)
             .setBufferIndex(1)
-            .setOffset(row * static_cast<uint32_t>(sizeof(Vec4)))
+            .setOffset(firstRow * static_cast<uint32_t>(sizeof(Vec4)))
             .setElementStride(sizeof(DecalInstance))
             .setIsInstanced(true);
     };
-    const std::array<nvrhi::VertexAttributeDesc, 8> attributes = {
+    const std::array<nvrhi::VertexAttributeDesc, 4> attributes = {
         nvrhi::VertexAttributeDesc()
             .setName("POSITION")
             .setFormat(nvrhi::Format::RGB32_FLOAT)
             .setBufferIndex(0)
             .setOffset(static_cast<uint32_t>(offsetof(MeshVertex, position)))
             .setElementStride(sizeof(MeshVertex)),
-        instanceAttribute("BOX0", 0),
-        instanceAttribute("BOX1", 1),
-        instanceAttribute("BOX2", 2),
-        instanceAttribute("DECAL0", 3),
-        instanceAttribute("DECAL1", 4),
-        instanceAttribute("DECAL2", 5),
-        instanceAttribute("PARAMETERS", 6),
+        instanceAttribute("BOX", 0, 3),
+        instanceAttribute("DECAL", 3, 3),
+        instanceAttribute("PARAMETERS", 6, 1),
     };
     nvrhi::InputLayoutHandle inputLayout =
         device->createInputLayout(attributes.data(), static_cast<uint32_t>(attributes.size()), vertexShader);

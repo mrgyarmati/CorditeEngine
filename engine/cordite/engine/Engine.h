@@ -118,6 +118,10 @@ struct EngineDesc {
     /// Enable GPU validation layers. See GraphicsDeviceDesc::validation.
     bool validation = false;
 
+    /// The graphics API to draw with. See GraphicsDeviceDesc::backend. Direct3D 12 draws
+    /// headless alone, for now: with a window, creating the engine fails with Unsupported.
+    GraphicsBackend graphicsBackend = GraphicsBackend::Auto;
+
     /// GPU to prefer, by name substring. See GraphicsDeviceDesc::preferredAdapter.
     std::string preferredAdapter;
 

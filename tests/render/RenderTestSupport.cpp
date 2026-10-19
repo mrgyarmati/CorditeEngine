@@ -11,9 +11,11 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -56,8 +58,27 @@ const std::filesystem::path& sharedCacheDirectory() {
     return directory.path();
 }
 
+TestGraphics testGraphics() {
+    const char* asked = std::getenv("CORDITE_GRAPHICS");
+    const std::string_view name = asked != nullptr ? asked : "";
+    if (name.empty() || name == "vulkan") {
+        return {};
+    }
+    if (name == "d3d12") {
+        return {.backend = GraphicsBackend::Direct3D12};
+    }
+    if (name == "warp") {
+        return {.backend = GraphicsBackend::Direct3D12, .preferredAdapter = "Microsoft Basic Render Driver"};
+    }
+    FAIL("CORDITE_GRAPHICS is '" << std::string(name) << "'; it may be vulkan, d3d12 or warp");
+    return {};
+}
+
 std::unique_ptr<GraphicsDevice> createTestDevice() {
+    const TestGraphics graphics = testGraphics();
     GraphicsDeviceDesc desc;
+    desc.backend = graphics.backend;
+    desc.preferredAdapter = graphics.preferredAdapter;
     desc.applicationName = "Cordite tests";
     desc.validation = true;
 
@@ -79,6 +100,7 @@ RenderContext::RenderContext() : graphics(createTestDevice()) {
     compiler = std::move(*created);
 
     ShaderLibraryDesc libraryDesc;
+    libraryDesc.target = shaderTargetFor(graphics->device()->getGraphicsAPI());
     libraryDesc.sourceRoots = {shaderDirectory()};
     libraryDesc.compiler = compiler.get();
     // Where an engine of the tests keeps them too: each is compiled once in a run.
