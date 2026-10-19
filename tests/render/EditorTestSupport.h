@@ -50,6 +50,8 @@ inline EditorAppDesc headlessDesc(UVec2 size = UVec2(1280, 720)) {
     desc.engine.fixedTimeStep = 1.0 / 60.0;
     // Tests must not depend on where the engine would look for shaders by default.
     desc.engine.shaderDirectory = shaderDirectory();
+    // Each compiled once in a run (sharedCacheDirectory()).
+    desc.engine.cacheDirectory = sharedCacheDirectory();
     return desc;
 }
 

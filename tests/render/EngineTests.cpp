@@ -58,6 +58,8 @@ EngineDesc headlessDesc(UVec2 size = UVec2(320, 180)) {
     // Tests must not depend on where the engine would look for shaders by default.
     desc.shaderDirectory = test::shaderDirectory();
     desc.shaderCompiler = makeSlangShaderCompiler;
+    // Each compiled once in a run (sharedCacheDirectory()).
+    desc.cacheDirectory = test::sharedCacheDirectory();
     return desc;
 }
 
@@ -232,6 +234,7 @@ TEST_SUITE("Engine") {
     TEST_CASE("an engine without a compiler needs a cache, and one that has its shaders") {
         EngineDesc withoutCache = headlessDesc();
         withoutCache.shaderCompiler = nullptr;
+        withoutCache.cacheDirectory.clear();
         const Result<std::unique_ptr<Engine>> refused = Engine::create(withoutCache);
         REQUIRE_FALSE(refused.has_value());
         CHECK(refused.error().code == ErrorCode::InvalidArgument);

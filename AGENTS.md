@@ -1869,6 +1869,12 @@ with CTest under the module name. See the skills
 - Suites that need a GPU carry the CTest label `gpu` and live in `tests/render/`. They
   run with the Vulkan validation layers when `scripts/bootstrap.ps1 -WithVulkanSdk` has
   been run (or a system-wide Vulkan SDK is installed).
+- **A shader is compiled once in a run of the GPU tests** (`sharedCacheDirectory()` in
+  `RenderTestSupport.h`): the `RenderContext` of every test and the engines and editors of
+  the fixtures (`headlessDesc()`) share one cache for the run. Compiled anew for every test,
+  the shaders were nine tenths of what a test on the GPU took, and a feature that made the
+  lighting larger made every test slower. A test that counts compilations, or needs an
+  engine without a cache, gives it a cache directory of its own or clears it.
 - Rendered frames are compared with reference images in `tests/render/references/`
   within a small tolerance. A new or changed reference image is reviewed by looking at
   it before it is committed; never approve one unseen.

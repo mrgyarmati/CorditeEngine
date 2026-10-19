@@ -2,6 +2,7 @@
 #include "cordite/renderer/FullscreenPass.h"
 #include "cordite/renderer/ShaderManager.h"
 #include "cordite/renderer/TestPatternPass.h"
+#include "cordite/shaders/ShaderLibrary.h"
 
 #include "render/RenderTestSupport.h"
 #include "support/MathTestSupport.h"
@@ -56,9 +57,22 @@ TEST_SUITE("ShaderManager") {
         REQUIRE_MESSAGE(first.has_value(), test::errorOf(first));
         REQUIRE(second.has_value());
         CHECK(first->Get() == second->Get());
-        CHECK(context.library->stats().compilations == 1);
+        // Made once: compiled, or read from what a test before compiled.
+        const ShaderLibraryStats stats = context.library->stats();
+        CHECK(stats.compilations + stats.diskHits == 1);
 
         checkNoValidationIssues(*context.graphics);
+    }
+
+    TEST_CASE("the tests of a run compile a shader once, and read it from the cache they share after") {
+        {
+            const RenderContext first;
+            REQUIRE(first.shaders->get(blitRequest()).has_value());
+        }
+        const RenderContext second;
+        REQUIRE(second.shaders->get(blitRequest()).has_value());
+        CHECK(second.library->stats().compilations == 0);
+        CHECK(second.library->stats().diskHits == 1);
     }
 
     TEST_CASE("evicted shaders are created again on the next request") {
@@ -72,8 +86,9 @@ TEST_SUITE("ShaderManager") {
 
         context.shaders->clear();
         CHECK(context.shaders->get(blitRequest()).has_value());
-        // The SPIR-V itself stayed in the library the whole time.
-        CHECK(context.library->stats().compilations == 1);
+        // The SPIR-V itself stayed in the library the whole time: made once.
+        const ShaderLibraryStats stats = context.library->stats();
+        CHECK(stats.compilations + stats.diskHits == 1);
     }
 
     TEST_CASE("a shader that fails to compile is an error, not a crash") {

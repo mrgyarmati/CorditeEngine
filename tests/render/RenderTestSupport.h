@@ -37,6 +37,15 @@ std::filesystem::path shaderDirectory();
 /// test asks for it, and kept until the tests end.
 const std::filesystem::path& compiledShaderCache();
 
+/// The cache directory that what compiles shaders in the tests of a run shares: the
+/// RenderContext of every test and the engines and editors of the fixtures
+/// (headlessDesc()) keep in `<it>/shaders` what they compile, and read there what a test
+/// before them compiled - compiled anew for every test, the shaders were most of the time
+/// a test on the GPU took. Made the first time it is asked for, and taken away when the
+/// tests end. A test that counts what is compiled, or wants no cache, gives its engine a
+/// cache directory of its own, or none.
+const std::filesystem::path& sharedCacheDirectory();
+
 /// Creates a headless device with validation on. Fails the test when the machine has no
 /// usable GPU.
 std::unique_ptr<GraphicsDevice> createTestDevice();

@@ -51,6 +51,11 @@ const std::filesystem::path& compiledShaderCache() {
     return directory.path();
 }
 
+const std::filesystem::path& sharedCacheDirectory() {
+    static const TempDirectory directory;
+    return directory.path();
+}
+
 std::unique_ptr<GraphicsDevice> createTestDevice() {
     GraphicsDeviceDesc desc;
     desc.applicationName = "Cordite tests";
@@ -76,6 +81,8 @@ RenderContext::RenderContext() : graphics(createTestDevice()) {
     ShaderLibraryDesc libraryDesc;
     libraryDesc.sourceRoots = {shaderDirectory()};
     libraryDesc.compiler = compiler.get();
+    // Where an engine of the tests keeps them too: each is compiled once in a run.
+    libraryDesc.cacheDirectory = sharedCacheDirectory() / "shaders";
     library = std::make_unique<ShaderLibrary>(std::move(libraryDesc));
     shaders = std::make_unique<ShaderManager>(graphics->device(), *library);
 }
