@@ -682,7 +682,7 @@ void SceneRenderer::render(nvrhi::ICommandList* commandList, const World& world,
     if (m_clusters.droppedLights > 0 && !m_reportedDroppedLights) {
         CORDITE_LOG_WARN("Renderer",
                          "too many lights for one view: {} left out (a view holds {} directional lights and {} "
-                         "point and spot lights)",
+                         "point, spot and rect lights)",
                          m_clusters.droppedLights, kMaxDirectionalLights, kMaxLocalLights);
         m_reportedDroppedLights = true;
     }

@@ -29,6 +29,7 @@
 #include "cordite/math/Geometry.h"
 #include "cordite/math/Math.h"
 #include "cordite/renderer/CameraView.h"
+#include "cordite/renderer/RectLights.h"
 
 #include <cstdint>
 #include <span>
@@ -56,7 +57,12 @@ enum class GpuLightType : uint8_t {
     Directional = 0,
     Point = 1,
     Spot = 2,
+    Rect = 3,
 };
+
+/// The smallest a side of a rect light is taken to be, in metres: the light of its face is
+/// its color over its area.
+inline constexpr float kMinRectLightSize = 0.01f;
 
 /// How a light casts shadows; see LightComponent, which these come from.
 struct SceneLightShadow {
@@ -78,11 +84,12 @@ struct SceneLightShadow {
 struct SceneLight {
     GpuLightType type = GpuLightType::Point;
     Vec3 position{0.0f};
-    /// Unit vector along which a directional or spot light shines.
+    /// Unit vector along which a directional, spot or rect light shines.
     Vec3 direction{0.0f, -1.0f, 0.0f};
     /// Linear color times intensity.
     Vec3 color{1.0f};
-    /// Point and spot: where the light has faded to nothing, in metres.
+    /// Point, spot and rect: where the light has faded to nothing, in metres - from the
+    /// middle of a rect light, at least as far as its corners (makeSceneLight).
     float range = 10.0f;
     /// Spot: the angles from the axis at which the light starts to fade and at which
     /// it ends, in radians.
@@ -92,8 +99,12 @@ struct SceneLight {
     uint32_t channels = 1;
     SceneLightShadow shadow;
     /// The light's right in the world - the +X axis of its entity, of length one: which
-    /// way round its cookie is.
+    /// way round its cookie is, and along which a rect light is wide.
     Vec3 right{1.0f, 0.0f, 0.0f};
+    /// Rect: how wide and how high its rectangle is, in metres - along its right and along
+    /// the up at right angles to that and to `direction` (rectShapeOf).
+    float width = 1.0f;
+    float height = 1.0f;
     /// Spot and directional: the texture the light shines through (its cookie); nil for
     /// none.
     Uuid cookie;
@@ -114,8 +125,8 @@ struct GpuLight {
     uint32_t typeAndChannels = 0;
     Vec3 direction{0.0f, -1.0f, 0.0f};
     /// The first of the light's shadow views (ShadowPlan::views), or -1 when it casts
-    /// no shadows: one view for a spot light, six for a point light, one for each
-    /// cascade of a directional light.
+    /// no shadows: one view for a spot light, six for a point or a rect light, one for
+    /// each cascade of a directional light.
     int32_t shadowView = -1;
     /// A spot light's brightness at an angle whose cosine is c: saturate(c * scale + offset).
     float spotScale = 0.0f;
@@ -137,9 +148,30 @@ struct GpuLight {
     /// what it shines on surfaces with: `color` times SceneLight::volumetricIntensity.
     Vec3 fogColor{0.0f};
     float padding = 0.0f;
+    /// A rect light's rectangle, whose middle is `position`: from there to the middle of its
+    /// right edge, at right angles to `direction` - and half its height, along
+    /// cross(rectRight, direction) (rectShapeOf). Nothing for the other lights.
+    Vec3 rectRight{0.0f};
+    float rectHalfHeight = 0.0f;
 };
 
-static_assert(sizeof(GpuLight) == 96, "must match Light in shaders/common/Lights.slang");
+static_assert(sizeof(GpuLight) == 112, "must match Light in shaders/common/Lights.slang");
+
+/// The right of `light` at right angles to the way it shines, of length one: its `right`
+/// without what of it runs along `direction` - whatever the transform of its entity has
+/// done to its axes - or, where that leaves nothing, the right of a camera that looks the
+/// way the light shines, with +Y up.
+[[nodiscard]] Vec3 rightAcrossOf(const SceneLight& light);
+
+/// The rectangle of a rect light: its middle at `position`, as wide and as high as it says
+/// - kMinRectLightSize at the least, which is also what a size that is no number is taken
+/// for - along rightAcrossOf() and along the up at right angles to that and to the way it
+/// shines, which it shines towards.
+[[nodiscard]] RectLightShape rectShapeOf(const SceneLight& light);
+
+/// The same of a light as the shaders read it - written down twice, here and in
+/// rectLightUp() of shaders/common/Lights.slang. Of no size for a light that is no rect.
+[[nodiscard]] RectLightShape rectShapeOf(const GpuLight& light);
 
 /// Where the list of a cluster is in LightClusters::indices.
 struct ClusterRange {
@@ -183,7 +215,7 @@ struct ClusterDepthMapping {
 /// The lights of a view, sorted into clusters.
 struct LightClusters {
     /// Directional lights first - they reach everywhere and are in no list - then the
-    /// point and spot lights.
+    /// point, spot and rect lights.
     std::vector<GpuLight> lights;
     /// For each of `lights`, which of the lights given to the builder it was made from.
     std::vector<uint32_t> sources;

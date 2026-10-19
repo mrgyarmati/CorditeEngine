@@ -74,6 +74,7 @@ TEST_SUITE("RenderComponents") {
         CHECK(nameOf(LightType::Directional) == "directional");
         CHECK(nameOf(LightType::Point) == "point");
         CHECK(nameOf(LightType::Spot) == "spot");
+        CHECK(nameOf(LightType::Rect) == "rect");
 
         CHECK(nameOf(ShadowResolution::Low) == "low");
         CHECK(nameOf(ShadowResolution::Medium) == "medium");
@@ -88,6 +89,9 @@ TEST_SUITE("RenderComponents") {
         CHECK(light.range == 10.0f);
         CHECK(light.innerConeDegrees == 25.0f);
         CHECK(light.outerConeDegrees == 35.0f);
+        // A rect light is a square metre until it is told otherwise.
+        CHECK(light.width == 1.0f);
+        CHECK(light.height == 1.0f);
         CHECK(light.channels == 1);
         // Shadows are asked for, light by light.
         CHECK_FALSE(light.castsShadows);
@@ -115,6 +119,8 @@ TEST_SUITE("RenderComponents") {
                                    .range = 8.0f,
                                    .innerConeDegrees = 20.0f,
                                    .outerConeDegrees = 30.0f,
+                                   .width = 2.0f,
+                                   .height = 0.5f,
                                    .channels = 6,
                                    .castsShadows = true,
                                    .shadowBias = 1.5f,
@@ -126,7 +132,8 @@ TEST_SUITE("RenderComponents") {
         const Json saved = type.toJson(&light);
         // The file format: pinned, because scenes on disk are written this way.
         CHECK(saved == json(R"({"type": "spot", "color": [1.0, 0.5, 0.25], "intensity": 2.5, "range": 8.0,
-                                "innerConeDegrees": 20.0, "outerConeDegrees": 30.0, "channels": 6,
+                                "innerConeDegrees": 20.0, "outerConeDegrees": 30.0, "width": 2.0, "height": 0.5,
+                                "channels": 6,
                                 "castsShadows": true, "shadowBias": 1.5, "shadowNormalOffset": 2.5,
                                 "shadowResolution": "high", "shadowDistance": 80.0, "shadowCascades": 3,
                                 "shadowCascadeDistribution": 0.5, "cookie": null, "cookieSize": 10.0,
@@ -140,6 +147,8 @@ TEST_SUITE("RenderComponents") {
         CHECK(loaded.range == light.range);
         CHECK(loaded.innerConeDegrees == light.innerConeDegrees);
         CHECK(loaded.outerConeDegrees == light.outerConeDegrees);
+        CHECK(loaded.width == light.width);
+        CHECK(loaded.height == light.height);
         CHECK(loaded.channels == light.channels);
         CHECK(loaded.castsShadows);
         CHECK(loaded.shadowBias == 1.5f);
@@ -418,22 +427,28 @@ TEST_SUITE("RenderComponents") {
         CHECK(problems[1].message.find("primary") != std::string::npos);
     }
 
-    TEST_CASE("a point light with a cookie is a problem of the scene: only spot and directional lights throw one") {
+    TEST_CASE("a point or rect light with a cookie is a problem of the scene: only spot and directional lights throw "
+              "one") {
         World world;
         const Uuid cookie = *Uuid::parse("6f1c2e4a-0b3d-4c5e-9f70-8a1b2c3d4e5f");
         for (const LightType type : {LightType::Spot, LightType::Directional}) {
             world.add<LightComponent>(world.createEntity("Fine")) = {.type = type, .cookie = cookie};
         }
         world.add<LightComponent>(world.createEntity("Plain point")) = {.type = LightType::Point};
+        world.add<LightComponent>(world.createEntity("Plain panel")) = {.type = LightType::Rect};
         CHECK(findRenderProblems(world).empty());
 
         const Entity bulb = world.createEntity("Bulb");
         world.add<LightComponent>(bulb) = {.type = LightType::Point, .cookie = cookie};
+        const Entity panel = world.createEntity("Panel");
+        world.add<LightComponent>(panel) = {.type = LightType::Rect, .cookie = cookie};
         const std::vector<RenderProblem> problems = findRenderProblems(world);
-        REQUIRE(problems.size() == 1);
+        REQUIRE(problems.size() == 2);
         CHECK(problems[0].entity == bulb);
         CHECK(problems[0].message.find("cookie") != std::string::npos);
         CHECK(problems[0].message.find("point light") != std::string::npos);
+        CHECK(problems[1].entity == panel);
+        CHECK(problems[1].message.find("rect light") != std::string::npos);
     }
 
     TEST_CASE(

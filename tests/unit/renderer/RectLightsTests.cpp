@@ -127,6 +127,26 @@ AddedUp allAround(double nDotV, float roughness) {
     return sum;
 }
 
+/// How much of everything around `position` a rectangle fills, added up over `steps` by
+/// `steps` patches of it: the area of each, seen at its slant, over the square of its way.
+double solidAngleAddedUp(const RectLightShape& light, const Vec3& position, int steps) {
+    const glm::dvec3 facing = glm::normalize(glm::cross(glm::dvec3(light.up), glm::dvec3(light.right)));
+    const double patch = 4.0 * glm::length(glm::dvec3(light.right)) * glm::length(glm::dvec3(light.up)) /
+                         (static_cast<double>(steps) * steps);
+    double sum = 0.0;
+    for (int row = 0; row < steps; ++row) {
+        for (int column = 0; column < steps; ++column) {
+            const double across = (column + 0.5) / steps * 2.0 - 1.0;
+            const double along = (row + 0.5) / steps * 2.0 - 1.0;
+            const glm::dvec3 offset = glm::dvec3(light.center) + glm::dvec3(light.right) * across +
+                                      glm::dvec3(light.up) * along - glm::dvec3(position);
+            const double distanceSquared = glm::dot(offset, offset);
+            sum += patch * std::max(-glm::dot(offset, facing), 0.0) / (distanceSquared * std::sqrt(distanceSquared));
+        }
+    }
+    return sum;
+}
+
 bool isFinite(const Vec4& value) {
     return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z) && std::isfinite(value.w);
 }
@@ -258,6 +278,32 @@ TEST_SUITE("RectLights") {
         const RectLightIrradiance away = rectLightIrradiance(above, origin, -kUp);
         CHECK(away.formFactor == 0.0f);
         CHECK(away.direction == Vec3(0.0f));
+    }
+
+    TEST_CASE("a rectangle fills as much of what a point sees as its closed form says") {
+        const Vec3 origin(0.0f);
+        // A square of side s, d away on its axis: 4 arcsin(s^2 / (s^2 + 4 d^2)).
+        const RectLightShape square{
+            .center = Vec3(0.0f, 2.0f, 0.0f), .right = Vec3(0.5f, 0, 0), .up = Vec3(0, 0, -0.5f)};
+        CHECK(std::abs(rectLightSolidAngle(square, origin) - 4.0 * std::asin(1.0 / 17.0)) < 1.0e-6);
+        // Turned, aside and tilted: as its patches add up.
+        for (const RectLightShape& light :
+             {facingOrigin(Vec3(1.0f, 2.0f, -1.5f), 1.0f, 0.5f), facingOrigin(Vec3(0.0f, 0.3f, -2.0f), 2.0f, 1.5f),
+              RectLightShape{
+                  .center = Vec3(0.5f, 0.2f, -1.0f), .right = Vec3(-0.8f, 0.0f, 0.3f), .up = Vec3(0.0f, 0.6f, 0.0f)}}) {
+            const double reference = solidAngleAddedUp(light, origin, 600);
+            const float solidAngle = rectLightSolidAngle(light, origin);
+            CHECK_MESSAGE(std::abs(solidAngle / reference - 1.0) < 1.0e-3, solidAngle << " against " << reference);
+        }
+        // Close and large, half of everything; far and small, its area over the square of
+        // the way; behind it and in its plane, nothing.
+        const RectLightShape sky{
+            .center = Vec3(0.0f, 1.0f, 0.0f), .right = Vec3(1000.0f, 0, 0), .up = Vec3(0, 0, -1000.0f)};
+        CHECK(std::abs(rectLightSolidAngle(sky, origin) / (2.0 * kPiDouble) - 1.0) < 1.0e-3);
+        const RectLightShape far = facingOrigin(Vec3(0.0f, 6.0f, -8.0f), 0.02f, 0.01f);
+        CHECK(std::abs(rectLightSolidAngle(far, origin) / (0.02 * 0.01 / 100.0) - 1.0) < 1.0e-3);
+        CHECK(rectLightSolidAngle(square, Vec3(0.0f, 3.0f, 0.0f)) == 0.0f);
+        CHECK(rectLightSolidAngle(square, Vec3(4.0f, 2.0f, 0.0f)) == 0.0f);
     }
 
     TEST_CASE("the lobe of GGX reflects of a rectangle in its way what the fit says, within an eighth of it") {

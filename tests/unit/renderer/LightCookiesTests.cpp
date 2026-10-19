@@ -91,6 +91,8 @@ TEST_SUITE("LightCookies") {
         const Vec3 right = gpuOf(light).cookieRight;
         CHECK(std::abs(glm::dot(right, light.direction)) < 1e-6f);
         CHECK(glm::length(right) == doctest::Approx(0.5f));
+        // That is the right a rect light is wide along, too.
+        CHECK_NEAR(rightAcrossOf(light) * 0.5f, right, 1e-6f);
     }
 
     TEST_CASE("cone angles and sizes that cannot lay a cookie out are held to what can") {
@@ -109,8 +111,11 @@ TEST_SUITE("LightCookies") {
         CHECK(std::isfinite(glm::length(cookieAxisOf(light))));
     }
 
-    TEST_CASE("a light without a cookie, and a point light, has nothing to lay one out with") {
+    TEST_CASE("a light without a cookie, and a point or a rect light, has nothing to lay one out with") {
         SceneLight light = lightWithCookie(GpuLightType::Point);
+        CHECK(cookieAxisOf(light) == Vec3(0.0f));
+        CHECK_FALSE(cookieUvOf(gpuOf(light), Vec3(0.0f, 0.0f, -1.0f)).has_value());
+        light.type = GpuLightType::Rect;
         CHECK(cookieAxisOf(light) == Vec3(0.0f));
         CHECK_FALSE(cookieUvOf(gpuOf(light), Vec3(0.0f, 0.0f, -1.0f)).has_value());
         light.type = GpuLightType::Spot;

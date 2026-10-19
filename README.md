@@ -28,6 +28,7 @@ number are what its list of milestones leaves out and its requirements ask for:
 | - | Light shafts: looking towards the sun, its light streams past whatever stands in its way - shafts that fan out from the sun and the shadows of what is in front of it, from the light of the sun and the brightest parts of the sky, set by `PostProcess` components; none with the sun behind the camera; the Light shafts render view shows them alone | Done |
 | - | Light cookies: a spot or a directional light shines through a picture whose colors filter it - a guard, a window, leaves, clouds - thrown across a spot light's cone, or laid out over the world by a directional light and repeated, drifting as its entity moves; up to sixteen at once, layers of one texture array; the showcase's lamp shines through a wire guard | Done |
 | - | Lights that light the fog: a fog that says so is lit by every light, as much as each light's `volumetricIntensity` says, through the lights' shadows and cookies - the beam of a spot light in haze, the glow of a lamp, the sun between shadows - worked out by two compute passes over a grid laid over the view, as fine as the view's screen effects quality, and read by the lighting of solid and translucent surfaces alike; the showcase's lamp is a cone of light in its haze | Done |
+| - | Rect lights: light from one face of a rectangle - a panel, a window, a screen - worked out by the closed form of the cosine over its face for what is matte and by linearly transformed cosines, with their authors' fit of GGX, for what shines, so that a shiny surface reflects the rectangle itself; from afar as bright as a point light of the same intensity, with the shadows of a point light in its middle and its light in the fog; the showcase's monitor lights what is in front of it | Done |
 | - | Environment probes: pictures the renderer takes of the scene around a point - six views, once, and again when the probe moves or the editor asks - that light what is in the probe's box in the place of the environment: matte surfaces by nine harmonics worked out on the GPU, shiny ones by a cube blurred for every roughness, looked up where reflections meet the box; probes fade into one another and the environment by priority; the showcase's stage has one | Done |
 | - | Reflections from the screen: what a reflection meets in the picture takes the place of what the environment, a probe or the ambient lights give a smooth surface to reflect, exactly - fading towards the borders of the picture, with distance and with roughness - followed as finely as the screen effects quality says; probes are taken without them, and nothing is drawn for a view in which nothing can be smooth enough; the showcase's mirror plate reflects the crate | Done |
 | - | Predictable texture memory: a texture keeps at most 1024, 2048 or 4096 texels a side by the quality of the program, and past the project's budget every texture is kept the same number of levels smaller - the fewest at which all of them fit, whatever order they came in; lookup tables keep their size | Done |
@@ -62,10 +63,10 @@ scene when it plays the scene, and a single sound when one is chosen in the Asse
 and played there.
 
 What the brief asks of the renderer and its cameras that no milestone names, and that
-is not built yet: temporal anti-aliasing, lens flares, rect lights, baked lighting, textures
-streamed by how large they are seen (they keep to a limit and a budget instead), and views of
-the editor along the axes of the world, without perspective. They follow once the milestones
-above stand.
+is not built yet: temporal anti-aliasing, lens flares, baked lighting, textures streamed by
+how large they are seen (they keep to a limit and a budget instead), and views of the editor
+along the axes of the world, without perspective. They follow once the milestones above
+stand.
 
 ## Building
 
@@ -146,12 +147,14 @@ the repository contains no third-party artwork:
 
 ## Lighting
 
-A scene is lit by components. `Light` is a directional, a point or a spot light; it
-shines from where its entity is, along the entity's -Z axis. `AmbientLight` is light
-from all around, from a sky above and a ground below. An intensity of 1 lights a white,
-matte surface that faces the light to white - at any distance for a directional light,
-one metre away for a point or a spot light, which thin out with the square of the
-distance and end at their range.
+A scene is lit by components. `Light` is a directional, a point, a spot or a rect
+light; it shines from where its entity is, along the entity's -Z axis. `AmbientLight` is
+light from all around, from a sky above and a ground below. An intensity of 1 lights a
+white, matte surface that faces the light to white - at any distance for a directional
+light, one metre away for a point or a spot light, which thin out with the square of the
+distance and end at their range. A rect light gives off its light from a rectangle of its
+`width` and `height`: from far away as a point light of the same intensity in its middle,
+nearer from all over its face, and shiny surfaces reflect the rectangle.
 
 `Environment` surrounds the scene with an image of everything far away: an HDR image
 of a sky, twice as wide as high, such as those of [Poly Haven](https://polyhaven.com/hdris).
@@ -163,7 +166,7 @@ up with a directional light that casts the shadows), and without `visible` it li
 the scene and stays unseen. The "Reflections" view of the editor makes a mirror of
 every surface, to show what there is to reflect.
 
-A view can hold hundreds of point and spot lights: they are sorted into a grid of
+A view can hold hundreds of point, spot and rect lights: they are sorted into a grid of
 clusters, and a pixel only asks the lights near it. Every mesh and every light is in
 some of eight lighting channels, and a light shines on a mesh when the two share one.
 A scene without lights is black in a game; the editor lights it until it has lights of

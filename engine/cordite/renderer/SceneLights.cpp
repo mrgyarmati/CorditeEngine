@@ -26,6 +26,8 @@ GpuLightType gpuTypeOf(LightType type) {
             return GpuLightType::Point;
         case LightType::Spot:
             return GpuLightType::Spot;
+        case LightType::Rect:
+            return GpuLightType::Rect;
     }
     return GpuLightType::Point;
 }
@@ -122,6 +124,14 @@ SceneLight makeSceneLight(const LightComponent& component, const Mat4& placement
     light.shadow.cascades = component.shadowCascades;
     light.shadow.cascadeDistribution = component.shadowCascadeDistribution;
     light.right = normalizeOr(Vec3(placement[0]), kWorldRight);
+    light.width = component.width;
+    light.height = component.height;
+    if (light.type == GpuLightType::Rect) {
+        // The range is measured from the middle, and a light that did not reach its own
+        // corners would end on its face.
+        const RectLightShape shape = rectShapeOf(light);
+        light.range = std::max(light.range, glm::length(shape.right + shape.up));
+    }
     light.cookie = component.cookie;
     light.cookieSize = component.cookieSize;
     light.volumetricIntensity = component.volumetricIntensity;

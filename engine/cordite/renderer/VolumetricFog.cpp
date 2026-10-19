@@ -1,17 +1,34 @@
 #include "cordite/renderer/VolumetricFog.h"
 
+#include "cordite/renderer/RectLights.h"
+
 #include <algorithm>
 #include <cmath>
 
 namespace cordite {
 namespace {
 
+/// How much of a local light is left at a distance whose square is `distanceSquared`:
+/// rangeWindow() of shaders/common/Lights.slang.
+float rangeWindow(float distanceSquared, float range) {
+    const float ratio = distanceSquared / (range * range);
+    const float window = std::clamp(1.0f - ratio * ratio, 0.0f, 1.0f);
+    return window * window;
+}
+
 /// How bright a point or spot light is at a distance whose square is `distanceSquared`:
 /// distanceFalloff() of shaders/common/Lights.slang.
 float distanceFalloff(float distanceSquared, float range) {
-    const float ratio = distanceSquared / (range * range);
-    const float window = std::clamp(1.0f - ratio * ratio, 0.0f, 1.0f);
-    return window * window / std::max(distanceSquared, 1.0e-4f);
+    return rangeWindow(distanceSquared, range) / std::max(distanceSquared, 1.0e-4f);
+}
+
+/// How bright the face of a rect light is, against its color, times how much of everything
+/// around `position` the face fills: what reaches a point of the fog of it, within its range
+/// window.
+float rectLightReaching(const GpuLight& light, const Vec3& position, float distanceSquared) {
+    const RectLightShape shape = rectShapeOf(light);
+    const float area = 4.0f * glm::length(shape.right) * glm::length(shape.up);
+    return rangeWindow(distanceSquared, light.range) * rectLightSolidAngle(shape, position) / std::max(area, 1.0e-8f);
 }
 
 /// How bright a spot light is along `travels`, the unit vector its light goes along:
@@ -84,9 +101,14 @@ Vec3 lightInFog(const GpuLight& light, const Vec3& position, const Vec3& toViewe
         return Vec3(0.0f);
     }
     const Vec3 travels = offset / std::sqrt(std::max(distanceSquared, 1.0e-8f));
-    float brightness = distanceFalloff(distanceSquared, light.range);
-    if (type == GpuLightType::Spot) {
-        brightness *= coneFalloff(light, travels);
+    float brightness = 0.0f;
+    if (type == GpuLightType::Rect) {
+        brightness = rectLightReaching(light, position, distanceSquared);
+    } else {
+        brightness = distanceFalloff(distanceSquared, light.range);
+        if (type == GpuLightType::Spot) {
+            brightness *= coneFalloff(light, travels);
+        }
     }
     return light.fogColor * (brightness * henyeyGreenstein(glm::dot(travels, toViewer), anisotropy));
 }

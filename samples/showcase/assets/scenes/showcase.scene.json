@@ -1248,6 +1248,30 @@
             }
         },
         {
+            // The light of the screen: a rect light as large as its picture, a hair in front
+            // of it, turned half a turn so that its -Z looks into the room. It is a rectangle,
+            // not a point: what is in front of the monitor is lit from all over the picture,
+            // softly, and what shines reflects a rectangle. As bright from afar as a point
+            // light of its intensity; its face is that over its area, about as bright as the
+            // picture.
+            "id": "10000000-0000-4000-8000-00000000004e",
+            "name": "Screen light",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-00000000000b",
+            "components": {
+                "Transform": { "position": [-1.5, 0.35, 0.23], "rotation": [0.0, 1.0, 0.0, 0.0], "scale": [1.0, 1.0, 1.0] },
+                "Light": {
+                    "type": "rect",
+                    "color": [0.6, 0.75, 1.0],
+                    "intensity": 0.4,
+                    "range": 3.0,
+                    "width": 1.6,
+                    "height": 0.9,
+                    "channels": 1
+                }
+            }
+        },
+        {
             // Two bollards, placed from a prefab (prefabs/bollard.prefab.json) as
             // asset.instantiate places one: copies of its entities, with ids of their own.
             // The PrefabInstance on the root of each says where it came from, and that is

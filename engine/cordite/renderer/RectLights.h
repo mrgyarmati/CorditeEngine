@@ -31,8 +31,9 @@
 /// const Vec3 specular = radiance * (f0 * (shine.lobe - shine.grazing) + f90 * shine.grazing);
 /// @endcode
 ///
-/// The arithmetic is meant to be written down a second time, in the shaders that light
-/// surfaces, and held to these functions by tests.
+/// The arithmetic is written down a second time, in shaders/common/RectLights.slang and
+/// shadeRectLight of shaders/common/Lights.slang, which SceneLightingTests holds to these
+/// functions: change both.
 
 #include "cordite/math/Math.h"
 
@@ -112,6 +113,12 @@ struct RectLightSpecular {
 /// where it is behind the light, or in the plane of it.
 [[nodiscard]] RectLightIrradiance rectLightIrradiance(const RectLightShape& light, const Vec3& position,
                                                       const Vec3& normal);
+
+/// How much of everything around `position` the rectangle of `light` fills, as a point
+/// there sees it - in steradians, 2 pi for a rectangle that fills half of it - and nothing
+/// where the point is behind it or in its plane. What a fog there is lit with by the light
+/// is the radiance of its face times this.
+[[nodiscard]] float rectLightSolidAngle(const RectLightShape& light, const Vec3& position);
 
 /// What the GGX lobe of a surface at `position`, with the unit `normal` and a `roughness`
 /// (perceptual; kMinimumRoughness at the least), reflects of `light` along the unit

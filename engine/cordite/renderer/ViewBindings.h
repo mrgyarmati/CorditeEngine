@@ -23,8 +23,10 @@
 /// | t9       | The environment probes that light the view (Environment.slang)    |
 /// | t10      | Their harmonics, nine a probe                                     |
 /// | t11      | Their reflections, a cube a probe                                 |
+/// | t12      | The fit of rect lights: its matrices (shaders/common/RectLights.slang) |
+/// | t13      | What its lobes reflect                                            |
 /// | s0       | The sampler that compares a depth with the atlas                  |
-/// | s1       | The sampler of the cube map                                       |
+/// | s1       | The sampler of the cube map, which the fit is read with too       |
 /// | s2       | The sampler of the sky: it wraps around from left to right        |
 /// | s3       | The sampler of the cookies: it repeats them                       |
 /// | s4       | The sampler of the fog's light: it stops at the edges             |
@@ -188,6 +190,11 @@ private:
     nvrhi::TextureHandle m_noFogVolume;
     /// Whether m_noFogVolume has been given its texel, which takes a command list.
     bool m_noFogVolumeWritten = false;
+    /// The tables of the fit of rect lights (RectLights.h), bound at t12 and t13 for every
+    /// view, and whether they have been written, which takes a command list.
+    nvrhi::TextureHandle m_rectLightMatrices;
+    nvrhi::TextureHandle m_rectLightMagnitudes;
+    bool m_rectLightTablesWritten = false;
     /// The textures the binding set holds; a view may come with others.
     nvrhi::TextureHandle m_atlas;
     nvrhi::TextureHandle m_environmentRadiance;

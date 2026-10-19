@@ -203,12 +203,14 @@ scene black. Lights are components like any other:
 ]
 ```
 
-- A light shines from where its entity is. A directional and a spot light shine along
-  the entity's -Z axis: the rotations above point the sun 53 degrees down and the lamp
-  straight down. `component.types` describes every property.
+- A light shines from where its entity is. A directional, a spot and a rect light shine
+  along the entity's -Z axis: the rotations above point the sun 53 degrees down and the
+  lamp straight down. `component.types` describes every property.
 - `intensity` 1 lights a white, matte surface that faces the light to white: at any
   distance for a directional light, one metre away for a point or spot light, which
-  thin out with the square of the distance and end at their `range`.
+  thin out with the square of the distance and end at their `range`. A rect light
+  (`"type": "rect"`, `width` and `height` in metres) is as bright from afar as a point
+  light in its middle, and gives off its light from all of its face.
 - An `Environment` is an image of everything far away - an `.hdr` image of a sky,
   twice as wide as high, named by the id `asset.list {"type": "texture"}` gives it. It
   is the sky of the scene, lights matte surfaces and is what shiny ones reflect.
@@ -255,7 +257,7 @@ scene black. Lights are components like any other:
   of one metre; on a camera it applies to that camera's views. `component.types` lists
   its settings with their ranges. To make a scene brighter, raise `exposure` (stops:
   +1 doubles the light); to let a view set its own, `"exposureMode": "automatic"`.
-- `viewport.debugView {"view": "lightCount"}` shows how many point and spot lights
+- `viewport.debugView {"view": "lightCount"}` shows how many point, spot and rect lights
   each pixel has to ask, `{"view": "shadowCascades"}` which cascade of the sun's shadow
   each pixel is looked up in, and `editor.statistics` how many lights are in view, how
   many were left out because a view holds only so many, how many shadow maps were

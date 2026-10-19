@@ -14,7 +14,7 @@
 /// nothing was drawn show the sky of the view's environment, when it has one that is
 /// to be seen; otherwise they are left alone, so the background stays what it was
 /// cleared to. The lights are those of the view (see ViewBindings): its directional
-/// lights, the point and spot lights of the cluster each pixel is in, ambient light
+/// lights, the point, spot and rect lights of the cluster each pixel is in, ambient light
 /// from a sky and a ground, and its environment.
 
 #include "cordite/core/Result.h"

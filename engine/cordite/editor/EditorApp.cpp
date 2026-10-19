@@ -1022,8 +1022,8 @@ Status EditorApp::registerViewportCommands() {
         .description =
             "Chooses what a viewport shows: the lit picture (\"none\") or a debug view of the "
             "renderer - one thing the G-buffer holds, with what decals laid on (baseColor, normals, "
-            "roughness, metallic, specular, occlusion, emissive, depth), how many point and spot lights each pixel "
-            "has to ask (lightCount: dark for none, blue for one, through green to red for eight "
+            "roughness, metallic, specular, occlusion, emissive, depth), how many point, spot and rect lights "
+            "each pixel has to ask (lightCount: dark for none, blue for one, through green to red for eight "
             "and more), which cascade of the sun's shadow each pixel is looked up in "
             "(shadowCascades: red, green, blue, yellow from the nearest on; grey where the sun "
             "casts none), how much of the light from all around gets to each surface past what "

@@ -37,16 +37,16 @@ inline constexpr float kMinCookieConeAngle = 0.01f;
 inline constexpr float kMinCookieSize = 0.01f;
 
 /// What GpuLight::cookieRight is for a light: its right at right angles to the way it
-/// shines, divided by the tangent of a spot light's outer cone - at most
+/// shines (rightAcrossOf), divided by the tangent of a spot light's outer cone - at most
 /// kMaxCookieConeAngle - or by the size of a directional light's cookie. Nothing for a
-/// light without a cookie, and for a point light.
+/// light without a cookie, and for a point or a rect light.
 [[nodiscard]] Vec3 cookieAxisOf(const SceneLight& light);
 
 /// Where on its cookie a point is, as the shaders find it, from (0, 0) at the top left of
 /// the picture to (1, 1) at its bottom right - seen from behind the light, looking the way
 /// it shines. A spot light's picture fills a square around its outer cone; a directional
 /// light's begins at the light's position and repeats, so any place counts. Nothing for a
-/// point light, and for a point behind a spot light.
+/// point or a rect light, and for a point behind a spot light.
 [[nodiscard]] std::optional<Vec2> cookieUvOf(const GpuLight& light, const Vec3& point);
 
 } // namespace cordite

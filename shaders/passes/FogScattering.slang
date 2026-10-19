@@ -45,7 +45,8 @@ void fogScatteringCompute(uint3 box : SV_DispatchThreadID)
         const float3 reaching = lightInFog(local, position, toViewer);
         if (any(reaching > 0.0))
         {
-            const bool isPointLight = lightType(local) == kLightPoint;
+            // A rect light's shadows are those of a point light in its middle.
+            const bool isPointLight = lightType(local) != kLightSpot;
             light += reaching * localLightVisibilityAt(local.shadowView, isPointLight, local.position, position) *
                      cookieFilterAt(local, position, footprint);
         }

@@ -42,17 +42,21 @@ TypeInfo describeLight() {
         .enumProperty("type", &LightComponent::type,
                       {{LightType::Directional, std::string(nameOf(LightType::Directional))},
                        {LightType::Point, std::string(nameOf(LightType::Point))},
-                       {LightType::Spot, std::string(nameOf(LightType::Spot))}},
+                       {LightType::Spot, std::string(nameOf(LightType::Spot))},
+                       {LightType::Rect, std::string(nameOf(LightType::Rect))}},
                       {.description = "Directional: from one direction, everywhere. Point: from a point, all around. "
-                                      "Spot: from a point, within a cone. Directional and spot lights shine along -Z"})
+                                      "Spot: from a point, within a cone. Rect: from a rectangle, from one face. "
+                                      "Directional, spot and rect lights shine along -Z"})
         .property("color", &LightComponent::color,
                   {.description = "Linear color of the light", .semantic = PropertySemantic::Color, .minimum = 0.0})
         .property("intensity", &LightComponent::intensity,
                   {.description = "Brightness; 1 lights a white matte surface facing the light to white (for a point "
-                                  "or spot light: one metre away)",
+                                  "or spot light: one metre away; for a rect light: as a point light in its middle, "
+                                  "from far away)",
                    .minimum = 0.0})
         .property("range", &LightComponent::range,
-                  {.description = "Point and spot: the distance at which the light has faded to nothing",
+                  {.description = "Point, spot and rect: the distance at which the light has faded to nothing - "
+                                  "from the middle of a rect light, which reaches at least to its corners",
                    .minimum = 0.01,
                    .unit = "m"})
         .property("innerConeDegrees", &LightComponent::innerConeDegrees,
@@ -65,12 +69,25 @@ TypeInfo describeLight() {
                    .minimum = 0.0,
                    .maximum = 89.0,
                    .unit = "deg"})
+        .property("width", &LightComponent::width,
+                  {.description = "Rect: how wide the rectangle that gives off the light is, along X",
+                   .minimum = 0.01,
+                   .maximum = 1000.0,
+                   .step = 0.01,
+                   .unit = "m"})
+        .property("height", &LightComponent::height,
+                  {.description = "Rect: how high the rectangle that gives off the light is, along Y",
+                   .minimum = 0.01,
+                   .maximum = 1000.0,
+                   .step = 0.01,
+                   .unit = "m"})
         .property("channels", &LightComponent::channels,
                   channelsAttribute("The lighting channels the light shines on, one bit each (1 is the first, 255 "
                                     "all eight)"))
         .property("castsShadows", &LightComponent::castsShadows,
                   {.description = "Whether what stands in the light throws shadows. Of several directional "
-                                  "lights only the brightest casts them"})
+                                  "lights only the brightest casts them; a rect light casts those of a point light "
+                                  "in its middle"})
         .property("shadowBias", &LightComponent::shadowBias,
                   {.description = "How many shadow-map texels nearer the light a surface is looked up; more "
                                   "removes stripes on lit surfaces, less keeps shadows attached to what casts "
@@ -109,7 +126,7 @@ TypeInfo describeLight() {
         .property("cookie", &LightComponent::cookie,
                   {.description = "Spot and directional: a picture the light shines through, which filters it by "
                                   "its colors - thrown across a spot light's cone, laid out over the world and "
-                                  "repeated by a directional light. A point light has none",
+                                  "repeated by a directional light. A point or rect light has none",
                    .semantic = PropertySemantic::AssetReference,
                    .referenceType = "Texture"})
         .property("cookieSize", &LightComponent::cookieSize,
@@ -560,6 +577,8 @@ std::string_view nameOf(LightType type) {
             return "point";
         case LightType::Spot:
             return "spot";
+        case LightType::Rect:
+            return "rect";
     }
     return "unknown";
 }
@@ -585,9 +604,10 @@ std::vector<RenderProblem> findRenderProblems(const World& world) {
             problems.push_back({entity, "CameraShake shakes nothing: the entity has no Camera whose view it shakes"});
         }
         if (const auto* light = world.tryGet<LightComponent>(entity);
-            light != nullptr && light->type == LightType::Point && !light->cookie.isNil()) {
-            problems.push_back({entity, "Light has a cookie, which a point light does not throw: only spot and "
-                                        "directional lights do"});
+            light != nullptr && (light->type == LightType::Point || light->type == LightType::Rect) &&
+            !light->cookie.isNil()) {
+            problems.push_back({entity, "Light has a cookie, which a " + std::string(nameOf(light->type)) +
+                                            " light does not throw: only spot and directional lights do"});
         }
         // The box of a probe is the entity's: scaled to nothing along an axis, it has no inside.
         if (world.has<EnvironmentProbeComponent>(entity)) {
@@ -616,7 +636,7 @@ Status registerRendererComponents(ComponentRegistry& registry) {
     CORDITE_TRY(registry.add<MeshRendererComponent>(
         describeMeshRenderer(), {.description = "Draws a mesh at the entity's place in the world."}));
     CORDITE_TRY(registry.add<LightComponent>(
-        describeLight(), {.description = "A light at the entity's place: directional, point or spot."}));
+        describeLight(), {.description = "A light at the entity's place: directional, point, spot or rect."}));
     CORDITE_TRY(registry.add<AmbientLightComponent>(
         describeAmbientLight(),
         {.description = "Light from all around, from a sky above and a ground below. Several add up."}));

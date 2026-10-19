@@ -18,12 +18,23 @@ the entity's -Z axis (its forward direction):
 | `directional` | The sun or the moon: parallel light from far away. Only its direction matters. | - |
 | `point` | A bulb: light in every direction from one point. | `range` |
 | `spot` | A torch or a stage light: a cone. | `range`, `innerConeDegrees`, `outerConeDegrees` |
+| `rect` | A panel, a window, a screen: light from one face of a rectangle. | `range`, `width`, `height` |
 
 Every light has a `color` and an `intensity`. An intensity of 1 lights a white, matte surface
 that faces the light to white - at any distance for a directional light, one metre away for
 the others, which fall off with distance and reach nothing at their `range`. A light also
 ends at its range, so keep ranges as small as the light needs: it is cheaper, and the scene
 is easier to control.
+
+A **rect** light gives off its light from a rectangle `width` by `height` metres along its
+entity's X and Y axes, from the face that looks along -Z; the entity's scale does not change
+its size. Its intensity is a point light's: seen from far along the way it shines, it lights
+what a point light of the same intensity in its middle would, less at a slant and nothing
+behind its face. Nearer, its light comes from all over the face - a soft light that does not
+grow without end as you come close - and shiny surfaces reflect the rectangle itself: a long
+highlight for a long light. However large it is, it gives off the same light in all, so make
+it the size of what glows. Its range is measured from its middle and reaches its corners at
+the least. The showcase's monitor lights what is in front of it this way.
 
 **Cookies**: a spot or a directional light can shine through a picture, as through a slide in
 a projector - the bars of a guard, the panes of a window, leaves, moving clouds. Name a
@@ -32,9 +43,9 @@ through and black none. A spot light throws the picture across its cone, as it i
 behind the light, looking the way it shines, and turns it as the light is turned about its
 axis. A directional light lays it out over the world from where its entity is, repeated every
 `cookieSize` metres along the light's right and up: move the entity - a script, a sequence -
-and the clouds drift. A point light has no cookie. A cookie is brought to 256 by 256 pixels,
-and up to 16 can be in use at once; an `.hdr` image, which holds light, is no cookie. The
-showcase's lamp shines through a wire guard (`textures/lamp_cookie.png`).
+and the clouds drift. A point or a rect light has no cookie. A cookie is brought to 256 by
+256 pixels, and up to 16 can be in use at once; an `.hdr` image, which holds light, is no
+cookie. The showcase's lamp shines through a wire guard (`textures/lamp_cookie.png`).
 
 **AmbientLight** lights what the direct lights do not reach: a `skyColor` from above, a
 `groundColor` from below, times `intensity`. Several ambient lights add up.
@@ -43,9 +54,9 @@ showcase's lamp shines through a wire guard (`textures/lamp_cookie.png`).
 shines only on surfaces that share one of its bits. Use them to light a character apart from
 its surroundings, or to keep an interior light from leaking through a wall.
 
-A view takes up to 4 directional lights and 1024 point and spot lights at once - hundreds of
-local lights are fine, because they are sorted into clusters of the view and each pixel only
-looks at the lights near it.
+A view takes up to 4 directional lights and 1024 point, spot and rect lights at once -
+hundreds of local lights are fine, because they are sorted into clusters of the view and each
+pixel only looks at the lights near it.
 
 ## Shadows
 
@@ -55,7 +66,9 @@ shadows in it:
 - The **sun** - the brightest directional light that casts shadows - gets up to 4
   **cascades**: sharper shadows near the camera, coarser ones further away, up to
   `shadowDistance` metres. `shadowCascadeDistribution` moves detail towards the camera.
-- A **spot** light gets one shadow map, a **point** light six (one for every direction).
+- A **spot** light gets one shadow map, a **point** light six (one for every direction). A
+  **rect** light casts the shadows of a point light in its middle: six maps, and shadows as
+  sharp as a point light's.
 - `shadowResolution` (`low`, `medium`, `high`) is the size of a light's maps.
 - `shadowBias` and `shadowNormalOffset` keep a surface from shadowing itself - the
   defaults seldom need changing. Larger values make shadows end short of what casts them.

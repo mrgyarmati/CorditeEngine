@@ -2,8 +2,10 @@
 
 #include "cordite/core/Assert.h"
 #include "cordite/core/Log.h"
+#include "cordite/renderer/RectLights.h"
 #include "cordite/renderer/ViewConstants.h"
 
+#include <glm/gtc/packing.hpp>
 #include <nvrhi/utils.h>
 
 #include <algorithm>
@@ -34,8 +36,8 @@ struct GpuShadowView {
     /// one metre from the light for the others.
     float texelSize;
     Vec3 up;
-    /// 1 for the maps of point and spot lights, whose texels grow with the distance and
-    /// which may see less than their light reaches.
+    /// 1 for the maps of point, spot and rect lights, whose texels grow with the distance
+    /// and which may see less than their light reaches.
     float perspective;
 };
 
@@ -45,6 +47,35 @@ static_assert(sizeof(GpuShadowView) == 112, "must match ShadowView in Shadows.sl
 constexpr size_t kInitialLightCapacity = 64;
 constexpr size_t kInitialIndexCapacity = 4096;
 constexpr size_t kInitialShadowViewCapacity = 16;
+
+/// A table of the fit of rect lights (RectLights.h), kLtcTableSize texels a side of four
+/// half floats: every GPU can filter those, which is not so for 32-bit floats, and they
+/// hold the fit, whose numbers are less than two, to a part in two thousand.
+nvrhi::TextureHandle createRectLightTable(nvrhi::IDevice* device, const char* name) {
+    nvrhi::TextureDesc desc;
+    desc.width = kLtcTableSize;
+    desc.height = kLtcTableSize;
+    desc.format = nvrhi::Format::RGBA16_FLOAT;
+    desc.debugName = name;
+    desc.initialState = nvrhi::ResourceStates::ShaderResource;
+    desc.keepInitialState = true;
+    return device->createTexture(desc);
+}
+
+/// Writes `texels` into a table made by createRectLightTable().
+void writeRectLightTable(nvrhi::ICommandList* commandList, nvrhi::ITexture* table, std::span<const Vec4> texels) {
+    CORDITE_ASSERT(texels.size() == size_t{kLtcTableSize} * kLtcTableSize, "a table of the fit has 64 x 64 texels");
+    if (texels.size() != size_t{kLtcTableSize} * kLtcTableSize) {
+        return;
+    }
+    std::vector<uint16_t> halves(texels.size() * 4);
+    for (size_t index = 0; index < texels.size(); ++index) {
+        for (size_t channel = 0; channel < 4; ++channel) {
+            halves[index * 4 + channel] = glm::packHalf1x16(texels[index][static_cast<glm::length_t>(channel)]);
+        }
+    }
+    commandList->writeTexture(table, 0, 0, halves.data(), size_t{kLtcTableSize} * 4 * sizeof(uint16_t));
+}
 
 /// The bytes of a list, or of one element of nothing when the list is empty: a buffer
 /// cannot be empty, and a shader that finds a count of zero reads none of it.
@@ -105,6 +136,8 @@ Result<ViewBindings> ViewBindings::create(nvrhi::IDevice* device) {
         nvrhi::BindingLayoutItem::Texture_SRV(7),
         nvrhi::BindingLayoutItem::Texture_SRV(8),
         nvrhi::BindingLayoutItem::Texture_SRV(11),
+        nvrhi::BindingLayoutItem::Texture_SRV(12),
+        nvrhi::BindingLayoutItem::Texture_SRV(13),
         nvrhi::BindingLayoutItem::Sampler(0),
         nvrhi::BindingLayoutItem::Sampler(1),
         nvrhi::BindingLayoutItem::Sampler(2),
@@ -164,9 +197,12 @@ Result<ViewBindings> ViewBindings::create(nvrhi::IDevice* device) {
     noRadianceDesc.keepInitialState = true;
     noRadianceDesc.debugName = "No probe reflections";
     view.m_noProbeRadiance = device->createTexture(noRadianceDesc);
+    view.m_rectLightMatrices = createRectLightTable(device, "Rect light matrices");
+    view.m_rectLightMagnitudes = createRectLightTable(device, "Rect light magnitudes");
     if (!view.m_constants || !view.m_layout || !view.m_shadowSampler || !view.m_environmentSampler ||
         !view.m_skySampler || !view.m_cookieSampler || !view.m_fogVolumeSampler || !view.m_noFogVolume ||
-        !view.m_noProbeHarmonics || !view.m_noProbeRadiance) {
+        !view.m_noProbeHarmonics || !view.m_noProbeRadiance || !view.m_rectLightMatrices ||
+        !view.m_rectLightMagnitudes) {
         return makeError(ErrorCode::DeviceError, "cannot create the view constants");
     }
 
@@ -255,8 +291,8 @@ void ViewBindings::update(nvrhi::ICommandList* commandList, const SceneView& vie
         commandList->writeBuffer(m_shadowViews, shadowViews.data(), shadowBytes);
     }
 
-    // The lights, where they fit. If a buffer cannot grow, the view is drawn without
-    // its point and spot lights rather than with lists that point past the end. Lights
+    // The lights, where they fit. If a buffer cannot grow, the view is drawn without its
+    // point, spot and rect lights rather than with lists that point past the end. Lights
     // whose shadow maps cannot be described are sent as lights without shadows.
     static const GpuLight kNoLight;
     static const uint32_t kNoIndex = 0;
@@ -355,6 +391,12 @@ void ViewBindings::update(nvrhi::ICommandList* commandList, const SceneView& vie
         commandList->writeTexture(m_noFogVolume, 0, 0, kNothing.data(), sizeof(kNothing), sizeof(kNothing));
         m_noFogVolumeWritten = true;
     }
+    if (!m_rectLightTablesWritten) {
+        // Once: the fit is the same for every view, and never changes.
+        writeRectLightTable(commandList, m_rectLightMatrices, ltcMatrixTexels());
+        writeRectLightTable(commandList, m_rectLightMagnitudes, ltcMagnitudeTexels());
+        m_rectLightTablesWritten = true;
+    }
     nvrhi::ITexture* fogLight = fogIsLit ? fogVolume : m_noFogVolume.Get();
     if (m_bindingsOutdated || !m_bindings || m_atlas != shadows.atlas ||
         m_environmentRadiance != surroundings.radiance || m_environmentSky != surroundings.sky ||
@@ -382,6 +424,8 @@ void ViewBindings::update(nvrhi::ICommandList* commandList, const SceneView& vie
             nvrhi::BindingSetItem::Texture_SRV(7, m_cookies),
             nvrhi::BindingSetItem::Texture_SRV(8, m_fogVolume),
             nvrhi::BindingSetItem::Texture_SRV(11, m_probeRadiance),
+            nvrhi::BindingSetItem::Texture_SRV(12, m_rectLightMatrices),
+            nvrhi::BindingSetItem::Texture_SRV(13, m_rectLightMagnitudes),
             nvrhi::BindingSetItem::Sampler(0, m_shadowSampler),
             nvrhi::BindingSetItem::Sampler(1, m_environmentSampler),
             nvrhi::BindingSetItem::Sampler(2, m_skySampler),

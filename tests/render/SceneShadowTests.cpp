@@ -395,6 +395,30 @@ TEST_SUITE("SceneShadows") {
         checkNoValidationIssues(*floor.scene.context.graphics);
     }
 
+    TEST_CASE("a rect light throws the shadows of a point light in its middle") {
+        FloorScene floor;
+        // Half a metre by a quarter, over the floor, shining down and a little aside.
+        floor.addLight({.light = {.type = LightType::Rect,
+                                  .intensity = 2.0f,
+                                  .range = 12.0f,
+                                  .width = 0.5f,
+                                  .height = 0.25f,
+                                  .castsShadows = true},
+                        .position = Vec3(0.2f, 1.6f, -0.1f),
+                        .direction = glm::normalize(Vec3(0.1f, -1.0f, 0.05f))});
+        floor.addCaster(Vec3(1.0f, 0.4f, 0.0f), Vec3(0.4f, 0.8f, 0.4f));
+        floor.addCaster(Vec3(-0.9f, 0.3f, 0.6f), Vec3(0.5f, 0.6f, 0.5f));
+        floor.addCaster(Vec3(0.1f, 0.5f, -1.1f), Vec3(0.6f, 1.0f, 0.3f));
+        floor.addCaster(Vec3(-0.6f, 0.9f, -0.8f), Vec3(0.3f, 0.2f, 0.3f));
+        const Image image = floor.render();
+
+        const Compared compared = floor.checkFloor(image);
+        CHECK(compared.shadowed > 40);
+        CHECK(compared.lit > 300);
+        CHECK(floor.scene.renderer->statistics().shadowMaps == 6);
+        checkNoValidationIssues(*floor.scene.context.graphics);
+    }
+
     TEST_CASE("each of the six shadow maps of a point light shows what is on its side") {
         // A wall on one side of a light, a block between the two, and a camera that looks
         // at the wall past the light: the shadow of the block is a frame around it.
@@ -470,7 +494,7 @@ TEST_SUITE("SceneShadows") {
         }
     }
 
-    TEST_CASE("point and spot lights low over a surface light it without stripes too") {
+    TEST_CASE("point, spot and rect lights low over a surface light it without stripes too") {
         FloorScene floor;
         // A point light a hand's breadth over the floor: at its edges the light arrives
         // nearly level.
@@ -483,10 +507,26 @@ TEST_SUITE("SceneShadows") {
         floor.lights.clear();
         PlacedLight spot = shadowSpot(Vec3(-2.5f, 0.4f, 0.0f), Vec3(1.0f, 0.0f, 0.2f), 6.0f);
         spot.light.outerConeDegrees = 50.0f;
-        floor.addLight(spot);
+        const Entity spotEntity = floor.addLight(spot);
         compared = floor.checkFloorWithoutShadows(floor.render());
         CHECK(compared.lit > 500);
         CHECK(floor.scene.renderer->statistics().shadowMaps == 1);
+
+        // A panel a hand's breadth over the floor, facing it: its shadows are looked up from
+        // its middle, along which the light of its far edges does not arrive.
+        floor.scene.world.destroyEntity(spotEntity);
+        floor.lights.clear();
+        floor.addLight({.light = {.type = LightType::Rect,
+                                  .intensity = 0.1f,
+                                  .range = 12.0f,
+                                  .width = 0.8f,
+                                  .height = 0.4f,
+                                  .castsShadows = true},
+                        .position = Vec3(0.3f, 0.25f, -0.2f),
+                        .direction = glm::normalize(Vec3(0.05f, -1.0f, 0.02f))});
+        compared = floor.checkFloorWithoutShadows(floor.render());
+        CHECK(compared.lit > 500);
+        CHECK(floor.scene.renderer->statistics().shadowMaps == 6);
         checkNoValidationIssues(*floor.scene.context.graphics);
     }
 

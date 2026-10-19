@@ -249,7 +249,7 @@ them (`common/Lights.slang`):
 ```slang
 #include "common/Lights.slang"
 
-// Every directional light, then the point and spot lights near the pixel.
+// Every directional light, then the point, spot and rect lights near the pixel.
 for (uint index = 0; index < directionalLightCount; ++index) { ... lights[index] ... }
 const ClusterRange range = clusterGrid[clusterIndexOf(uv, viewDepth(position))];
 for (uint entry = 0; entry < range.count; ++entry) { ... lights[lightIndices[range.offset + entry]] ... }

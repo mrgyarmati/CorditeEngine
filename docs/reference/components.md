@@ -187,25 +187,27 @@ Holds the body the entity is part of to the body of another entity, or to the wo
 
 ## Light
 
-A light at the entity's place: directional, point or spot.
+A light at the entity's place: directional, point, spot or rect.
 
 | Property | Kind | Default | Values | Meaning |
 |---|---|---|---|---|
-| `type` | enum | `"point"` | `directional`, `point`, `spot` | Directional: from one direction, everywhere. Point: from a point, all around. Spot: from a point, within a cone. Directional and spot lights shine along -Z |
+| `type` | enum | `"point"` | `directional`, `point`, `spot`, `rect` | Directional: from one direction, everywhere. Point: from a point, all around. Spot: from a point, within a cone. Rect: from a rectangle, from one face. Directional, spot and rect lights shine along -Z |
 | `color` | color | `[1.0,1.0,1.0]` | at least 0.0 | Linear color of the light |
-| `intensity` | float | `1.0` | at least 0.0 | Brightness; 1 lights a white matte surface facing the light to white (for a point or spot light: one metre away) |
-| `range` | float | `10.0` | at least 0.01; m | Point and spot: the distance at which the light has faded to nothing |
+| `intensity` | float | `1.0` | at least 0.0 | Brightness; 1 lights a white matte surface facing the light to white (for a point or spot light: one metre away; for a rect light: as a point light in its middle, from far away) |
+| `range` | float | `10.0` | at least 0.01; m | Point, spot and rect: the distance at which the light has faded to nothing - from the middle of a rect light, which reaches at least to its corners |
 | `innerConeDegrees` | float | `25.0` | 0.0 to 89.0; deg | Spot: the angle from the axis up to which the light is at full brightness |
 | `outerConeDegrees` | float | `35.0` | 0.0 to 89.0; deg | Spot: the angle from the axis at which the light ends |
+| `width` | float | `1.0` | 0.01 to 1000.0; m | Rect: how wide the rectangle that gives off the light is, along X |
+| `height` | float | `1.0` | 0.01 to 1000.0; m | Rect: how high the rectangle that gives off the light is, along Y |
 | `channels` | bits | `1` | 0.0 to 255.0 | The lighting channels the light shines on, one bit each (1 is the first, 255 all eight) |
-| `castsShadows` | bool | `false` |  | Whether what stands in the light throws shadows. Of several directional lights only the brightest casts them |
+| `castsShadows` | bool | `false` |  | Whether what stands in the light throws shadows. Of several directional lights only the brightest casts them; a rect light casts those of a point light in its middle |
 | `shadowBias` | float | `1.0` | 0.0 to 16.0 | How many shadow-map texels nearer the light a surface is looked up; more removes stripes on lit surfaces, less keeps shadows attached to what casts them |
 | `shadowNormalOffset` | float | `1.0` | 0.0 to 16.0 | How many shadow-map texels along its normal a surface is looked up where the light grazes it |
 | `shadowResolution` | enum | `"medium"` | `low`, `medium`, `high` | The size of the light's shadow maps: half, the same or twice what the shadow quality gives a light, as far as there is room for them |
 | `shadowDistance` | float | `60.0` | 1.0 to 2000.0; m | Directional: how far from the camera the shadows reach; they fade out towards it |
 | `shadowCascades` | int | `4` | 1.0 to 4.0 | Directional: into how many shadow maps the shadow distance is divided |
 | `shadowCascadeDistribution` | float | `0.75` | 0.0 to 1.0 | Directional: 0 makes the cascades equally deep, 1 makes each a constant factor deeper than the one before, which keeps the shadows near the camera sharpest |
-| `cookie` | asset (Texture) | `null` |  | Spot and directional: a picture the light shines through, which filters it by its colors - thrown across a spot light's cone, laid out over the world and repeated by a directional light. A point light has none |
+| `cookie` | asset (Texture) | `null` |  | Spot and directional: a picture the light shines through, which filters it by its colors - thrown across a spot light's cone, laid out over the world and repeated by a directional light. A point or rect light has none |
 | `cookieSize` | float | `10.0` | 0.01 to 10000.0; m | Directional: how far the cookie reaches across and up before it repeats |
 | `volumetricIntensity` | float | `1.0` | 0.0 to 100.0 | How brightly the light lights a fog lit by lights, against how brightly it lights a surface: 1 as its intensity says, 0 not at all |
 

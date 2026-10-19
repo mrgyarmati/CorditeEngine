@@ -6,7 +6,9 @@
 #include "cordite/math/Transform.h"
 #include "cordite/renderer/CameraView.h"
 #include "cordite/renderer/LightClusters.h"
+#include "cordite/renderer/RectLights.h"
 #include "cordite/renderer/RenderComponents.h"
+#include "cordite/renderer/SceneLights.h"
 #include "cordite/renderer/SceneRenderer.h"
 #include "cordite/world/World.h"
 
@@ -94,6 +96,68 @@ float brightnessAt(const Image& image, uint32_t x, uint32_t y) {
     CHECK(pixel.r == doctest::Approx(pixel.g).epsilon(0.02));
     CHECK(pixel.r == doctest::Approx(pixel.b).epsilon(0.02));
     return srgbToLinear(pixel.r);
+}
+
+/// Where the line of sight through `pixel` - in pixels from the top left - of a view of
+/// kPictureSize pixels a side meets the wall, z = 0; nothing where it passes the wall by.
+std::optional<Vec3> wallSeenAt(const CameraView& view, const Vec2& pixel) {
+    const auto size = static_cast<float>(kPictureSize);
+    const Vec2 clip(pixel.x / size * 2.0f - 1.0f, 1.0f - pixel.y / size * 2.0f);
+    // Depth is reversed: 1 at the near plane.
+    const Vec4 near = view.inverseViewProjection * Vec4(clip, 1.0f, 1.0f);
+    const Vec4 deeper = view.inverseViewProjection * Vec4(clip, 0.5f, 1.0f);
+    const Vec3 from = Vec3(near) / near.w;
+    const Vec3 to = Vec3(deeper) / deeper.w;
+    if (!(from.z > to.z)) {
+        return std::nullopt;
+    }
+    const Vec3 point = glm::mix(from, to, from.z / (from.z - to.z));
+    // The wall is eight metres a side.
+    if (std::max(std::abs(point.x), std::abs(point.y)) > 3.9f) {
+        return std::nullopt;
+    }
+    return point;
+}
+
+/// A material as the lighting sees it: what it scatters, what it reflects head-on and at
+/// grazing angles, and how rough it is (Brdf.slang).
+struct Reflectances {
+    Vec3 diffuse{0.0f};
+    Vec3 f0{0.0f};
+    float roughness = 1.0f;
+};
+
+Reflectances reflectancesOf(const Vec3& baseColor, float metallic, float specular, float roughness) {
+    return {.diffuse = baseColor * (1.0f - metallic),
+            .f0 = glm::mix(Vec3(0.08f * specular), baseColor, metallic),
+            .roughness = roughness};
+}
+
+/// What a surface of `material` at `point` that faces `normal` sends towards a viewer along
+/// `toViewer` of the rect light of `component`, placed by `placement`: the arithmetic of
+/// Lights.slang, written with the functions of RectLights.h.
+Vec3 rectLightShading(const Vec3& point, const Vec3& normal, const Vec3& toViewer, const Reflectances& material,
+                      const LightComponent& component, const Mat4& placement) {
+    const SceneLight light = makeSceneLight(component, placement);
+    const RectLightShape shape = rectShapeOf(light);
+    const float distanceSquared = glm::dot(shape.center - point, shape.center - point);
+    if (distanceSquared >= light.range * light.range) {
+        return Vec3(0.0f);
+    }
+    const float ratio = distanceSquared / (light.range * light.range);
+    const float window = (1.0f - ratio * ratio) * (1.0f - ratio * ratio);
+    const float area = 4.0f * glm::length(shape.right) * glm::length(shape.up);
+    const Vec3 radiance = light.color * (window / area);
+
+    const RectLightIrradiance matte = rectLightIrradiance(shape, point, normal);
+    const RectLightSpecular shine = rectLightSpecular(shape, point, normal, toViewer, material.roughness);
+    const float f90 = std::clamp(50.0f * material.f0.g, 0.0f, 1.0f);
+    const Vec3 halfway = normalizeOr(matte.direction + toViewer, normal);
+    const float grazing = std::pow(1.0f - std::clamp(glm::dot(toViewer, halfway), 0.0f, 1.0f), 5.0f);
+    const Vec3 fresnel = material.f0 + (Vec3(f90) - material.f0) * grazing;
+    const Vec3 diffuse = (Vec3(1.0f) - fresnel) * material.diffuse * matte.formFactor;
+    const Vec3 specular = material.f0 * (shine.lobe - shine.grazing) + Vec3(f90 * shine.grazing);
+    return (diffuse + specular) * radiance;
 }
 
 } // namespace
@@ -268,6 +332,183 @@ TEST_SUITE("SceneLighting") {
         CHECK_NEAR(placed.direction, Vec3(-std::sqrt(0.5f), 0.0f, -std::sqrt(0.5f)), 1.0e-4f);
         wall.checkLit(image, {placed});
         checkNoValidationIssues(*wall.scene.context.graphics);
+    }
+
+    TEST_CASE("a rect light lights a white wall with all of its face, and from far away as a point light does") {
+        WallScene wall;
+        // A metre wide, half a metre high, 0.8 metres from the wall and facing it, aside:
+        // what it lights is as wide and as high, which the whole picture is held to.
+        PlacedLight panel{
+            .light = {.type = LightType::Rect, .intensity = 0.5f, .range = 100.0f, .width = 1.0f, .height = 0.5f},
+            .position = Vec3(0.3f, -0.2f, 0.8f)};
+        const Entity entity = wall.add(panel);
+        World& world = wall.scene.world;
+        Image image = wall.render();
+        wall.checkLit(image, {panel});
+        // Close to the face the light comes from all over it, much of it at a slant: the
+        // wall in front of the middle gets less than of a point light there, 0.5 / 0.64.
+        const float ahead = brightnessAt(image, 37, 35);
+        CHECK(ahead > 0.5f);
+        CHECK(ahead < 0.5f / 0.64f);
+
+        // Reaching a metre from its middle, it fades to nothing on a disc of 0.6 metres of
+        // the wall, and lights nothing beyond.
+        panel.light.range = 1.0f;
+        world.tryGet<LightComponent>(entity)->range = 1.0f;
+        image = wall.render();
+        wall.checkLit(image, {panel});
+        checkPixel(image, 37 + 12, 35, Vec3(0.0f));
+        checkPixel(image, 37, 35 + 12, Vec3(0.0f));
+        CHECK(brightnessAt(image, 37, 35) < 0.75f * ahead);
+
+        // Smaller and further, colored, at a slant: as the model says.
+        panel.light.width = 0.3f;
+        panel.light.height = 0.6f;
+        panel.light.color = Vec3(1.0f, 0.6f, 0.3f);
+        panel.light.intensity = 3.0f;
+        panel.position = Vec3(-0.5f, 0.4f, 1.5f);
+        panel.direction = glm::normalize(Vec3(0.3f, -0.4f, -1.0f));
+        *world.tryGet<LightComponent>(entity) = panel.light;
+        world.transform(entity) = {.position = panel.position, .rotation = lookRotation(panel.direction)};
+        wall.checkLit(wall.render(), {panel});
+
+        // Five centimetres a side, two metres away: the point light of intensity one there,
+        // a quarter, within what the 8 bits of the picture tell apart.
+        panel.light = {.type = LightType::Rect, .intensity = 1.0f, .range = 100.0f, .width = 0.05f, .height = 0.05f};
+        *world.tryGet<LightComponent>(entity) = panel.light;
+        world.transform(entity) = {.position = Vec3(0.0f, 0.0f, 2.0f)};
+        CHECK(std::abs(brightnessAt(wall.render(), 32, 32) / 0.25f - 1.0f) < 0.02f);
+
+        // Turned away from the wall, it lights none of it.
+        world.transform(entity).rotation = lookRotation(Vec3(0.0f, 0.0f, 1.0f));
+        image = wall.render();
+        checkPixel(image, 32, 32, Vec3(0.0f));
+        checkPixel(image, 4, 60, Vec3(0.0f));
+        checkNoValidationIssues(*wall.scene.context.graphics);
+    }
+
+    TEST_CASE("a rect light that reaches behind the wall lights it with what of its face is in front") {
+        WallScene wall;
+        // Turned to shine at the wall at forty-five degrees, its left edge behind the wall:
+        // the face goes through the wall where x = -0.15, between the pixels that are
+        // checked. To the right the wall sees what of the face is in front of it, at a
+        // slant; to the left it is behind the face.
+        PlacedLight panel{
+            .light = {.type = LightType::Rect, .intensity = 2.0f, .range = 100.0f, .width = 1.0f, .height = 0.6f},
+            .position = Vec3(0.0f, 0.1f, 0.15f),
+            .direction = glm::normalize(Vec3(1.0f, 0.0f, -1.0f))};
+        const Entity entity = wall.add(panel);
+        Image image = wall.render();
+        wall.checkLit(image, {panel});
+        CHECK(brightnessAt(image, 44, 30) > 0.05f);
+        checkPixel(image, 20, 30, Vec3(0.0f));
+        checkPixel(image, 2, 2, Vec3(0.0f));
+
+        // With its middle behind the wall, what of the face is in front still lights it -
+        // where the wall faces away from the middle too. It goes through the wall where
+        // x = 0.22 now.
+        panel.position = Vec3(0.17f, 0.1f, -0.05f);
+        wall.scene.world.transform(entity).position = panel.position;
+        image = wall.render();
+        wall.checkLit(image, {panel});
+        CHECK(brightnessAt(image, 44, 30) > 0.05f);
+        checkPixel(image, 30, 30, Vec3(0.0f));
+        checkNoValidationIssues(*wall.scene.context.graphics);
+    }
+
+    TEST_CASE("a shiny wall reflects a rect light as the fit of its lobe says, at a slant and at a grazing angle") {
+        WallScene wall;
+        SceneFixture& scene = wall.scene;
+        scene.writeMaterial("glossy", R"("baseColor": [0.6, 0.6, 0.6, 1], "roughness": 0.3, "specular": 0.5)");
+        scene.writeMaterial("copper", R"("baseColor": [0.95, 0.64, 0.54, 1], "roughness": 0.55, "metallic": 1)");
+        // Half a metal: it reflects much head-on and scatters much, and what it scatters is
+        // what Fresnel leaves at the way the light of the face arrives.
+        scene.writeMaterial("alloy", R"("baseColor": [0.8, 0.8, 0.8, 1], "roughness": 0.4, "metallic": 0.5)");
+        REQUIRE(scene.assets->refresh().has_value());
+        const std::vector<std::pair<std::string, Reflectances>> materials = {
+            {"glossy", reflectancesOf(Vec3(0.6f), 0.0f, 0.5f, 0.3f)},
+            {"copper", reflectancesOf(Vec3(0.95f, 0.64f, 0.54f), 1.0f, 0.5f, 0.55f)},
+            {"alloy", reflectancesOf(Vec3(0.8f), 0.5f, 0.5f, 0.4f)}};
+        const LightComponent component{.type = LightType::Rect,
+                                       .color = Vec3(1.0f, 0.95f, 0.9f),
+                                       .intensity = 0.8f,
+                                       .range = 8.0f,
+                                       .width = 0.8f,
+                                       .height = 0.4f};
+        const Entity entity = scene.addLight(component, Vec3(0.0f, 0.0f, 1.0f));
+
+        // With perspective, so that every pixel sees the wall another way.
+        struct Look {
+            std::string name;
+            Vec3 eye;
+            Vec3 target;
+            Vec3 light;
+            Vec3 shines;
+        };
+
+        const std::vector<Look> looks = {
+            // At a slant, the light in front of the wall.
+            {"slant", Vec3(0.5f, 0.7f, 2.2f), Vec3(0.0f, -0.1f, 0.0f), Vec3(-0.3f, -0.2f, 1.0f),
+             Vec3(0.2f, 0.1f, -1.0f)},
+            // The light through the wall at forty-five degrees: what the lobe reflects of it
+            // is cut at the wall's horizon, and again at the cosine's.
+            {"through", Vec3(0.5f, 0.7f, 2.2f), Vec3(0.0f, -0.1f, 0.0f), Vec3(0.0f, 0.1f, 0.15f),
+             Vec3(1.0f, 0.0f, -1.0f)},
+            // Along the wall, eighty degrees from its normal, the light where the wall
+            // mirrors the camera: Schlick's factor gives most of what is reflected there to
+            // the reflectance at grazing angles.
+            {"grazing", Vec3(1.6f, 0.3f, 0.45f), Vec3(-0.8f, 0.0f, 0.0f), Vec3(-1.8f, -0.1f, 0.3f),
+             Vec3(1.0f, 0.1f, -0.25f)},
+        };
+        // Where a pixel is seen at a grazing angle, the model is asked a little around its
+        // middle: where in the pixel the GPU takes its sample is not exactly there.
+        constexpr std::array<Vec2, 5> kSamples = {Vec2(0.0f, 0.0f), Vec2(0.125f, 0.0f), Vec2(-0.125f, 0.0f),
+                                                  Vec2(0.0f, 0.125f), Vec2(0.0f, -0.125f)};
+        for (const Look& look : looks) {
+            CAPTURE(look.name);
+            scene.world.transform(entity) = {.position = look.light, .rotation = lookRotation(look.shines)};
+            scene.world.updateWorldTransforms();
+            const Mat4 placement = scene.world.worldMatrix(entity);
+            const CameraView view = scene.perspectiveView(look.eye, look.target);
+            for (const std::pair<std::string, Reflectances>& material : materials) {
+                CAPTURE(material.first);
+                scene.world.tryGet<MeshRendererComponent>(wall.wall)->materials = {scene.material(material.first)};
+                const Image image = scene.render(view);
+                uint32_t telling = 0;
+                for (uint32_t y = 1; y < kPictureSize; y += 3) {
+                    for (uint32_t x = 1; x < kPictureSize; x += 3) {
+                        Vec3 least(1.0f);
+                        Vec3 most(0.0f);
+                        bool onWall = true;
+                        for (const Vec2& offset : kSamples) {
+                            const Vec2 pixel = Vec2(static_cast<float>(x), static_cast<float>(y)) + 0.5f + offset;
+                            const std::optional<Vec3> point = wallSeenAt(view, pixel);
+                            if (!point) {
+                                onWall = false;
+                                break;
+                            }
+                            const Vec3 toViewer = glm::normalize(view.position - *point);
+                            const Vec3 shown = displayed(
+                                rectLightShading(*point, kWallNormal, toViewer, material.second, component, placement));
+                            least = glm::min(least, shown);
+                            most = glm::max(most, shown);
+                        }
+                        if (!onWall) {
+                            continue;
+                        }
+                        CAPTURE(x);
+                        CAPTURE(y);
+                        const Vec3 actual(image.pixel(x, y));
+                        CHECK_NEAR(glm::clamp(actual, least, most), actual, 2.5f / 255.0f);
+                        const float brightest = std::max({most.r, most.g, most.b});
+                        telling += brightest > 0.1f && brightest < 0.95f ? 1 : 0;
+                    }
+                }
+                // Enough pixels are neither black nor white to say what the light did.
+                CHECK(telling > 30);
+            }
+        }
+        checkNoValidationIssues(*scene.context.graphics);
     }
 
     TEST_CASE("a directional light is the same everywhere, and only the way it is turned counts") {
@@ -610,8 +851,8 @@ TEST_SUITE("SceneLighting") {
         checkNoValidationIssues(*scene.context.graphics);
     }
 
-    TEST_CASE("a glossy, textured surface looks the same under point and spot lights whether it is lit from the "
-              "G-buffer or drawn forward") {
+    TEST_CASE("a glossy, textured surface looks the same under point, spot and rect lights whether it is lit from "
+              "the G-buffer or drawn forward") {
         SceneFixture scene(UVec2(96, 96));
         scene.writeImage("colors",
                          test::makeChecker(64, 4, Vec4(0.8f, 0.3f, 0.1f, 1.0f), Vec4(0.1f, 0.3f, 0.7f, 1.0f)));
@@ -640,6 +881,15 @@ TEST_SUITE("SceneLighting") {
                         .outerConeDegrees = 20.0f,
                         .channels = 4},
                        Vec3(-2.0f, 0.5f, 2.0f), Vec3(2.0f, -0.4f, -2.0f));
+        // A panel below the ball, shining up at it: its reflection is a rectangle.
+        scene.addLight({.type = LightType::Rect,
+                        .color = Vec3(1.0f, 0.6f, 0.4f),
+                        .intensity = 1.5f,
+                        .range = 6.0f,
+                        .width = 1.2f,
+                        .height = 0.6f,
+                        .channels = 4},
+                       Vec3(0.6f, -1.6f, 1.4f), Vec3(-0.4f, 1.0f, -0.8f));
         // In a channel the ball is not in: it must add nothing in either pass.
         scene.addLight({.type = LightType::Point, .intensity = 50.0f, .range = 9.0f, .channels = 2},
                        Vec3(0.0f, 0.0f, 3.0f));

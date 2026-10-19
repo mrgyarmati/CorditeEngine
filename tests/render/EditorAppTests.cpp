@@ -862,9 +862,9 @@ TEST_SUITE("EditorApp") {
         CHECK(scene["drawCalls"].get<uint32_t>() > 0);
         CHECK(scene["drawCalls"].get<uint32_t>() < scene["instances"].get<uint32_t>());
         CHECK(scene["triangles"].get<uint64_t>() > 1000);
-        // The sun and the three lamps of the showcase, each lamp in the lists of the
-        // clusters it reaches.
-        CHECK(scene["lights"]["count"] == 2 * 4);
+        // The sun, the three lamps of the showcase and the light of the monitor's screen,
+        // each of the others in the lists of the clusters it reaches.
+        CHECK(scene["lights"]["count"] == 2 * 5);
         CHECK(scene["lights"]["listEntries"].get<uint32_t>() > 3);
         CHECK(scene["lights"]["dropped"] == 0);
         // Three cascades for the sun, one map for the lamp, six for the wall light.

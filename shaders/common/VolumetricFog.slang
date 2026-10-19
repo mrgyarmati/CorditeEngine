@@ -35,7 +35,9 @@ float henyeyGreenstein(float cosine, float anisotropy)
 
 // What `light` throws towards the viewer from `position`, per unit of the light the fog
 // scatters there: its fogColor, as much of it as reaches the position by its distance and
-// its cone, times the phase function. Not what stands in its way, nor its cookie: the
+// its cone - or, from a rect light, the light of its face times how much of everything
+// around the position the face fills, within its range window - times the phase function
+// of the way from the light's middle. Not what stands in its way, nor its cookie: the
 // caller asks for those, which cost more. `toViewer` is a unit vector.
 float3 lightInFog(Light light, float3 position, float3 toViewer)
 {
@@ -50,10 +52,20 @@ float3 lightInFog(Light light, float3 position, float3 toViewer)
         return float3(0.0);
     }
     const float3 travels = offset / sqrt(max(distanceSquared, 1.0e-8));
-    float brightness = distanceFalloff(distanceSquared, light.range);
-    if (lightType(light) == kLightSpot)
+    float brightness = 0.0;
+    if (lightType(light) == kLightRect)
     {
-        brightness *= coneFalloff(light, -travels);
+        brightness = rangeWindow(distanceSquared, light.range) *
+                     rectLightSolidAngle(light.position, light.rectRight, rectLightUp(light), position) /
+                     max(rectLightArea(light), 1.0e-8);
+    }
+    else
+    {
+        brightness = distanceFalloff(distanceSquared, light.range);
+        if (lightType(light) == kLightSpot)
+        {
+            brightness *= coneFalloff(light, -travels);
+        }
     }
     return light.fogColor * (brightness * henyeyGreenstein(dot(travels, toViewer), fogAnisotropy));
 }

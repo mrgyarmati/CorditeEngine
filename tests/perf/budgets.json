@@ -79,9 +79,11 @@
         // many clusters the lamps of the showcase reach, all of them together. The
         // light at the sentry's post is among them also while it is dark: a script
         // gives it its brightness, and a light of none is a light still. The capture is
-        // nearer the lamps on the wall, which reach many more of its clusters.
-        "lights": 10,
-        "lightListEntries": 6300,
+        // nearer the lamps on the wall, which reach many more of its clusters - and so is
+        // the light of the monitor's screen, a rect light that reaches three metres around
+        // the middle of the picture: in both views, a fifth of all the entries.
+        "lights": 12,
+        "lightListEntries": 8000,
         // Three cascades for the sun, one map for the lamp, six for the wall light, in
         // the atlas of the medium shadow quality: 4096 texels a side, four bytes each -
         // for each view, which draws the atlas anew.

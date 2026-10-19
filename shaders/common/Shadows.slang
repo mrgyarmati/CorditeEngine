@@ -30,7 +30,7 @@ struct ShadowView
     // one metre from the light for the others.
     float texelSize;
     float3 up;
-    // 1 for the maps of point and spot lights: their texels grow with the distance
+    // 1 for the maps of point, spot and rect lights: their texels grow with the distance
     // from the light, measured along the way the map looks.
     float perspective;
 };
@@ -142,9 +142,11 @@ float shadowMapVisibility(ShadowView shadow, float3 position, float3 normal, flo
     return lit / (side * side);
 }
 
-// How much of a point or spot light reaches the surface. `firstView` is the light's
-// (first) shadow view, `lightDirection` the unit vector along which a spot light
-// shines, and `toLight` the unit vector from the surface towards the light.
+// How much of a point, spot or rect light reaches the surface. `firstView` is the light's
+// (first) shadow view, `isPointLight` whether it has the six maps of a point light - a
+// rect light has those of a point light in its middle - `lightDirection` the unit vector
+// along which a spot light shines, and `toLight` the unit vector from the surface towards
+// the light.
 float localLightVisibility(int firstView, bool isPointLight, float3 lightPosition, float3 lightDirection, float bias,
                            float normalOffset, Surface surface, float3 toLight)
 {
@@ -259,8 +261,8 @@ float pointVisibilityIn(ShadowView shadow, float3 position)
     return shadowAtlas.SampleCmpLevelZero(shadowSampler, uv, coordinates.z);
 }
 
-// How much of a point or spot light reaches a point in the air; `firstView` is the light's
-// (first) shadow view.
+// How much of a point, spot or rect light reaches a point in the air; `firstView` is the
+// light's (first) shadow view.
 float localLightVisibilityAt(int firstView, bool isPointLight, float3 lightPosition, float3 position)
 {
     if (firstView < 0)

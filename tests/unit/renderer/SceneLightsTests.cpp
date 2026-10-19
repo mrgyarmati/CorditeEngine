@@ -4,6 +4,7 @@
 #include "cordite/math/Transform.h"
 #include "cordite/renderer/CameraView.h"
 #include "cordite/renderer/LightClusters.h"
+#include "cordite/renderer/RectLights.h"
 #include "cordite/renderer/RenderComponents.h"
 #include "cordite/world/Components.h"
 #include "cordite/world/World.h"
@@ -112,11 +113,41 @@ TEST_SUITE("SceneLights") {
               GpuLightType::Directional);
         CHECK(makeSceneLight(LightComponent{.type = LightType::Point}, Mat4(1.0f)).type == GpuLightType::Point);
         CHECK(makeSceneLight(LightComponent{.type = LightType::Spot}, Mat4(1.0f)).type == GpuLightType::Spot);
+        CHECK(makeSceneLight(LightComponent{.type = LightType::Rect}, Mat4(1.0f)).type == GpuLightType::Rect);
 
         CHECK(makeSceneLight(LightComponent{.range = 42.5f}, Mat4(1.0f)).range == 42.5f);
         CHECK(makeSceneLight(LightComponent{.channels = 0x24}, Mat4(1.0f)).channels == 0x24);
         // There are eight channels; bits beyond them mean nothing.
         CHECK(makeSceneLight(LightComponent{.channels = 0xFFFFFF01u}, Mat4(1.0f)).channels == 0x01);
+    }
+
+    TEST_CASE("a rect light is a rectangle of its size along its entity's X and Y, which its range reaches across") {
+        const LightComponent panel{.type = LightType::Rect, .range = 6.0f, .width = 2.0f, .height = 0.5f};
+        // Pitched a quarter turn down: it shines at the ground, its top edge towards -Z.
+        const SceneLight light =
+            makeSceneLight(panel, placedAt(Vec3(0.0f, 3.0f, 0.0f), glm::angleAxis(-kHalfPi, Vec3(1.0f, 0.0f, 0.0f))));
+        CHECK(light.width == 2.0f);
+        CHECK(light.height == 0.5f);
+        CHECK(light.range == 6.0f);
+        const RectLightShape shape = rectShapeOf(light);
+        CHECK_NEAR(shape.center, Vec3(0.0f, 3.0f, 0.0f), 1.0e-6f);
+        CHECK_NEAR(shape.right, Vec3(1.0f, 0.0f, 0.0f), 1.0e-6f);
+        CHECK_NEAR(shape.up, Vec3(0.0f, 0.0f, -0.25f), 1.0e-6f);
+        CHECK_NEAR(light.direction, Vec3(0.0f, -1.0f, 0.0f), 1.0e-6f);
+
+        // The scale of the entity does not make it larger: its size is in metres.
+        const SceneLight scaled = makeSceneLight(panel, placedAt(Vec3(0.0f), kIdentityQuat, Vec3(3.0f, 4.0f, 5.0f)));
+        CHECK_NEAR(rectShapeOf(scaled).right, Vec3(1.0f, 0.0f, 0.0f), 1.0e-6f);
+        CHECK_NEAR(rectShapeOf(scaled).up, Vec3(0.0f, 0.25f, 0.0f), 1.0e-6f);
+
+        // Measured from the middle, a range reaches the corners at the least: half the
+        // diagonal.
+        LightComponent reachless = panel;
+        reachless.range = 0.2f;
+        CHECK(makeSceneLight(reachless, Mat4(1.0f)).range == doctest::Approx(std::sqrt(1.0f + 0.25f * 0.25f)));
+        // Other lights keep the range they have, whatever they say of a rectangle.
+        reachless.type = LightType::Point;
+        CHECK(makeSceneLight(reachless, Mat4(1.0f)).range == 0.2f);
     }
 
     TEST_CASE("how a light casts shadows is handed on, with its resolution as a factor") {

@@ -223,7 +223,7 @@ TEST_SUITE("EditorCommands") {
 
         CHECK(types[4]["name"] == "Light");
         CHECK(types[4]["properties"][0]["name"] == "type");
-        CHECK(types[4]["properties"][0]["options"] == json(R"(["directional", "point", "spot"])"));
+        CHECK(types[4]["properties"][0]["options"] == json(R"(["directional", "point", "spot", "rect"])"));
         CHECK(types[4]["properties"][1]["semantic"] == "color");
         CHECK(types[4]["properties"][3]["name"] == "range");
         CHECK(types[4]["properties"][3]["unit"] == "m");
@@ -317,7 +317,7 @@ TEST_SUITE("EditorCommands") {
         CHECK(tooManyChannels.message.find("channels") != std::string::npos);
         const Error unknownKind = fixture.fail(
             "component.set", R"({"entity": "Lamp", "component": "Light", "properties": {"type": "area"}})");
-        CHECK(unknownKind.message.find("expected one of [directional, point, spot]") != std::string::npos);
+        CHECK(unknownKind.message.find("expected one of [directional, point, spot, rect]") != std::string::npos);
         CHECK(fixture.world.tryGet<LightComponent>(fixture.lamp)->intensity == 4.0f);
         CHECK(fixture.world.tryGet<LightComponent>(fixture.lamp)->channels == 5);
 

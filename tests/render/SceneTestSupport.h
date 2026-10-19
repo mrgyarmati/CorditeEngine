@@ -282,6 +282,46 @@ struct PlacedLight {
     Vec3 direction{0.0f, 0.0f, -1.0f};
 };
 
+/// What a white, perfectly matte surface at `point` that faces `normal` gets of a rect
+/// light, against the light's color: its face is as bright as that color over its area,
+/// and the surface sends back what reaches it from all of the face - added up here over
+/// patches of it, each by the cosines at both ends over the square of the way - within the
+/// range window, measured from the middle. The rectangle is turned as addLight() turns its
+/// entity: along the light's X and Y.
+inline float rectLightOn(const Vec3& point, const Vec3& normal, const PlacedLight& placed) {
+    const LightComponent& light = placed.light;
+    const Quat rotation = lookRotation(placed.direction);
+    const Vec3 right = rotation * Vec3(0.5f * light.width, 0.0f, 0.0f);
+    const Vec3 up = rotation * Vec3(0.0f, 0.5f * light.height, 0.0f);
+    // The range reaches the corners at the least.
+    const float range = std::max(light.range, glm::length(right + up));
+    const Vec3 middle = placed.position - point;
+    const float distanceSquared = glm::dot(middle, middle);
+    if (distanceSquared >= range * range) {
+        return 0.0f;
+    }
+    const float ratio = distanceSquared / (range * range);
+    const float window = std::clamp(1.0f - ratio * ratio, 0.0f, 1.0f);
+
+    constexpr int kSteps = 64;
+    double sum = 0.0;
+    for (int row = 0; row < kSteps; ++row) {
+        for (int column = 0; column < kSteps; ++column) {
+            const float across = (static_cast<float>(column) + 0.5f) / kSteps * 2.0f - 1.0f;
+            const float along = (static_cast<float>(row) + 0.5f) / kSteps * 2.0f - 1.0f;
+            const Vec3 offset = middle + right * across + up * along;
+            const float squared = glm::dot(offset, offset);
+            const Vec3 toPatch = offset / std::sqrt(squared);
+            // The patch gives off light along the light's direction, and only that way.
+            const float atSurface = std::max(glm::dot(normal, toPatch), 0.0f);
+            const float atLight = std::max(-glm::dot(placed.direction, toPatch), 0.0f);
+            sum += static_cast<double>(atSurface * atLight / squared);
+        }
+    }
+    // Each patch is a share 1 / kSteps^2 of the area, which the light of the face is over.
+    return window * window * static_cast<float>(sum / (kSteps * kSteps));
+}
+
 /// What a white, perfectly matte surface at `point` that faces `normal` shows of a
 /// light: the lighting the engine documents (RenderComponents.h, Lights.slang), written
 /// down a second time, in the plainest way.
@@ -292,6 +332,10 @@ inline Vec3 lightOn(const Vec3& point, const Vec3& normal, const PlacedLight& pl
     const Vec3 color = light.color * light.intensity;
     if (light.type == LightType::Directional) {
         return color * std::max(glm::dot(normal, -placed.direction), 0.0f);
+    }
+    // ... and, for a rect light, far along the way it shines; nearer it is its face.
+    if (light.type == LightType::Rect) {
+        return color * rectLightOn(point, normal, placed);
     }
 
     // ... and one metre away for the others, which thin out with the square of the

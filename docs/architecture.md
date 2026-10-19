@@ -163,13 +163,13 @@ brighter than white, tone mapped and graded - as the `PostProcess` components of
 scene say. A view that is asked not to finish its picture, and every debug view, skips
 that and only encodes the light for a display.
 
-A scene is lit by components: `Light` (directional, point or spot), `AmbientLight`
+A scene is lit by components: `Light` (directional, point, spot or rect), `AmbientLight`
 (a sky above and a ground below, as two colors) and `Environment` (an image of
 everything far away, which lights the scene and is its sky). A `Fog` fills its air:
 what is far away is seen through it, the sky included. `Decal`s lay materials onto what
 is drawn, into the G-buffer, between the base pass and the light. For every view,
-`SceneLights` gathers the enabled lights, and a `LightClusterBuilder` sorts the point
-and spot lights into a grid of
+`SceneLights` gathers the enabled lights, and a `LightClusterBuilder` sorts the point,
+spot and rect lights into a grid of
 clusters that fills what the camera sees - 16 columns, 9 rows, 24 slices into the
 depth. Each cluster gets the list of the lights that touch it; a pixel works out which
 cluster it is in and asks the lights of that list, and the directional lights, which
@@ -180,7 +180,7 @@ pass read the same ones.
 A light that casts shadows gets shadow maps: pictures of the scene's depth as the light
 sees it, all of them tiles of one texture, the shadow atlas. The sun - the brightest
 directional light that casts shadows - gets up to four, the cascades, each covering a
-slice of the view; a spot light one; a point light six. The maps are drawn before
+slice of the view; a spot light one; a point or a rect light six. The maps are drawn before
 anything else, with the same vertex shader as every other mesh pass, and the lighting
 looks a surface up in them to find out how much of each light reaches it.
 
@@ -761,7 +761,7 @@ things keep it cheap: the boxes of the clusters depend on the projection alone a
 are kept from frame to frame, and a light is first held against whole rows and
 columns of a slice, so that most clusters are never asked about it.
 
-A view holds four directional lights and 1024 point and spot lights. More are left
+A view holds four directional lights and 1024 point, spot and rect lights. More are left
 out, counted in the statistics and reported once; lights that reach nothing in view
 do not count. Lights are taken in the order of their entities' ids, which is the same
 on every run and after any edit, so that neither the sums nor the choice of what is
@@ -801,7 +801,54 @@ one place to change when photometric units (lux, candela) are added on top.
 
 A point or spot light ends at its `range`: the inverse-square falloff is multiplied by
 a window that brings it smoothly to zero there (the one of "Real Shading in Unreal
-Engine 4"). A light without an end would be in every cluster's list.
+Engine 4"). A light without an end would be in every cluster's list. A rect light ends
+at its range the same way, measured from its middle.
+
+### A rect light is linearly transformed cosines, with the published fit
+
+The brief asks for rect or area lights, if practical, and real-time renderers have one
+way of making them practical: linearly transformed cosines (Heitz, Dupuy, Hill and
+Neubelt, "Real-Time Polygonal-Light Shading with Linearly Transformed Cosines", 2016).
+What a matte surface gets of a polygon of light has a closed form - a sum over its edges
+as the surface sees them. What the GGX lobe of a shiny surface reflects of it has none;
+but a cosine that a 3 by 3 matrix has stretched and sheared looks like the lobe, and the
+polygon taken through the inverse of that matrix is lit by a plain cosine, where the
+closed form applies again. The matrices depend on the roughness and the angle of the
+view, and are fitted once, against integrals of GGX.
+
+That fit is not made here. It is its authors' own, ltc_code, pinned like every other
+dependency (docs/third-party.md) and fitted to the very GGX of `Brdf.slang`, with
+Smith's height-correlated visibility; two tables of 64 by 64 texels are all of it the
+engine holds, compiled in and given to every view in half floats. Fitting them anew
+would be writing and validating an optimisation over thousands of lobes to arrive at the
+same numbers. The alternative that needs no table - one direction picked inside the light
+to shade with, a "representative point" (Karis, 2013) - is cheaper and wrong where it is
+seen: the shape of the highlight of a wide light on a rough surface, and how much light
+there is in it.
+
+`RectLights.h` is the arithmetic on the CPU, and the tests hold it to closed forms for
+what is matte and to GGX added up over the rectangle for the lobe: within an eighth,
+mostly within a fiftieth, seen at up to sixty degrees from the normal. What the fit gives
+up is at grazing angles, where the cosine that stands in for the lobe reaches below the
+horizon: of a sky full of light it reflects a tenth less at 75 degrees, a seventh less at
+85. For that reason the rectangle is cut at the surface's horizon before it goes through
+the matrix, and again at the cosine's after - where no light can come from. The shaders
+do the same arithmetic, and the pictures are held to it.
+
+A rect light's intensity is a point light's: from far along the way it shines, it lights
+as a point light of the same intensity in its middle would, and less at a slant, its face
+seen narrower; the face is as bright as its color over its area. So a point light can
+become a rect light without the scene being lit anew, and a larger panel spreads its
+light rather than giving more of it - where an intensity that said how bright the face
+is would make every small light dark. Its range, its shadows and what it throws into a
+fog all go from its middle, which keeps the clusters, the shadow plan and the fog's
+arithmetic as they are for a point light: the range never ends short of its corners, and
+what it throws into a fog is the light of its face times the solid angle the face fills
+there. Its shadows are those of a point light in its middle: as sharp, and six maps of
+which about half of what they show is behind the face, where nothing is lit - the price
+of keeping them a point light's. Shadows as soft as a light of that size casts
+(percentage-closer soft shadows) and a picture on the face (a textured rect light, which
+needs prefiltered levels of the picture) are not built.
 
 ### Lighting channels travel with the instance
 

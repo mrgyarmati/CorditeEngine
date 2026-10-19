@@ -296,47 +296,53 @@ TEST_SUITE("ShadowPlan") {
         CHECK_FALSE(isInside(shadow, position - direction));
     }
 
-    TEST_CASE("a point light gets six maps, and each point around it is in the one it is looked up in") {
+    TEST_CASE("a point or a rect light gets six maps, and each point around it is in the one it is looked up in") {
         const CameraView view = perspectiveView(Vec3(0.0f, 2.0f, 8.0f), Vec3(0.0f));
         const Vec3 position(0.5f, 1.5f, -1.0f);
         const float range = 5.0f;
-        const Planned planned(view, {pointLight(position, range)});
+        // A rect light's shadows are those of a point light in its middle.
+        for (const GpuLightType type : {GpuLightType::Point, GpuLightType::Rect}) {
+            CAPTURE(static_cast<int>(type));
+            SceneLight light = pointLight(position, range);
+            light.type = type;
+            const Planned planned(view, {light});
 
-        REQUIRE(planned.plan.views.size() == 6);
-        CHECK(planned.clusters.lights[0].shadowView == 0);
-        checkTiles(planned.plan, 4096);
-        for (size_t face = 0; face < 6; ++face) {
-            const ShadowView& shadow = planned.plan.views[face];
-            CAPTURE(face);
-            CHECK(shadow.perspective);
-            CHECK(shadow.tileSize == 512);
-            CHECK(shadow.light == 0);
-        }
+            REQUIRE(planned.plan.views.size() == 6);
+            CHECK(planned.clusters.lights[0].shadowView == 0);
+            checkTiles(planned.plan, 4096);
+            for (size_t face = 0; face < 6; ++face) {
+                const ShadowView& shadow = planned.plan.views[face];
+                CAPTURE(face);
+                CHECK(shadow.perspective);
+                CHECK(shadow.tileSize == 512);
+                CHECK(shadow.light == 0);
+            }
 
-        Random random(3);
-        for (int sample = 0; sample < 3000; ++sample) {
-            const Vec3 offset = random.onUnitSphere() * random.range(0.1f, range * 0.999f);
-            CAPTURE(offset);
-            const ShadowView& shadow = planned.plan.views[pointShadowFace(offset)];
-            const Vec3 place = inShadowMap(shadow, position + offset);
-            // Within the map, and not at its very edge: the filter has texels to read
-            // around it. That margin is what a map sees beyond its side of the cube.
-            CHECK(std::max(std::abs(place.x), std::abs(place.y)) < 1.0f - 2.0f * 2.4f / 512.0f);
-            CHECK(place.z > 0.0f);
-            CHECK(place.z < 1.0f);
-        }
+            Random random(3);
+            for (int sample = 0; sample < 3000; ++sample) {
+                const Vec3 offset = random.onUnitSphere() * random.range(0.1f, range * 0.999f);
+                CAPTURE(offset);
+                const ShadowView& shadow = planned.plan.views[pointShadowFace(offset)];
+                const Vec3 place = inShadowMap(shadow, position + offset);
+                // Within the map, and not at its very edge: the filter has texels to read
+                // around it. That margin is what a map sees beyond its side of the cube.
+                CHECK(std::max(std::abs(place.x), std::abs(place.y)) < 1.0f - 2.0f * 2.4f / 512.0f);
+                CHECK(place.z > 0.0f);
+                CHECK(place.z < 1.0f);
+            }
 
-        // The six look along the axes, in the order of pointShadowFace().
-        const std::array<Vec3, 6> directions = {Vec3(1.0f, 0.0f, 0.0f), Vec3(-1.0f, 0.0f, 0.0f),
-                                                Vec3(0.0f, 1.0f, 0.0f), Vec3(0.0f, -1.0f, 0.0f),
-                                                Vec3(0.0f, 0.0f, 1.0f), Vec3(0.0f, 0.0f, -1.0f)};
-        for (size_t face = 0; face < 6; ++face) {
-            CAPTURE(face);
-            const Vec3 place = inShadowMap(planned.plan.views[face], position + directions[face] * 2.0f);
-            CHECK(place.x == doctest::Approx(0.0f).epsilon(1.0e-4));
-            CHECK(place.y == doctest::Approx(0.0f).epsilon(1.0e-4));
-            checkAxes(planned.plan.views[face], position + directions[face] * 2.0f);
-            CHECK_FALSE(isInside(planned.plan.views[face], position - directions[face] * 2.0f));
+            // The six look along the axes, in the order of pointShadowFace().
+            const std::array<Vec3, 6> directions = {Vec3(1.0f, 0.0f, 0.0f), Vec3(-1.0f, 0.0f, 0.0f),
+                                                    Vec3(0.0f, 1.0f, 0.0f), Vec3(0.0f, -1.0f, 0.0f),
+                                                    Vec3(0.0f, 0.0f, 1.0f), Vec3(0.0f, 0.0f, -1.0f)};
+            for (size_t face = 0; face < 6; ++face) {
+                CAPTURE(face);
+                const Vec3 place = inShadowMap(planned.plan.views[face], position + directions[face] * 2.0f);
+                CHECK(place.x == doctest::Approx(0.0f).epsilon(1.0e-4));
+                CHECK(place.y == doctest::Approx(0.0f).epsilon(1.0e-4));
+                checkAxes(planned.plan.views[face], position + directions[face] * 2.0f);
+                CHECK_FALSE(isInside(planned.plan.views[face], position - directions[face] * 2.0f));
+            }
         }
     }
 

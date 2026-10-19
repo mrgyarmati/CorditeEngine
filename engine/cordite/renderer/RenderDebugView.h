@@ -47,7 +47,7 @@ enum class RenderDebugView : uint8_t {
     Emissive,
     /// How far the surfaces are from the camera: near is white.
     Depth,
-    /// How many point and spot lights each pixel has to ask: dark where none reaches,
+    /// How many point, spot and rect lights each pixel has to ask: dark where none reaches,
     /// blue for one, through green to red for eight and more.
     LightCount,
     /// Which cascade of the sun's shadow each pixel is looked up in: red, green, blue

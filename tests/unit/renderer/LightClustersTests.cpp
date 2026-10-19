@@ -318,6 +318,62 @@ TEST_SUITE("LightClusters") {
         CHECK(gpu.range == 7.0f);
         // Type in the low byte, the eight channels in the next; more than eight are cut off.
         CHECK(gpu.typeAndChannels == (1u | (0xA5u << 8)));
+        // A point light has no rectangle.
+        CHECK(gpu.rectRight == Vec3(0.0f));
+        CHECK(gpu.rectHalfHeight == 0.0f);
+    }
+
+    TEST_CASE("a rect light is described to the shaders by half its width across its light, and half its height") {
+        const CameraView view = perspectiveView(Vec3(0.0f, 0.0f, 10.0f), Vec3(0.0f));
+        // Shining at the camera, its right leaning into the way it shines, as that of an
+        // entity under a parent scaled unevenly would.
+        const SceneLight panel{.type = GpuLightType::Rect,
+                               .position = Vec3(0.5f, 1.0f, 0.0f),
+                               .direction = Vec3(0.0f, 0.0f, 1.0f),
+                               .range = 6.0f,
+                               .right = glm::normalize(Vec3(1.0f, 0.0f, 1.0f)),
+                               .width = 2.0f,
+                               .height = 0.5f};
+        std::vector<SceneLight> lights = {panel};
+        LightClusters clusters;
+        buildLightClusters(view, lights, clusters);
+        REQUIRE(clusters.lights.size() == 1);
+        const GpuLight& gpu = clusters.lights[0];
+        CHECK(gpu.typeAndChannels == (3u | (1u << 8)));
+        CHECK_NEAR(gpu.rectRight, Vec3(1.0f, 0.0f, 0.0f), 1e-6f);
+        CHECK(gpu.rectHalfHeight == doctest::Approx(0.25f));
+
+        // What the shaders make of that is the rectangle of the light: its up at right
+        // angles to its right and to its light, which it shines towards from cross(up,
+        // right).
+        const RectLightShape made = rectShapeOf(panel);
+        const RectLightShape seen = rectShapeOf(gpu);
+        CHECK_NEAR(made.center, Vec3(0.5f, 1.0f, 0.0f), 1e-6f);
+        CHECK_NEAR(made.right, Vec3(1.0f, 0.0f, 0.0f), 1e-6f);
+        CHECK_NEAR(made.up, Vec3(0.0f, -0.25f, 0.0f), 1e-6f);
+        CHECK_NEAR(glm::normalize(glm::cross(made.up, made.right)), panel.direction, 1e-6f);
+        CHECK_NEAR(seen.center, made.center, 1e-6f);
+        CHECK_NEAR(seen.right, made.right, 1e-6f);
+        CHECK_NEAR(seen.up, made.up, 1e-6f);
+        // It is listed as far around its middle as its range, like a point light.
+        CHECK(reaches(clusters, view, Vec3(0.5f, 1.0f, 5.5f), 0));
+        CHECK(reaches(clusters, view, Vec3(5.5f, 1.0f, 0.0f), 0));
+
+        // A side of less than a centimetre is a centimetre, ...
+        lights[0].width = 0.0f;
+        lights[0].height = -1.0f;
+        buildLightClusters(view, lights, clusters);
+        REQUIRE(clusters.lights.size() == 1);
+        CHECK(glm::length(clusters.lights[0].rectRight) == doctest::Approx(0.5f * kMinRectLightSize));
+        CHECK(clusters.lights[0].rectHalfHeight == doctest::Approx(0.5f * kMinRectLightSize));
+        // ... and a light whose size is no number lights nothing.
+        lights[0].width = std::numeric_limits<float>::quiet_NaN();
+        buildLightClusters(view, lights, clusters);
+        CHECK(clusters.lights.empty());
+        lights[0].width = 1.0f;
+        lights[0].height = std::numeric_limits<float>::infinity();
+        buildLightClusters(view, lights, clusters);
+        CHECK(clusters.lights.empty());
     }
 
     TEST_CASE("a builder that is kept gives the same lists as a new one, whatever it built before") {

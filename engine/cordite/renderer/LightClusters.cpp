@@ -27,7 +27,8 @@ constexpr float kMostVolumetricIntensity = 100.0f;
 
 bool isFiniteLight(const SceneLight& light) {
     return isFinite(light.position) && isFinite(light.direction) && isFinite(light.color) &&
-           std::isfinite(light.range) && std::isfinite(light.innerConeAngle) && std::isfinite(light.outerConeAngle);
+           std::isfinite(light.range) && std::isfinite(light.innerConeAngle) && std::isfinite(light.outerConeAngle) &&
+           std::isfinite(light.width) && std::isfinite(light.height);
 }
 
 bool hasBrightness(const SceneLight& light) {
@@ -49,6 +50,11 @@ GpuLight toGpuLight(const SceneLight& light) {
         gpu.spotScale = 1.0f / std::max(std::cos(inner) - cosOuter, kMinimumConeFade);
         gpu.spotOffset = -cosOuter * gpu.spotScale;
     }
+    if (light.type == GpuLightType::Rect) {
+        const RectLightShape shape = rectShapeOf(light);
+        gpu.rectRight = shape.right;
+        gpu.rectHalfHeight = glm::length(shape.up);
+    }
     gpu.cookieRight = cookieAxisOf(light);
     // A light whose share of the fog is no number still lights surfaces: the fog gets none.
     const float volumetric = std::isfinite(light.volumetricIntensity)
@@ -58,8 +64,9 @@ GpuLight toGpuLight(const SceneLight& light) {
     return gpu;
 }
 
-/// A sphere that encloses everything a point or spot light reaches, in world space.
+/// A sphere that encloses everything a point, spot or rect light reaches, in world space.
 Sphere boundsOf(const SceneLight& light) {
+    // A rect light's range is measured from its middle, like a point light's.
     if (light.type != GpuLightType::Spot) {
         return {light.position, light.range};
     }
@@ -74,6 +81,27 @@ Sphere boundsOf(const SceneLight& light) {
 }
 
 } // namespace
+
+Vec3 rightAcrossOf(const SceneLight& light) {
+    const Vec3 direction = normalizeOr(light.direction, -kWorldUp);
+    return normalizeOr(light.right - direction * glm::dot(light.right, direction),
+                       normalizeOr(glm::cross(direction, kWorldUp), kWorldRight));
+}
+
+RectLightShape rectShapeOf(const SceneLight& light) {
+    // Also when a size is no number.
+    const float width = light.width > kMinRectLightSize ? light.width : kMinRectLightSize;
+    const float height = light.height > kMinRectLightSize ? light.height : kMinRectLightSize;
+    const Vec3 right = rightAcrossOf(light);
+    // Of length one: both are, and at right angles to each other.
+    const Vec3 up = glm::cross(right, normalizeOr(light.direction, -kWorldUp));
+    return {.center = light.position, .right = right * (0.5f * width), .up = up * (0.5f * height)};
+}
+
+RectLightShape rectShapeOf(const GpuLight& light) {
+    const Vec3 up = normalizeOr(glm::cross(light.rectRight, light.direction), Vec3(0.0f));
+    return {.center = light.position, .right = light.rectRight, .up = up * light.rectHalfHeight};
+}
 
 uint32_t ClusterDepthMapping::sliceOf(float depth) const {
     if (!(depth > kMinimumDepth)) {

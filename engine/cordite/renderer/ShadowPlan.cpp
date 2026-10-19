@@ -15,7 +15,7 @@
 namespace cordite {
 namespace {
 
-/// Nearer to a point or spot light than this, nothing casts a shadow.
+/// Nearer to a point, spot or rect light than this, nothing casts a shadow.
 constexpr float kLocalNearPlane = 0.05f;
 
 /// The widest cone a spot light's shadow map covers, from its axis. A wider light
@@ -39,7 +39,7 @@ constexpr float kMaxShadowOffset = 16.0f;
 /// that the last bits of a computed radius cannot make the shadows crawl.
 constexpr float kRadiusStep = 1.0f / 16.0f;
 
-/// The most shadow maps one light has: the six of a point light.
+/// The most shadow maps one light has: the six of a point or a rect light.
 constexpr uint32_t kMaxTilesPerLight = 6;
 
 /// `value`, or `fallback` when it is "not a number": what a light says about its
@@ -350,8 +350,8 @@ bool planCascades(const CameraView& view, const SceneLight& light, uint32_t ligh
     return true;
 }
 
-/// Plans the shadow map of a spot light, or the six of a point light. Returns false
-/// when the view has no room for them.
+/// Plans the shadow map of a spot light, or the six of a point or a rect light. Returns
+/// false when the view has no room for them.
 bool planLocalLight(const SceneLight& light, uint32_t lightIndex, const ShadowSettings& settings,
                     TileAllocator& allocator, ShadowPlan& plan) {
     const bool isSpot = light.type == GpuLightType::Spot;

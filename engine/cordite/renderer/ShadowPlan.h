@@ -14,7 +14,10 @@
 ///   near the camera, larger ones behind it, so that near shadows are sharp and far
 ///   ones exist;
 /// - a spot light gets one map, looking along its cone;
-/// - a point light gets six, one for each side of a cube around it.
+/// - a point light gets six, one for each side of a cube around it, and so does a rect
+///   light, around its middle: what it lights is in front of it, so that about half of
+///   what its maps show is never looked up, but six alike are what the shaders look a
+///   point up in.
 ///
 /// @code
 /// ShadowPlan plan;
@@ -46,8 +49,8 @@ namespace cordite {
 /// The most cascades the shadow of a directional light can have.
 inline constexpr uint32_t kMaxShadowCascades = 4;
 
-/// The most shadow maps a view can have. A point light takes six of them, a spot light
-/// one, the sun one for each cascade.
+/// The most shadow maps a view can have. A point or a rect light takes six of them, a spot
+/// light one, the sun one for each cascade.
 inline constexpr uint32_t kMaxShadowViews = 64;
 
 /// The smallest shadow map, in texels a side. Every size is a power of two times this.
@@ -117,7 +120,7 @@ struct ShadowView {
     /// right angles to each other and to the way the light looks.
     Vec3 right{1.0f, 0.0f, 0.0f};
     Vec3 up{0.0f, 1.0f, 0.0f};
-    /// True for the maps of point and spot lights.
+    /// True for the maps of point, spot and rect lights.
     bool perspective = false;
     /// The light the map belongs to: an index into LightClusters::lights.
     uint32_t light = 0;
@@ -149,12 +152,13 @@ struct ShadowPlan {
 
 /// Plans the shadow maps of `view`. `clusters` must have been built from `lights` for
 /// that view: only lights that reach something in view get a shadow map, the sun first
-/// and then the point and spot lights nearest to the camera. A light that finds no room
-/// for its map at the size it asks for gets a smaller one, down to kMinShadowTileSize,
-/// before it goes without. The sun, which comes first, takes three quarters of the atlas
-/// at most: if its cascades would take more, the far ones are made smaller. The lights
-/// of `clusters` are told which shadow views are theirs (GpuLight::shadowView); `plan`
-/// is replaced. Nothing here allocates memory once `plan` has held as many views before.
+/// and then the point, spot and rect lights nearest to the camera. A light that finds no
+/// room for its map at the size it asks for gets a smaller one, down to
+/// kMinShadowTileSize, before it goes without. The sun, which comes first, takes three
+/// quarters of the atlas at most: if its cascades would take more, the far ones are made
+/// smaller. The lights of `clusters` are told which shadow views are theirs
+/// (GpuLight::shadowView); `plan` is replaced. Nothing here allocates memory once `plan`
+/// has held as many views before.
 void planShadows(const CameraView& view, std::span<const SceneLight> lights, LightClusters& clusters,
                  const ShadowSettings& settings, ShadowPlan& plan);
 

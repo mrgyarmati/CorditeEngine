@@ -43,7 +43,7 @@
 ///
 /// One scene renderer serves any number of views; give each view its own SceneTargets.
 /// A scene is lit by its Light and AmbientLight components (RenderComponents.h): the
-/// directional lights everywhere, the point and spot lights where they reach, found
+/// directional lights everywhere, the point, spot and rect lights where they reach, found
 /// through a grid of clusters (LightClusters.h). Lights that cast shadows get shadow
 /// maps in an atlas (ShadowPlan.h), drawn anew for every view. Its Environment is the
 /// image of everything far away: it lights every surface, and the deferred lighting
@@ -258,8 +258,8 @@ struct SceneRenderStatistics {
     /// anti-aliasing.
     uint32_t screenPasses = 0;
 
-    /// The lights that reach something in view: directional ones, and point and spot
-    /// lights that touch at least one cluster.
+    /// The lights that reach something in view: directional ones, and point, spot and
+    /// rect lights that touch at least one cluster.
     uint32_t lights = 0;
     /// The entries of all the clusters' lists together: how much the lights overlap.
     uint32_t lightListEntries = 0;
@@ -286,8 +286,8 @@ struct SceneRenderStatistics {
     uint32_t captures = 0;
     uint32_t droppedCaptures = 0;
 
-    /// The shadow maps drawn: one for a spot light, six for a point light, one for
-    /// each cascade of the sun.
+    /// The shadow maps drawn: one for a spot light, six for a point or a rect light, one
+    /// for each cascade of the sun.
     uint32_t shadowMaps = 0;
     /// Lights that are to cast shadows but got no shadow map: the atlas was full, or
     /// the light is a directional one that is not the brightest

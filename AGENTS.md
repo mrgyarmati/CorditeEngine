@@ -137,7 +137,7 @@ by accident.
 | `rhi` | `core`, `math`, `platform` | Vulkan device, swapchain and texture readback over NVRHI |
 | `shaders` | `core` | Shader requests and permutation keys, disk cache, `ShaderLibrary` |
 | `shader_compiler` | `core`, `shaders` | Slang to SPIR-V compiler, and the cache of the engine's shaders compiled ahead that an exported game ships (`EngineShaderCache.h`); not linked into exported games |
-| `renderer` | `core`, `math`, `assets`, `world`, `animation`, `rhi`, `shaders` | The scene renderer and what it is made of: GPU copies of assets, the mesh passes, the G-buffer and its lighting, the lights of a world and the clusters they are sorted into, their cookies, their shadow maps and the atlas those share, what finishes the picture (exposure, bloom, tone mapping, grading), the environment (the sky and what it lights), environment probes (pictures of the scene that light it in the environment's place), ambient occlusion and reflections from the screen, fog and what lights throw into it, decals, levels of detail, scene captures, the debug views, scene targets, the `MeshRenderer`, `Light`, `AmbientLight`, `Environment`, `EnvironmentProbe`, `Fog`, `Decal`, `SceneCapture` and `PostProcess` components; camera views, debug lines, GPU timing, GPU shader management |
+| `renderer` | `core`, `math`, `assets`, `world`, `animation`, `rhi`, `shaders` | The scene renderer and what it is made of: GPU copies of assets, the mesh passes, the G-buffer and its lighting, the lights of a world and the clusters they are sorted into, what a rectangle of light gives a surface (rect lights), their cookies, their shadow maps and the atlas those share, what finishes the picture (exposure, bloom, tone mapping, grading), the environment (the sky and what it lights), environment probes (pictures of the scene that light it in the environment's place), ambient occlusion and reflections from the screen, fog and what lights throw into it, decals, levels of detail, scene captures, the debug views, scene targets, the `MeshRenderer`, `Light`, `AmbientLight`, `Environment`, `EnvironmentProbe`, `Fog`, `Decal`, `SceneCapture` and `PostProcess` components; camera views, debug lines, GPU timing, GPU shader management |
 | `ui` | `core`, `math`, `platform`, `rhi`, `shaders`, `renderer` | The immediate-mode interface: the Dear ImGui context and its NVRHI renderer; its typefaces and icons, compiled in; its themes, and the widgets it draws the same way everywhere |
 | `engine` | all of the above but `shader_compiler` | `Engine`: owns the subsystems, the assets, the world and the interface, and runs the frame loop; projects; a game made of a project (`Game`); placing models; checking the assets a scene uses |
 | `editor` | `engine` and below, `shader_compiler` | The editor: the scene document, undoable actions, scene and asset commands, panels, `EditorApp`; making a game of a project (`GameExport`) (not linked into exported games) |
@@ -368,8 +368,9 @@ Vulkan directly. Step-by-step guide for adding a pass:
   the shadow maps of `common/Shadows.slang` at `t3`, `t4` and `s0`, the
   environment of `common/Environment.slang` at `t5`, `t6`, `s1` and `s2`, the
   cookies of the lights at `t7` and `s3`, what lights throw into the fog
-  (`common/VolumetricFog.slang`) at `t8` and `s4`, and the environment probes at `t9`
-  to `t11`), space 1 the
+  (`common/VolumetricFog.slang`) at `t8` and `s4`, the environment probes at `t9`
+  to `t11`, and the fit that rect lights are worked out with (`common/RectLights.slang`)
+  at `t12` and `t13`, read with `s1`), space 1 the
   material's in a mesh pass (`materials/Material.slang`; call `evaluateSurface`, never
   sample material textures directly) or the G-buffer's in a pass that reads it
   (`GBufferBindings`: its four targets, the depth, the ambient occlusion at `t5` and
@@ -426,42 +427,62 @@ Vulkan directly. Step-by-step guide for adding a pass:
   towards the viewer, and what the fog between the two makes of it. Tests render the
   same surface both ways and compare the pictures; a lighting feature that only one
   path has fails them.
-- **A scene is lit by components:** `Light` (directional, point or spot),
+- **A scene is lit by components:** `Light` (directional, point, spot or rect),
   `AmbientLight` and `Environment` (`RenderComponents.h`). A light shines from where
   its entity is, along the entity's -Z axis. An intensity of 1 lights a white, matte
   surface that faces the light to white - at any distance for a directional light,
-  one metre away for the others. ("White" is a brightness of one in the scene; what a
-  screen shows of it is for the tone mapper to say.) `SceneLights` turns that into
-  what shaders compute with (times pi); nothing else converts brightness. A world
-  without light components is black, as a game shows it; only an editor view asks for
-  stand-ins (`SceneRenderSettings::defaultLighting`).
+  one metre away for a point or a spot light, and as a point light in its middle does
+  for a rect light seen from far along the way it shines. ("White" is a brightness of
+  one in the scene; what a screen shows of it is for the tone mapper to say.)
+  `SceneLights` turns that into what shaders compute with (times pi); nothing else
+  converts brightness. A world without light components is black, as a game shows it;
+  only an editor view asks for stand-ins (`SceneRenderSettings::defaultLighting`).
 - **A spot or directional light can shine through a cookie** (`LightComponent::cookie`,
   `LightCookies.h`): a picture whose colors filter it - thrown across a spot light's
   cone as a slide by a projector, seen from behind the light; laid out over the world by
   a directional light, repeated every `cookieSize` metres from where its entity is. A
-  point light has none (`findRenderProblems`). Cookies are layers of one texture array
-  of `RenderResources` (`cookieLayer`), `kLightCookieSize` square with their mip levels,
-  brought to that size on the CPU and written into their layers as uploads - never drawn
-  into, which a texture the frame reads cannot be. The array has a layer for each cookie
-  in use, rounded up to a power of two: it is made twice as large when it has no room,
-  what it held copied over on the GPU. An image of light, and one more than
-  `kMaxLightCookies`, is said once and the light shines without; a view binds a single
-  white texel while no light has a cookie. Where on a cookie a point is is written down
-  twice, in `LightCookies.cpp` and in `cookieFilter` of `common/Lights.slang`: change
-  both. The level of the cookie's pictures is worked out from how large a pixel is there
-  (`pixelFootprint`), not from the neighbouring pixels, which may be shading other
-  lights. A light without a cookie reads nothing: `LightCookieTests` holds a light next
-  to one whose cookie is black.
-- **Point and spot lights are found through clusters** (`LightClusters.h`,
+  point or a rect light has none (`findRenderProblems`). Cookies are layers of one
+  texture array of `RenderResources` (`cookieLayer`), `kLightCookieSize` square with
+  their mip levels, brought to that size on the CPU and written into their layers as
+  uploads - never drawn into, which a texture the frame reads cannot be. The array has
+  a layer for each cookie in use, rounded up to a power of two: it is made twice as
+  large when it has no room, what it held copied over on the GPU. An image of light, and
+  one more than `kMaxLightCookies`, is said once and the light shines without; a view
+  binds a single white texel while no light has a cookie. Where on a cookie a point is
+  is written down twice, in `LightCookies.cpp` and in `cookieFilter` of
+  `common/Lights.slang`: change both. The level of the cookie's pictures is worked out
+  from how large a pixel is there (`pixelFootprint`), not from the neighbouring pixels,
+  which may be shading other lights. A light without a cookie reads nothing:
+  `LightCookieTests` holds a light next to one whose cookie is black.
+- **Point, spot and rect lights are found through clusters** (`LightClusters.h`,
   `common/Lights.slang`): a grid of 16 x 9 x 24 boxes over what the camera sees, each
   with the list of the lights that touch it, built on the CPU for every view. The size
   of the grid, the layout of a light and the arithmetic that turns a pixel into a
   cluster are written down twice, in those two files; change both.
   `SceneLightingTests` holds a floor under hundreds of lights against the sum worked
   out on the CPU, so a light that is missing from a list fails it.
-- **A light ends at its range**, and is culled by it. Whatever is added to how a point
-  or spot light falls off must still be zero at the range, or the light is cut off
-  along the borders of clusters.
+- **A light ends at its range**, and is culled by it. Whatever is added to how a point,
+  spot or rect light falls off must still be zero at the range - a rect light's measured
+  from its middle - or the light is cut off along the borders of clusters.
+- **A rect light is worked out with linearly transformed cosines** (`RectLights.h`,
+  `common/RectLights.slang`, `shadeRectLight` of `common/Lights.slang`): what it gives a
+  matte surface is the closed form of the cosine over what of its rectangle is above the
+  surface's horizon; what the GGX lobe reflects of it is the same closed form after the
+  rectangle has been taken through the inverse of a matrix that turns a cosine into the
+  lobe - the published fit of ltc_code, two tables of 64 by 64 that `ViewBindings` makes
+  in half floats and writes in its first `update`. The rectangle is cut at the surface's
+  horizon before it goes through the matrix and at the cosine's after. Its face is as
+  bright as its color over its area, so that from far along the way it shines it lights
+  what a point light of the same intensity in its middle does. Its range, its shadows -
+  six maps - and what it throws into a fog (the light of its face times the solid angle
+  it fills, `rectLightSolidAngle`) go from its middle, and the range never ends short of
+  its corners (`makeSceneLight`). A surface that faces away from the middle may still see
+  part of the face: `shadeLight` asks about a rect light before what it asks of a point
+  light. The arithmetic is written down twice, in `RectLights.cpp` and in those shaders:
+  `RectLightsTests` holds the first to closed forms and to GGX added up over the
+  rectangle, and `SceneLightingTests` the pictures to it - a matte wall to the light
+  added up patch by patch, shiny walls to the fit at a slant and at a grazing angle, a
+  light through the wall. Change both.
 - **Lighting channels** are eight bits on every mesh renderer and every light; a light
   shines on a surface when they share one. They reach the shaders as per-instance data
   (`MeshDrawList`) and, for the deferred path, in the alpha of G-buffer target 0.
@@ -475,9 +496,9 @@ Vulkan directly. Step-by-step guide for adding a pass:
   is the world's.
 - **Shadows are maps in one atlas.** `planShadows` (`ShadowPlan.h`, plain arithmetic,
   tested without a GPU) gives every light of a view that casts shadows its maps - up
-  to four cascades for the sun, one for a spot light, six for a point light - and each
-  a tile of the `ShadowAtlas`, which is drawn anew for every view. A light that finds
-  no room gets smaller maps, then none, and is counted
+  to four cascades for the sun, one for a spot light, six for a point or a rect light -
+  and each a tile of the `ShadowAtlas`, which is drawn anew for every view. A light that
+  finds no room gets smaller maps, then none, and is counted
   (`SceneRenderStatistics::lightsWithoutShadows`); the sun, which is served first,
   leaves a quarter of the atlas to the others. Planning runs for every view of every
   frame and allocates nothing: keep it so.
@@ -2193,3 +2214,10 @@ body explaining what changed and why. One logical change per commit.
   number is false may light a pixel on the GPU. What is sent to the GPU is made of numbers
   first - the matrix of a probe's box of no size is replaced (`gpuProbeOf`), not left to
   the test in the shader.
+- A test of a perfectly matte surface cannot fail for anything that is reflected: with
+  `specular` 0, f0 is nothing, and whatever the reflection is worked out from is
+  multiplied by it. The two tables of rect lights bound the other way round passed every
+  test of a white wall. What reflects is tested on glossy and metal surfaces - and seen
+  at a grazing angle, where Schlick's factor gives most of it to the reflectance at
+  grazing angles: at a slant, that part is a hundred-thousandth, and leaving it out
+  passed as well.

@@ -23,6 +23,7 @@
 #include <cstdint>
 #include <initializer_list>
 #include <limits>
+#include <string>
 #include <vector>
 
 using namespace cordite;
@@ -84,17 +85,23 @@ FogSettings fogOf(const FogComponent& component) {
 }
 
 /// What the GPU is given of a light, as far as the fog goes: its color is pi times its
-/// intensity (SceneLights.h), and the fog's that times its volumetricIntensity.
+/// intensity (SceneLights.h), and the fog's that times its volumetricIntensity. A rect
+/// light's rectangle is turned as SceneFixture::addLight() turns its entity.
 GpuLight fogLightOf(const LightComponent& component, const Vec3& position, const Vec3& direction) {
     GpuLight light;
     light.typeAndChannels = static_cast<uint32_t>(component.type == LightType::Directional ? GpuLightType::Directional
                                                   : component.type == LightType::Spot      ? GpuLightType::Spot
+                                                  : component.type == LightType::Rect      ? GpuLightType::Rect
                                                                                            : GpuLightType::Point);
     light.position = position;
     light.direction = glm::normalize(direction);
     light.range = component.range;
     light.color = component.color * component.intensity * kPi;
     light.fogColor = light.color * component.volumetricIntensity;
+    if (component.type == LightType::Rect) {
+        light.rectRight = lookRotation(direction) * Vec3(0.5f * component.width, 0.0f, 0.0f);
+        light.rectHalfHeight = 0.5f * component.height;
+    }
     return light;
 }
 
@@ -334,6 +341,55 @@ TEST_SUITE("FogLight") {
         checkNoValidationIssues(*scene.context.graphics);
     }
 
+    TEST_CASE("what a rect light throws into the fog is the light of its face, in front of it and nowhere else") {
+        SceneFixture scene;
+        scene.open();
+        const FogComponent component = evenLitFog(0.1f, 20.0f);
+        addLitFog(scene, component);
+        // Facing to the right from x = -0.4: the two columns of the grid on the left, whose
+        // middles are at -1.25 and -0.75, are behind it all the way.
+        const LightComponent panel{.type = LightType::Rect,
+                                   .color = Vec3(1.0f, 0.8f, 0.6f),
+                                   .intensity = 2.0f,
+                                   .range = 4.0f,
+                                   .width = 1.2f,
+                                   .height = 0.6f,
+                                   .castsShadows = false};
+        const Vec3 position(-0.4f, 0.1f, -3.0f);
+        const Vec3 direction(1.0f, 0.0f, 0.0f);
+        scene.addLight(panel, position, direction);
+        scene.render(frontView(scene), litFogSettings());
+
+        const FogVolumeGrid grid = fogVolumeGridFor(UVec2(64), ScreenEffectsQuality::Medium);
+        REQUIRE(grid == FogVolumeGrid{6, 6, 64});
+        const FogSettings fog = fogOf(component);
+        const std::array<GpuLight, 1> lights = {fogLightOf(panel, position, direction)};
+        uint32_t lit = 0;
+        for (const uint32_t slice : {30u, 41u, 45u, 63u}) {
+            const HalfPicture texels{unwrap(readTexture(*scene.context.graphics, scene.targets.fogVolume(), 0, slice))};
+            for (uint32_t row = 0; row < grid.rows; ++row) {
+                for (uint32_t column = 0; column < grid.columns; ++column) {
+                    CAPTURE(slice);
+                    CAPTURE(row);
+                    CAPTURE(column);
+                    const Vec3 viewer =
+                        frontViewerAt((Vec2(static_cast<float>(column), static_cast<float>(row)) + 0.5f) /
+                                      Vec2(static_cast<float>(grid.columns), static_cast<float>(grid.rows)));
+                    const float end = fogSliceDepth(static_cast<float>(slice + 1) / static_cast<float>(grid.slices),
+                                                    component.volumetricDistance);
+                    const Vec3 expected = fogLightAlong(fog, lights, frontSight(viewer, end, grid.slices));
+                    checkLight(texels.at(column, row), expected);
+                    if (column < 2) {
+                        CHECK(texels.at(column, row) == Vec3(0.0f));
+                    }
+                    lit += expected.x > 0.01f ? 1 : 0;
+                }
+            }
+        }
+        CHECK(lit > 8);
+        checkNoValidationIssues(*scene.context.graphics);
+    }
+
     TEST_CASE("with perspective each column of the grid follows its own line of sight") {
         SceneFixture scene;
         scene.open();
@@ -443,50 +499,57 @@ TEST_SUITE("FogLight") {
         checkNoValidationIssues(*scene.context.graphics);
     }
 
-    TEST_CASE("what stands in a light's way throws its shadow into the fog") {
-        SceneFixture scene(UVec2(128, 128));
-        scene.writeFlatMaterial("black", Vec3(0.0f));
-        scene.open();
-        addLitFog(scene, evenLitFog(0.15f, 20.0f));
-        // Straight down, past a bar that runs along the line of sight, left of the light.
-        LightComponent spot{.type = LightType::Spot,
-                            .color = Vec3(1.0f),
-                            .intensity = 30.0f,
-                            .range = 6.0f,
-                            .innerConeDegrees = 25.0f,
-                            .outerConeDegrees = 30.0f,
-                            .castsShadows = true,
-                            .volumetricIntensity = 0.0f};
-        const Entity entity = scene.addLight(spot, Vec3(0.0f, 1.4f, -5.0f), Vec3(0.0f, -1.0f, 0.0f));
-        scene.add(BuiltinMesh::Cube, scene.material("black"), at(Vec3(-0.2f, 0.9f, -5.0f), Vec3(0.2f, 0.2f, 1.5f)));
+    TEST_CASE("what stands in a light's way throws its shadow into the fog, of a spot light and of a rect light") {
+        // A rect light throws the shadows of a point light in its middle: its own six maps.
+        for (const LightType type : {LightType::Spot, LightType::Rect}) {
+            CAPTURE(std::string(nameOf(type)));
+            SceneFixture scene(UVec2(128, 128));
+            scene.writeFlatMaterial("black", Vec3(0.0f));
+            scene.open();
+            addLitFog(scene, evenLitFog(0.15f, 20.0f));
+            // Straight down, past a bar that runs along the line of sight, left of the
+            // light.
+            LightComponent light{.type = type,
+                                 .color = Vec3(1.0f),
+                                 .intensity = 30.0f,
+                                 .range = 6.0f,
+                                 .innerConeDegrees = 25.0f,
+                                 .outerConeDegrees = 30.0f,
+                                 .width = 0.4f,
+                                 .height = 0.4f,
+                                 .castsShadows = true,
+                                 .volumetricIntensity = 0.0f};
+            const Entity entity = scene.addLight(light, Vec3(0.0f, 1.4f, -5.0f), Vec3(0.0f, -1.0f, 0.0f));
+            scene.add(BuiltinMesh::Cube, scene.material("black"), at(Vec3(-0.2f, 0.9f, -5.0f), Vec3(0.2f, 0.2f, 1.5f)));
 
-        // The bar's shadow is 0.76 m to the left half a metre below the middle of the view;
-        // as far to the right the fog is lit.
-        const auto added = [&](bool shadows) {
-            LightComponent& light = *scene.world.tryGet<LightComponent>(entity);
-            light.volumetricIntensity = 0.0f;
-            scene.render(frontView(scene), litFogSettings(ScreenEffectsQuality::High));
-            const HalfPicture before = sceneLight(scene);
-            light.volumetricIntensity = 1.0f;
-            light.castsShadows = shadows;
-            scene.render(frontView(scene), litFogSettings(ScreenEffectsQuality::High));
-            const HalfPicture after = sceneLight(scene);
-            // Pixels 32 and 95 of 128 are 0.76 m either side of the middle, row 85 half a
-            // metre below it.
-            return std::array<float, 2>{after.at(32, 85).x - before.at(32, 85).x,
-                                        after.at(95, 85).x - before.at(95, 85).x};
-        };
-        const std::array<float, 2> shadowed = added(true);
-        CAPTURE(shadowed[0]);
-        CAPTURE(shadowed[1]);
-        CHECK(shadowed[1] > 0.02f);
-        CHECK(shadowed[0] < 0.3f * shadowed[1]);
-        // Without shadows the two sides are alike.
-        const std::array<float, 2> open = added(false);
-        CAPTURE(open[0]);
-        CAPTURE(open[1]);
-        CHECK(std::abs(open[0] - open[1]) < 0.05f * open[1]);
-        checkNoValidationIssues(*scene.context.graphics);
+            // The bar's shadow is 0.76 m to the left half a metre below the middle of the
+            // view; as far to the right the fog is lit.
+            const auto added = [&](bool shadows) {
+                LightComponent& component = *scene.world.tryGet<LightComponent>(entity);
+                component.volumetricIntensity = 0.0f;
+                scene.render(frontView(scene), litFogSettings(ScreenEffectsQuality::High));
+                const HalfPicture before = sceneLight(scene);
+                component.volumetricIntensity = 1.0f;
+                component.castsShadows = shadows;
+                scene.render(frontView(scene), litFogSettings(ScreenEffectsQuality::High));
+                const HalfPicture after = sceneLight(scene);
+                // Pixels 32 and 95 of 128 are 0.76 m either side of the middle, row 85 half
+                // a metre below it.
+                return std::array<float, 2>{after.at(32, 85).x - before.at(32, 85).x,
+                                            after.at(95, 85).x - before.at(95, 85).x};
+            };
+            const std::array<float, 2> shadowed = added(true);
+            CAPTURE(shadowed[0]);
+            CAPTURE(shadowed[1]);
+            CHECK(shadowed[1] > 0.02f);
+            CHECK(shadowed[0] < 0.3f * shadowed[1]);
+            // Without shadows the two sides are alike.
+            const std::array<float, 2> open = added(false);
+            CAPTURE(open[0]);
+            CAPTURE(open[1]);
+            CHECK(std::abs(open[0] - open[1]) < 0.05f * open[1]);
+            checkNoValidationIssues(*scene.context.graphics);
+        }
     }
 
     TEST_CASE("a spot light's cookie is laid into its beam") {

@@ -62,6 +62,17 @@ GpuLight spotOf(float innerAngle, float outerAngle, const Vec3& fogColor) {
     return light;
 }
 
+/// A rect light at the origin shining along -Z, its right +X, with the halves of its sides
+/// `halfWidth` and `halfHeight`, as LightClusters lays one out.
+GpuLight rectOf(float halfWidth, float halfHeight, const Vec3& fogColor) {
+    GpuLight light = pointOf(Vec3(0.0f), 10.0f, fogColor);
+    light.typeAndChannels = static_cast<uint32_t>(GpuLightType::Rect);
+    light.direction = Vec3(0.0f, 0.0f, -1.0f);
+    light.rectRight = Vec3(halfWidth, 0.0f, 0.0f);
+    light.rectHalfHeight = halfHeight;
+    return light;
+}
+
 /// A line of sight from the origin along -Z, the way the camera looks.
 FogSight sightOf(float distance, uint32_t slices = 64) {
     return {.viewer = Vec3(0.0f),
@@ -212,6 +223,30 @@ TEST_SUITE("VolumetricFog") {
         // A light that gives the fog nothing.
         CHECK(lightInFog(pointOf(Vec3(0.0f), 10.0f, Vec3(0.0f)), Vec3(0.0f, 0.0f, -2.0f), Vec3(0.0f, 0.0f, 1.0f),
                          0.0f) == Vec3(0.0f));
+    }
+
+    TEST_CASE("a rect light throws the light of its face into the fog, as much of it as the face fills of all around") {
+        // Half a metre wide and a quarter high: an eighth of a square metre.
+        const Vec3 fogColor(2.0f, 1.0f, 0.5f);
+        const GpuLight panel = rectOf(0.25f, 0.125f, fogColor);
+        const GpuLight point = pointOf(Vec3(0.0f), 10.0f, fogColor);
+        const Vec3 toViewer(0.0f, 0.0f, 1.0f);
+        // Far along its axis it is the point light of the same fog color, ...
+        const Vec3 ahead(0.0f, 0.0f, -6.0f);
+        CHECK(relativeError(lightInFog(panel, ahead, toViewer, 0.0f), lightInFog(point, ahead, toViewer, 0.0f)) <
+              2.0e-3f);
+        // ... at a slant less by its cosine, the face being seen narrower; ...
+        const Vec3 slanted = 6.0f * Vec3(std::sin(1.0f), 0.0f, -std::cos(1.0f));
+        CHECK(relativeError(lightInFog(panel, slanted, toViewer, 0.0f),
+                            lightInFog(point, slanted, toViewer, 0.0f) * std::cos(1.0f)) < 3.0e-3f);
+        // ... and in front of its face no brighter than the face, which fills half of all
+        // around there: its fog color over its area, times 2 pi, by the phase of 1 / (4 pi).
+        CHECK(relativeError(lightInFog(panel, Vec3(0.0f, 0.0f, -1.0e-4f), toViewer, 0.0f), fogColor * 4.0f) < 2.0e-3f);
+        // Behind it, in its plane and at its range, nothing.
+        CHECK(lightInFog(panel, Vec3(0.0f, 0.0f, 1.0f), toViewer, 0.0f) == Vec3(0.0f));
+        CHECK(lightInFog(panel, Vec3(1.0f, 0.0f, 0.0f), toViewer, 0.0f) == Vec3(0.0f));
+        CHECK(lightInFog(panel, Vec3(0.0f, 0.0f, -10.0f), toViewer, 0.0f) == Vec3(0.0f));
+        CHECK(lightInFog(panel, Vec3(0.0f, 0.0f, -9.0f), toViewer, 0.0f).x > 0.0f);
     }
 
     TEST_CASE("a fog lit by a sun that nothing shadows gets its light in proportion to how much fog there is") {

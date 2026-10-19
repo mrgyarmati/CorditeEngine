@@ -71,8 +71,9 @@ Lucide), which packaging (milestone 12) is to put in.
 | [ltc_code](https://github.com/selfshadow/ltc_code) | commit `31e5e96` (2019-04-15) | BSD-2-Clause, with a request to cite the paper | The fit of GGX by linearly transformed cosines that what a rectangle of light gives a shiny surface is worked out with: the two tables of `fit/results/ltc.js` |
 
 The numbers of the two tables are compiled into the `renderer` module
-(`cmake/CorditeEmbedNumbers.cmake`, `engine/cordite/renderer/RectLights.cpp`); nothing else
-of the repository is built. Its authors ask that the paper be cited where its code or what
+(`cmake/CorditeEmbedNumbers.cmake`, `engine/cordite/renderer/RectLights.cpp`), which gives
+them to the shaders of every view as two textures (`ViewBindings`); nothing else of the
+repository is built. Its authors ask that the paper be cited where its code or what
 it made is used:
 
 > Eric Heitz, Jonathan Dupuy, Stephen Hill and David Neubelt. Real-Time Polygonal-Light

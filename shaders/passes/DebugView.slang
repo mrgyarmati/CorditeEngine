@@ -149,7 +149,7 @@ float4 debugViewPixel(FullscreenVaryings input) : SV_Target0
     }
     case kViewLightCount:
     {
-        // How many point and spot lights the pixel has to ask: none is dark grey, then
+        // How many point, spot and rect lights the pixel has to ask: none is dark grey, then
         // from blue through green to red at eight and more.
         const float2 uv = input.position.xy * inverseTargetSize;
         const float3 position = worldPositionFromDepth(uv, depth, inverseViewProjection);

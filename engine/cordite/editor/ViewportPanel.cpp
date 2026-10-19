@@ -9,6 +9,8 @@
 #include "cordite/math/Transform.h"
 #include "cordite/physics/PhysicsComponents.h"
 #include "cordite/renderer/CameraView.h"
+#include "cordite/renderer/LightClusters.h"
+#include "cordite/renderer/RectLights.h"
 #include "cordite/renderer/RenderComponents.h"
 #include "cordite/renderer/SceneLights.h"
 #include "cordite/ui/UiWidgets.h"
@@ -19,6 +21,7 @@
 #include <imgui_internal.h>
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <limits>
@@ -324,6 +327,22 @@ void drawLight(const SceneLight& light, const Vec4& color, DebugDraw& marker, De
                 // Where the light starts to fade towards the edge.
                 reach->circle(light.position + light.direction * (std::cos(light.innerConeAngle) * light.range),
                               light.direction, std::sin(light.innerConeAngle) * light.range, color);
+            }
+            break;
+        }
+        case GpuLightType::Rect: {
+            // The rectangle that gives off the light, as large as it is, and the way its
+            // face looks; it reaches as far around its middle as a point light does.
+            const RectLightShape shape = rectShapeOf(light);
+            const std::array<Vec3, 4> corners = {
+                shape.center - shape.right - shape.up, shape.center + shape.right - shape.up,
+                shape.center + shape.right + shape.up, shape.center - shape.right + shape.up};
+            for (size_t corner = 0; corner < corners.size(); ++corner) {
+                marker.line(corners[corner], corners[(corner + 1) % corners.size()], color);
+            }
+            marker.arrow(light.position, light.position + light.direction * kLightMarkerLength, color);
+            if (reach != nullptr) {
+                reach->sphere(light.position, light.range, color);
             }
             break;
         }

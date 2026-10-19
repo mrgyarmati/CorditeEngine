@@ -6,14 +6,12 @@
 namespace cordite {
 
 Vec3 cookieAxisOf(const SceneLight& light) {
-    if (light.cookie.isNil() || light.type == GpuLightType::Point) {
+    if (light.cookie.isNil() || light.type == GpuLightType::Point || light.type == GpuLightType::Rect) {
         return Vec3(0.0f);
     }
-    const Vec3 direction = normalizeOr(light.direction, -kWorldUp);
-    // At right angles to the way the light shines, whatever the transform of the entity
-    // has done to its axes; a right that runs along it says nothing of which way round.
-    const Vec3 right = normalizeOr(light.right - direction * glm::dot(light.right, direction),
-                                   normalizeOr(glm::cross(direction, kWorldUp), kWorldRight));
+    // At right angles to the way the light shines; a right that runs along it says nothing
+    // of which way round.
+    const Vec3 right = rightAcrossOf(light);
     if (light.type == GpuLightType::Spot) {
         const float angle = std::isfinite(light.outerConeAngle)
                                 ? std::clamp(light.outerConeAngle, kMinCookieConeAngle, kMaxCookieConeAngle)
@@ -26,7 +24,7 @@ Vec3 cookieAxisOf(const SceneLight& light) {
 
 std::optional<Vec2> cookieUvOf(const GpuLight& light, const Vec3& point) {
     const auto type = static_cast<GpuLightType>(light.typeAndChannels & 0xFFu);
-    if (type == GpuLightType::Point) {
+    if (type == GpuLightType::Point || type == GpuLightType::Rect) {
         return std::nullopt;
     }
     const Vec3 offset = point - light.position;

@@ -81,6 +81,9 @@ enum class LightType : uint8_t {
     Point,
     /// Light from a point, within a cone.
     Spot,
+    /// Light from a rectangle, from the face it turns to its -Z: a panel, a window, a
+    /// screen.
+    Rect,
 };
 
 std::string_view nameOf(LightType type);
@@ -98,8 +101,8 @@ enum class ShadowResolution : uint8_t {
 
 std::string_view nameOf(ShadowResolution resolution);
 
-/// A light. It shines from where the entity is; a directional or a spot light shines
-/// along the entity's -Z axis.
+/// A light. It shines from where the entity is; a directional, a spot or a rect light
+/// shines along the entity's -Z axis.
 struct LightComponent {
     LightType type = LightType::Point;
     /// Linear color.
@@ -108,9 +111,14 @@ struct LightComponent {
     /// any distance for a directional light, and one metre away for a point or a spot
     /// light, whose light thins out with the square of the distance. (White is a
     /// brightness of one in the scene. What a screen shows of it is up to the exposure
-    /// and the tone mapper of the view: see PostProcessComponent.)
+    /// and the tone mapper of the view: see PostProcessComponent.) A rect light is as
+    /// bright as a point light of the same intensity in its middle, seen from far along
+    /// the way it shines, and less at a slant to its face; nearer than a few times its
+    /// size its light comes from all over its face, and no longer grows as the square of
+    /// the distance shrinks. However large it is, it gives off the same light in all.
     float intensity = 1.0f;
-    /// Point and spot: the distance at which the light has faded to nothing, in metres.
+    /// Point, spot and rect: the distance at which the light has faded to nothing, in
+    /// metres - from the middle of a rect light, which reaches at least to its corners.
     /// A light costs what it can reach; keep the range as small as the look allows.
     float range = 10.0f;
     /// Spot: the angle from the axis up to which the light is at full brightness, and
@@ -118,14 +126,20 @@ struct LightComponent {
     /// the inner.
     float innerConeDegrees = 25.0f;
     float outerConeDegrees = 35.0f;
+    /// Rect: how wide and how high the rectangle that gives off the light is, along the
+    /// entity's X and Y axes, in metres - whatever the entity is scaled by. Its middle is
+    /// where the entity is.
+    float width = 1.0f;
+    float height = 1.0f;
     /// The lighting channels the light shines on, one bit each.
     uint32_t channels = 1;
 
     /// Whether what stands in the light throws shadows. Shadows cost: a light that
-    /// casts them draws what it reaches once more - a point light six times, the sun
-    /// once for each cascade. Of the directional lights that are to cast shadows,
-    /// only the brightest does: a scene has one sun. A spot light throws shadows up
-    /// to 85 degrees from its axis; a wider one is better a point light.
+    /// casts them draws what it reaches once more - a point or a rect light six times,
+    /// the sun once for each cascade. Of the directional lights that are to cast
+    /// shadows, only the brightest does: a scene has one sun. A spot light throws
+    /// shadows up to 85 degrees from its axis; a wider one is better a point light. A
+    /// rect light throws the shadows of a point light in its middle, as sharp.
     bool castsShadows = false;
     /// A shadow map is made of texels, and a lit surface looked up in it exactly where
     /// it is would shadow itself in stripes. It is looked up a little off instead: this
@@ -154,7 +168,7 @@ struct LightComponent {
     /// the light: white lets all of it through, black none. A spot light throws it across
     /// its cone; a directional light lays it out over the world, again and again, from
     /// where its entity is - so that moving the entity moves the clouds. Nil for none; a
-    /// point light has none.
+    /// point or a rect light has none.
     Uuid cookie;
     /// Directional: how far the cookie reaches along the light's right and up before it
     /// repeats, in metres.

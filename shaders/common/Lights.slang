@@ -2,9 +2,9 @@
 //
 // A view's lights come as three buffers next to its constants (space0): the lights at
 // t0, the cluster grid at t1 and the clusters' lists at t2. The volume the camera sees
-// is cut into a grid of clusters, each with the list of the point and spot lights that
-// touch it, so a pixel only asks the lights near it. Directional lights reach everywhere
-// and are at the front of the light buffer, in no list.
+// is cut into a grid of clusters, each with the list of the point, spot and rect lights
+// that touch it, so a pixel only asks the lights near it. Directional lights reach
+// everywhere and are at the front of the light buffer, in no list.
 //
 // The C++ side - the grid, the lists, and the arithmetic of clusterIndexOf() - is
 // engine/cordite/renderer/LightClusters.h.
@@ -12,6 +12,7 @@
 #pragma once
 
 #include "common/Brdf.slang"
+#include "common/RectLights.slang"
 #include "common/Shadows.slang"
 #include "common/View.slang"
 
@@ -19,6 +20,7 @@
 static const uint kLightDirectional = 0;
 static const uint kLightPoint = 1;
 static const uint kLightSpot = 2;
+static const uint kLightRect = 3;
 
 // Matches kClusterColumns, kClusterRows and kClusterSlices.
 static const uint kClusterColumns = 16;
@@ -28,15 +30,15 @@ static const uint kClusterSlices = 24;
 // Matches GpuLight.
 struct Light
 {
-    // In the world.
+    // In the world: the middle of a rect light.
     float3 position;
-    // Where a point or spot light has faded to nothing, in metres.
+    // Where a point, spot or rect light has faded to nothing, in metres.
     float range;
     // Linear color times intensity.
     float3 color;
     // The kind of light in the low 8 bits, its lighting channels in the 8 above.
     uint typeAndChannels;
-    // Unit vector along which a directional or spot light shines.
+    // Unit vector along which a directional, spot or rect light shines.
     float3 direction;
     // The first of the light's shadow views (common/Shadows.slang), or -1 when it
     // casts no shadows.
@@ -59,6 +61,11 @@ struct Light
     // `color` is what it shines on surfaces with: black for a light that gives it nothing.
     float3 fogColor;
     float lightPadding;
+    // A rect light's rectangle: from its middle to the middle of its right edge, at right
+    // angles to `direction`, and half its height, along the up made of the two
+    // (rectLightUp). Nothing for the other lights.
+    float3 rectRight;
+    float rectHalfHeight;
 };
 
 // Where the list of a cluster is in lightIndices. Matches ClusterRange.
@@ -106,16 +113,36 @@ uint clusterIndexOf(float2 uv, float depth)
     return (slice * kClusterRows + row) * kClusterColumns + column;
 }
 
-// How bright a point or spot light is at a distance: it falls off with the square of
-// the distance, and is brought smoothly to nothing at the light's range, so that the
-// range can be where the light stops being worked out. (Karis, "Real Shading in Unreal
-// Engine 4", 2013.)
-float distanceFalloff(float distanceSquared, float range)
+// How much of a local light is left at a distance whose square is `distanceSquared`: all of
+// it near the light, brought smoothly to nothing at its range, so that the range can be
+// where the light stops being worked out. (Karis, "Real Shading in Unreal Engine 4", 2013.)
+float rangeWindow(float distanceSquared, float range)
 {
     const float ratio = distanceSquared / (range * range);
     const float window = saturate(1.0 - ratio * ratio);
+    return window * window;
+}
+
+// How bright a point or spot light is at a distance: it falls off with the square of the
+// distance, within its range window.
+float distanceFalloff(float distanceSquared, float range)
+{
     // Nearer than a centimetre the light gets no brighter: a point has no size, a lamp has.
-    return window * window / max(distanceSquared, 1.0e-4);
+    return rangeWindow(distanceSquared, range) / max(distanceSquared, 1.0e-4);
+}
+
+// From the middle of a rect light to the middle of its top edge: at right angles to its
+// right and to the way it shines. Matches rectShapeOf() of a GpuLight
+// (renderer/LightClusters.h).
+float3 rectLightUp(Light light)
+{
+    return normalizeOr(cross(light.rectRight, light.direction), float3(0.0)) * light.rectHalfHeight;
+}
+
+// How large the face of a rect light is, in square metres.
+float rectLightArea(Light light)
+{
+    return 4.0 * length(light.rectRight) * light.rectHalfHeight;
 }
 
 // How bright a spot light is in a direction: all of it inside the inner cone, none
@@ -163,6 +190,48 @@ float3 cookieFilter(Light light, float3 position)
     return cookieFilterAt(light, position, pixelFootprint(position));
 }
 
+// The light leaving a surface towards the viewer that comes from a rect light. Its face is
+// as bright as its color over its area, and what of that a surface sends on is what its
+// rectangle gives the matte part and the lobe (common/RectLights.slang); the matte part
+// loses what is reflected at the Fresnel of the way its light arrives on average. It fades
+// to nothing at its range, measured from its middle, and its shadows are looked up from
+// there, as a point light's are - after what is matte, which says whether anything of it
+// is seen, and before the lobe, which costs more.
+float3 shadeRectLight(Surface surface, float3 toViewer, Light light)
+{
+    const float3 offset = light.position - surface.position;
+    const float distanceSquared = dot(offset, offset);
+    if (distanceSquared >= light.range * light.range)
+    {
+        return float3(0.0);
+    }
+    const float3 right = light.rectRight;
+    const float3 up = rectLightUp(light);
+    const RectLightIrradiance matte = rectLightIrradiance(light.position, right, up, surface.position, surface.normal);
+    if (matte.formFactor <= 0.0)
+    {
+        return float3(0.0);
+    }
+    const float3 toMiddle = offset * rsqrt(max(distanceSquared, 1.0e-8));
+    const float reaching = rangeWindow(distanceSquared, light.range) *
+                           localLightVisibility(light.shadowView, true, light.position, light.direction,
+                                                light.shadowBias, light.shadowNormalOffset, surface, toMiddle);
+    if (reaching <= 0.0)
+    {
+        return float3(0.0);
+    }
+    const RectLightSpecular shine =
+        rectLightSpecular(light.position, right, up, surface.position, surface.normal, toViewer, surface.roughness);
+    const float3 radiance = light.color * (reaching / max(rectLightArea(light), 1.0e-8));
+
+    const float3 f0 = specularColor(surface);
+    const float3 halfway = normalizeOr(matte.direction + toViewer, surface.normal);
+    const float3 fresnel = fresnelSchlick(f0, saturate(dot(toViewer, halfway)));
+    const float3 diffuse = (1.0 - fresnel) * diffuseColor(surface) * matte.formFactor;
+    const float3 specular = f0 * (shine.lobe - shine.grazing) + grazingReflectance(f0) * shine.grazing;
+    return (diffuse + specular) * radiance;
+}
+
 // The light leaving a surface towards the viewer that comes from one light. Shadows
 // are looked up last, and only for what would be lit: they are the costly part.
 float3 shadeLight(Surface surface, float3 toViewer, Light light)
@@ -178,6 +247,12 @@ float3 shadeLight(Surface surface, float3 toViewer, Light light)
             sunVisibility(light.shadowView, light.shadowBias, light.shadowNormalOffset, surface, toSun);
         return shadeDirect(surface, toViewer, toSun,
                            light.color * reaching * cookieFilter(light, surface.position));
+    }
+    // Before what a point light asks: a surface that faces away from the middle of a
+    // rectangle may still see some of it.
+    if (lightType(light) == kLightRect)
+    {
+        return shadeRectLight(surface, toViewer, light);
     }
 
     const float3 offset = light.position - surface.position;
@@ -205,7 +280,7 @@ float3 shadeLight(Surface surface, float3 toViewer, Light light)
 }
 
 // The light leaving a surface towards the viewer that comes from the lights of the
-// view: every directional one, and the point and spot lights of the surface's cluster.
+// view: every directional one, and the point, spot and rect lights of the surface's cluster.
 // `uv` is where the surface is in the picture. A light shines on the surface when the
 // two share a lighting channel.
 float3 shadeLights(Surface surface, float3 toViewer, float2 uv)

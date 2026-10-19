@@ -155,6 +155,23 @@ Polygon cornersIn(const Frame& frame, const RectLightShape& light, const Vec3& p
 
 } // namespace
 
+float rectLightSolidAngle(const RectLightShape& light, const Vec3& position) {
+    if (!isInFront(light, position)) {
+        return 0.0f;
+    }
+    // Two triangles, each by Van Oosterom and Strackee (1983): the tangent of half the angle
+    // a triangle fills is its triple product over one and the cosines between its corners.
+    const std::array<Vec3, 4> corners = {normalizeOr(light.center - light.right - light.up - position, Vec3(0.0f)),
+                                         normalizeOr(light.center + light.right - light.up - position, Vec3(0.0f)),
+                                         normalizeOr(light.center + light.right + light.up - position, Vec3(0.0f)),
+                                         normalizeOr(light.center - light.right + light.up - position, Vec3(0.0f))};
+    const auto triangle = [](const Vec3& a, const Vec3& b, const Vec3& c) {
+        const float volume = glm::dot(a, glm::cross(b, c));
+        return 2.0f * std::atan2(std::abs(volume), 1.0f + glm::dot(a, b) + glm::dot(b, c) + glm::dot(c, a));
+    };
+    return triangle(corners[0], corners[1], corners[2]) + triangle(corners[0], corners[2], corners[3]);
+}
+
 std::span<const Vec4> ltcMatrixTexels() {
     return matrixTable();
 }

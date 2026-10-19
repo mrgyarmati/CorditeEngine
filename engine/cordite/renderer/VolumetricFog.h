@@ -96,10 +96,12 @@ struct FogVolumeGrid {
 
 /// What `light` throws towards a viewer from `position`, per unit of light the fog
 /// scatters there: its fogColor, as much of it as reaches the position by its distance and
-/// its cone (Lights.slang), times the phase function of the angle between the way its light
-/// travels and `toViewer`, a unit vector. What stands in its way and its cookie are left
-/// out. Nothing beyond a point or spot light's range, and nothing from a light whose fog
-/// color is black.
+/// its cone (Lights.slang) - of a rect light, the fogColor over the area of its face times
+/// how much of everything around the position the face fills (rectLightSolidAngle()), within
+/// its range window - times the phase function of the angle between the way its light
+/// travels from its middle and `toViewer`, a unit vector. What stands in its way and its
+/// cookie are left out. Nothing beyond a point, spot or rect light's range, nothing behind a
+/// rect light, and nothing from a light whose fog color is black.
 [[nodiscard]] Vec3 lightInFog(const GpuLight& light, const Vec3& position, const Vec3& toViewer, float anisotropy);
 
 /// A line of sight, as fogLightAlong() follows it.

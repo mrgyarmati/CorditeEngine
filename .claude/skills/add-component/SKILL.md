@@ -22,12 +22,13 @@ enum class LightType : uint8_t {
     Directional,
     Point,
     Spot,
+    Rect,
 };
 
 std::string_view nameOf(LightType type);
 
-/// A light. It shines from where the entity is; a directional or a spot light shines
-/// along the entity's -Z axis.
+/// A light. It shines from where the entity is; a directional, a spot or a rect light
+/// shines along the entity's -Z axis.
 struct LightComponent {
     LightType type = LightType::Point;
     /// Linear color.
@@ -66,7 +67,8 @@ TypeInfo describeLight() {
         .enumProperty("type", &LightComponent::type,
                       {{LightType::Directional, std::string(nameOf(LightType::Directional))},
                        {LightType::Point, std::string(nameOf(LightType::Point))},
-                       {LightType::Spot, std::string(nameOf(LightType::Spot))}},
+                       {LightType::Spot, std::string(nameOf(LightType::Spot))},
+                       {LightType::Rect, std::string(nameOf(LightType::Rect))}},
                       {.description = "Directional: from one direction, everywhere. Point: from a point ..."})
         .property("color", &LightComponent::color,
                   {.description = "Linear color of the light", .semantic = PropertySemantic::Color, .minimum = 0.0})
@@ -112,7 +114,7 @@ In the same file's registration function:
 
 ```cpp
 CORDITE_TRY(registry.add<LightComponent>(
-    describeLight(), {.description = "A light at the entity's place: directional, point or spot."}));
+    describeLight(), {.description = "A light at the entity's place: directional, point, spot or rect."}));
 ```
 
 A module that registers components for the first time adds its
