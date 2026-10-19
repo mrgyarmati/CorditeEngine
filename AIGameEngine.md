@@ -325,3 +325,6 @@ Early UE3 titles relied heavily on normal maps, aggressive specular response, an
 - File open should use file open dialog, not hand typing. 
 - The play button should change to stop button, not just highlight when play started.
 - We need OpenGL support as fall back if no Vulkan available.
+
+- When I tried to open a project, so I clicked on Open Project in menu, the whole editor went to frozen (not responding)
+- From Asset Browser I cannot drag and drop anything to viewport niether to hierarchy 
