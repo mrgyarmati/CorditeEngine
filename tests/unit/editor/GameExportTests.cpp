@@ -4,6 +4,8 @@
 #include "cordite/core/FileSystem.h"
 #include "cordite/core/Json.h"
 #include "cordite/core/Platform.h"
+#include "cordite/engine/Game.h"
+#include "cordite/engine/Project.h"
 
 #include "support/TestSupport.h"
 
@@ -46,8 +48,14 @@ struct ExportFixture {
         REQUIRE(writeTextFile(player.parent_path() / "licenses" / "fmt.txt", "MIT").has_value());
     }
 
-    [[nodiscard]] GameExportDesc desc(const std::filesystem::path& destination) const {
-        return {.destination = destination, .shaderDirectory = test::sourceDirectory() / "shaders", .player = player};
+    /// An export laid out as `layout` - a directory unless it is told otherwise, on every
+    /// system, so that what is tested is the same everywhere.
+    [[nodiscard]] GameExportDesc desc(const std::filesystem::path& destination,
+                                      GameLayout layout = GameLayout::Directory) const {
+        return {.destination = destination,
+                .shaderDirectory = test::sourceDirectory() / "shaders",
+                .player = player,
+                .layout = layout};
     }
 
     /// The error of an export that does not happen.
@@ -66,6 +74,116 @@ TEST_SUITE("GameExport") {
         CHECK(gameProgramName("  Depot: the Game!  ") == executableFileName("Depot the Game"));
         // As gameFileName() has it (ProjectTests), and what a program is called here.
         CHECK(gameProgramName("con") == executableFileName("Game"));
+    }
+
+    TEST_CASE("a game of macOS is an application bundle, and a person may leave out what a bundle is called") {
+        CHECK(nameOf(GameLayout::Directory) == "directory");
+        CHECK(nameOf(GameLayout::Bundle) == "bundle");
+#if CORDITE_PLATFORM_MACOS
+        CHECK(nativeGameLayout() == GameLayout::Bundle);
+#else
+        CHECK(nativeGameLayout() == GameLayout::Directory);
+#endif
+        const std::filesystem::path out = pathFromUtf8("out");
+        CHECK(gameDestinationFor(out / "Depot", GameLayout::Bundle) == out / "Depot.app");
+        CHECK(gameDestinationFor(out / "Depot.app", GameLayout::Bundle) == out / "Depot.app");
+        CHECK(gameDestinationFor(out / "Depot" / "", GameLayout::Bundle) == out / "Depot.app");
+        CHECK(gameDestinationFor(out / "Depot 2.0", GameLayout::Bundle) == out / "Depot 2.0.app");
+        CHECK(gameDestinationFor(out / "Depot", GameLayout::Directory) == out / "Depot");
+        CHECK(gameDestinationFor({}, GameLayout::Bundle).empty());
+    }
+
+    TEST_CASE("what a bundle tells macOS of its game is its name, its program and what it is known by") {
+        ProjectSettings settings{.name = "Depot & <Sons>"};
+        const std::string plain = bundleInfoPlist(settings, "Depot Sons");
+        CHECK(plain.starts_with("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist"));
+        CHECK(plain.find("<key>CFBundleExecutable</key>\n    <string>Depot Sons</string>") != std::string::npos);
+        // What a name holds that XML would read otherwise is written as XML holds it.
+        CHECK(plain.find("<key>CFBundleName</key>\n    <string>Depot &amp; &lt;Sons&gt;</string>") !=
+              std::string::npos);
+        CHECK(plain.find("<string>local.cordite.Depot-Sons</string>") != std::string::npos);
+        CHECK(plain.find("<key>CFBundlePackageType</key>\n    <string>APPL</string>") != std::string::npos);
+        CHECK(plain.find("<key>NSHighResolutionCapable</key>\n    <true/>") != std::string::npos);
+        // The oldest macOS it runs on only where the build says.
+        CHECK(plain.find("LSMinimumSystemVersion") == std::string::npos);
+        CHECK(bundleInfoPlist(settings, "Depot", "11.0")
+                  .find("<key>LSMinimumSystemVersion</key>\n    <string>11.0</string>") != std::string::npos);
+        // What the project says it is known by.
+        settings.bundleIdentifier = "com.example.depot";
+        CHECK(bundleInfoPlist(settings, "Depot")
+                  .find("<key>CFBundleIdentifier</key>\n    "
+                        "<string>com.example.depot</string>") != std::string::npos);
+        CHECK(plain.ends_with("</dict>\n</plist>\n"));
+    }
+
+    TEST_CASE("a game exported as a bundle has its program in Contents/MacOS and the rest of it in Resources") {
+        ExportFixture fixture;
+        const std::filesystem::path bundle = fixture.directory.path() / "games" / "Depot.app";
+        const GameExport made = unwrap(exportGame(fixture.project, fixture.desc(bundle, GameLayout::Bundle)));
+        const std::string program = gameProgramName("Depot the Game");
+        CHECK(made.program == bundle / "Contents" / "MacOS" / pathFromUtf8(program));
+        CHECK(made.game == bundle / "Contents" / "Resources");
+        CHECK(unwrap(readTextFile(made.program)) == "a program");
+        CHECK(unwrap(readTextFile(bundle / "Contents" / "Info.plist")).find("<string>" + program + "</string>") !=
+              std::string::npos);
+        // Where the program finds its game.
+        CHECK(gameDirectoryOf(made.program) == made.game);
+        const Project exported = unwrap(loadProject(made.game));
+        CHECK(exported.settings == fixture.project.settings);
+        CHECK(fileExists(made.game / "assets" / "textures" / "wall.png"));
+        CHECK(unwrap(readTextFile(made.game / "licenses" / "fmt.txt")) == "MIT");
+        CHECK(directoryExists(exported.cacheDirectory() / "shaders"));
+        const Json record = unwrap(readJsonFile(exported.cacheDirectory() / "export.json"));
+        CHECK(record["layout"] == "bundle");
+        CHECK(record["version"] == 2);
+        CHECK(record["program"] == program);
+        // Nothing beside the bundle's Contents.
+        size_t entries = 0;
+        for (const auto& entry : std::filesystem::directory_iterator(bundle)) {
+            CHECK(entry.path().filename() == "Contents");
+            ++entries;
+        }
+        CHECK(entries == 1);
+#if !CORDITE_PLATFORM_WINDOWS
+        // A program that runs, which a copy may not have kept.
+        CHECK((std::filesystem::status(made.program).permissions() & std::filesystem::perms::owner_exec) !=
+              std::filesystem::perms::none);
+#endif
+
+        // Exported again it is replaced - a name of its own, another program - and what a
+        // person put beside its Contents stays.
+        REQUIRE(writeTextFile(bundle / "README.txt", "how to play").has_value());
+        fixture.project.settings.name = "Depot 2";
+        REQUIRE(saveProject(fixture.project).has_value());
+        const GameExport again = unwrap(exportGame(fixture.project, fixture.desc(bundle, GameLayout::Bundle)));
+        CHECK(fileExists(again.program));
+        CHECK_FALSE(std::filesystem::exists(made.program));
+        CHECK(unwrap(loadProject(again.game)).settings.name == "Depot 2");
+        CHECK(unwrap(readTextFile(bundle / "README.txt")) == "how to play");
+    }
+
+    TEST_CASE("a bundle is called so, and a game is not replaced by one laid out the other way") {
+        const ExportFixture fixture;
+        const Error unnamed =
+            fixture.refusal(fixture.desc(fixture.directory.path() / "games" / "Depot", GameLayout::Bundle));
+        CHECK(unnamed.code == ErrorCode::InvalidArgument);
+        CHECK(unnamed.message.find(".app") != std::string::npos);
+        CHECK_FALSE(std::filesystem::exists(fixture.directory.path() / "games"));
+
+        // A directory where a bundle was exported, ...
+        const std::filesystem::path bundle = fixture.directory.path() / "games" / "Depot.app";
+        REQUIRE(exportGame(fixture.project, fixture.desc(bundle, GameLayout::Bundle)).has_value());
+        const Error intoBundle = fixture.refusal(fixture.desc(bundle));
+        CHECK(intoBundle.code == ErrorCode::AlreadyExists);
+        CHECK(intoBundle.message.find("exported as a bundle") != std::string::npos);
+        CHECK(directoryExists(bundle / "Contents" / "MacOS"));
+        // ... and a bundle where a directory was.
+        const std::filesystem::path directory = fixture.directory.path() / "games" / "Plain.app";
+        REQUIRE(exportGame(fixture.project, fixture.desc(directory)).has_value());
+        const Error intoDirectory = fixture.refusal(fixture.desc(directory, GameLayout::Bundle));
+        CHECK(intoDirectory.code == ErrorCode::AlreadyExists);
+        CHECK(intoDirectory.message.find("exported as a directory") != std::string::npos);
+        CHECK(fileExists(directory / "project.cordite"));
     }
 
     TEST_CASE("a game is its program, its project, its assets, its shaders compiled and its notices") {
@@ -121,6 +239,24 @@ TEST_SUITE("GameExport") {
         CHECK(unwrap(loadProject(game)).settings.name == "Depot 2");
         CHECK(second.files == first.files - 1);
         CHECK(unwrap(readTextFile(game / "README.txt")) == "how to play");
+    }
+
+    TEST_CASE("a game that an export of an earlier version made is a directory, and is replaced as one") {
+        const ExportFixture fixture;
+        const std::filesystem::path game = fixture.directory.path() / "games" / "Depot";
+        REQUIRE(exportGame(fixture.project, fixture.desc(game)).has_value());
+        // As version 1 wrote it, without a layout: every game was a directory then.
+        Json record = unwrap(readJsonFile(game / ".cordite" / "export.json"));
+        record.erase("layout");
+        record["version"] = 1;
+        REQUIRE(writeJsonFile(game / ".cordite" / "export.json", record).has_value());
+        const GameExport again = unwrap(exportGame(fixture.project, fixture.desc(game)));
+        CHECK(unwrap(readJsonFile(game / ".cordite" / "export.json"))["layout"] == "directory");
+        CHECK(fileExists(again.program));
+        // A record that says another layout is no record of this one.
+        record["layout"] = "folder";
+        REQUIRE(writeJsonFile(game / ".cordite" / "export.json", record).has_value());
+        CHECK(fixture.refusal(fixture.desc(game)).code == ErrorCode::AlreadyExists);
     }
 
     TEST_CASE("the record of an export names a file in its directory, or is no record") {

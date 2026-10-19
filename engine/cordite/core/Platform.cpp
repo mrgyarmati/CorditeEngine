@@ -76,6 +76,17 @@ std::filesystem::path executableDirectory() {
     return executablePath().parent_path();
 }
 
+std::optional<std::filesystem::path> applicationBundleOf(const std::filesystem::path& program) {
+    const std::filesystem::path programs = program.parent_path();
+    const std::filesystem::path contents = programs.parent_path();
+    std::filesystem::path bundle = contents.parent_path();
+    if (program.filename().empty() || programs.filename() != "MacOS" || contents.filename() != "Contents" ||
+        bundle.extension() != ".app") {
+        return std::nullopt;
+    }
+    return bundle;
+}
+
 bool isDebuggerPresent() {
 #if CORDITE_PLATFORM_WINDOWS
     return IsDebuggerPresent() != FALSE;

@@ -5,6 +5,8 @@
 #include "support/TestSupport.h"
 
 #include <cstdio>
+#include <filesystem>
+#include <optional>
 #include <string>
 
 using namespace cordite;
@@ -28,6 +30,24 @@ TEST_SUITE("Platform") {
 #else
         CHECK(executableFileName("Depot") == "Depot");
 #endif
+    }
+
+    TEST_CASE("a program in an application bundle of macOS is told by the shape of its path") {
+        const std::filesystem::path bundle = pathFromUtf8("games/Café Depot.app");
+        CHECK(applicationBundleOf(bundle / "Contents" / "MacOS" / "Café Depot") == bundle);
+        CHECK(applicationBundleOf(pathFromUtf8("/Applications/Depot.app/Contents/MacOS/Depot")) ==
+              pathFromUtf8("/Applications/Depot.app"));
+        // Anything else is no bundle: a program beside its game, one a level too deep or too
+        // shallow, a directory that only looks like one, and nothing at all.
+        CHECK_FALSE(applicationBundleOf(pathFromUtf8("games/Depot/Depot.exe")).has_value());
+        CHECK_FALSE(applicationBundleOf(bundle / "Contents" / "MacOS" / "bin" / "Depot").has_value());
+        CHECK_FALSE(applicationBundleOf(bundle / "Contents" / "Depot").has_value());
+        CHECK_FALSE(applicationBundleOf(pathFromUtf8("games/Depot/Contents/MacOS/Depot")).has_value());
+        CHECK_FALSE(applicationBundleOf(pathFromUtf8("games/.app/Contents/MacOS/Depot")).has_value());
+        CHECK_FALSE(applicationBundleOf(bundle / "Contents" / "MacOS" / "").has_value());
+        CHECK_FALSE(applicationBundleOf({}).has_value());
+        // The test binary is in a build directory, not in a bundle.
+        CHECK_FALSE(applicationBundleOf(executablePath()).has_value());
     }
 
     TEST_CASE("environmentVariable returns nullopt for unset variables") {

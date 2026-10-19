@@ -1,8 +1,9 @@
 /// @file
 /// Entry point of a game made with Cordite: cordite-player, or the name an export gives it.
 ///
-/// It plays the game in its own directory - which is what an export writes beside it - or
-/// in the one it is given, until its window is closed; or, for automation and tests,
+/// It plays the game in its own directory - which is what an export writes beside it, or
+/// into the resources of its application bundle on macOS (gameDirectoryOf()) - or in the
+/// one it is given, until its window is closed; or, for automation and tests,
 /// without a window for a number of frames, saving what the last one looked like:
 ///
 ///     cordite-player
@@ -103,8 +104,10 @@ int run(const Options& options) {
     }
 
     cordite::GameDesc desc;
-    // A game is where its program is, unless it is told otherwise.
-    desc.directory = options.game.empty() ? cordite::executableDirectory() : cordite::pathFromUtf8(options.game);
+    // A game is where its program is - in the resources of its application bundle, on
+    // macOS - unless it is told otherwise.
+    desc.directory = options.game.empty() ? cordite::gameDirectoryOf(cordite::executablePath())
+                                           : cordite::pathFromUtf8(options.game);
     desc.engine.headless = options.headless;
     desc.engine.validation = options.validation;
     desc.engine.fixedTimeStep = options.fixedTimeStep;

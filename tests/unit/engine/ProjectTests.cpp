@@ -2,11 +2,13 @@
 
 #include "cordite/core/FileSystem.h"
 #include "cordite/core/Json.h"
+#include "cordite/engine/Game.h"
 
 #include "support/TestSupport.h"
 
 #include <fmt/format.h>
 
+#include <filesystem>
 #include <string>
 #include <string_view>
 
@@ -45,7 +47,8 @@ TEST_SUITE("Project") {
         CHECK(directoryExists(root / "assets"));
         CHECK(unwrap(readTextFile(project.file())) ==
               "{\n    \"format\": \"cordite.project\",\n    \"version\": 1,\n    \"name\": \"My Game\",\n"
-              "    \"startScene\": \"\",\n    \"inputMap\": \"\",\n    \"textureBudgetMegabytes\": 0\n}\n");
+              "    \"startScene\": \"\",\n    \"inputMap\": \"\",\n    \"textureBudgetMegabytes\": 0,\n"
+              "    \"bundleIdentifier\": \"\"\n}\n");
     }
 
     TEST_CASE("a project is loaded from its directory or from its file") {
@@ -234,9 +237,54 @@ TEST_SUITE("Project") {
 
     TEST_CASE("the settings are described for tools") {
         const TypeInfo& type = projectSettingsTypeInfo();
-        CHECK(type.properties().size() == 4);
+        CHECK(type.properties().size() == 5);
         for (const PropertyInfo& property : type.properties()) {
             CHECK_FALSE(property.attributes().description.empty());
         }
+    }
+
+    TEST_CASE("a game is known to macOS by the name a project gives it, or by one made of its name") {
+        const TempDirectory directory;
+        const auto projectWith = [&directory](std::string_view identifier) {
+            REQUIRE(writeTextFile(directory.path() / "project.cordite",
+                                  fmt::format(R"({{"format": "cordite.project", "version": 1, "name": "Depot", )"
+                                              R"("bundleIdentifier": "{}"}})",
+                                              identifier))
+                        .has_value());
+            return loadProject(directory.path());
+        };
+        CHECK(unwrap(projectWith("com.example.depot")).settings.bundleIdentifier == "com.example.depot");
+        CHECK(unwrap(projectWith("org.example.Depot-2")).settings.bundleIdentifier == "org.example.Depot-2");
+        CHECK(unwrap(projectWith("")).settings.bundleIdentifier.empty());
+        for (const std::string_view wrong : {"depot", "com..depot", ".com.depot", "com.depot.", "com.dépôt.game",
+                                             "com.example.depot game", "com/example"}) {
+            CAPTURE(std::string(wrong));
+            const Result<Project> refused = projectWith(wrong);
+            REQUIRE_FALSE(refused.has_value());
+            CHECK(refused.error().code == ErrorCode::ParseError);
+            CHECK(refused.error().message.find("'bundleIdentifier' must be a name in reverse-DNS form") !=
+                  std::string::npos);
+        }
+        // Nor is one saved that macOS would not take.
+        Project project;
+        project.directory = directory.path();
+        project.settings.bundleIdentifier = "depot";
+        CHECK_FALSE(saveProject(project).has_value());
+
+        // Without one, it is made of the name, and says it is nobody's in particular.
+        CHECK(gameBundleIdentifier({.name = "Depot: the Game!"}) == "local.cordite.Depot-the-Game");
+        CHECK(gameBundleIdentifier({.name = "Café 2"}) == "local.cordite.Caf-2");
+        CHECK(gameBundleIdentifier({.name = "!!"}) == "local.cordite.Game");
+        CHECK(gameBundleIdentifier({.name = "Depot", .bundleIdentifier = "com.example.depot"}) == "com.example.depot");
+    }
+
+    TEST_CASE("a game is beside its program, or in the resources of the application bundle it is in") {
+        const std::filesystem::path games = pathFromUtf8("games");
+        CHECK(gameDirectoryOf(games / "Depot" / "Depot.exe") == games / "Depot");
+        CHECK(gameDirectoryOf(games / "Depot.app" / "Contents" / "MacOS" / "Depot") ==
+              games / "Depot.app" / "Contents" / "Resources");
+        // A directory that is called MacOS, in a directory that is no bundle, is no bundle.
+        CHECK(gameDirectoryOf(games / "Depot" / "Contents" / "MacOS" / "Depot") ==
+              games / "Depot" / "Contents" / "MacOS");
     }
 }

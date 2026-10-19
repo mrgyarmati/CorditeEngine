@@ -42,7 +42,43 @@ TypeInfo describeProjectSettings() {
                    .minimum = 0.0,
                    .maximum = 65536.0,
                    .unit = "MiB"})
+        .property("bundleIdentifier", &ProjectSettings::bundleIdentifier,
+                  {.description = "What the game is known by to macOS, in reverse-DNS form such as "
+                                  "\"com.example.depot\"; empty for one made of its name"})
         .build();
+}
+
+bool isAsciiLetterOrDigit(char character) {
+    return (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') ||
+           (character >= '0' && character <= '9');
+}
+
+/// Checks that a bundle identifier is a name in reverse-DNS form, as macOS takes one: parts
+/// of letters, digits and hyphens of ASCII, at least two, joined by dots. Or none.
+Status validateBundleIdentifier(std::string_view identifier) {
+    if (identifier.empty()) {
+        return {};
+    }
+    bool partIsEmpty = true;
+    bool hasDot = false;
+    bool valid = true;
+    for (const char character : identifier) {
+        if (character == '.') {
+            valid = valid && !partIsEmpty;
+            partIsEmpty = true;
+            hasDot = true;
+        } else {
+            valid = valid && (isAsciiLetterOrDigit(character) || character == '-');
+            partIsEmpty = false;
+        }
+    }
+    if (!valid || partIsEmpty || !hasDot) {
+        return makeError(ErrorCode::ParseError,
+                         "'bundleIdentifier' must be a name in reverse-DNS form - letters, digits and hyphens, in "
+                         "parts joined by dots - such as \"com.example.depot\"; got '{}'",
+                         identifier);
+    }
+    return {};
 }
 
 /// Checks that a setting which names a file names one inside the asset directory, or
@@ -61,10 +97,11 @@ Status validateAssetPath(std::string_view setting, std::string_view path, std::s
     return {};
 }
 
-/// Checks the files that the settings of a project name.
+/// Checks the files that the settings of a project name, and the name of its bundle.
 Status validateSettings(const ProjectSettings& settings) {
     CORDITE_TRY(validateAssetPath("startScene", settings.startScene, "scenes/main.scene.json"));
-    return validateAssetPath("inputMap", settings.inputMap, "input/controls.input.json");
+    CORDITE_TRY(validateAssetPath("inputMap", settings.inputMap, "input/controls.input.json"));
+    return validateBundleIdentifier(settings.bundleIdentifier);
 }
 
 Json serializeProject(const ProjectSettings& settings) {
@@ -156,6 +193,26 @@ std::string gameFileName(std::string_view projectName) {
         return "Game";
     }
     return name;
+}
+
+std::string gameBundleIdentifier(const ProjectSettings& settings) {
+    if (!settings.bundleIdentifier.empty()) {
+        return settings.bundleIdentifier;
+    }
+    std::string name;
+    bool apart = false;
+    for (const char character : settings.name) {
+        if (!isAsciiLetterOrDigit(character)) {
+            apart = true;
+            continue;
+        }
+        if (apart && !name.empty()) {
+            name += '-';
+        }
+        apart = false;
+        name += character;
+    }
+    return "local.cordite." + (name.empty() ? std::string("Game") : name);
 }
 
 Status saveProject(const Project& project) {

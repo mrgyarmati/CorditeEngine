@@ -2538,6 +2538,19 @@ record is refused, so that an export never deletes what it did not write. The re
 read as anything in a file is: a program that is no plain name in the directory makes it no
 record.
 
+On macOS a program people start from the Finder is an application bundle, so there the game
+is one (`GameLayout::Bundle`): the program in `Contents/MacOS`, the `Info.plist` that tells
+the system what the program is called and what the game is known by, and the very directory
+of a game - project, assets, cache, notices - in `Contents/Resources`, where the program
+looks for its game when it is in a bundle (`gameDirectoryOf`). The destination is the bundle
+itself rather than a directory that holds one: then the checks of a destination, the record
+and what is replaced work as for a directory, where the record is in `Resources`. The record
+says how the game was laid out, and an export of the other layout refuses to replace it - a
+bundle taken for a directory would have its `Contents` left behind. Whether a program is in
+a bundle is told by the shape of its path (`applicationBundleOf`), and the layout can be asked
+for on any system, so that every part of a bundle is made and checked by the tests on Windows;
+what only a Mac can tell - that it starts from the Finder - has not been tried.
+
 ### The notices of the libraries go with the program
 
 Nearly every library the engine is made of - MIT, BSD, zlib, Apache, the OFL of the

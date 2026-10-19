@@ -3,8 +3,11 @@
 #include "cordite/assets/AssetDatabase.h"
 #include "cordite/core/FileSystem.h"
 #include "cordite/core/Log.h"
+#include "cordite/core/Platform.h"
 #include "cordite/platform/InputMap.h"
 
+#include <filesystem>
+#include <optional>
 #include <utility>
 
 namespace cordite {
@@ -44,6 +47,13 @@ void applyOverrides(const GameSettingsOverrides& overrides, EngineDesc& desc) {
 }
 
 } // namespace
+
+std::filesystem::path gameDirectoryOf(const std::filesystem::path& program) {
+    if (const std::optional<std::filesystem::path> bundle = applicationBundleOf(program)) {
+        return *bundle / "Contents" / "Resources";
+    }
+    return program.parent_path();
+}
 
 Game::~Game() = default;
 

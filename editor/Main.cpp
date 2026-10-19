@@ -145,7 +145,9 @@ int exportProject(const Options& options) {
         CORDITE_LOG_CRITICAL("Editor", "cannot export: {}", project.error().describe());
         return kExitFailure;
     }
-    const Result<GameExport> made = exportGame(*project, {.destination = pathFromUtf8(options.exportTo)});
+    // On macOS an application bundle, which is called so.
+    const Result<GameExport> made =
+        exportGame(*project, {.destination = gameDestinationFor(pathFromUtf8(options.exportTo), nativeGameLayout())});
     if (!made) {
         CORDITE_LOG_CRITICAL("Editor", "cannot export: {}", made.error().describe());
         return kExitFailure;
@@ -327,8 +329,8 @@ int parseAndRun(int argc, char** argv) {
 
     app.add_option("--export", options.exportTo,
                    "Make a game of the project in this directory and exit, without opening the editor: its "
-                   "program, its assets and the engine's shaders, compiled. A game that was exported there "
-                   "before is replaced")
+                   "program, its assets and the engine's shaders, compiled - on macOS an application bundle, "
+                   "which .app is added to the name of. A game that was exported there before is replaced")
         ->excludes("--exec")
         ->excludes("--scene")
         ->excludes("--frames")

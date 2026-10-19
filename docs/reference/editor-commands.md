@@ -410,11 +410,11 @@ It takes no parameters.
 
 ## project.export
 
-Makes a game of the project: a directory with its program - cordite-player, under the name of the game - the project file, the assets with their ids, the engine's shaders compiled, and the notices of the software the program is made of; what a person plays without the editor. It runs on the kind of system that exported it. Refused while the scene is played, and when it has changes that are not saved: they would not be in the game. Returns the program, and how many files and bytes were written.
+Makes a game of the project: a directory with its program - cordite-player, under the name of the game - the project file, the assets with their ids, the engine's shaders compiled, and the notices of the software the program is made of; what a person plays without the editor. On macOS the directory is an application bundle, with the program in Contents/MacOS and the rest of the game in Contents/Resources. It runs on the kind of system that exported it. Refused while the scene is played, and when it has changes that are not saved: they would not be in the game. Returns the program, the directory of the game in it, and how many files and bytes were written.
 
 | Parameter | Kind | Needed | Meaning |
 |---|---|---|---|
-| `path` | string | yes | The directory the game goes into, outside the project: not there yet, empty, or one that a game was exported into - that game is replaced, and nothing else there. |
+| `path` | string | yes | The directory the game goes into, outside the project: not there yet, empty, or one that a game was exported into - that game is replaced, and nothing else there. On macOS .app is added to a name that does not end in it. |
 
 ## project.new
 

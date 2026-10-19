@@ -16,7 +16,7 @@ The directory gets:
 
 ```
 builds/MyGame/
-    MyGame.exe            the game's program (named after the game; no .exe on Linux and macOS)
+    MyGame.exe            the game's program (named after the game; no .exe on Linux)
     project.cordite       the project file
     assets/               the assets, with their .meta files
     .cordite/             the engine's shaders, compiled for the game
@@ -35,6 +35,31 @@ A game runs on the kind of system it was exported on: export on Windows for Wind
 for Linux. For a game to be shipped, export with the `Release` build of the editor: the
 program is the one built beside the editor, and only `Release` leaves out the engine's
 internal checks.
+
+## On macOS: an application bundle
+
+On macOS a game is exported as an application bundle, which the Finder shows as one program:
+`builds/MyGame.app` - the editor adds `.app` to a name that does not end in it. Inside it:
+
+```
+builds/MyGame.app/Contents/
+    Info.plist            what macOS is told of the game: its name, its program, its identifier
+    MacOS/MyGame          the game's program
+    Resources/            the project file, the assets, .cordite and licenses, as above
+```
+
+macOS knows a game by its identifier, a name in reverse-DNS form. Give your game its own in
+the project file, made of a domain of yours:
+
+```json
+"bundleIdentifier": "com.example.mygame"
+```
+
+Without one, the bundle says `local.cordite.MyGame`, which belongs to nobody. Exporting into
+the same bundle again replaces it, as for a directory; a bundle is never replaced by a
+directory, nor a directory by a bundle. The program of a bundle draws with the system's
+Vulkan - on a Mac, MoltenVK, which comes with the Vulkan SDK. Bundles have been made and
+checked on Windows by the engine's tests, and not yet run on a Mac.
 
 ## The settings of the person who plays
 

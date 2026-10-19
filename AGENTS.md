@@ -161,7 +161,14 @@ theirs in a header, so theirs are in `cmake/licenses/`): a library that the engi
 to link adds its notice there in the same change. The game runs on the kind of system
 that exported it, with the player of the editor's build: a game to be shipped is exported
 by a `Release` build. `export_smoke` exports the showcase and plays it from where it was
-put, with nothing of the build beside it.
+put, with nothing of the build beside it. On macOS a game is an application bundle
+(`GameLayout::Bundle`): the destination is `<name>.app` itself - the editor adds the `.app`
+(`gameDestinationFor`) - with the program in `Contents/MacOS`, `Contents/Info.plist`
+(`bundleInfoPlist`, the identifier the project's `bundleIdentifier`) and everything else in
+`Contents/Resources`, which is where the program looks for its game (`gameDirectoryOf`);
+the record says how a game is laid out, and a game laid out one way is not replaced the
+other way. All of it is paths and text, tested on every system with the layout asked for;
+a bundle has not been run on a Mac.
 
 **A game that someone plays has their settings** (`engine/GameSettings.h`): the whole
 screen or a window and its size, vsync, the quality of the pictures, the volumes - in

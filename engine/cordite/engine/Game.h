@@ -59,6 +59,11 @@ struct GameDesc {
     GameSettingsOverrides overrides;
 };
 
+/// Where the game of `program` is when it is not told: in Contents/Resources of the
+/// application bundle of macOS that the program is in (applicationBundleOf()), where an
+/// export puts it there (GameExport.h), and otherwise in the directory of the program.
+[[nodiscard]] std::filesystem::path gameDirectoryOf(const std::filesystem::path& program);
+
 class Game {
 public:
     /// Fails as loadProject() does for a directory that holds no project; with NotFound

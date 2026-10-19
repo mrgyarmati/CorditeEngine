@@ -84,3 +84,10 @@ cordite_add_module(editor
 if(WIN32)
     target_link_libraries(cordite_editor PRIVATE advapi32 shell32)
 endif()
+
+# The oldest macOS the programs of the build run on, which the application bundle of an
+# exported game says (GameExport.cpp); without it the system reads that from the program.
+if(APPLE AND CMAKE_OSX_DEPLOYMENT_TARGET)
+    target_compile_definitions(cordite_editor PRIVATE
+        CORDITE_MACOS_DEPLOYMENT_TARGET="${CMAKE_OSX_DEPLOYMENT_TARGET}")
+endif()

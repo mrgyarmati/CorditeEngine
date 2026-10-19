@@ -7,5 +7,9 @@
     // The most the textures of the showcase may take together on the GPU, in mebibytes. Its
     // textures take a few: past the budget every texture would be kept the same number of
     // levels smaller, which the editor's statistics would show.
-    "textureBudgetMegabytes": 64
+    "textureBudgetMegabytes": 64,
+    // What the game is known by to macOS, in the application bundle an export makes of it
+    // there: a name in reverse-DNS form. A game that is handed to people says its own, of a
+    // domain of its makers; left out, it would be local.cordite.Showcase.
+    "bundleIdentifier": "local.cordite.showcase"
 }

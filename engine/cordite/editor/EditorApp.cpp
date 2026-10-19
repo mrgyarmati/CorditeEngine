@@ -1222,12 +1222,15 @@ Status EditorApp::registerProjectCommands() {
         .description = "Makes a game of the project: a directory with its program - cordite-player, under the "
                        "name of the game - the project file, the assets with their ids, the engine's shaders "
                        "compiled, and the notices of the software the program is made of; what a person plays "
-                       "without the editor. It runs on the kind of system that exported it. Refused while the "
-                       "scene is played, and when it has changes that are not saved: they would not be in the "
-                       "game. Returns the program, and how many files and bytes were written.",
+                       "without the editor. On macOS the directory is an application bundle, with the program in "
+                       "Contents/MacOS and the rest of the game in Contents/Resources. It runs on the kind of "
+                       "system that exported it. Refused while the scene is played, and when it has changes that "
+                       "are not saved: they would not be in the game. Returns the program, the directory of the "
+                       "game in it, and how many files and bytes were written.",
         .parameters = {{"path", Type::String,
                         "The directory the game goes into, outside the project: not there yet, empty, or one "
-                        "that a game was exported into - that game is replaced, and nothing else there."}},
+                        "that a game was exported into - that game is replaced, and nothing else there. On "
+                        "macOS .app is added to a name that does not end in it."}},
         .handler = [this](const Json& parameters) -> Result<Json> {
             if (!m_project) {
                 return makeError(ErrorCode::InvalidState, "there is no project to make a game of: open one");
@@ -1241,13 +1244,15 @@ Status EditorApp::registerProjectCommands() {
             }
             // The sources this editor compiles its own shaders from.
             const std::vector<std::filesystem::path>& sources = m_engine->shaders().sourceRoots();
-            CORDITE_TRY_ASSIGN(
-                const GameExport made,
-                exportGame(*m_project,
-                           {.destination = pathFromUtf8(parameters.at("path").get<std::string>()),
-                            .shaderDirectory = sources.empty() ? std::filesystem::path() : sources.front()}));
+            const std::filesystem::path destination =
+                gameDestinationFor(pathFromUtf8(parameters.at("path").get<std::string>()), nativeGameLayout());
+            CORDITE_TRY_ASSIGN(const GameExport made,
+                               exportGame(*m_project, {.destination = destination,
+                                                       .shaderDirectory = sources.empty() ? std::filesystem::path()
+                                                                                          : sources.front()}));
             Json result = Json::object();
             result["program"] = pathToUtf8(made.program);
+            result["game"] = pathToUtf8(made.game);
             result["files"] = made.files;
             result["bytes"] = made.bytes;
             return result;

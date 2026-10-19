@@ -18,6 +18,18 @@ std::filesystem::path executablePath();
 /// Returns the directory containing the running executable.
 std::filesystem::path executableDirectory();
 
+/// The application bundle of macOS that `program` is in: `<name>.app`, when `program` is
+/// `<name>.app/Contents/MacOS/<file>`. Judged by the shape of the path alone, so that it
+/// is a function of every system and tested on every one; nullopt for a program that is
+/// not in such a place.
+///
+/// @code
+/// if (const std::optional<std::filesystem::path> bundle = applicationBundleOf(executablePath())) {
+///     resources = *bundle / "Contents" / "Resources";
+/// }
+/// @endcode
+[[nodiscard]] std::optional<std::filesystem::path> applicationBundleOf(const std::filesystem::path& program);
+
 /// Returns true when a debugger is attached. Always false on platforms without a cheap
 /// way to tell (Linux, macOS).
 bool isDebuggerPresent();

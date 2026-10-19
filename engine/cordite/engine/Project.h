@@ -61,6 +61,11 @@ struct ProjectSettings {
     /// (TextureBudget.h) - which the quality of the program bounds as well, by the largest
     /// side a texture keeps.
     uint32_t textureBudgetMegabytes = 0;
+    /// What the game is known by to macOS, in the application bundle an export makes of
+    /// it: a name in reverse-DNS form, of letters, digits, hyphens and dots, such as
+    /// "com.example.depot". Empty for one made of the name of the game
+    /// (gameBundleIdentifier()).
+    std::string bundleIdentifier;
 
     bool operator==(const ProjectSettings&) const = default;
 };
@@ -104,5 +109,12 @@ struct Project {
 /// "licenses"), in any case. The program of an exported game is called so, and so is the
 /// directory of the settings of the person who plays it.
 [[nodiscard]] std::string gameFileName(std::string_view projectName);
+
+/// What the game of `settings` is known by to macOS: its bundleIdentifier, or one made of
+/// its name - "local.cordite." and the name with every run of what is not an ASCII letter
+/// or digit made one hyphen, none at the ends ("Depot: the Game!" is
+/// "local.cordite.Depot-the-Game", a name of nothing of it "local.cordite.Game"). That one
+/// says it is nobody's in particular: a game that is handed to people sets its own.
+[[nodiscard]] std::string gameBundleIdentifier(const ProjectSettings& settings);
 
 } // namespace cordite
