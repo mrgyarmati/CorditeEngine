@@ -6,6 +6,8 @@ cordite_add_module(editor
         AssetBrowserPanel.h
         AssetCommands.cpp
         AssetCommands.h
+        AssetDrop.cpp
+        AssetDrop.h
         AssetImport.cpp
         AssetImport.h
         AssetMove.cpp

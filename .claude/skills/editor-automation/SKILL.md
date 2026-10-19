@@ -133,6 +133,12 @@ set it like any other property:
   prefab of an entity and everything below it: `{"entity": "Yard/Cart", "path":
   "prefabs/cart.prefab.json"}`. It writes a file, which undo does not take back
   (skill: `work-with-assets`).
+- `asset.instantiate` places a mesh as one entity whose `MeshRenderer` draws it -
+  `"builtin#mesh/cube"`, or a mesh of a model, which keeps the model's materials. Give
+  it `"position": [x, y, z]` to put the root there, relative to `parent` (in the world
+  without one): that is the line a drop onto the viewport queues. A material dropped onto
+  a mesh is a `component.set` of the `MeshRenderer`'s `materials`, with the entry of the
+  submesh under the pointer changed.
 - The built-in meshes (cube, sphere, plane, cylinder, cone, capsule, torus) have the
   same ids in every project. `materials` takes one entry per submesh (`asset.get` tells
   how many a mesh has); a missing or null entry is drawn with the default material.

@@ -502,7 +502,8 @@ shown, what a filter leaves of them and which asset is chosen is decided by
 from the asset database whenever it is asked, and keeps no pointer into it, so the rows
 are right after the assets were read again. `AssetBrowserPanel` asks for them when the
 database or the browser has changed, draws what fits in its window, and turns a double
-click into the line `asset.instantiate {...}` for the console to run.
+click on a model, a prefab or a mesh into the line `asset.instantiate {...}` for the
+console to run.
 
 A folder is known by a key, not by its path: what the engine has built in is a folder
 of its own, which a project may have a directory of the same name beside. The folder
@@ -518,6 +519,18 @@ window and without a pixel: the tests of the browser compare lists of rows. And 
 command `assets.browse` asks the same object the panel draws, so an agent that wants to
 know what a person is looking at is told exactly that, and one that sets a filter sees
 it in the next screenshot.
+
+What is dragged out of the panel is decided the same way. A model, a prefab or a mesh
+dropped onto a viewport lands where the line of sight through the pointer first meets a
+mesh, as it is drawn, or else the ground grid, or else as far ahead as the camera looks;
+a material dropped onto a mesh goes to the part of it under the pointer, because a hit
+says which submesh it met. `AssetDrop.h` turns that into a command line -
+`asset.instantiate` with a position, `component.set` of the materials - which the
+viewport queues as the panel queues a double click, so a drop is tested as arithmetic
+and as a command, and an agent places things where it wants them by the same line. It
+puts the origin of what it places at the point, as Unity does, rather than resting its
+bounds on the surface, as Unreal does: the bounds of a model or a prefab are only known
+once it is placed, and a model made to stand on the ground has its origin at its feet.
 
 The panel shares its place with the console, and is in front when the editor starts,
 as the project browser of Unity is. The console is where the editor says what went

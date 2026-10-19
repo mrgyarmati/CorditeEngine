@@ -8,7 +8,7 @@ skeleton (armature) and its animations, and put it into the assets.
 ## Placing an animated model
 
 Place the model in the scene - double-click it in the Assets panel, drag it onto an entity of
-the hierarchy, or `asset.instantiate`. What the editor makes of it:
+the hierarchy or onto the viewport, or `asset.instantiate`. What the editor makes of it:
 
 - one entity for the model;
 - under it, one entity with an **Animator** for each skeleton of the file ("Skeleton");

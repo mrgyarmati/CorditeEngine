@@ -5,6 +5,7 @@
 #include "cordite/core/Log.h"
 #include "cordite/renderer/RenderComponents.h"
 #include "cordite/world/Components.h"
+#include "cordite/world/EntityPath.h"
 
 #include <fmt/format.h>
 
@@ -19,14 +20,6 @@ namespace {
 
 /// The far plane of a camera whose file gives none.
 constexpr float kDefaultFarPlane = 1000.0f;
-
-/// The name for an entity made from something called `name`. Entity names are never
-/// empty and never contain '/', which separates the names in an entity path.
-std::string entityName(std::string_view name, std::string_view fallback) {
-    std::string result(name.empty() ? fallback : name);
-    std::ranges::replace(result, '/', '_');
-    return result;
-}
 
 CameraComponent makeCamera(const ModelCamera& source) {
     // Out-of-range values are brought into the ranges the component declares, as if
@@ -99,11 +92,20 @@ std::vector<bool> nodesWithEntities(const ModelData& model, const std::vector<Vi
 } // namespace
 
 Entity instantiateModel(World& world, const ModelData& model, const ModelInstanceOptions& options) {
-    const Entity instance = world.createEntity(entityName(options.name.empty() ? model.name : options.name, "Model"));
+    const Entity instance =
+        world.createEntity(entityNameFrom(options.name.empty() ? model.name : options.name, "Model"));
     if (!options.parent.isNull()) {
         // A new entity has no children, so this cannot make a cycle and cannot fail.
         CORDITE_VERIFY(world.setParent(instance, options.parent, false).has_value(),
                        "cannot put the model under its parent");
+    }
+    if (options.position) {
+        CORDITE_ASSERT(isFinite(*options.position), "model '{}' is to be placed at a position that is not finite",
+                       model.name);
+        // Without assertions, a position that is no place leaves the model at the origin.
+        if (isFinite(*options.position)) {
+            world.transform(instance).position = *options.position;
+        }
     }
     const auto putUnder = [&](Entity entity, Entity parent) {
         CORDITE_VERIFY(world.setParent(entity, parent, false).has_value(), "cannot build the hierarchy of model '{}'",
@@ -123,7 +125,7 @@ Entity instantiateModel(World& world, const ModelData& model, const ModelInstanc
             continue;
         }
         const ModelNode& node = model.nodes[visit.node];
-        const Entity entity = world.createEntity(entityName(node.name, "Node"));
+        const Entity entity = world.createEntity(entityNameFrom(node.name, "Node"));
         entityOfNode[visit.node] = entity;
         jointsWithEntities += node.joint ? 1 : 0;
 
@@ -164,6 +166,15 @@ Entity instantiateModel(World& world, const ModelData& model, const ModelInstanc
                          model.name, jointsWithEntities);
     }
     return instance;
+}
+
+std::vector<Uuid> materialsOfMesh(const ModelData& model, const Uuid& mesh) {
+    if (mesh.isNil()) {
+        // Every node that draws nothing would have it.
+        return {};
+    }
+    const auto drawn = std::ranges::find(model.nodes, mesh, &ModelNode::mesh);
+    return drawn != model.nodes.end() ? drawn->materials : std::vector<Uuid>{};
 }
 
 } // namespace cordite

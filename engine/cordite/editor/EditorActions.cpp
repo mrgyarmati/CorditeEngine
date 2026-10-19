@@ -1,10 +1,15 @@
 #include "cordite/editor/EditorActions.h"
 
 #include "cordite/assets/AssetDatabase.h"
+#include "cordite/assets/AssetManager.h"
+#include "cordite/assets/Model.h"
 #include "cordite/assets/Prefab.h"
+#include "cordite/core/Assert.h"
 #include "cordite/core/FileSystem.h"
 #include "cordite/core/StringUtils.h"
+#include "cordite/renderer/RenderComponents.h"
 #include "cordite/world/Components.h"
+#include "cordite/world/EntityPath.h"
 #include "cordite/world/SceneSerializer.h"
 
 #include <fmt/format.h>
@@ -212,6 +217,24 @@ void pushComponentEdits(EditorContext& context, const ComponentDescriptor& descr
     });
 }
 
+/// What placing anything asks of where and as what, before anything is loaded: a parent
+/// that is an entity, a name a path can find, a position that is a place.
+Status checkPlacement(const EditorContext& context, Entity parent, std::string_view name,
+                      const std::optional<Vec3>& position) {
+    if (!parent.isNull()) {
+        CORDITE_TRY(requireValid(context, parent));
+    }
+    if (name.find('/') != std::string_view::npos) {
+        return makeError(ErrorCode::InvalidArgument, "an entity name must not contain '/', got '{}'", name);
+    }
+    if (position && !isFinite(*position)) {
+        return makeError(ErrorCode::InvalidArgument,
+                         "a position to place something at must be finite, got [{}, {}, {}]", position->x, position->y,
+                         position->z);
+    }
+    return {};
+}
+
 } // namespace
 
 Result<Entity> EditorActions::createEntity(const CreateEntityOptions& options) {
@@ -362,21 +385,16 @@ Result<std::vector<Entity>> EditorActions::pasteEntities(std::optional<Entity> p
 }
 
 Result<Entity> EditorActions::instantiateModel(const Uuid& model, const ModelInstanceOptions& options) {
-    World& world = m_context.world();
-    if (!options.parent.isNull()) {
-        CORDITE_TRY(requireValid(m_context, options.parent));
-    }
+    CORDITE_TRY(checkPlacement(m_context, options.parent, options.name, options.position));
     CORDITE_TRY_ASSIGN(const std::shared_ptr<const ModelData> data, m_context.assets().loadModel(model));
 
-    const Entity instance = cordite::instantiateModel(world, *data, options);
+    const Entity instance = cordite::instantiateModel(m_context.world(), *data, options);
     recordPlaced(instance);
     return instance;
 }
 
 Result<Entity> EditorActions::instantiatePrefab(const Uuid& prefab, const PrefabInstanceOptions& options) {
-    if (!options.parent.isNull()) {
-        CORDITE_TRY(requireValid(m_context, options.parent));
-    }
+    CORDITE_TRY(checkPlacement(m_context, options.parent, options.name, options.position));
     CORDITE_TRY_ASSIGN(const std::shared_ptr<const PrefabData> data, m_context.assets().loadPrefab(prefab));
 
     const Result<Entity> instance =
@@ -390,19 +408,63 @@ Result<Entity> EditorActions::instantiatePrefab(const Uuid& prefab, const Prefab
     return *instance;
 }
 
-Result<Entity> EditorActions::instantiateAsset(const Uuid& asset, Entity parent, std::string_view name) {
+Result<Entity> EditorActions::instantiateMesh(const Uuid& mesh, const PlacementOptions& options) {
+    AssetManager& assets = m_context.assets();
+    const AssetInfo* info = assets.database().find(mesh);
+    if (info == nullptr) {
+        return makeError(ErrorCode::NotFound, "there is no asset with the id {}", mesh.toString());
+    }
+    if (info->type != AssetType::Mesh) {
+        return makeError(ErrorCode::InvalidArgument, "{} is {}, not a mesh", info->reference(),
+                         withArticle(info->type));
+    }
+    CORDITE_TRY(checkPlacement(m_context, options.parent, options.name, options.position));
+    // Loaded first: what cannot be drawn is not placed.
+    CORDITE_TRY(assets.loadMesh(mesh));
+    // A mesh of a model is drawn as the model draws it.
+    std::vector<Uuid> materials;
+    if (const AssetInfo* file =
+            (info->subPath.empty() || info->isBuiltin()) ? nullptr : assets.database().findByReference(info->path);
+        file != nullptr && file->type == AssetType::Model) {
+        CORDITE_TRY_ASSIGN(const std::shared_ptr<const ModelData> model, assets.loadModel(file->id));
+        materials = materialsOfMesh(*model, mesh);
+    }
+
+    World& world = m_context.world();
+    const Entity entity = world.createEntity(options.name.empty() ? entityNameFrom(info->name, "Mesh") : options.name);
+    if (!options.parent.isNull()) {
+        // A new entity has no children, so this cannot make a cycle and cannot fail.
+        CORDITE_VERIFY(world.setParent(entity, options.parent, false).has_value(), "cannot put {} under its parent",
+                       info->reference());
+    }
+    if (options.position) {
+        world.transform(entity).position = *options.position;
+    }
+    auto& renderer = world.add<MeshRendererComponent>(entity);
+    renderer.mesh = mesh;
+    renderer.materials = std::move(materials);
+    recordPlaced(entity);
+    return entity;
+}
+
+Result<Entity> EditorActions::instantiateAsset(const Uuid& asset, const PlacementOptions& options) {
     const AssetInfo* info = m_context.assets().database().find(asset);
     if (info == nullptr) {
         return makeError(ErrorCode::NotFound, "there is no asset with the id {}", asset.toString());
     }
     switch (info->type) {
         case AssetType::Model:
-            return instantiateModel(asset, {.parent = parent, .name = std::string(name)});
+            return instantiateModel(asset,
+                                    {.parent = options.parent, .name = options.name, .position = options.position});
         case AssetType::Prefab:
-            return instantiatePrefab(asset, {.parent = parent, .name = std::string(name)});
+            return instantiatePrefab(asset,
+                                     {.parent = options.parent, .name = options.name, .position = options.position});
+        case AssetType::Mesh:
+            return instantiateMesh(asset, options);
         default:
-            return makeError(ErrorCode::InvalidArgument, "{} is {}; what is placed in a scene is a model or a prefab",
-                             info->reference(), withArticle(info->type));
+            return makeError(ErrorCode::InvalidArgument,
+                             "{} is {}; what is placed in a scene is a model, a prefab or a mesh", info->reference(),
+                             withArticle(info->type));
     }
 }
 

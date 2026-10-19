@@ -24,10 +24,14 @@
 /// came from, and they are saved with the scene like any others.
 
 #include "cordite/assets/Model.h"
+#include "cordite/core/Uuid.h"
+#include "cordite/math/Math.h"
 #include "cordite/world/Entity.h"
 #include "cordite/world/World.h"
 
+#include <optional>
 #include <string>
+#include <vector>
 
 namespace cordite {
 
@@ -36,11 +40,14 @@ struct ModelInstanceOptions {
     Entity parent;
     /// The name of the instance's root entity. Empty uses the name of the model.
     std::string name;
+    /// Where the root of the instance is put, relative to its parent. Without, at the
+    /// parent's origin.
+    std::optional<Vec3> position;
 };
 
 /// Creates the entities of a model and returns the root of the instance: a new entity
-/// with an identity transform whose children are the model's own root nodes. Moving,
-/// turning or scaling that root places the whole model.
+/// with an identity transform - but for `options.position` - whose children are the
+/// model's own root nodes. Moving, turning or scaling that root places the whole model.
 ///
 /// Cameras of the model are created with `primary` off, so that placing a model never
 /// changes what the game is seen through.
@@ -51,5 +58,10 @@ struct ModelInstanceOptions {
 /// below it that is no joint; such an entity stands where the joint rests and does not
 /// follow a pose, which the log then says.
 Entity instantiateModel(World& world, const ModelData& model, const ModelInstanceOptions& options = {});
+
+/// The materials `model` draws its mesh `mesh` with - which a mesh placed on its own is
+/// given (EditorActions::instantiateMesh): those of the first of its nodes that draws it,
+/// one per submesh, nil where the file names none. Empty for a mesh that no node draws.
+[[nodiscard]] std::vector<Uuid> materialsOfMesh(const ModelData& model, const Uuid& mesh);
 
 } // namespace cordite

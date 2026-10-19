@@ -31,6 +31,10 @@ namespace cordite {
 /// entity must be valid.
 [[nodiscard]] std::string entityPath(const World& world, Entity entity);
 
+/// A name a path can find an entity by, made of text that may not be one - the name of a
+/// node in a file, or of an asset: each '/' becomes '_', and nothing at all `fallback`.
+[[nodiscard]] std::string entityNameFrom(std::string_view text, std::string_view fallback);
+
 /// Entities as a message lists them: the path of each, and its id - of the first four, and
 /// how many more there are.
 [[nodiscard]] std::string describeEntities(const World& world, std::span<const Entity> entities);

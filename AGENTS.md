@@ -1750,7 +1750,21 @@ panels, EditorApp    the interface, built on the three layers above
   Choosing an asset from outside the panel shows the folder it is in (`reveal`). The
   grid or the list is a person's choice, kept in the editor's preferences
   (`EditorPreferences::assetView`), and a batch run has the grid. A double click on
-  a model or a prefab places it, as it did; a directory is gone into by one.
+  what can be placed - a model, a prefab, a mesh (`canBePlaced`) - places it; a
+  directory is gone into by one.
+- **What is dragged from the Assets panel goes where it is dropped** (`AssetDrop.h`).
+  What can be placed hangs under the entity of a row of the hierarchy it is dropped on,
+  is a root below the rows, and onto a viewport is a root at the point under the pointer:
+  where the line of sight first meets a mesh as it is drawn (`raycastMeshes`), or else
+  the ground grid, as far as the grid is drawn, or else as far ahead as the camera
+  looks - its origin there, not its bounds. A material dropped onto a mesh in a
+  viewport goes to the submesh under the pointer, the one entry of the `MeshRenderer`'s
+  materials; it is not taken where there is no mesh, nor by the hierarchy, whose rows
+  say nothing of which part. A drop is a line the viewport queues
+  (`viewportDropCommand`: `asset.instantiate` with a `position`, `component.set`), so
+  that what a hand does by dragging an agent does by name; a viewport that looks
+  through the game's camera takes none. A mesh placed on its own is drawn as its model
+  draws it (`materialsOfMesh`).
 - **What the user asked for and did not get is said in the console, and the console
   comes to the front for it.** A failed edit is logged with `reportIfFailed`, a
   failed line by the console - under the two categories `reportsFailedAction` knows -

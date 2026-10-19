@@ -573,33 +573,42 @@ Status registerAssetCommands(CommandRegistry& commands, EditorContext& context) 
 
     CORDITE_TRY(commands.add({
         .name = "asset.instantiate",
-        .description = "Places a model or a prefab in the scene. A model becomes one entity per node, with "
+        .description = "Places a model, a prefab or a mesh in the scene. A model becomes one entity per node, with "
                        "their meshes and materials, under a new root entity. A prefab becomes copies of its "
                        "entities, with ids of their own, the root of them marked as an instance of it by a "
-                       "PrefabInstance component. The root is returned and selected; move it to place what was "
-                       "placed.",
+                       "PrefabInstance component. A mesh becomes one entity whose MeshRenderer draws it - with the "
+                       "materials its model draws it with, for a mesh of a model. The root is returned and "
+                       "selected; move it to place what was placed.",
         .parameters = {{"asset", Type::String, kAssetReference},
                        {"parent", Type::String,
                         "The entity to put the new entities under: its id, path or unique name. Without one "
                         "their root becomes a root of the scene.",
                         false},
                        {"name", Type::String,
-                        "The name of the new root entity. Defaults to the name of the model, or to the name the "
-                        "prefab gives its root.",
+                        "The name of the new root entity. Defaults to the name of the model or of the mesh, or "
+                        "to the name the prefab gives its root.",
+                        false},
+                       {"position", Type::Array,
+                        "Where the root is put: [x, y, z] in metres, relative to the parent - in the world, "
+                        "without one. Defaults to the parent's origin for a model and a mesh, and to where the "
+                        "prefab has its root.",
                         false}},
         .handler = [&context](const Json& parameters) -> Result<Json> {
             CORDITE_TRY_ASSIGN(const AssetInfo* asset, context.resolveAsset(parameters.at("asset").get<std::string>()));
-            const auto name = jsonGetOr<std::string>(parameters, "name", "");
-            if (name.find('/') != std::string::npos) {
-                return makeError(ErrorCode::InvalidArgument, "an entity name must not contain '/', got '{}'", name);
-            }
-            Entity under;
+            PlacementOptions options{.name = jsonGetOr<std::string>(parameters, "name", "")};
             if (const auto parent = jsonGetOr<std::string>(parameters, "parent", ""); !parent.empty()) {
-                CORDITE_TRY_ASSIGN(under, context.resolveEntity(parent));
+                CORDITE_TRY_ASSIGN(options.parent, context.resolveEntity(parent));
+            }
+            if (parameters.contains("position")) {
+                Vec3 position(0.0f);
+                if (!fromJson(parameters.at("position"), position)) {
+                    return makeError(ErrorCode::InvalidArgument, "'position' must be an array of 3 finite numbers");
+                }
+                options.position = position;
             }
 
             EditorActions actions(context);
-            CORDITE_TRY_ASSIGN(const Entity instance, actions.instantiateAsset(asset->id, under, name));
+            CORDITE_TRY_ASSIGN(const Entity instance, actions.instantiateAsset(asset->id, options));
 
             const World& world = context.world();
             Json result = Json::object();

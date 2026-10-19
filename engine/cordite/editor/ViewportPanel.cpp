@@ -2,9 +2,11 @@
 
 #include "cordite/animation/AnimationComponents.h"
 #include "cordite/assets/Skeleton.h"
+#include "cordite/editor/AssetDrop.h"
 #include "cordite/editor/EditorActions.h"
 #include "cordite/editor/EditorFeedback.h"
 #include "cordite/editor/PosedMesh.h"
+#include "cordite/editor/PropertyEditor.h"
 #include "cordite/math/Color.h"
 #include "cordite/math/Transform.h"
 #include "cordite/physics/PhysicsComponents.h"
@@ -596,10 +598,10 @@ Entity ViewportPanel::pick(EditorContext& context, Vec2 pixel) const {
         const Mat4& placement = world.worldMatrix(entity);
         // A mesh is hit where it is drawn: one that joints move, in its pose.
         if (const std::optional<PosedMesh> mesh = posedMeshOf(world, context.assets(), entity)) {
-            const std::optional<float> distance = intersect(ray, *mesh, placement);
-            if (distance && *distance < hitDistance) {
+            const std::optional<MeshHit> hit = intersect(ray, *mesh, placement);
+            if (hit && hit->distance < hitDistance) {
                 hitEntity = entity;
-                hitDistance = *distance;
+                hitDistance = hit->distance;
             }
             return;
         }
@@ -635,6 +637,33 @@ Entity ViewportPanel::pick(EditorContext& context, Vec2 pixel) const {
     return hitEntity;
 }
 
+void ViewportPanel::acceptDrop(EditorContext& context, Vec2 pixel, std::vector<std::string>& submittedLines) const {
+    if (!ImGui::BeginDragDropTarget()) {
+        return;
+    }
+    if (const AssetInfo* asset = draggedAsset(context.assets().database())) {
+        const ViewportDrop drop = viewportDropOf(asset->type);
+        const Ray ray = screenRay(m_view, pixel, Vec2(m_targets.size()));
+        // A material is taken only where there is a mesh to give it to, which is asked while
+        // it is dragged; where something is placed is asked only when it is dropped.
+        std::optional<WorldMeshHit> under;
+        if (drop == ViewportDrop::OntoMesh) {
+            under = raycastMeshes(context.world(), context.assets(), ray);
+        }
+        if ((drop == ViewportDrop::Placed || under) &&
+            ImGui::AcceptDragDropPayload(PropertyEditor::kAssetPayload) != nullptr) {
+            if (drop == ViewportDrop::Placed) {
+                under = raycastMeshes(context.world(), context.assets(), ray);
+            }
+            const DropReach reach{.grid = kGridFadeEnd, .ahead = m_camera.focusDistance()};
+            if (std::optional<std::string> line = viewportDropCommand(context, *asset, ray, under, reach)) {
+                submittedLines.push_back(std::move(*line));
+            }
+        }
+    }
+    ImGui::EndDragDropTarget();
+}
+
 void ViewportPanel::draw(Engine& engine, EditorContext& context, ViewportFrame& frame,
                          std::vector<std::string>& submittedLines) {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
@@ -664,6 +693,11 @@ void ViewportPanel::draw(Engine& engine, EditorContext& context, ViewportFrame& 
             m_imageOrigin = Vec2(origin.x, origin.y);
             const ImVec2 pointer = ImGui::GetMousePos();
             const Vec2 pixel((pointer.x - origin.x) * scale.x, (pointer.y - origin.y) * scale.y);
+            // An asset from the Assets panel is dropped onto the picture - of the editor's
+            // view: what the game's camera sees is not edited by pointing at it.
+            if (!m_showsGame) {
+                acceptDrop(context, pixel, submittedLines);
+            }
 
             // The gizmo has the pointer first: a click on one of its handles selects nothing.
             // With Alt held, the left button is the camera's, which orbits.

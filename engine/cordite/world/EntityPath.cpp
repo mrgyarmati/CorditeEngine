@@ -30,6 +30,12 @@ std::string entityPath(const World& world, Entity entity) {
     return path;
 }
 
+std::string entityNameFrom(std::string_view text, std::string_view fallback) {
+    std::string name(text.empty() ? fallback : text);
+    std::ranges::replace(name, '/', '_');
+    return name;
+}
+
 std::string describeEntities(const World& world, std::span<const Entity> entities) {
     std::string text;
     for (size_t index = 0; index < std::min(entities.size(), kMaxListedEntities); ++index) {

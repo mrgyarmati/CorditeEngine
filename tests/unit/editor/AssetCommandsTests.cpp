@@ -5,8 +5,10 @@
 #include "cordite/assets/Primitives.h"
 #include "cordite/assets/Sound.h"
 #include "cordite/core/FileSystem.h"
+#include "cordite/editor/AssetDrop.h"
 #include "cordite/editor/EditorActions.h"
 #include "cordite/editor/EditorCommands.h"
+#include "cordite/editor/PosedMesh.h"
 #include "cordite/engine/EngineComponents.h"
 #include "cordite/engine/SceneAssets.h"
 #include "cordite/renderer/RenderComponents.h"
@@ -17,9 +19,11 @@
 #include "support/SkinnedModelSupport.h"
 #include "support/TestSupport.h"
 
+#include <limits>
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 using namespace cordite;
@@ -30,6 +34,13 @@ namespace {
 
 Json json(std::string_view text) {
     return unwrap(parseJson(text));
+}
+
+/// The id that `text`, as a command returns ids, is.
+Uuid parsedId(std::string_view text) {
+    const std::optional<Uuid> id = Uuid::parse(text);
+    REQUIRE_MESSAGE(id.has_value(), "no id: " << std::string(text));
+    return *id;
 }
 
 /// A project with a texture, a material, a scene file and a model, and an editor
@@ -505,6 +516,74 @@ TEST_SUITE("AssetCommands") {
         CHECK(fixture.outline() == std::vector<std::string>{"Yard", ".Cart 7", "..Body", "...Wheel", "...Mirror"});
     }
 
+    TEST_CASE("asset.instantiate places a mesh as one entity that draws it, with the materials of its model") {
+        AssetFixture fixture;
+        const World& world = fixture.world;
+        const auto placedEntity = [&](const Json& placed) {
+            const Entity entity = world.findById(parsedId(placed["id"].get<std::string>()));
+            REQUIRE_FALSE(entity.isNull());
+            return entity;
+        };
+
+        // A mesh built into the engine is drawn with the default material.
+        Json placed = fixture.run("asset.instantiate", R"({"asset": "builtin#mesh/cube"})");
+        CHECK(placed["name"] == "Cube");
+        CHECK(placed["path"] == "Cube");
+        CHECK(placed["entityCount"] == 1);
+        const Entity cube = placedEntity(placed);
+        const auto* renderer = world.tryGet<MeshRendererComponent>(cube);
+        REQUIRE(renderer != nullptr);
+        CHECK(renderer->mesh == builtinMeshId(BuiltinMesh::Cube));
+        CHECK(renderer->materials.empty());
+        CHECK(world.transform(cube) == Transform());
+        CHECK(fixture.context->selection() == std::vector<Entity>{cube});
+        CHECK(fixture.context->history().undoLabel() == "Place 'Cube'");
+
+        // A mesh of a model is drawn as the model draws it: the body of the cart in its
+        // paint, and its lamp in the default material.
+        fixture.run("entity.create", R"({"name": "Yard"})");
+        placed = fixture.run("asset.instantiate", R"({"asset": "models/cart.gltf#mesh/0", "parent": "Yard"})");
+        CHECK(placed["path"] == "Yard/Body");
+        const Uuid body = world.id(placedEntity(placed));
+        renderer = world.tryGet<MeshRendererComponent>(world.findById(body));
+        REQUIRE(renderer != nullptr);
+        CHECK(renderer->mesh.toString() == fixture.id("models/cart.gltf#mesh/0"));
+        REQUIRE(renderer->materials.size() == 2);
+        CHECK(renderer->materials[0].toString() == fixture.id("models/cart.gltf#material/0"));
+        CHECK(renderer->materials[1].isNil());
+        CHECK(fixture.outline() == std::vector<std::string>{"Cube", "Yard", ".Body"});
+
+        // One step of the history each, which brings back the very entity.
+        const Json scene = serializeScene(world, fixture.components);
+        fixture.run("editor.undo");
+        CHECK(world.findById(body).isNull());
+        fixture.run("editor.redo");
+        CHECK(serializeScene(world, fixture.components) == scene);
+        CHECK(fixture.run("scene.validate")["valid"] == true);
+    }
+
+    TEST_CASE("asset.instantiate puts the root of what it places where it is told, relative to its parent") {
+        AssetFixture fixture;
+        const World& world = fixture.world;
+        fixture.run("entity.create", R"({"name": "Yard", "components": {"Transform": {"position": [10, 0, 0]}}})");
+
+        fixture.run("asset.instantiate", R"({"asset": "models/cart.gltf", "parent": "Yard", "position": [1, 2, 3]})");
+        const Entity cart = world.findByName("cart");
+        CHECK(world.transform(cart).position == Vec3(1.0f, 2.0f, 3.0f));
+        CHECK(Vec3(world.computeWorldMatrix(cart)[3]) == Vec3(11.0f, 2.0f, 3.0f));
+        // A root is put there in the world.
+        fixture.run("asset.instantiate", R"({"asset": "builtin#mesh/cube", "position": [-4, 0.5, 2]})");
+        CHECK(world.transform(world.findByName("Cube")).position == Vec3(-4.0f, 0.5f, 2.0f));
+
+        // A prefab is placed where it has its root, or where it is told.
+        fixture.run("prefab.create", R"({"entity": "Yard/cart", "path": "prefabs/cart.prefab.json"})");
+        fixture.run("asset.instantiate", R"({"asset": "prefabs/cart.prefab.json", "name": "As made"})");
+        CHECK(world.transform(world.findByName("As made")).position == Vec3(1.0f, 2.0f, 3.0f));
+        fixture.run("asset.instantiate",
+                    R"({"asset": "prefabs/cart.prefab.json", "name": "Moved", "position": [0, 0, -6]})");
+        CHECK(world.transform(world.findByName("Moved")).position == Vec3(0.0f, 0.0f, -6.0f));
+    }
+
     TEST_CASE("placing a model is one step in the history") {
         AssetFixture fixture;
         fixture.run("entity.create", R"({"name": "Yard"})");
@@ -546,9 +625,8 @@ TEST_SUITE("AssetCommands") {
         SUBCASE("something that is neither a model nor a prefab") {
             const Error error = fixture.fail("asset.instantiate", R"({"asset": "textures/wall.png"})");
             CHECK(error.code == ErrorCode::InvalidArgument);
-            CHECK(
-                error.message ==
-                "asset.instantiate: textures/wall.png is a texture; what is placed in a scene is a model or a prefab");
+            CHECK(error.message == "asset.instantiate: textures/wall.png is a texture; what is placed in a scene is a "
+                                   "model, a prefab or a mesh");
         }
         SUBCASE("an asset that does not exist") {
             CHECK(fixture.fail("asset.instantiate", R"({"asset": "models/none.gltf"})").code == ErrorCode::NotFound);
@@ -569,6 +647,46 @@ TEST_SUITE("AssetCommands") {
         }
         SUBCASE("no asset at all") {
             CHECK(fixture.fail("asset.instantiate").code == ErrorCode::InvalidArgument);
+        }
+        SUBCASE("a position that is not three numbers") {
+            for (const char* position : {R"([1, 2])", R"([1, "2", 3])", R"({"x": 1})", R"([1, 2, 3, 4])"}) {
+                const Error error = fixture.fail(
+                    "asset.instantiate", fmt::format(R"({{"asset": "builtin#mesh/cube", "position": {}}})", position));
+                CHECK_MESSAGE(error.code == ErrorCode::InvalidArgument, std::string(position));
+            }
+        }
+        SUBCASE("a mesh with a parent that does not exist, or a name with a slash") {
+            CHECK(fixture.fail("asset.instantiate", R"({"asset": "builtin#mesh/cube", "parent": "Nowhere"})").code ==
+                  ErrorCode::NotFound);
+            CHECK(fixture.fail("asset.instantiate", R"({"asset": "builtin#mesh/cube", "name": "a/b"})").code ==
+                  ErrorCode::InvalidArgument);
+        }
+        SUBCASE("a mesh that cannot be loaded") {
+            std::filesystem::remove(fixture.root / "models" / "cart.bin");
+            const Error error = fixture.fail("asset.instantiate", R"({"asset": "models/cart.gltf#mesh/1"})");
+            CHECK(error.message.find("cart.bin") != std::string::npos);
+        }
+        SUBCASE("what code is told to place where there is no place, or as no entity can be called") {
+            EditorActions actions(*fixture.context);
+            const Uuid cube = builtinMeshId(BuiltinMesh::Cube);
+            const Uuid cart = parsedId(fixture.id("models/cart.gltf"));
+            for (const Uuid& asset : {cube, cart}) {
+                const Result<Entity> nowhere = actions.instantiateAsset(
+                    asset, {.position = Vec3(0.0f, std::numeric_limits<float>::infinity(), 0.0f)});
+                REQUIRE_FALSE(nowhere.has_value());
+                CHECK(nowhere.error().code == ErrorCode::InvalidArgument);
+                CHECK(nowhere.error().message.find("position") != std::string::npos);
+                const Result<Entity> named = actions.instantiateAsset(asset, {.name = "a/b"});
+                REQUIRE_FALSE(named.has_value());
+                CHECK(named.error().code == ErrorCode::InvalidArgument);
+            }
+            // What is not a mesh is not placed as one.
+            const Result<Entity> wall = actions.instantiateMesh(parsedId(fixture.id("textures/wall.png")));
+            REQUIRE_FALSE(wall.has_value());
+            CHECK(wall.error().message == "textures/wall.png is a texture, not a mesh");
+            const Result<Entity> none = actions.instantiateMesh(Uuid::generate());
+            REQUIRE_FALSE(none.has_value());
+            CHECK(none.error().code == ErrorCode::NotFound);
         }
 
         CHECK(serializeScene(fixture.world, fixture.components) == before);
@@ -1250,9 +1368,88 @@ TEST_SUITE("AssetCommands") {
         // What can be placed, and so has a line to place it by.
         CHECK(canBePlaced(AssetType::Model));
         CHECK(canBePlaced(AssetType::Prefab));
-        for (const AssetType type : {AssetType::Texture, AssetType::Mesh, AssetType::Material, AssetType::Scene,
-                                     AssetType::Skeleton, AssetType::Animation, AssetType::Script, AssetType::Sound}) {
+        CHECK(canBePlaced(AssetType::Mesh));
+        for (const AssetType type :
+             {AssetType::Texture, AssetType::Material, AssetType::Scene, AssetType::Skeleton, AssetType::Animation,
+              AssetType::Script, AssetType::Sound, AssetType::RenderTarget, AssetType::Sequence}) {
             CHECK_FALSE(canBePlaced(type));
+        }
+    }
+
+    TEST_CASE("what is dropped onto a viewport is said as a command that places it, or that gives a mesh a material") {
+        AssetFixture fixture;
+        const auto runLine = [&fixture](const std::string& line) {
+            const size_t blank = line.find(' ');
+            REQUIRE(blank != std::string::npos);
+            return fixture.run(line.substr(0, blank), line.substr(blank + 1));
+        };
+        World& world = fixture.world;
+        const AssetDatabase& database = fixture.assets->database();
+        const AssetInfo* cube = database.find(builtinMeshId(BuiltinMesh::Cube));
+        const AssetInfo* paint = database.findByReference("materials/paint.material.json");
+        const AssetInfo* wall = database.findByReference("textures/wall.png");
+        REQUIRE(cube != nullptr);
+        REQUIRE(paint != nullptr);
+        REQUIRE(wall != nullptr);
+        const DropReach reach{.grid = 50.0f, .ahead = 10.0f};
+        // From ten metres up and five back, down at the origin: it meets the grid there.
+        const Ray ray{Vec3(0.0f, 10.0f, 5.0f), glm::normalize(Vec3(0.0f, -2.0f, -1.0f))};
+        const auto placedBy = [&](const std::optional<std::string>& line) {
+            REQUIRE(line.has_value());
+            CHECK(line->starts_with("asset.instantiate "));
+            const Entity placed = world.findById(parsedId(runLine(*line)["id"].get<std::string>()));
+            REQUIRE_FALSE(placed.isNull());
+            world.updateWorldTransforms();
+            return placed;
+        };
+        const auto materialsOf = [&world](Entity entity) {
+            const auto* renderer = world.tryGet<MeshRendererComponent>(entity);
+            REQUIRE(renderer != nullptr);
+            return renderer->materials;
+        };
+
+        // Where nothing is in the way, on the grid - a root whatever is selected.
+        fixture.run("entity.create", R"({"name": "Yard"})");
+        fixture.run("selection.set", R"({"entities": ["Yard"]})");
+        const Entity first = placedBy(viewportDropCommand(*fixture.context, *cube, ray, std::nullopt, reach));
+        CHECK(world.parent(first).isNull());
+        CHECK_NEAR(world.transform(first).position, Vec3(0.0f), 1.0e-5f);
+        CHECK(world.transform(first).position.y == 0.0f);
+
+        // Where the first is in the way, on it: on its top, a quarter of a metre from its middle.
+        const std::optional<WorldMeshHit> onFirst = raycastMeshes(world, *fixture.assets, ray);
+        REQUIRE(onFirst.has_value());
+        CHECK(onFirst->entity == first);
+        const Entity second = placedBy(viewportDropCommand(*fixture.context, *cube, ray, onFirst, reach));
+        CHECK_NEAR(world.transform(second).position, Vec3(0.0f, 0.5f, 0.25f), 1.0e-5f);
+
+        // A material goes onto the part of the mesh it meets, and is no place to put anything.
+        CHECK_FALSE(viewportDropCommand(*fixture.context, *paint, ray, std::nullopt, reach).has_value());
+        std::optional<std::string> line = viewportDropCommand(*fixture.context, *paint, ray, onFirst, reach);
+        REQUIRE(line.has_value());
+        CHECK(line->starts_with("component.set "));
+        runLine(*line);
+        CHECK(materialsOf(first) == std::vector<Uuid>{paint->id});
+        CHECK(fixture.context->history().undoLabel() == "Edit MeshRenderer of 'Cube'");
+        // Dropped again, there is nothing to do.
+        CHECK_FALSE(viewportDropCommand(*fixture.context, *paint, ray, onFirst, reach).has_value());
+
+        // On a mesh of several parts, onto the one that was met; those before it keep theirs.
+        const Entity body = placedBy(viewportDropCommand(
+            *fixture.context, *database.findByReference("models/cart.gltf#mesh/0"), ray, std::nullopt, reach));
+        const Uuid bodyPaint = parsedId(fixture.id("models/cart.gltf#material/0"));
+        const WorldMeshHit onLamp{.entity = body, .hit = {.distance = 1.0f, .submesh = 1}};
+        line = viewportDropCommand(*fixture.context, *paint, ray, onLamp, reach);
+        REQUIRE(line.has_value());
+        runLine(*line);
+        CHECK(materialsOf(body) == std::vector<Uuid>{bodyPaint, paint->id});
+
+        // Nothing else is taken.
+        CHECK_FALSE(viewportDropCommand(*fixture.context, *wall, ray, onFirst, reach).has_value());
+        for (const char* reference : {"scenes/yard.scene.json", "scripts/gate.lua", "sounds/creak.wav"}) {
+            const AssetInfo* asset = database.findByReference(reference);
+            REQUIRE(asset != nullptr);
+            CHECK_FALSE(viewportDropCommand(*fixture.context, *asset, ray, onFirst, reach).has_value());
         }
     }
 

@@ -21,13 +21,14 @@ Brings files from elsewhere into the assets: copies them into a directory of the
 
 ## asset.instantiate
 
-Places a model or a prefab in the scene. A model becomes one entity per node, with their meshes and materials, under a new root entity. A prefab becomes copies of its entities, with ids of their own, the root of them marked as an instance of it by a PrefabInstance component. The root is returned and selected; move it to place what was placed.
+Places a model, a prefab or a mesh in the scene. A model becomes one entity per node, with their meshes and materials, under a new root entity. A prefab becomes copies of its entities, with ids of their own, the root of them marked as an instance of it by a PrefabInstance component. A mesh becomes one entity whose MeshRenderer draws it - with the materials its model draws it with, for a mesh of a model. The root is returned and selected; move it to place what was placed.
 
 | Parameter | Kind | Needed | Meaning |
 |---|---|---|---|
 | `asset` | string | yes | An asset: its id, or its path within the asset directory, followed by '#' and its place in the file for an asset inside another ("models/crate.gltf#mesh/0"). asset.list shows both for every asset. |
 | `parent` | string | no | The entity to put the new entities under: its id, path or unique name. Without one their root becomes a root of the scene. |
-| `name` | string | no | The name of the new root entity. Defaults to the name of the model, or to the name the prefab gives its root. |
+| `name` | string | no | The name of the new root entity. Defaults to the name of the model or of the mesh, or to the name the prefab gives its root. |
+| `position` | array | no | Where the root is put: [x, y, z] in metres, relative to the parent - in the world, without one. Defaults to the parent's origin for a model and a mesh, and to where the prefab has its root. |
 
 ## asset.list
 

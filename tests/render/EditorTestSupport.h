@@ -2,7 +2,8 @@
 
 /// @file
 /// What the tests of the editor are built on: an editor without a window, made the same way
-/// for every test, its commands run and refused, and the shortcuts of its interface pressed.
+/// for every test, its commands run and refused, the shortcuts of its interface pressed and
+/// its pointer dragged.
 ///
 /// @code
 /// EditorAppDesc desc = headlessDesc(UVec2(640, 360));
@@ -12,6 +13,7 @@
 /// run(*editor, "viewport.lookAt", R"({"position": [0, 2, 8], "target": [0, 2, 0]})");
 /// const Error error = refusal(*editor, "viewport.close", R"({"viewport": 1})");
 /// pressShortcut(*editor, ImGuiMod_Ctrl | ImGuiKey_D);
+/// dragPointer(*editor, regionOf("###Assets/contents_") + Vec2(20.0f), Vec2(320.0f, 180.0f));
 /// @endcode
 
 #include "cordite/core/FileSystem.h"
@@ -24,7 +26,9 @@
 #include "render/RenderTestSupport.h"
 #include "support/TestSupport.h"
 
+#include <fmt/format.h>
 #include <imgui.h>
+#include <imgui_internal.h>
 
 #include <filesystem>
 #include <memory>
@@ -125,6 +129,40 @@ inline void pressShortcut(EditorApp& editor, ImGuiKeyChord shortcut) {
         io.AddKeyEvent(key, false);
     }
     REQUIRE(editor.runFrames(1).has_value());
+}
+
+/// Where what a window of the interface holds begins on the screen, in pixels of the
+/// interface: of the first window whose name has `name` in it - "###Assets/contents_" for
+/// the contents of the Assets panel, which are a child window of it.
+inline Vec2 regionOf(std::string_view name) {
+    for (const ImGuiWindow* window : ImGui::GetCurrentContext()->Windows) {
+        if (std::string_view(window->Name).find(name) != std::string_view::npos) {
+            return Vec2(window->DC.CursorStartPos.x, window->DC.CursorStartPos.y);
+        }
+    }
+    FAIL("there is no window " << std::string(name));
+    return Vec2(0.0f);
+}
+
+/// A drag with the left button, from `from` to `to`, in pixels of the interface, as a hand
+/// makes one: pressed, moved further than Dear ImGui lets a click go before it takes it for
+/// a drag, moved on, and let go - each with the frames it takes to be seen; and then half a
+/// second of frames, so that a press that follows is no double click with this one.
+inline void dragPointer(EditorApp& editor, Vec2 from, Vec2 to) {
+    const auto move = [&editor](Vec2 at) {
+        run(editor, "input.inject", fmt::format(R"({{"mouseMove": [{}, {}]}})", at.x, at.y));
+        REQUIRE(editor.runFrames(2).has_value());
+    };
+    const auto press = [&editor](bool down) {
+        run(editor, "input.inject", fmt::format(R"({{"mouseButton": "Left", "down": {}}})", down));
+        REQUIRE(editor.runFrames(2).has_value());
+    };
+    move(from);
+    press(true);
+    move(from + Vec2(ImGui::GetIO().MouseDragThreshold * 2.0f));
+    move(to);
+    press(false);
+    REQUIRE(editor.runFrames(30).has_value());
 }
 
 } // namespace cordite::test

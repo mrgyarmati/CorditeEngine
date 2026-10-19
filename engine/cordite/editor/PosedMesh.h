@@ -9,8 +9,12 @@
 ///
 /// @code
 /// if (const std::optional<PosedMesh> mesh = posedMeshOf(world, assets, entity)) {
-///     const std::optional<float> distance = intersect(ray, *mesh, world.worldMatrix(entity));
+///     const std::optional<MeshHit> hit = intersect(ray, *mesh, world.worldMatrix(entity));
 ///     selectionLines.box(mesh->bounds, world.worldMatrix(entity), color);
+/// }
+/// // Or what of the whole world the pointer is over:
+/// if (const std::optional<WorldMeshHit> under = raycastMeshes(world, assets, ray)) {
+///     const Vec3 point = ray.origin + ray.direction * under->hit.distance;
 /// }
 /// @endcode
 ///
@@ -25,6 +29,7 @@
 #include "cordite/world/Entity.h"
 #include "cordite/world/World.h"
 
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -52,8 +57,29 @@ struct PosedMesh {
 /// been brought up to date (Engine::updateWorld), which is what poses its skeletons.
 [[nodiscard]] std::optional<PosedMesh> posedMeshOf(const World& world, AssetManager& assets, Entity entity);
 
-/// Where a ray first hits a mesh that `localToWorld` places in the world, as a distance
-/// along the ray; nothing when it misses, and for a mesh that is flattened to nothing.
-[[nodiscard]] std::optional<float> intersect(const Ray& ray, const PosedMesh& mesh, const Mat4& localToWorld);
+/// Where a ray meets a mesh.
+struct MeshHit {
+    /// How far along the ray, in lengths of its direction: metres, for a direction of
+    /// length one.
+    float distance = 0.0f;
+    /// The submesh the triangle that was met belongs to: its place in MeshData::submeshes,
+    /// which is its place in MeshRendererComponent::materials as well.
+    uint32_t submesh = 0;
+};
+
+/// Where a ray first hits a mesh that `localToWorld` places in the world; nothing when it
+/// misses, and for a mesh that is flattened to nothing.
+[[nodiscard]] std::optional<MeshHit> intersect(const Ray& ray, const PosedMesh& mesh, const Mat4& localToWorld);
+
+/// The entity whose mesh a ray hits first, and where.
+struct WorldMeshHit {
+    Entity entity;
+    MeshHit hit;
+};
+
+/// Which mesh of the world a ray hits first, as the meshes are drawn (posedMeshOf), of the
+/// entities that are enabled; nothing when it hits none. The world must have been brought
+/// up to date, as for posedMeshOf().
+[[nodiscard]] std::optional<WorldMeshHit> raycastMeshes(const World& world, AssetManager& assets, const Ray& ray);
 
 } // namespace cordite

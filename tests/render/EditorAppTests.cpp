@@ -19,6 +19,7 @@
 #include "cordite/platform/InputMap.h"
 #include "cordite/renderer/CameraView.h"
 #include "cordite/renderer/EnvironmentProbes.h"
+#include "cordite/renderer/RenderComponents.h"
 #include "cordite/renderer/RenderDebugView.h"
 #include "cordite/rhi/TextureReadback.h"
 #include "cordite/shaders/EngineShaders.h"
@@ -53,11 +54,13 @@ using cordite::test::checkNoValidationIssues;
 using cordite::test::controlKey;
 using cordite::test::createEditor;
 using cordite::test::createEditorForPicture;
+using cordite::test::dragPointer;
 using cordite::test::headlessDesc;
 using cordite::test::json;
 using cordite::test::pressShortcut;
 using cordite::test::quoted;
 using cordite::test::refusal;
+using cordite::test::regionOf;
 using cordite::test::run;
 using cordite::test::showcaseProject;
 using cordite::test::TempDirectory;
@@ -2081,6 +2084,52 @@ TEST_SUITE("EditorApp") {
             REQUIRE(editor->runFrames(1).has_value());
         }
         CHECK(unwrap(loadEditorPreferences(preferences)).assetView == AssetBrowserView::List);
+    }
+
+    TEST_CASE("what can be placed is dragged from the Assets panel onto a row of the hierarchy, or below the rows") {
+        const std::unique_ptr<EditorApp> editor = createEditor(headlessDesc(UVec2(1280, 720)));
+        World& world = editor->context().world();
+        run(*editor, "entity.create", R"({"name": "Yard"})");
+        run(*editor, "editor.focusPanel", R"({"panel": "assets"})");
+        // The cube that the engine has built in, alone among the contents.
+        run(*editor, "assets.browse", R"({"folder": "builtin", "search": "cube", "view": "grid"})");
+        REQUIRE(editor->runFrames(3).has_value());
+        const Entity yard = world.findByName("Yard");
+        const float line = ImGui::GetTextLineHeightWithSpacing();
+        const Vec2 firstRow = regionOf("###Hierarchy/tree_") + Vec2(60.0f, line * 0.4f);
+
+        // From the grid, onto the row: under that entity.
+        dragPointer(*editor, regionOf("###Assets/contents_") + Vec2(20.0f), firstRow);
+        REQUIRE(world.children(yard).size() == 1);
+        const Entity placed = world.children(yard).front();
+        CHECK(world.name(placed) == "Cube");
+        const auto* renderer = world.tryGet<MeshRendererComponent>(placed);
+        REQUIRE(renderer != nullptr);
+        CHECK(renderer->mesh == builtinMeshId(BuiltinMesh::Cube));
+        CHECK(editor->context().selection() == std::vector<Entity>{placed});
+
+        // From the list, onto the space below the rows: a root.
+        run(*editor, "assets.browse", R"({"view": "list"})");
+        REQUIRE(editor->runFrames(3).has_value());
+        const Vec2 belowTheRows = regionOf("###Hierarchy/tree_") + Vec2(60.0f, line * 8.0f);
+        dragPointer(*editor, regionOf("###Assets/contents_") + Vec2(30.0f, line * 0.4f), belowTheRows);
+        REQUIRE(world.roots().size() == 2);
+        CHECK(world.name(world.roots()[1]) == "Cube");
+
+        // A material is nothing to place, and no row takes it - not to fail to place it.
+        run(*editor, "assets.browse", R"({"search": "default"})");
+        REQUIRE(editor->runFrames(3).has_value());
+        const size_t entities = world.entityCount();
+        const uint64_t history = editor->context().history().stateId();
+        {
+            const test::LogCapture log(LogLevel::Warn);
+            dragPointer(*editor, regionOf("###Assets/contents_") + Vec2(30.0f, line * 0.4f), firstRow);
+            dragPointer(*editor, regionOf("###Assets/contents_") + Vec2(30.0f, line * 0.4f), belowTheRows);
+            CHECK(log.messages().empty());
+        }
+        CHECK(world.entityCount() == entities);
+        CHECK(editor->context().history().stateId() == history);
+        checkNoValidationIssues(editor->engine().graphics());
     }
 
     TEST_CASE("the Assets panel shows a folder clicked in its tree, and goes into one by a double click") {

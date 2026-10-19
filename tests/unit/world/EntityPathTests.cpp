@@ -101,6 +101,18 @@ TEST_SUITE("EntityPath") {
         CHECK(found.error().message.find(world.id(furnished.lamp).toString()) != std::string::npos);
     }
 
+    TEST_CASE("text that is no name an entity can be found by is made one") {
+        CHECK(entityNameFrom("Front wheel", "Node") == "Front wheel");
+        // A slash would be read as a step of a path.
+        CHECK(entityNameFrom("Axle/Left", "Node") == "Axle_Left");
+        CHECK(entityNameFrom("/", "Node") == "_");
+        CHECK(entityNameFrom("", "Node") == "Node");
+
+        World world;
+        const Entity axle = world.createEntity(entityNameFrom("Axle/Left", "Node"));
+        CHECK(unwrap(findEntityByPath(world, "Axle_Left")) == axle);
+    }
+
     TEST_CASE("a long list of entities is shortened") {
         World world;
         std::vector<Entity> crates;

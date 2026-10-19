@@ -1,3 +1,4 @@
+#include "cordite/assets/AssetDatabase.h"
 #include "cordite/assets/Image.h"
 #include "cordite/assets/ImageCompare.h"
 #include "cordite/core/FileSystem.h"
@@ -8,12 +9,14 @@
 #include "cordite/platform/Window.h"
 #include "cordite/renderer/CameraView.h"
 #include "cordite/renderer/EnvironmentProbes.h"
+#include "cordite/renderer/RenderComponents.h"
 #include "cordite/renderer/RenderResources.h"
 #include "cordite/renderer/SceneRenderer.h"
 #include "cordite/rhi/TextureReadback.h"
 
 #include "render/EditorTestSupport.h"
 #include "render/RenderTestSupport.h"
+#include "support/MathTestSupport.h"
 
 #include <fmt/format.h>
 #include <imgui.h>
@@ -28,11 +31,13 @@
 using namespace cordite;
 using cordite::test::checkNoValidationIssues;
 using cordite::test::createEditor;
+using cordite::test::dragPointer;
 using cordite::test::headlessDesc;
 using cordite::test::json;
 using cordite::test::pressShortcut;
 using cordite::test::quoted;
 using cordite::test::refusal;
+using cordite::test::regionOf;
 using cordite::test::run;
 using cordite::test::showcaseProject;
 using cordite::test::TempDirectory;
@@ -549,6 +554,53 @@ TEST_SUITE("EditorViewports") {
         run(*editor, "input.inject", R"({"mouseButton": "Right", "down": false})");
         REQUIRE(editor->runFrames(2).has_value());
         CHECK(window->cursorMode() == CursorMode::Normal);
+        checkNoValidationIssues(editor->engine().graphics());
+    }
+
+    TEST_CASE(
+        "what can be placed lands where it is dropped onto a viewport, and a material on the mesh it is dropped on") {
+        const std::unique_ptr<EditorApp> editor = createEditor(headlessDesc(UVec2(1280, 720)));
+        const World& world = editor->context().world();
+        // Down at the origin, from ten metres up and five back: the middle of the picture.
+        run(*editor, "viewport.lookAt", R"({"position": [0, 10, 5], "target": [0, 0, 0]})");
+        run(*editor, "editor.focusPanel", R"({"panel": "assets"})");
+        // The cube that the engine has built in, alone among the contents.
+        run(*editor, "assets.browse", R"({"folder": "builtin", "search": "cube", "view": "grid"})");
+        REQUIRE(editor->runFrames(3).has_value());
+        const Vec2 tile = regionOf("###Assets/contents_") + Vec2(20.0f);
+        const Vec2 middle = pictureOf(editor->viewport()).center();
+        const auto materialsOf = [&world](Entity entity) {
+            const auto* renderer = world.tryGet<MeshRendererComponent>(entity);
+            REQUIRE(renderer != nullptr);
+            return renderer->materials;
+        };
+
+        // Where nothing is in the way, on the grid.
+        dragPointer(*editor, tile, middle);
+        REQUIRE(world.roots().size() == 1);
+        const Entity first = world.roots()[0];
+        CHECK(world.name(first) == "Cube");
+        CHECK(world.transform(first).position.y == 0.0f);
+        CHECK(glm::length(world.transform(first).position) < 0.02f);
+
+        // Where the first is in the way, on it: on its top, a quarter of a metre towards the
+        // camera from its middle.
+        dragPointer(*editor, tile, middle);
+        REQUIRE(world.roots().size() == 2);
+        const Entity second = world.roots()[1];
+        CHECK_NEAR(world.transform(second).position, Vec3(0.0f, 0.5f, 0.25f), 0.02f);
+
+        // A material, onto the mesh it is dropped on - the second cube, which is in front now.
+        run(*editor, "assets.browse", R"({"search": "default"})");
+        REQUIRE(editor->runFrames(3).has_value());
+        dragPointer(*editor, tile, middle);
+        CHECK(materialsOf(second) == std::vector<Uuid>{defaultMaterialId()});
+        CHECK(materialsOf(first).empty());
+        CHECK(world.roots().size() == 2);
+
+        // Undone, the material is gone again; the cubes are steps of their own.
+        run(*editor, "editor.undo");
+        CHECK(materialsOf(second).empty());
         checkNoValidationIssues(editor->engine().graphics());
     }
 }

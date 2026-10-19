@@ -24,7 +24,9 @@ The editor is laid out like Unity and Unreal Engine:
 - **Inspector** - the components of the selected entity, with every property. Add components
   with the button at the bottom. Numbers are dragged or typed, colors picked, assets chosen
   from a list or dropped from the Assets panel.
-- **Viewport** - the scene. Click to select; the gizmo moves, turns and scales.
+- **Viewport** - the scene. Click to select; the gizmo moves, turns and scales. Drop a
+  model, a prefab or a mesh from the Assets panel to place it where you let go, and a
+  material onto a mesh to give it to the part under the pointer.
 - **Assets** - the folders of the project as a tree, and beside it what the folder chosen
   there has in it, as a grid of tiles or a list, with a picture of the chosen asset. See
   [Projects and assets](assets.md).

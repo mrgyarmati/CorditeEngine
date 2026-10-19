@@ -7,6 +7,7 @@
 #include "support/MathTestSupport.h"
 #include "support/TestSupport.h"
 
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -223,6 +224,39 @@ TEST_SUITE("ModelInstance") {
 
         world.updateWorldTransforms();
         CHECK_NEAR(Vec3(world.worldMatrix(world.findByName("Body"))[3]), Vec3(10.0f, 0.5f, 0.0f), 1.0e-6f);
+    }
+
+    TEST_CASE("an instance can be put somewhere relative to its parent, or in the world as a root") {
+        World world;
+        const Entity depot = world.createEntity("Depot");
+        world.transform(depot).position = Vec3(10.0f, 0.0f, 0.0f);
+
+        const Entity instance =
+            instantiateModel(world, makeCart(), {.parent = depot, .position = Vec3(1.0f, 2.0f, 3.0f)});
+        CHECK(world.transform(instance) == Transform{.position = Vec3(1.0f, 2.0f, 3.0f)});
+        world.updateWorldTransforms();
+        CHECK_NEAR(Vec3(world.worldMatrix(world.findByName("Body"))[3]), Vec3(11.0f, 2.5f, 3.0f), 1.0e-6f);
+
+        // A root is put there in the world.
+        const Entity root = instantiateModel(world, makeCart(), {.position = Vec3(-4.0f, 0.0f, 0.0f)});
+        CHECK(world.transform(root).position == Vec3(-4.0f, 0.0f, 0.0f));
+
+#if defined(CORDITE_ENABLE_ASSERTS)
+        // A position that is no place is a mistake of the caller.
+        CHECK_THROWS_AS(
+            (void)instantiateModel(world, makeCart(), {.position = Vec3(std::numeric_limits<float>::quiet_NaN())}),
+            test::AssertionFailure);
+#endif
+    }
+
+    TEST_CASE("a mesh of a model has the materials of the first node that draws it") {
+        const ModelData cart = makeCart();
+        CHECK(materialsOfMesh(cart, kBodyMesh) == std::vector<Uuid>{kPaint, Uuid()});
+        // Both wheels draw the one mesh.
+        CHECK(materialsOfMesh(cart, kWheelMesh) == std::vector<Uuid>{kRubber});
+        // No node draws it, and the nodes that draw nothing do not draw "nothing".
+        CHECK(materialsOfMesh(cart, kPaint).empty());
+        CHECK(materialsOfMesh(cart, Uuid()).empty());
     }
 
     TEST_CASE("placing a model twice gives two independent sets of entities") {

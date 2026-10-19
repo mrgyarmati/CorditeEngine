@@ -7,8 +7,9 @@
 /// result as an image. Over the scene it draws what only an editor needs: the ground
 /// grid, a marker for every entity that has nothing to be seen by, the view volumes of
 /// cameras, and a frame around what is selected. Clicking a mesh or a marker selects its
-/// entity; see EditorCamera for how to move around. It can show any of the renderer's
-/// debug views in place of the lit picture (setDebugView).
+/// entity, and an asset dragged onto the picture from the Assets panel is placed where it
+/// is dropped (AssetDrop.h); see EditorCamera for how to move around. It can show any of
+/// the renderer's debug views in place of the lit picture (setDebugView).
 ///
 /// Asked to, it shows the scene through the camera of the game instead
 /// (ViewportCamera::Game): what a player sees, and nothing an editor adds.
@@ -246,6 +247,10 @@ private:
     /// pointer is the gizmo's in this frame - over a handle, holding one or letting one go -
     /// so that a click does not select what is under it. `pixel` is in pixels of the picture.
     bool updateGizmo(EditorContext& context, Vec2 pixel, bool hovered);
+    /// Makes the picture, which must be the item submitted last, a place to drop assets
+    /// from the Assets panel (AssetDrop.h), and queues what a drop at `pixel` - in pixels
+    /// of the picture - does.
+    void acceptDrop(EditorContext& context, Vec2 pixel, std::vector<std::string>& submittedLines) const;
     /// Moves, turns or scales what is held to where the pointer is now.
     void dragHeld(World& world, Vec2 pixel);
     /// Ends a drag: what it changed becomes one step of the history.

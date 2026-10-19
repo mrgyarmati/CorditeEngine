@@ -122,15 +122,20 @@ Unreal Engine:
 - At the right is a picture of the chosen asset: a texture as it is, a mesh, a material on a
   ball, a model or a prefab - and for a sound, its length with a **Play** button.
 
-- Double-click a model or a prefab to place it in the scene, or drag it onto an entity of
-  the Hierarchy to place it under that entity.
+- Double-click a model, a prefab or a mesh to place it in the scene - under the selected
+  entity, if there is one. Drag it onto the Viewport to place it where you let go: on the
+  surface under the pointer, or on the grid. Drag it onto an entity of the Hierarchy to
+  place it under that entity, or below the entities to place it at the top of the scene.
+  A mesh of a model is placed with the materials the model gives it.
+- Drag a material onto a mesh in the Viewport to give it to the part of the mesh under the
+  pointer.
 - Drag any asset onto a property of the Inspector that takes its kind - a texture onto an
   environment, a sound onto an AudioSource.
 - **Uses** and **Used by** show what an asset needs and what needs it: the textures of a
   material, the scenes that place a prefab, and the entities of the open scene that use it,
   which a click selects. Check **Used by** before you delete something.
 - Right-click for Copy id, Copy path and Rename or move; for a scene, Open scene; for a
-  model or a prefab, Place in the scene.
+  model, a prefab or a mesh, Place in the scene.
 
 ## When something is wrong
 

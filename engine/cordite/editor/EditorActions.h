@@ -25,6 +25,7 @@
 #include "cordite/core/Uuid.h"
 #include "cordite/editor/EditorContext.h"
 #include "cordite/engine/ModelInstance.h"
+#include "cordite/math/Math.h"
 #include "cordite/world/Entity.h"
 #include "cordite/world/Prefab.h"
 
@@ -44,6 +45,21 @@ struct CreateEntityOptions {
     /// Components to give it, by name, each with the properties that differ from the
     /// defaults: `{"Camera": {"verticalFovDegrees": 45}}`. "Transform" places the entity.
     Json components = Json::object();
+};
+
+/// Where EditorActions::instantiateAsset() and instantiateMesh() put what they place, and
+/// what they call it.
+struct PlacementOptions {
+    /// The root of what is placed becomes the last child of this entity; null makes it a
+    /// root of the scene.
+    Entity parent;
+    /// The name of that root, without '/'. Empty: what the model, the prefab or the mesh
+    /// calls it.
+    std::string name;
+    /// Where that root is put, relative to its parent - in the world, for a root. Without,
+    /// a model and a mesh are put at the parent's origin, and a prefab where it has its
+    /// root.
+    std::optional<Vec3> position;
 };
 
 class EditorActions {
@@ -95,12 +111,21 @@ public:
     /// cannot be loaded or its entities are wrong.
     [[nodiscard]] Result<Entity> instantiatePrefab(const Uuid& prefab, const PrefabInstanceOptions& options = {});
 
+    /// Places a mesh in the scene: one entity, called what the mesh is called, whose
+    /// MeshRenderer draws it - with the materials its model draws it with (materialsOfMesh)
+    /// when it is a mesh of a model, and with the default material otherwise. Returns the
+    /// entity and selects it. Fails with NotFound when `mesh` names no asset, with
+    /// InvalidArgument when it names something other than a mesh and when `options` are
+    /// wrong, and as loading the mesh, or its model, fails.
+    [[nodiscard]] Result<Entity> instantiateMesh(const Uuid& mesh, const PlacementOptions& options = {});
+
     /// Places an asset in the scene, whichever it is of the kinds that can be placed
     /// (canBePlaced()): a model as instantiateModel() does, a prefab as
-    /// instantiatePrefab() does. Without a name the root is called what the model or
-    /// the prefab calls it. Fails with NotFound when `asset` names none, with
-    /// InvalidArgument for an asset of another kind, and as those two do.
-    [[nodiscard]] Result<Entity> instantiateAsset(const Uuid& asset, Entity parent = {}, std::string_view name = {});
+    /// instantiatePrefab() does, a mesh as instantiateMesh() does. Fails with NotFound
+    /// when `asset` names none, with InvalidArgument for an asset of another kind, for a
+    /// parent that is no entity, a name with '/' in it and a position that is not
+    /// finite, and as those three do; then nothing is placed.
+    [[nodiscard]] Result<Entity> instantiateAsset(const Uuid& asset, const PlacementOptions& options = {});
 
     /// Makes a prefab of an entity and everything below it: writes them into the file
     /// `assetPath` of the asset directory, reads the assets again, and marks the entity
@@ -166,9 +191,10 @@ private:
     EditorContext& m_context;
 };
 
-/// Whether an asset of this type is something to place in a scene: a model, a prefab.
+/// Whether an asset of this type is something to place in a scene: a model, a prefab, a
+/// mesh.
 [[nodiscard]] constexpr bool canBePlaced(AssetType type) {
-    return type == AssetType::Model || type == AssetType::Prefab;
+    return type == AssetType::Model || type == AssetType::Prefab || type == AssetType::Mesh;
 }
 
 /// Where createPrefab() keeps the prefab of an entity called `entityName` when it is

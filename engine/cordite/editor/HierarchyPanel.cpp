@@ -1,5 +1,6 @@
 #include "cordite/editor/HierarchyPanel.h"
 
+#include "cordite/editor/AssetDrop.h"
 #include "cordite/editor/EditorActions.h"
 #include "cordite/editor/EditorFeedback.h"
 #include "cordite/editor/EditorIcons.h"
@@ -29,20 +30,14 @@ Entity acceptEntityDrop(const World& world) {
 }
 
 /// The asset carried by a drag in progress that is something to place in a scene - a
-/// model or a prefab. Nil for any other, which is then not taken: no entity is a place
-/// to drop a texture.
+/// model, a prefab or a mesh (canBePlaced). Nil for any other, which is then not taken: no
+/// entity is a place to drop a texture.
 Uuid acceptPlaceableDrop(const AssetDatabase& database) {
-    const ImGuiPayload* dragged = ImGui::GetDragDropPayload();
-    if (dragged == nullptr || !dragged->IsDataType(PropertyEditor::kAssetPayload) ||
-        dragged->DataSize != static_cast<int>(sizeof(Uuid))) {
-        return {};
-    }
-    Uuid id;
-    std::memcpy(&id, dragged->Data, sizeof(Uuid));
-    const AssetInfo* asset = database.find(id);
+    const AssetInfo* asset = draggedAsset(database);
     if (asset == nullptr || !canBePlaced(asset->type)) {
         return {};
     }
+    const Uuid id = asset->id;
     return ImGui::AcceptDragDropPayload(PropertyEditor::kAssetPayload) != nullptr ? id : Uuid();
 }
 
@@ -81,7 +76,7 @@ void HierarchyPanel::draw(EditorContext& context) {
                         reportIfFailed(EditorActions(context).setParent(dropped, Entity{}));
                     };
                 } else if (const Uuid asset = acceptPlaceableDrop(context.assets().database()); !asset.isNil()) {
-                    // A model or a prefab from the asset browser, placed as a root.
+                    // What can be placed, from the Assets panel, placed as a root.
                     m_deferredEdit = [&context, asset] {
                         reportIfFailed(EditorActions(context).instantiateAsset(asset));
                     };
@@ -171,9 +166,9 @@ void HierarchyPanel::drawEntity(EditorContext& context, Entity entity) {
                 reportIfFailed(EditorActions(context).setParent(child, newParent));
             };
         } else if (const Uuid asset = acceptPlaceableDrop(context.assets().database()); !asset.isNil()) {
-            // A model or a prefab from the asset browser, placed under this entity.
+            // What can be placed, from the Assets panel, placed under this entity.
             m_deferredEdit = [&context, asset, parent = entity] {
-                reportIfFailed(EditorActions(context).instantiateAsset(asset, parent));
+                reportIfFailed(EditorActions(context).instantiateAsset(asset, {.parent = parent}));
             };
         }
         ImGui::EndDragDropTarget();

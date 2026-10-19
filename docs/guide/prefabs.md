@@ -13,7 +13,8 @@ and choose **Entity > Make prefab**, or run `prefab.create`. The group is writte
 ## Placing one
 
 - Double-click it in the Assets panel, or choose **Assets > Place prefab**.
-- Drag it onto an entity of the Hierarchy to place it under that entity.
+- Drag it onto an entity of the Hierarchy to place it under that entity, or onto the
+  Viewport to place it where you let go.
 - From a script:
 
 ```lua

@@ -12,6 +12,8 @@
 #include "support/SkinnedModelSupport.h"
 #include "support/TestSupport.h"
 
+#include <cstdint>
+#include <initializer_list>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -65,7 +67,9 @@ struct Stage {
 
     /// How far along a ray towards -Z from (x, y, 5) the bar of `entity` is hit.
     [[nodiscard]] std::optional<float> hitFromTheFront(Entity entity, float x, float y) {
-        return intersect(Ray{Vec3(x, y, 5.0f), Vec3(0.0f, 0.0f, -1.0f)}, mesh(entity), world.worldMatrix(entity));
+        const std::optional<MeshHit> hit =
+            intersect(Ray{Vec3(x, y, 5.0f), Vec3(0.0f, 0.0f, -1.0f)}, mesh(entity), world.worldMatrix(entity));
+        return hit ? std::optional<float>(hit->distance) : std::nullopt;
     }
 
     TempDirectory directory;
@@ -167,6 +171,74 @@ TEST_SUITE("PosedMesh") {
         const PosedMesh broken = stage.mesh(stage.bar);
         CHECK_NEAR(broken.bounds.min, Vec3(-0.1f, 0.0f, -0.1f), 1.0e-5f);
         CHECK_NEAR(broken.bounds.max, Vec3(0.1f, 2.0f, 0.1f), 1.0e-5f);
+    }
+
+    TEST_CASE("a hit says which submesh it met, the nearest whatever the order of the submeshes") {
+        // Two squares facing +Z: the first a metre behind, two wide; the second in front,
+        // over its right half alone.
+        const auto square = [](float left, float right, float z) {
+            return std::vector<Vec3>{{left, -1.0f, z}, {right, -1.0f, z}, {right, 1.0f, z}, {left, 1.0f, z}};
+        };
+        const std::vector<std::vector<Vec3>> squares = {square(-1.0f, 1.0f, -1.0f), square(0.0f, 1.0f, 0.0f)};
+        auto data = std::make_shared<MeshData>();
+        for (const std::vector<Vec3>& corners : squares) {
+            const auto first = static_cast<uint32_t>(data->vertices.size());
+            for (const Vec3& corner : corners) {
+                data->vertices.push_back({.position = corner, .normal = Vec3(0.0f, 0.0f, 1.0f)});
+            }
+            data->submeshes.push_back({.firstIndex = static_cast<uint32_t>(data->indices.size()), .indexCount = 6});
+            for (const uint32_t corner : std::initializer_list<uint32_t>{0, 1, 2, 0, 2, 3}) {
+                data->indices.push_back(first + corner);
+            }
+        }
+        updateBounds(*data);
+        REQUIRE(validateMesh(*data).has_value());
+        const PosedMesh mesh{.mesh = data, .bounds = data->bounds};
+        // Placed a metre further towards the rays than it was modelled.
+        const Mat4 placement = glm::translate(Mat4(1.0f), Vec3(0.0f, 0.0f, 1.0f));
+
+        const std::optional<MeshHit> front =
+            intersect(Ray{Vec3(0.5f, 0.0f, 5.0f), Vec3(0.0f, 0.0f, -1.0f)}, mesh, placement);
+        REQUIRE(front.has_value());
+        CHECK(front->submesh == 1);
+        CHECK(front->distance == doctest::Approx(4.0f));
+        const std::optional<MeshHit> behind =
+            intersect(Ray{Vec3(-0.5f, 0.0f, 5.0f), Vec3(0.0f, 0.0f, -1.0f)}, mesh, placement);
+        REQUIRE(behind.has_value());
+        CHECK(behind->submesh == 0);
+        CHECK(behind->distance == doctest::Approx(5.0f));
+        CHECK_FALSE(intersect(Ray{Vec3(-1.5f, 0.0f, 5.0f), Vec3(0.0f, 0.0f, -1.0f)}, mesh, placement).has_value());
+    }
+
+    TEST_CASE("a ray through the world meets the nearest mesh of an entity that is enabled, or none") {
+        Stage stage;
+        World& world = stage.world;
+        // Two cubes along the way of the ray, away from the bar.
+        const auto cube = [&](float z) {
+            const Entity entity = world.createEntity("Cube");
+            world.add<MeshRendererComponent>(entity).mesh = builtinMeshId(BuiltinMesh::Cube);
+            world.transform(entity).position = Vec3(5.0f, 0.0f, z);
+            return entity;
+        };
+        const Entity near = cube(0.0f);
+        const Entity far = cube(-3.0f);
+        stage.update();
+        const Ray ray{Vec3(5.0f, 0.0f, 5.0f), Vec3(0.0f, 0.0f, -1.0f)};
+
+        std::optional<WorldMeshHit> hit = raycastMeshes(world, *stage.assets, ray);
+        REQUIRE(hit.has_value());
+        CHECK(hit->entity == near);
+        CHECK(hit->hit.distance == doctest::Approx(4.5f));
+        CHECK(hit->hit.submesh == 0);
+
+        // What is switched off is not there to be met.
+        world.setEnabled(near, false);
+        hit = raycastMeshes(world, *stage.assets, ray);
+        REQUIRE(hit.has_value());
+        CHECK(hit->entity == far);
+        CHECK(hit->hit.distance == doctest::Approx(7.5f));
+
+        CHECK_FALSE(raycastMeshes(world, *stage.assets, Ray{Vec3(9.0f, 0.0f, 5.0f), Vec3(0.0f, 0.0f, -1.0f)}));
     }
 
     TEST_CASE("a mesh that is flattened to nothing cannot be hit") {
