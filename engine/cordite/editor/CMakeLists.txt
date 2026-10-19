@@ -39,6 +39,8 @@ cordite_add_module(editor
         EditorToolbar.h
         FileAssociation.cpp
         FileAssociation.h
+        FileDialogs.cpp
+        FileDialogs.h
         GameExport.cpp
         GameExport.h
         NewProject.cpp
@@ -83,6 +85,13 @@ cordite_add_module(editor
 # Associating project files with the editor writes the registry, and tells the shell.
 if(WIN32)
     target_link_libraries(cordite_editor PRIVATE advapi32 shell32)
+endif()
+
+# The system's dialogs for files (FileDialogs.cpp). On Windows they are COM objects, which
+# nativefiledialog-extended leaves to its user to link.
+target_link_libraries(cordite_editor PRIVATE nfd)
+if(WIN32)
+    target_link_libraries(cordite_editor PRIVATE ole32 uuid)
 endif()
 
 # The oldest macOS the programs of the build run on, which the application bundle of an

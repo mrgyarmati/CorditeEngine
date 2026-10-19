@@ -6,6 +6,7 @@ cordite_add_module(platform
         InputMap.h
         KeyCodes.cpp
         KeyCodes.h
+        SystemWindow.cpp
         Window.cpp
         Window.h
     DEPENDS

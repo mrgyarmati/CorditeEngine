@@ -70,7 +70,7 @@ build/windows/bin/RelWithDebInfo/cordite_core_tests.exe -ts="Config"      # a wh
 ### Linux and macOS
 
 ```bash
-# Ubuntu 24.04: sudo apt install build-essential cmake ninja-build xorg-dev libwayland-dev libxkbcommon-dev
+# Ubuntu 24.04: sudo apt install build-essential cmake ninja-build xorg-dev libwayland-dev libxkbcommon-dev libdbus-1-dev
 #               (to run: a Vulkan 1.3 driver, e.g. mesa-vulkan-drivers; optional: vulkan-validationlayers)
 # macOS:        brew install cmake ninja   (to run: the Vulkan SDK, which provides MoltenVK)
 cmake --preset linux            # or: macos
@@ -1835,6 +1835,18 @@ panels, EditorApp    the interface, built on the three layers above
   has a start scene made of the engine's own components and built-in assets: a camera, a
   sun, a sky, a floor and a box, so that it plays and exports as it is; `new_project_smoke`
   makes one of each kind, exports one and plays it.
+- **The File menu asks for paths in the system's own dialogs** (`editor/FileDialogs.h`,
+  over nativefiledialog-extended; on Linux xdg-desktop-portal, over D-Bus), never in a
+  field to type a path into. A dialog holds the program until it is answered, so it is
+  shown between frames (`EditorApp::askForPath`, `showPathDialog`), and what it is
+  answered with is done as the menu always did it - a scene opened or saved, a project
+  made, opened or exported by its command. What each item asks for is a request worked
+  out by a function of its own (`openSceneRequest` ...), held by tests to what the menu
+  needs; the editor gets its dialogs through the `FileDialogs` interface, which a test
+  answers itself (`EditorAppDesc::fileDialogs`) - no test shows a dialog of the system.
+  An editor without a window has none: its menu asks for no path and says so, and the
+  commands that take paths are the way of a batch run. The library is the editor's
+  alone; no exported game links it.
 - **The editor and the player open no console window on Windows**: they are programs of
   the Windows subsystem (`WINDOWED` in `cordite_add_executable`), with `main` as their
   entry point all the same. What they write goes where they are given - the pipes of
@@ -2230,6 +2242,13 @@ body explaining what changed and why. One logical change per commit.
   `std::initializer_list<T>{{.member = ...}, {...}}` when `T` holds a vector:
   designated initializers without the name of their type, inside a braced list. Make
   it a `const std::vector<T>` of `T{.member = ...}` first, and loop over that.
+- nativefiledialog-extended builds its support for Wayland from the Wayland protocols, a git
+  submodule that the archive of a tag does not carry: `NFD_WAYLAND` is off, or the build
+  of Linux stops. What that loses is the parent of a dialog on a Wayland session; and the
+  editor gives none on Linux at all (`SystemWindow`), since the headers of X11 define
+  `Status` and `None` over the engine's names. A filter by a double extension
+  (`scene.json`) is given its last one on macOS (`filterSpec`): the system types a file by
+  its last extension, and "scene.json" is the type of no file there.
 - MSVC's incremental linker sometimes stops with LNK1163 ("invalid selection for COMDAT
   section") on objects that are fine: the same target links when it is built again,
   because the failed link took its `.ilk` with it and the next one starts from nothing.

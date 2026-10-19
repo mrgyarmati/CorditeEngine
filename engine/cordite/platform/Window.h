@@ -53,6 +53,23 @@ struct WindowDesc {
     bool fullscreen = false;
 };
 
+/// The window of the system that a Window is: what a dialog of the system - one that asks
+/// for a file - is shown over, and holds back while it is open. Of no kind on Linux: there
+/// it would take the headers of X11, whose names (`Status`, `None`) clash with the engine's,
+/// and a dialog is shown without it, as a window of its own.
+struct SystemWindow {
+    enum class Kind : uint8_t {
+        None,
+        /// The handle is an HWND.
+        Windows,
+        /// The handle is an NSWindow*.
+        Cocoa,
+    };
+
+    Kind kind = Kind::None;
+    void* handle = nullptr;
+};
+
 class Window {
 public:
     ~Window();
@@ -92,6 +109,9 @@ public:
 
     /// The underlying GLFWwindow*, for libraries that integrate with GLFW directly.
     [[nodiscard]] void* nativeHandle() const;
+
+    /// The window of the system this is, for what the system shows over it.
+    [[nodiscard]] SystemWindow systemWindow() const;
 
 private:
     friend class WindowSystem;

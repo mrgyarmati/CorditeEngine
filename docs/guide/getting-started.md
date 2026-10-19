@@ -16,7 +16,7 @@ development with C++" workload; everything else is fetched by the scripts:
 On **Linux** (Ubuntu 24.04 or newer) and **macOS**:
 
 ```bash
-# Ubuntu: sudo apt install build-essential cmake ninja-build xorg-dev libwayland-dev libxkbcommon-dev mesa-vulkan-drivers
+# Ubuntu: sudo apt install build-essential cmake ninja-build xorg-dev libwayland-dev libxkbcommon-dev libdbus-1-dev mesa-vulkan-drivers
 # macOS:  brew install cmake ninja   (and the Vulkan SDK, which brings MoltenVK)
 cmake --preset linux                  # or: macos
 cmake --build --preset linux-release  # or: macos-release
@@ -31,8 +31,8 @@ the engine's internal checks on, which is what you want while working on the eng
 
 ## 2. Make a project
 
-Start the editor and choose **File > New project...**, give it a directory and a name - or,
-from a terminal:
+Start the editor and choose **File > New project...**: pick where it goes, and type what it
+is called - the name of its folder - in the dialog. Or, from a terminal:
 
 ```
 cordite-editor --new-project my-game --name "My Game"

@@ -269,11 +269,29 @@ cordite_declare_dependency(miniaudio
     SHA256 b900edcffe979816e2560a0580b9b1216d674b4f17fbadeca8f777a7f8ab0274
     SOURCES_ONLY)
 
+# --- nativefiledialog-extended: the system's own dialogs for opening and saving files -----
+# For the editor alone (editor/FileDialogs.cpp), which no exported game links. On Linux it
+# asks xdg-desktop-portal over D-Bus (libdbus-1-dev), not GTK, which the build would
+# otherwise have to bring in whole. Its support for Wayland is off: that needs the Wayland
+# protocols, a git submodule that no archive of a tag carries, and does no more than tie
+# the dialog to the editor's window on a Wayland session; the dialog opens there all the
+# same. On Windows a dialog opens where the editor asks - in the project - rather than in
+# the folder some other program used last.
+cordite_declare_dependency(nfd
+    URL https://github.com/btzy/nativefiledialog-extended/archive/refs/tags/v1.4.1.tar.gz
+    SHA256 4a01eafa921169f009f3e83bea8e287d9e5d0b94ca9064cf7f0a546652d7c884)
+cordite_dependency_option(NFD_BUILD_TESTS OFF)
+cordite_dependency_option(NFD_INSTALL OFF)
+cordite_dependency_option(NFD_PORTAL ON)
+cordite_dependency_option(NFD_WAYLAND OFF)
+cordite_dependency_option(NFD_OVERRIDE_RECENT_WITH_DEFAULT ON)
+
 FetchContent_MakeAvailable(
     fmt spdlog nlohmann_json tl_expected enkits xxhash glm
     glfw vulkan_headers nvrhi stb cli11 entt imgui
     cgltf meshoptimizer mikktspace joltphysics lua miniaudio
-    inter jetbrains_mono lucide ltc_code)
+    inter jetbrains_mono lucide ltc_code nfd)
+set_target_properties(nfd PROPERTIES FOLDER "ThirdParty")
 
 # Jolt checks itself where the engine does: in the configurations with assertions. They
 # are reported through the engine's (see cordite/physics/PhysicsWorld.cpp).

@@ -215,6 +215,7 @@ cordite_add_test_suite(editor
         unit/editor/EditorPreferencesTests.cpp
         unit/editor/EditorToolbarTests.cpp
         unit/editor/FileAssociationTests.cpp
+        unit/editor/FileDialogsTests.cpp
         unit/editor/GameExportTests.cpp
         unit/editor/NewProjectTests.cpp
         unit/editor/GizmoTests.cpp

@@ -102,4 +102,6 @@ game's at any time; View > Colliders draws the shapes of physics.
 - **Entity** - create entities; Make prefab of the selection.
 - **Assets** - Refresh, Place model, Place prefab.
 - **File** - New project and Open project (the editor begins again on the project),
-  scenes, and Export game.
+  scenes, and Export game. Where a path is wanted - a scene to open, where to save one, a
+  project, where a game goes - the system's own dialog asks for it: Explorer's on Windows,
+  Finder's on macOS, the desktop's file chooser on Linux.

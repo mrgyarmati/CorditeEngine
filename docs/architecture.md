@@ -2633,3 +2633,22 @@ written by the engine's own serializer, so that it is right by construction and 
 exports as it is. Making one writes over nothing: a directory that holds a project, or a
 scene where the new one would go, is refused, and assets that are there already become the
 project's.
+
+### The File menu asks the system for paths
+
+Where the editor needs a path - a scene to open, where to save one, a project, where a game
+goes - it shows the dialog of the system it runs on, through nativefiledialog-extended:
+Explorer's on Windows, the open and save panels of macOS, and on Linux the file chooser that
+xdg-desktop-portal shows for the desktop in use. A dialog drawn by the editor itself would
+work the same everywhere and could be tested, but it would be one more thing to keep right,
+and it would not know the places a person keeps - favorites, network places, the folders
+of the desktop - which is what people look for in such a dialog.
+
+A dialog of the system holds the thread that shows it until it is answered, so the editor
+shows it between two frames, where nothing is half drawn, and does with the answer what the
+menu did before: a scene is opened or saved, a project made, opened or exported by its
+command. What each item asks for is worked out by a function of its own and held by tests;
+the editor reaches the dialogs through an interface, which a test answers itself, since no
+test can wait for a person. An editor without a window has no dialogs, and says so: a batch
+run and an agent use the commands that take paths. The library is linked into the editor
+alone, so no exported game carries it.

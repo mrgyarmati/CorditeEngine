@@ -42,7 +42,10 @@ constexpr const char* kEditorName = "Cordite Editor";
 constexpr int64_t kPreviewSize = 256;
 /// The largest error a level of detail may be allowed in the viewport, in pixels.
 constexpr float kMaxLodErrorPixels = 64.0f;
-constexpr const char* kFileDialogId = "Scene file";
+/// What the items of the File menu that ask for a path say of themselves without dialogs.
+constexpr const char* kNoDialogs = "Asks for a path in a dialog of the system, which an editor without a window "
+                                   "has not got: the commands that take a path - scene.open, scene.save, "
+                                   "project.new, project.open, project.export - do the same.";
 /// The windows that are closed until someone asks for them, as editor.showPanel names them.
 constexpr const char* kStatisticsPanelName = "statistics";
 constexpr const char* kInterfaceDemoPanelName = "interfaceDemo";
@@ -178,17 +181,6 @@ void buildDefaultLayout(ImGuiID dockSpaceId) {
     ImGui::DockBuilderFinish(dockSpaceId);
 }
 
-/// Where a game of a project goes unless the person says otherwise: beside the project,
-/// named after its directory - "showcase game" beside "showcase".
-std::filesystem::path defaultGameDirectory(const std::filesystem::path& project) {
-    std::error_code error;
-    std::filesystem::path directory = std::filesystem::weakly_canonical(project, error);
-    if (error || directory.filename().empty()) {
-        directory = project;
-    }
-    return directory.parent_path() / pathFromUtf8(pathToUtf8(directory.filename()) + " game");
-}
-
 } // namespace
 
 Result<std::unique_ptr<EditorApp>> EditorApp::create(const EditorAppDesc& desc) {
@@ -242,6 +234,20 @@ Result<std::unique_ptr<EditorApp>> EditorApp::create(const EditorAppDesc& desc) 
     app->m_engine->ui().setTheme(app->m_preferences.theme);
     app->m_assets.browser().setView(app->m_preferences.assetView);
 
+    // Paths are asked for in the dialogs of the system - where there is a window to show
+    // them over, and a person to answer - or in those a test gives.
+    if (desc.fileDialogs != nullptr) {
+        app->m_fileDialogs = desc.fileDialogs;
+    } else if (app->m_engine->window() != nullptr) {
+        if (Result<std::unique_ptr<FileDialogs>> dialogs = makeSystemFileDialogs()) {
+            app->m_systemDialogs = std::move(*dialogs);
+            app->m_fileDialogs = app->m_systemDialogs.get();
+        } else {
+            // The commands that take paths are left, and say so where the menu does.
+            CORDITE_LOG_WARN("Editor", "the File menu asks for no paths: {}", dialogs.error().message);
+        }
+    }
+
     app->m_context =
         std::make_unique<EditorContext>(app->m_engine->world(), app->m_engine->components(), app->m_engine->assets());
     app->m_play = std::make_unique<PlayMode>(*app->m_engine, *app->m_context);
@@ -277,6 +283,9 @@ EditorApp::~EditorApp() = default;
 
 Result<bool> EditorApp::runFrame() {
     followAssetFiles();
+    // A dialog that asks for a path holds the program until it is answered: here, between
+    // frames, it stops none half drawn. What it is answered with may be a line to run.
+    showPathDialog();
     // Lines entered in the console run here, between frames, where a command is free to
     // render frames of its own.
     const std::vector<std::string> lines = std::exchange(m_submittedLines, {});
@@ -1620,7 +1629,6 @@ void EditorApp::drawInterface() {
     }
     m_assets.draw(*m_engine, *m_context, m_viewportSettings.shadowQuality, m_submittedLines);
     rememberAssetView();
-    drawFileDialog();
     // What the user asked for and did not get is said in the console, which may be behind
     // the assets: it comes to the front for it.
     if (m_console.takeFailedAction()) {
@@ -1659,15 +1667,13 @@ void EditorApp::handleShortcuts() {
     }
     if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_S, route)) {
         if (m_context->scenePath().empty()) {
-            m_fileDialog = FileDialog::SaveAs;
-            m_openFileDialog = true;
+            askForPath(PathDialog::SaveSceneAs);
         } else {
             reportIfFailed(m_context->saveScene());
         }
     }
     if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_O, route)) {
-        m_fileDialog = FileDialog::Open;
-        m_openFileDialog = true;
+        askForPath(PathDialog::OpenScene);
     }
 
     // Playing begins and ends between two frames, where commands run: these are queued
@@ -1767,34 +1773,29 @@ void EditorApp::drawFileMenu() {
     if (!ImGui::BeginMenu("File")) {
         return;
     }
-    if (ImGui::MenuItem("New project...", nullptr, false, !m_context->isPlaying())) {
-        m_fileDialog = FileDialog::NewProject;
-        m_openFileDialog = true;
-    }
-    if (ImGui::MenuItem("Open project...", nullptr, false, !m_context->isPlaying())) {
-        m_fileDialog = FileDialog::OpenProject;
-        m_openFileDialog = true;
-    }
+    // An item that asks for a path in a dialog: none without dialogs, which it says.
+    const bool dialogs = hasFileDialogs();
+    const auto pathItem = [this, dialogs](const char* label, const char* shortcut, bool enabled, PathDialog dialog) {
+        if (ImGui::MenuItem(label, shortcut, false, enabled && dialogs)) {
+            askForPath(dialog);
+        }
+        if (!dialogs && ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled)) {
+            ImGui::SetTooltip("%s", kNoDialogs);
+        }
+    };
+    pathItem("New project...", nullptr, !m_context->isPlaying(), PathDialog::NewProject);
+    pathItem("Open project...", nullptr, !m_context->isPlaying(), PathDialog::OpenProject);
     ImGui::Separator();
     if (ImGui::MenuItem("New scene")) {
         reportIfFailed(m_context->newScene());
     }
-    if (ImGui::MenuItem("Open scene...", "Ctrl+O")) {
-        m_fileDialog = FileDialog::Open;
-        m_openFileDialog = true;
-    }
+    pathItem("Open scene...", "Ctrl+O", true, PathDialog::OpenScene);
     if (ImGui::MenuItem("Save", "Ctrl+S", false, !m_context->scenePath().empty())) {
         reportIfFailed(m_context->saveScene());
     }
-    if (ImGui::MenuItem("Save as...")) {
-        m_fileDialog = FileDialog::SaveAs;
-        m_openFileDialog = true;
-    }
+    pathItem("Save as...", nullptr, true, PathDialog::SaveSceneAs);
     ImGui::Separator();
-    if (ImGui::MenuItem("Export game...", nullptr, false, m_project.has_value() && !m_context->isPlaying())) {
-        m_fileDialog = FileDialog::ExportGame;
-        m_openFileDialog = true;
-    }
+    pathItem("Export game...", nullptr, m_project.has_value() && !m_context->isPlaying(), PathDialog::ExportGame);
     ImGui::Separator();
     if (ImGui::MenuItem("Exit")) {
         m_engine->requestExit();
@@ -2132,106 +2133,68 @@ void EditorApp::drawAssetMenu() {
     ImGui::EndMenu();
 }
 
-void EditorApp::drawFileDialog() {
-    if (m_openFileDialog) {
-        m_openFileDialog = false;
-        m_fileDialogName.clear();
-        switch (m_fileDialog) {
-            case FileDialog::ExportGame:
-                m_fileDialogPath = m_project ? pathToUtf8(defaultGameDirectory(m_project->directory)) : std::string();
-                break;
-            case FileDialog::NewProject:
-            case FileDialog::OpenProject:
-                m_fileDialogPath = m_project ? pathToUtf8(m_project->directory.parent_path()) : std::string();
-                break;
-            case FileDialog::None:
-            case FileDialog::Open:
-            case FileDialog::SaveAs:
-                m_fileDialogPath = pathToUtf8(m_context->scenePath());
-                break;
-        }
-        ImGui::OpenPopup(kFileDialogId);
+FileDialogRequest EditorApp::pathRequest(PathDialog dialog) const {
+    const std::filesystem::path project = m_project ? m_project->directory : std::filesystem::path();
+    const std::filesystem::path assets = m_project ? m_project->assetDirectory() : std::filesystem::path();
+    switch (dialog) {
+        case PathDialog::OpenScene:
+            return openSceneRequest(assets, m_context->scenePath());
+        case PathDialog::SaveSceneAs:
+            return saveSceneRequest(assets, m_context->scenePath(), m_context->world().sceneName());
+        case PathDialog::ExportGame:
+            return exportGameRequest(project, m_project ? m_project->settings.name : std::string(), nativeGameLayout());
+        case PathDialog::NewProject:
+            return newProjectRequest(project);
+        case PathDialog::OpenProject:
+            return openProjectRequest(project);
+        case PathDialog::None:
+            break;
     }
+    return {};
+}
 
-    ImGui::SetNextWindowSize(ImVec2(ImGui::GetFontSize() * 36.0f, 0.0f), ImGuiCond_Appearing);
-    if (!ImGui::BeginPopupModal(kFileDialogId, nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+void EditorApp::showPathDialog() {
+    const PathDialog dialog = std::exchange(m_pathDialog, PathDialog::None);
+    if (dialog == PathDialog::None) {
         return;
     }
-
-    // What the dialog asks, and what its button does.
-    const char* prompt = "Save the scene as:";
-    const char* action = "Save";
-    switch (m_fileDialog) {
-        case FileDialog::Open:
-            prompt = "Scene file to open:";
-            action = "Open";
+    if (m_fileDialogs == nullptr) {
+        // Said where what the user asked for and did not get is said: the console.
+        CORDITE_LOG_ERROR(kInterfaceLogCategory, "{}", kNoDialogs);
+        return;
+    }
+    const FileDialogRequest request = pathRequest(dialog);
+    const SystemWindow parent = m_engine->window() != nullptr ? m_engine->window()->systemWindow() : SystemWindow{};
+    const Result<std::optional<std::filesystem::path>> answer = m_fileDialogs->ask(request, parent);
+    if (!reportIfFailed(answer) || !answer->has_value()) {
+        // What could not be asked is in the console; what was cancelled changes nothing.
+        return;
+    }
+    const std::filesystem::path& path = **answer;
+    // What leaves this scene or this project runs as a command, which says what it did or
+    // why it would not.
+    Json parameters = Json::object();
+    parameters["path"] = pathToUtf8(path);
+    switch (dialog) {
+        case PathDialog::OpenScene:
+            reportIfFailed(m_context->openScene(path));
             break;
-        case FileDialog::ExportGame:
-            prompt = "Make the game in:";
-            action = "Export";
+        case PathDialog::SaveSceneAs:
+            reportIfFailed(m_context->saveScene(path));
             break;
-        case FileDialog::NewProject:
-            prompt = "Make the project in the directory:";
-            action = "Create";
+        case PathDialog::ExportGame:
+            m_submittedLines.push_back(fmt::format("project.export {}", parameters.dump()));
             break;
-        case FileDialog::OpenProject:
-            prompt = "The project to open - its directory, or its project.cordite:";
-            action = "Open";
+        case PathDialog::NewProject:
+            // Named after the directory it is made in, which the dialog asked the name of.
+            m_submittedLines.push_back(fmt::format("project.new {}", parameters.dump()));
             break;
-        case FileDialog::None:
-        case FileDialog::SaveAs:
+        case PathDialog::OpenProject:
+            m_submittedLines.push_back(fmt::format("project.open {}", parameters.dump()));
+            break;
+        case PathDialog::None:
             break;
     }
-    ImGui::TextUnformatted(prompt);
-    ImGui::SetNextItemWidth(-std::numeric_limits<float>::min());
-    if (ImGui::IsWindowAppearing()) {
-        ImGui::SetKeyboardFocusHere();
-    }
-    bool entered = ImGui::InputText("##path", &m_fileDialogPath, ImGuiInputTextFlags_EnterReturnsTrue);
-    if (m_fileDialog == FileDialog::NewProject) {
-        ImGui::TextUnformatted("What the game is called (the name of the directory, if nothing):");
-        ImGui::SetNextItemWidth(-std::numeric_limits<float>::min());
-        entered = ImGui::InputText("##name", &m_fileDialogName, ImGuiInputTextFlags_EnterReturnsTrue) || entered;
-    }
-
-    const bool hasPath = !trim(m_fileDialogPath).empty();
-    ImGui::BeginDisabled(!hasPath);
-    const bool confirmed = ImGui::Button(action) || (entered && hasPath);
-    ImGui::EndDisabled();
-    ImGui::SameLine();
-    const bool cancelled = ImGui::Button("Cancel");
-
-    if (confirmed) {
-        const std::filesystem::path path = pathFromUtf8(trim(m_fileDialogPath));
-        // What leaves this scene or this project runs between frames, as a command, and says
-        // what it did or why it would not; the dialog closes either way.
-        Json parameters = Json::object();
-        parameters["path"] = pathToUtf8(path);
-        switch (m_fileDialog) {
-            case FileDialog::ExportGame:
-                m_submittedLines.push_back(fmt::format("project.export {}", parameters.dump()));
-                break;
-            case FileDialog::NewProject:
-                parameters["name"] = std::string(trim(m_fileDialogName));
-                m_submittedLines.push_back(fmt::format("project.new {}", parameters.dump()));
-                break;
-            case FileDialog::OpenProject:
-                m_submittedLines.push_back(fmt::format("project.open {}", parameters.dump()));
-                break;
-            case FileDialog::Open:
-                reportIfFailed(m_context->openScene(path));
-                break;
-            case FileDialog::None:
-            case FileDialog::SaveAs:
-                reportIfFailed(m_context->saveScene(path));
-                break;
-        }
-    }
-    if (confirmed || cancelled) {
-        m_fileDialog = FileDialog::None;
-        ImGui::CloseCurrentPopup();
-    }
-    ImGui::EndPopup();
 }
 
 void EditorApp::updateWindowTitle() {

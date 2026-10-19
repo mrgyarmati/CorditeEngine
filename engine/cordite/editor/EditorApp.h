@@ -61,6 +61,7 @@
 #include "cordite/editor/EditorCamera.h"
 #include "cordite/editor/EditorContext.h"
 #include "cordite/editor/EditorPreferences.h"
+#include "cordite/editor/FileDialogs.h"
 #include "cordite/editor/HierarchyPanel.h"
 #include "cordite/editor/InspectorPanel.h"
 #include "cordite/editor/PlayMode.h"
@@ -119,10 +120,31 @@ struct EditorAppDesc {
     bool watchAssets = false;
     /// How long the watcher of the assets waits between two looks at their files.
     std::chrono::milliseconds assetWatchInterval{500};
+
+    /// The dialogs the File menu asks a person for paths with, which must outlive the
+    /// editor - for a test, which answers for the person. Null: the dialogs of the system
+    /// for an editor with a window, and none without one, whose menu then asks for no
+    /// path - the commands that take paths are the way of a batch run.
+    FileDialogs* fileDialogs = nullptr;
 };
 
 class EditorApp {
 public:
+    /// The paths the File menu asks a person for, each in a dialog.
+    enum class PathDialog : uint8_t {
+        None,
+        /// A scene to open.
+        OpenScene,
+        /// Where the scene is saved, and under what name.
+        SaveSceneAs,
+        /// Where a game of the project goes.
+        ExportGame,
+        /// Where a new project is made, and what it is called: the name of its directory.
+        NewProject,
+        /// A project to open instead.
+        OpenProject,
+    };
+
     /// Loads the project, starts the engine and opens the scene. Fails when any of
     /// that cannot be done.
     [[nodiscard]] static Result<std::unique_ptr<EditorApp>> create(const EditorAppDesc& desc);
@@ -174,6 +196,17 @@ public:
     [[nodiscard]] const ViewportSettings& viewportSettings() const { return m_viewportSettings; }
 
     [[nodiscard]] const AssetBrowserPanel& assetBrowser() const { return m_assets; }
+
+    /// Asks for a path in a dialog, as the File menu does, between this frame and the
+    /// next - where a dialog that holds the program until it is answered does not stop a
+    /// frame half drawn - and does with the answer what the menu does: a scene is opened
+    /// or saved, a project made, opened or exported by its command. A cancelled dialog
+    /// changes nothing; a dialog that cannot be shown, and an editor without dialogs, is
+    /// said in the console.
+    void askForPath(PathDialog dialog) { m_pathDialog = dialog; }
+
+    /// Whether the editor has dialogs to ask for paths with (EditorAppDesc::fileDialogs).
+    [[nodiscard]] bool hasFileDialogs() const { return m_fileDialogs != nullptr; }
 
     /// Playing the scene where it is edited: start it, hold it, stop it. Start and stop
     /// between frames, never during one - which is where commands run.
@@ -243,7 +276,6 @@ private:
     [[nodiscard]] Uuid drawAssetChoice(const char* label, AssetType type, const char* nothing) const;
     void drawPlayMenu();
     void drawViewMenu();
-    void drawFileDialog();
     void handleShortcuts();
     /// W, E, R and X: what the gizmo does, and along whose axes.
     void handleGizmoShortcuts();
@@ -253,18 +285,10 @@ private:
     void handleEntityShortcuts();
     void updateWindowTitle();
 
-    /// What the path dialog is being asked for.
-    enum class FileDialog : uint8_t {
-        None,
-        Open,
-        SaveAs,
-        /// Where a game of the project goes.
-        ExportGame,
-        /// Where a new project is made, and what it is called.
-        NewProject,
-        /// A project to open instead.
-        OpenProject,
-    };
+    /// Shows the dialog askForPath() asked for, if any, and does what its answer says.
+    void showPathDialog();
+    /// What the dialog of `dialog` asks for.
+    [[nodiscard]] FileDialogRequest pathRequest(PathDialog dialog) const;
 
     std::optional<Project> m_project;
     /// What the person at the editor chose about it, and where it is kept (empty: nowhere).
@@ -295,11 +319,12 @@ private:
     /// Lines entered in the console during a frame; they run before the next one, when
     /// commands are free to render frames themselves.
     std::vector<std::string> m_submittedLines;
-    FileDialog m_fileDialog = FileDialog::None;
-    bool m_openFileDialog = false;
-    std::string m_fileDialogPath;
-    /// The name of a new project, typed in the dialog that makes one.
-    std::string m_fileDialogName;
+    /// The dialogs of the system, when the editor has made them, and the dialogs it asks
+    /// for paths with - those, or a test's - if any.
+    std::unique_ptr<FileDialogs> m_systemDialogs;
+    FileDialogs* m_fileDialogs = nullptr;
+    /// The dialog to show before the next frame.
+    PathDialog m_pathDialog = PathDialog::None;
     std::optional<std::filesystem::path> m_projectToOpen;
     bool m_showInterfaceDemo = false;
     bool m_showStatistics = false;

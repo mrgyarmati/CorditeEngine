@@ -5,8 +5,8 @@ assets and everything the program needs.
 
 ## Exporting
 
-Save the scene, then choose **File > Export game...** and say where the game goes. Or, from a
-terminal:
+Save the scene, then choose **File > Export game...** and pick the folder the game goes into -
+on macOS, name the application to make. Or, from a terminal:
 
 ```
 cordite-editor --project my-game --export builds/MyGame

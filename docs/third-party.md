@@ -103,9 +103,15 @@ validation layers.
 | Library | Version | License | Used for |
 |---------|---------|---------|----------|
 | [Slang](https://github.com/shader-slang/slang) | 2026.19 (official prebuilt binaries) | Apache-2.0 WITH LLVM-exception | Shader compilation to SPIR-V |
+| [nativefiledialog-extended](https://github.com/btzy/nativefiledialog-extended) | 1.4.1 | Zlib | The system's own dialogs in which the editor's File menu asks for paths (`editor/FileDialogs.h`) |
 
 Slang is a shared library. On Windows its DLLs are copied next to the executables at
 build time; on Linux and macOS the executables find it through their build RPATH.
+
+nativefiledialog-extended is built from its sources by its own CMake project. On Linux it
+asks xdg-desktop-portal for its dialogs over D-Bus, and the build needs the headers of
+D-Bus (`libdbus-1-dev`), not GTK; its support for Wayland is left out (AGENTS.md, Known
+pitfalls). On Windows the editor links the COM libraries it needs (`ole32`, `uuid`).
 
 ## Tests only
 

@@ -22,6 +22,7 @@
 #include "cordite/renderer/RenderDebugView.h"
 #include "cordite/rhi/TextureReadback.h"
 #include "cordite/shaders/EngineShaders.h"
+#include "cordite/world/EntityPath.h"
 #include "cordite/world/SceneSerializer.h"
 
 #include "render/EditorTestSupport.h"
@@ -71,6 +72,22 @@ Image rowsOf(const Image& picture, uint32_t first, uint32_t last) {
     std::vector<std::byte> rows(pixels.begin() + first * rowBytes, pixels.begin() + last * rowBytes);
     return unwrap(Image::fromPixels(picture.width(), last - first, picture.format(), std::move(rows)));
 }
+
+/// Dialogs that answer for the person, with what they were told to: they keep what each
+/// was asked, and over which window.
+class AnsweringDialogs final : public FileDialogs {
+public:
+    Result<std::optional<std::filesystem::path>> answer = std::optional<std::filesystem::path>();
+    std::vector<FileDialogRequest> asked;
+    std::vector<SystemWindow::Kind> parents;
+
+    Result<std::optional<std::filesystem::path>> ask(const FileDialogRequest& request,
+                                                     const SystemWindow& parent) override {
+        asked.push_back(request);
+        parents.push_back(parent.kind);
+        return answer;
+    }
+};
 
 } // namespace
 
@@ -2861,6 +2878,119 @@ TEST_SUITE("EditorApp") {
         CHECK_FALSE(unwrap(editor->runFrame()));
         // There is a project there now.
         CHECK(refusal(*editor, "project.new", parameters.dump()).code == ErrorCode::AlreadyExists);
+    }
+
+    TEST_CASE("the File menu asks for paths in dialogs between frames, and does what they are answered") {
+        const TempDirectory directory;
+        const Project project = unwrap(createProject(directory.path() / "game", "Game"));
+        const std::filesystem::path assets = project.assetDirectory();
+        AnsweringDialogs dialogs;
+        EditorAppDesc desc = headlessDesc(UVec2(320, 180));
+        desc.project = project.directory;
+        desc.fileDialogs = &dialogs;
+        const std::unique_ptr<EditorApp> editor = createEditor(desc);
+        REQUIRE(editor->hasFileDialogs());
+        EditorContext& context = editor->context();
+
+        // Asked for, nothing is shown until the frame is over.
+        editor->askForPath(EditorApp::PathDialog::SaveSceneAs);
+        CHECK(dialogs.asked.empty());
+        dialogs.answer = std::optional(assets / "levels" / "yard.scene.json");
+        REQUIRE(editor->runFrames(1).has_value());
+        REQUIRE(dialogs.asked.size() == 1);
+        CHECK(dialogs.asked[0] == saveSceneRequest(assets, {}, context.world().sceneName()));
+        // A window of no kind: this editor has none.
+        CHECK(dialogs.parents[0] == SystemWindow::Kind::None);
+        CHECK(fileExists(assets / "levels" / "yard.scene.json"));
+        CHECK(context.scenePath() == assets / "levels" / "yard.scene.json");
+
+        // Opened: the scene of the answer.
+        run(*editor, "entity.create", R"({"name": "Lamp"})");
+        REQUIRE(context.saveScene(assets / "levels" / "night.scene.json").has_value());
+        editor->askForPath(EditorApp::PathDialog::OpenScene);
+        dialogs.answer = std::optional(assets / "levels" / "yard.scene.json");
+        REQUIRE(editor->runFrames(1).has_value());
+        CHECK(dialogs.asked.back() == openSceneRequest(assets, assets / "levels" / "night.scene.json"));
+        CHECK(context.scenePath() == assets / "levels" / "yard.scene.json");
+        CHECK_FALSE(findEntityByPath(context.world(), "Lamp").has_value());
+
+        // Cancelled: nothing changes, and nothing is said.
+        {
+            const test::LogCapture log(LogLevel::Warn);
+            editor->askForPath(EditorApp::PathDialog::OpenScene);
+            dialogs.answer = std::optional<std::filesystem::path>();
+            REQUIRE(editor->runFrames(1).has_value());
+            CHECK(dialogs.asked.size() == 3);
+            CHECK(context.scenePath() == assets / "levels" / "yard.scene.json");
+            CHECK(log.count(LogLevel::Warn) == 0);
+            CHECK(log.count(LogLevel::Error) == 0);
+        }
+        // A dialog that cannot be shown is said in the console.
+        {
+            const test::LogCapture log(LogLevel::Error);
+            editor->askForPath(EditorApp::PathDialog::OpenScene);
+            dialogs.answer = makeError(ErrorCode::Unsupported, "no portal to ask");
+            REQUIRE(editor->runFrames(1).has_value());
+            CHECK(log.contains("no portal to ask"));
+            CHECK(context.scenePath() == assets / "levels" / "yard.scene.json");
+        }
+
+        // A game is exported where the folder is that was picked - asked for here, and not
+        // made: a cancel.
+        editor->askForPath(EditorApp::PathDialog::ExportGame);
+        dialogs.answer = std::optional<std::filesystem::path>();
+        REQUIRE(editor->runFrames(1).has_value());
+        CHECK(dialogs.asked.back() == exportGameRequest(project.directory, "Game", nativeGameLayout()));
+        // A project is opened by its file, and made where the answer says, after its
+        // directory: then the editor closes, to begin again on it.
+        editor->askForPath(EditorApp::PathDialog::OpenProject);
+        REQUIRE(editor->runFrames(1).has_value());
+        CHECK(dialogs.asked.back() == openProjectRequest(project.directory));
+        CHECK_FALSE(editor->projectToOpen().has_value());
+        editor->askForPath(EditorApp::PathDialog::NewProject);
+        dialogs.answer = std::optional(directory.path() / "Second game");
+        REQUIRE(editor->runFrames(1).has_value());
+        CHECK(dialogs.asked.back() == newProjectRequest(project.directory));
+        CHECK(unwrap(loadProject(directory.path() / "Second game")).settings.name == "Second game");
+        REQUIRE(editor->projectToOpen().has_value());
+        CHECK(*editor->projectToOpen() == directory.path() / "Second game");
+        checkNoValidationIssues(editor->engine().graphics());
+    }
+
+    TEST_CASE("Ctrl+O and Ctrl+S ask for paths, and an editor without dialogs says it has none") {
+        const TempDirectory directory;
+        AnsweringDialogs dialogs;
+        EditorAppDesc desc = headlessDesc(UVec2(320, 180));
+        desc.fileDialogs = &dialogs;
+        {
+            const std::unique_ptr<EditorApp> editor = createEditor(desc);
+            // A shortcut is heard from the frame after the first that asked for it.
+            REQUIRE(editor->runFrames(1).has_value());
+            pressShortcut(*editor, ImGuiMod_Ctrl | ImGuiKey_O);
+            REQUIRE(editor->runFrames(1).has_value());
+            REQUIRE(dialogs.asked.size() == 1);
+            CHECK(dialogs.asked[0].kind == FileDialogKind::Open);
+            // A scene without a file is saved where a dialog says.
+            dialogs.answer = std::optional(directory.path() / "first.scene.json");
+            pressShortcut(*editor, ImGuiMod_Ctrl | ImGuiKey_S);
+            REQUIRE(editor->runFrames(1).has_value());
+            REQUIRE(dialogs.asked.size() == 2);
+            CHECK(dialogs.asked[1].kind == FileDialogKind::Save);
+            CHECK(fileExists(directory.path() / "first.scene.json"));
+            // One with a file is saved there, without asking.
+            pressShortcut(*editor, ImGuiMod_Ctrl | ImGuiKey_S);
+            REQUIRE(editor->runFrames(1).has_value());
+            CHECK(dialogs.asked.size() == 2);
+        }
+        // Without a window and without dialogs given, there are none: what asks for one is
+        // told, in the console.
+        const std::unique_ptr<EditorApp> editor = createEditor(headlessDesc(UVec2(320, 180)));
+        CHECK_FALSE(editor->hasFileDialogs());
+        const test::LogCapture log(LogLevel::Error);
+        editor->askForPath(EditorApp::PathDialog::OpenProject);
+        REQUIRE(editor->runFrames(1).has_value());
+        CHECK(log.contains("dialog of the system"));
+        CHECK(log.contains("project.open"));
     }
 
     TEST_CASE("an editor opens another project by command, and nothing that is no project") {
