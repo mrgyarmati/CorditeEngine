@@ -1618,16 +1618,20 @@ void EditorApp::drawInterface() {
 
 void EditorApp::handleShortcuts() {
     // Global shortcuts give way to a text field that has the focus, so that Ctrl+Z in
-    // a name field undoes typing and Delete removes a character.
+    // a name field undoes typing and Delete removes a character. Every shortcut is asked for
+    // in every frame, and only then is it decided whether it applies: Dear ImGui gives a key
+    // to a shortcut from the frame after the one it was asked for in, and would lose the
+    // first press after a frame in which it was not.
     const ImGuiInputFlags route = ImGuiInputFlags_RouteGlobal;
     UndoStack& history = m_context->history();
 
     if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_Z, route) && history.canUndo()) {
         reportIfFailed(history.undo());
     }
-    const bool redoPressed = ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_Y, route) ||
-                             ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_Z, route);
-    if (redoPressed && history.canRedo()) {
+    // Two shortcuts redo, and both are asked for when the first is pressed.
+    const bool redoPressed = ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_Y, route);
+    const bool redoWithZPressed = ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_Z, route);
+    if ((redoPressed || redoWithZPressed) && history.canRedo()) {
         reportIfFailed(history.redo());
     }
     if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_S, route)) {
@@ -1646,9 +1650,11 @@ void EditorApp::handleShortcuts() {
     // Playing begins and ends between two frames, where commands run: these are queued
     // like lines typed into the console, and run before the next frame.
     const PlayState playing = m_play->state();
-    if (ImGui::Shortcut(ImGuiMod_Shift | ImGuiKey_F5, route) && playing != PlayState::Stopped) {
+    const bool stopPressed = ImGui::Shortcut(ImGuiMod_Shift | ImGuiKey_F5, route);
+    const bool startPressed = ImGui::Shortcut(ImGuiKey_F5, route);
+    if (stopPressed && playing != PlayState::Stopped) {
         m_submittedLines.emplace_back("play.stop");
-    } else if (ImGui::Shortcut(ImGuiKey_F5, route) && playing == PlayState::Stopped) {
+    } else if (startPressed && playing == PlayState::Stopped) {
         m_submittedLines.emplace_back("play.start");
     }
     if (ImGui::Shortcut(ImGuiKey_F6, route) && playing != PlayState::Stopped) {
@@ -1666,9 +1672,7 @@ void EditorApp::handleGizmoShortcuts() {
     const ImGuiInputFlags route = ImGuiInputFlags_RouteGlobal;
     // What the gizmo does, as in the editors people know - unless a camera is being flown,
     // which takes the same keys, or the gizmo is being dragged in a viewport. The keys are
-    // asked for in every frame all the same: Dear ImGui gives a key to a shortcut from the
-    // frame after the one it was asked for in, and would lose the first that is pressed
-    // after a frame in which it was not.
+    // asked for all the same (see handleShortcuts).
     const bool translate = ImGui::Shortcut(ImGuiKey_W, route);
     const bool rotate = ImGui::Shortcut(ImGuiKey_E, route);
     const bool scale = ImGui::Shortcut(ImGuiKey_R, route);
@@ -1706,25 +1710,33 @@ void EditorApp::handleFrameShortcut() {
 
 void EditorApp::handleEntityShortcuts() {
     const ImGuiInputFlags route = ImGuiInputFlags_RouteGlobal;
+    // Asked for also while nothing is selected (see handleShortcuts): the first key after a
+    // click that selects something is pressed in the frame right after it.
+    const bool pastePressed = ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_V, route);
+    const bool duplicatePressed = ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_D, route);
+    const bool copyPressed = ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_C, route);
+    const bool cutPressed = ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_X, route);
+    const bool deletePressed = ImGui::Shortcut(ImGuiKey_Delete, route);
+
     // Pasting needs nothing selected: what was copied goes where it came from.
-    if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_V, route) && !m_context->clipboard().is_null()) {
+    if (pastePressed && !m_context->clipboard().is_null()) {
         reportIfFailed(EditorActions(*m_context).pasteEntities());
     }
-
     const std::vector<Entity> selection = m_context->selection();
-    if (!selection.empty()) {
-        if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_D, route)) {
-            reportIfFailed(EditorActions(*m_context).duplicateEntities(selection));
-        }
-        if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_C, route)) {
-            reportIfFailed(EditorActions(*m_context).copyEntities(selection));
-        }
-        if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_X, route)) {
-            reportIfFailed(EditorActions(*m_context).cutEntities(selection));
-        }
-        if (ImGui::Shortcut(ImGuiKey_Delete, route)) {
-            reportIfFailed(EditorActions(*m_context).deleteEntities(selection));
-        }
+    if (selection.empty()) {
+        return;
+    }
+    if (duplicatePressed) {
+        reportIfFailed(EditorActions(*m_context).duplicateEntities(selection));
+    }
+    if (copyPressed) {
+        reportIfFailed(EditorActions(*m_context).copyEntities(selection));
+    }
+    if (cutPressed) {
+        reportIfFailed(EditorActions(*m_context).cutEntities(selection));
+    }
+    if (deletePressed) {
+        reportIfFailed(EditorActions(*m_context).deleteEntities(selection));
     }
 }
 

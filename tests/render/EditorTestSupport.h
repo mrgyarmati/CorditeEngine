@@ -2,7 +2,7 @@
 
 /// @file
 /// What the tests of the editor are built on: an editor without a window, made the same way
-/// for every test, and its commands run and refused.
+/// for every test, its commands run and refused, and the shortcuts of its interface pressed.
 ///
 /// @code
 /// EditorAppDesc desc = headlessDesc(UVec2(640, 360));
@@ -11,6 +11,7 @@
 ///
 /// run(*editor, "viewport.lookAt", R"({"position": [0, 2, 8], "target": [0, 2, 0]})");
 /// const Error error = refusal(*editor, "viewport.close", R"({"viewport": 1})");
+/// pressShortcut(*editor, ImGuiMod_Ctrl | ImGuiKey_D);
 /// @endcode
 
 #include "cordite/core/FileSystem.h"
@@ -23,11 +24,14 @@
 #include "render/RenderTestSupport.h"
 #include "support/TestSupport.h"
 
+#include <imgui.h>
+
 #include <filesystem>
 #include <memory>
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 namespace cordite::test {
 
@@ -85,6 +89,40 @@ inline std::unique_ptr<EditorApp> createEditorForPicture(const EditorAppDesc& de
 /// A JSON string literal holding a path, quoted and escaped.
 inline std::string quoted(const std::filesystem::path& path) {
     return Json(pathToUtf8(path)).dump();
+}
+
+/// The key a person holds for what Dear ImGui calls Ctrl: Cmd on a Mac, where Dear ImGui
+/// swaps the two as they come in (`ImGuiIO::ConfigMacOSXBehaviors`).
+inline ImGuiKey controlKey() {
+    return ImGui::GetIO().ConfigMacOSXBehaviors ? ImGuiMod_Super : ImGuiMod_Ctrl;
+}
+
+/// A shortcut of the interface - a key, with Ctrl, Shift or Alt - pressed in one frame and
+/// let go of in the next. Without a window the engine tells the interface of its pointer
+/// alone, so the keys are given to Dear ImGui itself.
+inline void pressShortcut(EditorApp& editor, ImGuiKeyChord shortcut) {
+    // Super is the key controlKey() decides on: no test holds it by its name.
+    REQUIRE((shortcut & ImGuiMod_Super) == 0);
+    std::vector<ImGuiKey> keys;
+    if ((shortcut & ImGuiMod_Ctrl) != 0) {
+        keys.push_back(controlKey());
+    }
+    if ((shortcut & ImGuiMod_Shift) != 0) {
+        keys.push_back(ImGuiMod_Shift);
+    }
+    if ((shortcut & ImGuiMod_Alt) != 0) {
+        keys.push_back(ImGuiMod_Alt);
+    }
+    keys.push_back(static_cast<ImGuiKey>(shortcut & ~ImGuiMod_Mask_));
+    ImGuiIO& io = ImGui::GetIO();
+    for (const ImGuiKey key : keys) {
+        io.AddKeyEvent(key, true);
+    }
+    REQUIRE(editor.runFrames(1).has_value());
+    for (const ImGuiKey key : keys) {
+        io.AddKeyEvent(key, false);
+    }
+    REQUIRE(editor.runFrames(1).has_value());
 }
 
 } // namespace cordite::test

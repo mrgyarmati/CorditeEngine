@@ -1397,8 +1397,10 @@ Step-by-step guide: [work-with-assets](.claude/skills/work-with-assets/SKILL.md)
 - **Whatever a hand can do, `input.inject` can**, between frames - which is how tests
   and agents press keys. It reaches `Engine::input()`, and without a window the
   pointer of the editor's interface follows it as well - its keys do not: a shortcut
-  of Dear ImGui (W, E, R, Ctrl+Z) is pressed in a test with `ImGuiIO::AddKeyEvent`
-  (`EditorViewportTests`, `PropertyEditorTests`). That includes dropping files onto
+  of Dear ImGui (W, E, R, Ctrl+Z) is pressed in a test with `ImGuiIO::AddKeyEvent`, by
+  `pressShortcut` (`tests/render/EditorTestSupport.h`) - which holds the key a person
+  holds for Ctrl, `controlKey()`: on a Mac Dear ImGui takes Cmd for Ctrl, and swaps the
+  two as they come in. That includes dropping files onto
   the window from a file manager (`Input::droppedFiles()`, for one frame), which the
   editor imports.
 - **The showcase binds every kind of control**: the `samples` test fails for a kind
@@ -2156,8 +2158,10 @@ body explaining what changed and why. One logical change per commit.
 - `ImGui::Shortcut` gives a key to a shortcut from the frame after the one it was asked
   for in: what it asks is the route of the next frame. A shortcut that is asked for only
   while something allows it loses the first press after a frame in which it was not -
-  the gizmo's E, pressed right after the camera was flown. Ask for it in every frame,
-  then decide whether to act (`EditorApp::handleGizmoShortcuts`).
+  the gizmo's E, pressed right after the camera was flown, and Ctrl+D right after a click
+  that selected something. Ask for every shortcut in every frame, then decide whether to
+  act (`EditorApp::handleShortcuts`) - never where what comes before can leave the asking
+  out: on the right of `&&` or `||`, or in an `else if`.
 - A JSON object that has a key twice is refused by `parseJson`. The library behind it
   keeps one of the two values and says nothing, which is how a budget for the joints
   of the physics went unchecked: it had the name of another. Text that is put

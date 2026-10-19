@@ -28,12 +28,14 @@
 #include "render/RenderTestSupport.h"
 #include "support/MathTestSupport.h"
 
+#include <imgui.h>
 #include <imgui_internal.h>
 
 #include <algorithm>
 #include <chrono>
 #include <cstddef>
 #include <filesystem>
+#include <initializer_list>
 #include <memory>
 #include <optional>
 #include <set>
@@ -47,10 +49,12 @@
 using namespace cordite;
 using cordite::test::checkAgainstReference;
 using cordite::test::checkNoValidationIssues;
+using cordite::test::controlKey;
 using cordite::test::createEditor;
 using cordite::test::createEditorForPicture;
 using cordite::test::headlessDesc;
 using cordite::test::json;
+using cordite::test::pressShortcut;
 using cordite::test::quoted;
 using cordite::test::refusal;
 using cordite::test::run;
@@ -2283,6 +2287,96 @@ TEST_SUITE("EditorApp") {
         const Error sized = refusal(*editor, "viewport.frame", R"({"radius": 3})");
         CHECK(sized.code == ErrorCode::InvalidArgument);
         CHECK(sized.message.find("'radius'") != std::string::npos);
+        checkNoValidationIssues(editor->engine().graphics());
+    }
+
+    TEST_CASE("a shortcut of the editor is heard in the first frame in which it applies") {
+        const std::unique_ptr<EditorApp> editor = createEditor(headlessDesc(UVec2(640, 360)));
+        const EditorContext& context = editor->context();
+        const World& world = context.world();
+        const std::string box = run(*editor, "entity.create", R"({"name": "Box"})")["id"].get<std::string>();
+        const auto copiedName = [&] {
+            const Json& copied = context.clipboard();
+            REQUIRE(copied.is_array());
+            REQUIRE_FALSE(copied.empty());
+            return copied.front().at("name").get<std::string>();
+        };
+        // Each key is pressed in the frame right after the box is selected, after a frame in
+        // which nothing was: the first frame in which the key has anything to act on.
+        const auto selectAfterAFrameWithout = [&] {
+            run(*editor, "selection.set", R"({"entities": []})");
+            REQUIRE(editor->runFrames(1).has_value());
+            run(*editor, "selection.set", fmt::format(R"({{"entities": ["{}"]}})", box));
+        };
+
+        // With nothing selected and nothing copied, the keys have nothing to act on: they do
+        // nothing, and have nothing to say about it.
+        {
+            test::LogCapture capture(LogLevel::Error);
+            run(*editor, "selection.set", R"({"entities": []})");
+            REQUIRE(editor->runFrames(1).has_value());
+            for (const ImGuiKeyChord shortcut : std::initializer_list<ImGuiKeyChord>{
+                     ImGuiMod_Ctrl | ImGuiKey_D, ImGuiMod_Ctrl | ImGuiKey_C, ImGuiMod_Ctrl | ImGuiKey_X,
+                     ImGuiMod_Ctrl | ImGuiKey_V, ImGuiKey_Delete}) {
+                pressShortcut(*editor, shortcut);
+            }
+            CHECK(world.entityCount() == 1);
+            CHECK(context.clipboard().is_null());
+            CHECK(context.history().undoLabel() == "Create 'Box'");
+            CHECK(capture.count(LogLevel::Error) == 0);
+        }
+
+        selectAfterAFrameWithout();
+        pressShortcut(*editor, ImGuiMod_Ctrl | ImGuiKey_D);
+        CHECK(world.entityCount() == 2);
+        CHECK(context.history().undoLabel() == "Duplicate 'Box'");
+        run(*editor, "editor.undo");
+
+        selectAfterAFrameWithout();
+        pressShortcut(*editor, ImGuiMod_Ctrl | ImGuiKey_X);
+        CHECK(world.entityCount() == 0);
+        CHECK(copiedName() == "Box");
+        run(*editor, "editor.undo");
+
+        selectAfterAFrameWithout();
+        pressShortcut(*editor, ImGuiKey_Delete);
+        CHECK(world.entityCount() == 0);
+        CHECK(context.history().undoLabel() == "Delete 'Box'");
+        run(*editor, "editor.undo");
+
+        run(*editor, "entity.rename", fmt::format(R"({{"entity": "{}", "name": "Crate"}})", box));
+        selectAfterAFrameWithout();
+        pressShortcut(*editor, ImGuiMod_Ctrl | ImGuiKey_C);
+        CHECK(copiedName() == "Crate");
+        CHECK(world.entityCount() == 1);
+        // Pasting needs nothing selected: what was copied goes where it came from.
+        run(*editor, "selection.set", R"({"entities": []})");
+        pressShortcut(*editor, ImGuiMod_Ctrl | ImGuiKey_V);
+        CHECK(world.entityCount() == 2);
+        CHECK(context.history().undoLabel() == "Paste 'Crate'");
+        run(*editor, "editor.undo");
+
+        // Ctrl+Y and Ctrl+Shift+Z both redo - the second also in the frame right after the
+        // first, with Ctrl held.
+        run(*editor, "entity.rename", fmt::format(R"({{"entity": "{}", "name": "Barrel"}})", box));
+        run(*editor, "editor.undo");
+        run(*editor, "editor.undo");
+        REQUIRE(editor->runFrames(1).has_value());
+        ImGuiIO& io = ImGui::GetIO();
+        io.AddKeyEvent(controlKey(), true);
+        io.AddKeyEvent(ImGuiKey_Y, true);
+        REQUIRE(editor->runFrames(1).has_value());
+        CHECK(context.history().undoLabel() == "Rename 'Box' to 'Crate'");
+        io.AddKeyEvent(ImGuiKey_Y, false);
+        io.AddKeyEvent(ImGuiMod_Shift, true);
+        io.AddKeyEvent(ImGuiKey_Z, true);
+        REQUIRE(editor->runFrames(1).has_value());
+        CHECK(context.history().undoLabel() == "Rename 'Crate' to 'Barrel'");
+        io.AddKeyEvent(ImGuiKey_Z, false);
+        io.AddKeyEvent(ImGuiMod_Shift, false);
+        io.AddKeyEvent(controlKey(), false);
+        REQUIRE(editor->runFrames(1).has_value());
+        CHECK_FALSE(context.history().canRedo());
         checkNoValidationIssues(editor->engine().graphics());
     }
 

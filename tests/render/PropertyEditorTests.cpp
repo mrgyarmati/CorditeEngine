@@ -5,6 +5,7 @@
 #include "cordite/renderer/RenderTarget.h"
 #include "cordite/ui/UiSystem.h"
 
+#include "render/EditorTestSupport.h"
 #include "render/RenderTestSupport.h"
 
 #include <imgui.h>
@@ -102,11 +103,11 @@ public:
         frame(Field::Json);
         frame();
         frame();
-        io.AddKeyEvent(ImGuiMod_Ctrl, true);
+        io.AddKeyEvent(test::controlKey(), true);
         io.AddKeyEvent(ImGuiKey_A, true);
         frame();
         io.AddKeyEvent(ImGuiKey_A, false);
-        io.AddKeyEvent(ImGuiMod_Ctrl, false);
+        io.AddKeyEvent(test::controlKey(), false);
         frame();
         io.AddInputCharactersUTF8(std::string(text).c_str());
         frame();

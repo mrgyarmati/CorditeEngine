@@ -30,6 +30,7 @@ using cordite::test::checkNoValidationIssues;
 using cordite::test::createEditor;
 using cordite::test::headlessDesc;
 using cordite::test::json;
+using cordite::test::pressShortcut;
 using cordite::test::quoted;
 using cordite::test::refusal;
 using cordite::test::run;
@@ -79,16 +80,6 @@ std::vector<uint32_t> openViewports(EditorApp& editor) {
 void pointerTo(EditorApp& editor, Vec2 at) {
     run(editor, "input.inject", fmt::format(R"({{"mouseMove": [{}, {}]}})", at.x, at.y));
     REQUIRE(editor.runFrames(2).has_value());
-}
-
-/// A key pressed and let go of, as the interface hears it. Without a window the engine tells
-/// the interface of the pointer alone, and a shortcut of the interface is a key of its own.
-void pressKey(EditorApp& editor, ImGuiKey key) {
-    ImGuiIO& io = ImGui::GetIO();
-    io.AddKeyEvent(key, true);
-    REQUIRE(editor.runFrames(1).has_value());
-    io.AddKeyEvent(key, false);
-    REQUIRE(editor.runFrames(1).has_value());
 }
 
 /// A button of the mouse pressed and let go of where the pointer is.
@@ -474,7 +465,7 @@ TEST_SUITE("EditorViewports") {
         pointerTo(*editor, grab + Vec2(60.0f, 0.0f));
         REQUIRE(editor->findViewport(2)->isDraggingGizmo());
         // While it is dragged, no key changes what the gizmo does.
-        pressKey(*editor, ImGuiKey_E);
+        pressShortcut(*editor, ImGuiKey_E);
         CHECK(editor->viewportSettings().gizmoMode == GizmoMode::Translate);
 
         // Closed in the middle of the drag, the drag ends where it is, as one step.
@@ -505,15 +496,15 @@ TEST_SUITE("EditorViewports") {
         const std::unique_ptr<EditorApp> editor = createEditor(headlessDesc(UVec2(1280, 720)));
         run(*editor, "viewport.open");
         REQUIRE(editor->runFrames(3).has_value());
-        pressKey(*editor, ImGuiKey_E);
+        pressShortcut(*editor, ImGuiKey_E);
         CHECK(editor->viewportSettings().gizmoMode == GizmoMode::Rotate);
-        pressKey(*editor, ImGuiKey_R);
+        pressShortcut(*editor, ImGuiKey_R);
         CHECK(editor->viewportSettings().gizmoMode == GizmoMode::Scale);
-        pressKey(*editor, ImGuiKey_X);
+        pressShortcut(*editor, ImGuiKey_X);
         CHECK(editor->viewportSettings().gizmoSpace == GizmoSpace::Local);
-        pressKey(*editor, ImGuiKey_X);
+        pressShortcut(*editor, ImGuiKey_X);
         CHECK(editor->viewportSettings().gizmoSpace == GizmoSpace::World);
-        pressKey(*editor, ImGuiKey_W);
+        pressShortcut(*editor, ImGuiKey_W);
         CHECK(editor->viewportSettings().gizmoMode == GizmoMode::Translate);
 
         // The right button held in the second viewport: the same keys fly its camera.
@@ -521,13 +512,13 @@ TEST_SUITE("EditorViewports") {
         run(*editor, "input.inject", R"({"mouseButton": "Right", "down": true})");
         REQUIRE(editor->runFrames(1).has_value());
         REQUIRE(editor->findViewport(2)->camera().isNavigating());
-        pressKey(*editor, ImGuiKey_E);
+        pressShortcut(*editor, ImGuiKey_E);
         CHECK(editor->viewportSettings().gizmoMode == GizmoMode::Translate);
         // Let go of, the next key is the gizmo's again - also the very first, pressed in the
         // frame right after.
         run(*editor, "input.inject", R"({"mouseButton": "Right", "down": false})");
         REQUIRE(editor->runFrames(1).has_value());
-        pressKey(*editor, ImGuiKey_E);
+        pressShortcut(*editor, ImGuiKey_E);
         CHECK(editor->viewportSettings().gizmoMode == GizmoMode::Rotate);
         checkNoValidationIssues(editor->engine().graphics());
     }
