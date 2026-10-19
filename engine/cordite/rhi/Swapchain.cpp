@@ -254,6 +254,10 @@ Result<bool> Swapchain::Impl::recreate() {
 
 Result<std::unique_ptr<Swapchain>> Swapchain::create(GraphicsDevice& device, const Window& window,
                                                      const SwapchainDesc& desc) {
+    if (device.backend() != GraphicsBackend::Vulkan) {
+        return makeError(ErrorCode::Unsupported, "a window is drawn into with Vulkan alone, not with {} yet",
+                         nameOf(device.backend()));
+    }
     if (!device.canPresent()) {
         return makeError(ErrorCode::InvalidState,
                          "the graphics device was created without presentation support (headless)");

@@ -50,7 +50,9 @@ struct SwapchainFrame {
 class Swapchain {
 public:
     /// The device must have been created with the window system's presentation
-    /// extensions. The window and the device must outlive the swapchain.
+    /// extensions. The window and the device must outlive the swapchain. Fails with
+    /// Unsupported for a device of Direct3D 12, which draws offscreen only for now, and with
+    /// InvalidState for a device made without presentation.
     [[nodiscard]] static Result<std::unique_ptr<Swapchain>> create(GraphicsDevice& device, const Window& window,
                                                                    const SwapchainDesc& desc = {});
     ~Swapchain();

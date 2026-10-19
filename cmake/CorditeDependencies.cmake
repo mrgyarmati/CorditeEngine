@@ -114,14 +114,34 @@ cordite_declare_dependency(vulkan_headers
     URL https://github.com/KhronosGroup/Vulkan-Headers/archive/refs/tags/v1.4.352.tar.gz
     SHA256 4850909d22a8a9767c27daea2b972e49d7c298560573d5b6221ee50db9bf49db)
 
-# --- NVRHI: rendering hardware interface over Vulkan ------------------------------------
+# --- DirectX-Headers: the Direct3D 12 API, for NVRHI's D3D12 backend (Windows only) -----
+# Must stay at the version NVRHI is developed against (NVRHI_DIRECTX_HEADERS_GIT_TAG in
+# its CMakeLists.txt). Declared before NVRHI so that it uses this copy instead of fetching
+# one of its own, unpinned. Its GUIDs are compiled into the program (DirectX-Guids).
+set(cordite_directx_headers "")
+if(WIN32)
+    cordite_declare_dependency(directx_headers
+        URL https://github.com/microsoft/DirectX-Headers/archive/refs/tags/v1.717.0-preview.tar.gz
+        SHA256 8df9e5543bdf21456ddc9afe55cc576cf903c286e7bdb78390d703467f76d61b)
+    cordite_dependency_option(DXHEADERS_BUILD_TEST OFF)
+    cordite_dependency_option(DXHEADERS_BUILD_GOOGLE_TEST OFF)
+    cordite_dependency_option(DXHEADERS_INSTALL OFF)
+    set(cordite_directx_headers directx_headers)
+endif()
+
+# --- NVRHI: rendering hardware interface over Vulkan and, on Windows, Direct3D 12 -------
 # NVRHI has no releases; this is a commit of its main branch (2026-10-05).
 cordite_declare_dependency(nvrhi
     URL https://github.com/NVIDIA-RTX/NVRHI/archive/6b96fb03e07539f08327aea76c56d55f1de9d906.tar.gz
     SHA256 f46c733ccc555fc457aaa3df510ee7df0ca089f5d1129d92903029e4fb67c560)
 cordite_dependency_option(NVRHI_WITH_VULKAN ON)
 cordite_dependency_option(NVRHI_WITH_DX11 OFF)
-cordite_dependency_option(NVRHI_WITH_DX12 OFF)
+if(WIN32)
+    cordite_dependency_option(NVRHI_WITH_DX12 ON)
+else()
+    cordite_dependency_option(NVRHI_WITH_DX12 OFF)
+endif()
+cordite_dependency_option(NVRHI_FETCH_DIRECTX_HEADERS OFF)
 cordite_dependency_option(NVRHI_WITH_VALIDATION ON)
 cordite_dependency_option(NVRHI_FETCH_VULKAN_HEADERS OFF)
 cordite_dependency_option(NVRHI_BUILD_SHARED OFF)
@@ -288,7 +308,7 @@ cordite_dependency_option(NFD_OVERRIDE_RECENT_WITH_DEFAULT ON)
 
 FetchContent_MakeAvailable(
     fmt spdlog nlohmann_json tl_expected enkits xxhash glm
-    glfw vulkan_headers nvrhi stb cli11 entt imgui
+    glfw vulkan_headers ${cordite_directx_headers} nvrhi stb cli11 entt imgui
     cgltf meshoptimizer mikktspace joltphysics lua miniaudio
     inter jetbrains_mono lucide ltc_code nfd)
 set_target_properties(nfd PROPERTIES FOLDER "ThirdParty")

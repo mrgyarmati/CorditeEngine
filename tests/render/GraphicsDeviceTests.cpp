@@ -1,12 +1,19 @@
 #include "cordite/rhi/GraphicsDevice.h"
 
+#include "cordite/core/Base.h"
 #include "cordite/core/StringUtils.h"
 #include "cordite/rhi/TextureReadback.h"
 
 #include "render/RenderTestSupport.h"
 
+#if CORDITE_PLATFORM_WINDOWS
+#include <directx/d3d12.h>
+#include <wrl/client.h>
+#endif
+
 #include <cstring>
 #include <string>
+#include <string_view>
 #include <vector>
 
 using namespace cordite;
@@ -40,10 +47,109 @@ TEST_SUITE("GraphicsDevice") {
         CHECK(adapter.apiVersion.rfind("1.", 0) == 0);
         CHECK_FALSE(nameOf(adapter.type).empty());
         MESSAGE("adapter: " << adapter.name << " (" << nameOf(adapter.type) << ", Vulkan " << adapter.apiVersion
-                            << "), Vulkan validation layer: " << (graphics->hasVulkanValidation() ? "on" : "off"));
+                            << "), Vulkan validation layer: "
+                            << std::string(graphics->hasApiValidation() ? "on" : "off"));
 
         checkNoValidationIssues(*graphics);
     }
+
+    TEST_CASE("a device draws with Vulkan unless it is told to draw with another graphics API") {
+        CHECK(createTestDevice()->backend() == GraphicsBackend::Vulkan);
+        const Result<std::unique_ptr<GraphicsDevice>> vulkan =
+            GraphicsDevice::create({.backend = GraphicsBackend::Vulkan});
+        REQUIRE_MESSAGE(vulkan.has_value(), test::errorOf(vulkan));
+        CHECK((*vulkan)->backend() == GraphicsBackend::Vulkan);
+        CHECK(nameOf(GraphicsBackend::Auto) == "Auto");
+        CHECK(nameOf(GraphicsBackend::Vulkan) == "Vulkan");
+        CHECK(nameOf(GraphicsBackend::Direct3D12) == "Direct3D 12");
+    }
+
+#if CORDITE_PLATFORM_WINDOWS
+    TEST_CASE("a device of Direct3D 12 draws offscreen, on the GPU and on WARP") {
+        // The most capable adapter, and the rasterizer of Direct3D 12 that runs on the CPU.
+        for (const char* preferred : {"", "Basic Render"}) {
+            CAPTURE(std::string(preferred));
+            const Result<std::unique_ptr<GraphicsDevice>> created = GraphicsDevice::create(
+                {.backend = GraphicsBackend::Direct3D12, .validation = true, .preferredAdapter = preferred});
+            REQUIRE_MESSAGE(created.has_value(), test::errorOf(created));
+            GraphicsDevice& graphics = **created;
+            CHECK(graphics.backend() == GraphicsBackend::Direct3D12);
+            CHECK(graphics.device()->getGraphicsAPI() == nvrhi::GraphicsAPI::D3D12);
+            // A window is drawn into with Vulkan alone, so far.
+            CHECK_FALSE(graphics.canPresent());
+
+            const AdapterInfo& adapter = graphics.adapter();
+            CHECK_FALSE(adapter.name.empty());
+            CHECK(adapter.vendorId != 0);
+            CHECK(adapter.apiVersion.find(", shader model 6.") != std::string::npos);
+            CHECK(adapter.supportsTimerQueries);
+            CHECK(adapter.supportsWireframe);
+            if (std::string_view(preferred) == "Basic Render") {
+                CHECK(adapter.type == AdapterType::Software);
+                CHECK(adapter.name == "Microsoft Basic Render Driver");
+            }
+            MESSAGE("adapter: " << adapter.name << " (" << nameOf(adapter.type) << ", Direct3D 12 at "
+                                << adapter.apiVersion
+                                << "), debug layer: " << std::string(graphics.hasApiValidation() ? "on" : "off"));
+
+            const nvrhi::TextureHandle texture = test::createColorTarget(graphics.device(), 8, 8);
+            clearTexture(graphics, texture, nvrhi::Color(1.0f, 0.0f, 1.0f, 1.0f));
+            CHECK(test::readToImage(graphics, texture).pixel(3, 5) == Vec4(1.0f, 0.0f, 1.0f, 1.0f));
+            graphics.collectGarbage();
+            graphics.waitIdle();
+            checkNoValidationIssues(graphics);
+        }
+        // And Vulkan again after it.
+        CHECK(createTestDevice()->backend() == GraphicsBackend::Vulkan);
+    }
+
+    TEST_CASE("the debug layer of Direct3D 12 reports misuse, where Windows has it") {
+        const Result<std::unique_ptr<GraphicsDevice>> created =
+            GraphicsDevice::create({.backend = GraphicsBackend::Direct3D12, .validation = true});
+        REQUIRE_MESSAGE(created.has_value(), test::errorOf(created));
+        GraphicsDevice& graphics = **created;
+        if (!graphics.hasApiValidation()) {
+            MESSAGE("the debug layer of Direct3D 12 is not installed here: nothing to hear");
+            return;
+        }
+        // NVRHI checks what it is given before Direct3D 12 sees it, so the mistake is made
+        // behind its back, on the device itself: a buffer of no bytes.
+        auto* device = static_cast<ID3D12Device*>(graphics.device()->getNativeObject(nvrhi::ObjectTypes::D3D12_Device));
+        REQUIRE(device != nullptr);
+        D3D12_HEAP_PROPERTIES heap{};
+        heap.Type = D3D12_HEAP_TYPE_DEFAULT;
+        D3D12_RESOURCE_DESC buffer{};
+        buffer.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
+        buffer.Width = 0;
+        buffer.Height = 1;
+        buffer.DepthOrArraySize = 1;
+        buffer.MipLevels = 1;
+        buffer.SampleDesc.Count = 1;
+        buffer.Layout = D3D12_TEXTURE_LAYOUT_ROW_MAJOR;
+        Microsoft::WRL::ComPtr<ID3D12Resource> resource;
+        const LogCapture capture(LogLevel::Error);
+        CHECK(FAILED(device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &buffer, D3D12_RESOURCE_STATE_COMMON,
+                                                     nullptr, IID_PPV_ARGS(&resource))));
+
+        const std::vector<std::string> issues = graphics.validationIssues();
+        REQUIRE_FALSE(issues.empty());
+        CHECK(issues.front().rfind("Direct3D 12 error: ", 0) == 0);
+        CHECK(capture.count(LogLevel::Error) >= 1);
+        // Heard once: what is collected is not collected again.
+        CHECK(graphics.validationIssueCount() == issues.size());
+        graphics.clearValidationIssues();
+        CHECK(graphics.validationIssueCount() == 0);
+    }
+#else
+    TEST_CASE("Direct3D 12 is refused where Windows is not, and a device can be made after") {
+        const Result<std::unique_ptr<GraphicsDevice>> refused =
+            GraphicsDevice::create({.backend = GraphicsBackend::Direct3D12});
+        REQUIRE_FALSE(refused.has_value());
+        CHECK(refused.error().code == ErrorCode::Unsupported);
+        CHECK(refused.error().message.find("Windows") != std::string::npos);
+        CHECK(createTestDevice()->backend() == GraphicsBackend::Vulkan);
+    }
+#endif
 
     TEST_CASE("an adapter preference that matches nothing still yields a device") {
         GraphicsDeviceDesc desc;

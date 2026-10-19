@@ -38,6 +38,10 @@ set(CORDITE_SHIPPED_LICENSES
 if(APPLE)
     list(APPEND CORDITE_SHIPPED_LICENSES "moltenvk|${moltenvk_SOURCE_DIR}/LICENSE")
 endif()
+# On Windows the program draws with Direct3D 12 as well, and has its GUIDs compiled in.
+if(WIN32)
+    list(APPEND CORDITE_SHIPPED_LICENSES "directx-headers|${directx_headers_SOURCE_DIR}/LICENSE")
+endif()
 
 set(cordite_license_directory "${CMAKE_BINARY_DIR}/bin/$<CONFIG>/licenses")
 set(cordite_license_copies "")

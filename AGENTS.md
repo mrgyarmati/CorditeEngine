@@ -134,7 +134,7 @@ by accident.
 | `physics` | `core`, `math`, `assets`, `world` | `PhysicsWorld`: rigid bodies, their shapes - boxes, balls, capsules, the hulls around sets of points and surfaces of triangles - joints between them, the characters that walk among them, stepping, contact events and queries, over Jolt Physics; the `Collider`, `RigidBody`, `Joint` and `CharacterController` components; `PhysicsSystem`, which keeps the entities of a world and the bodies, joints and characters of a simulation in step and makes shapes of mesh assets |
 | `audio` | `core`, `math`, `assets`, `world` | What is heard: the `AudioSource` and `AudioListener` components, and `AudioSystem`, which plays the sources of a world from where they are - voices, five buses with volumes of their own, sound without an entity - over miniaudio, onto a device or into memory |
 | `scripting` | `core`, `math`, `platform`, `assets`, `world`, `animation`, `physics`, `audio` | `ScriptRuntime`: the Lua state that gameplay scripts run in and the fence around it - limits on instructions, memory and nesting, the libraries a script may have, an environment for every chunk, the catalogue of the functions scripts are given - and values on their way between JSON and Lua; the `Script` component; `ScriptSystem`, which gives every entity with a script an instance of it and calls its `start`, `update` and `destroy` and tells it what its sequences and its bodies did; the functions scripts are given: entities and their hierarchy, transforms, components through the reflection, vectors and rotations, the time, the ids of assets, the controls, the simulation |
-| `rhi` | `core`, `math`, `platform` | Vulkan device, swapchain and texture readback over NVRHI |
+| `rhi` | `core`, `math`, `platform` | The device of Vulkan or, on Windows, Direct3D 12 (offscreen only, so far), the swapchain (Vulkan) and texture readback, over NVRHI |
 | `shaders` | `core` | Shader requests and permutation keys, disk cache, `ShaderLibrary` |
 | `shader_compiler` | `core`, `shaders` | Slang to SPIR-V compiler, and the cache of the engine's shaders compiled ahead that an exported game ships (`EngineShaderCache.h`); not linked into exported games |
 | `renderer` | `core`, `math`, `assets`, `world`, `animation`, `rhi`, `shaders` | The scene renderer and what it is made of: GPU copies of assets, the mesh passes, the G-buffer and its lighting, the lights of a world and the clusters they are sorted into, what a rectangle of light gives a surface (rect lights), their cookies, their shadow maps and the atlas those share, what finishes the picture (exposure, bloom, tone mapping, grading), the environment (the sky and what it lights), environment probes (pictures of the scene that light it in the environment's place), ambient occlusion and reflections from the screen, fog and what lights throw into it, decals, levels of detail, scene captures, the debug views, scene targets, the `MeshRenderer`, `Light`, `AmbientLight`, `Environment`, `EnvironmentProbe`, `Fog`, `Decal`, `SceneCapture` and `PostProcess` components; camera views, debug lines, GPU timing, GPU shader management |
@@ -292,8 +292,19 @@ and brought to unit length with `normalizeRotation`, not with `glm::normalize` (
 ## Rendering and shaders
 
 NVRHI is the rendering interface; engine code outside the `rhi` module never calls
-Vulkan directly. Step-by-step guide for adding a pass:
+Vulkan or Direct3D directly. Step-by-step guide for adding a pass:
 [add-render-pass](.claude/skills/add-render-pass/SKILL.md).
+
+- **A device draws with Vulkan or, on Windows, Direct3D 12** (`GraphicsDeviceDesc::backend`;
+  `Auto` is Vulkan). What both have is `GraphicsDevice`; what one API has is a backend of
+  the `rhi` module (`DeviceBackend.h`: `vulkan/VulkanDevice.cpp`, `d3d12/D3D12Device.cpp`),
+  whose objects outlive the NVRHI device made of them. Direct3D 12 asks for feature level
+  11_0 and shader model 6.0, and has WARP ("Microsoft Basic Render Driver") as its last
+  adapter, as Vulkan has lavapipe. So far a device of Direct3D 12 draws offscreen and reads
+  back, and nothing chooses it unless told to: the renderer, a window (`Swapchain::create`
+  refuses one) and the choice of the API come next. Platform code stays in `.cpp` files:
+  the header declares `createD3D12Device` everywhere, and `GraphicsDevice.cpp` calls it only
+  on Windows.
 
 - **Every GPU code path must be reachable headless.** A feature that only works with a
   window cannot be tested automatically or driven by an agent. Render to an offscreen
@@ -1951,7 +1962,11 @@ with CTest under the module name. See the skills
 - Use `LogCapture` to assert that a warning or error was (or was not) logged.
 - Suites that need a GPU carry the CTest label `gpu` and live in `tests/render/`. They
   run with the Vulkan validation layers when `scripts/bootstrap.ps1 -WithVulkanSdk` has
-  been run (or a system-wide Vulkan SDK is installed).
+  been run (or a system-wide Vulkan SDK is installed), and their devices of Direct3D 12
+  with its debug layer when Windows has the optional feature "Graphics Tools" (`dism
+  /online /add-capability /capabilityname:Tools.Graphics.DirectX~~~~0.0.1.0`, as an
+  administrator). A test that makes a mistake to hear the layer report it says so and
+  checks nothing more where the layer is missing.
 - **A shader is compiled once in a run of the GPU tests** (`sharedCacheDirectory()` in
   `RenderTestSupport.h`): the `RenderContext` of every test and the engines and editors of
   the fixtures (`headlessDesc()`) share one cache for the run. Compiled anew for every test,

@@ -1,10 +1,12 @@
 #include "cordite/rhi/Swapchain.h"
 
+#include "cordite/core/Base.h"
 #include "cordite/platform/Window.h"
 
 #include "render/RenderTestSupport.h"
 
 #include <memory>
+#include <string>
 
 using namespace cordite;
 using cordite::test::checkNoValidationIssues;
@@ -179,4 +181,19 @@ TEST_SUITE("Swapchain") {
         REQUIRE_FALSE(swapchain.has_value());
         CHECK(swapchain.error().code == ErrorCode::InvalidState);
     }
+
+#if CORDITE_PLATFORM_WINDOWS
+    TEST_CASE("a device of Direct3D 12 says that it cannot draw into a window yet") {
+        const std::unique_ptr<WindowSystem> windowSystem = test::unwrap(WindowSystem::create());
+        const std::unique_ptr<Window> window = test::unwrap(windowSystem->createWindow({.visible = false}));
+        const std::unique_ptr<GraphicsDevice> direct3D =
+            test::unwrap(GraphicsDevice::create({.backend = GraphicsBackend::Direct3D12, .validation = true}));
+
+        const Result<std::unique_ptr<Swapchain>> swapchain = Swapchain::create(*direct3D, *window);
+        REQUIRE_FALSE(swapchain.has_value());
+        CHECK(swapchain.error().code == ErrorCode::Unsupported);
+        CHECK(swapchain.error().message.find("Direct3D 12") != std::string::npos);
+        checkNoValidationIssues(*direct3D);
+    }
+#endif
 }

@@ -16,8 +16,9 @@ pinned in [cmake/CorditeDependencies.cmake](../cmake/CorditeDependencies.cmake) 
 | [xxHash](https://github.com/Cyan4973/xxHash) | 0.8.4 | BSD-2-Clause | Content hashing |
 | [glm](https://github.com/g-truc/glm) | 1.0.3 | MIT | Vector, matrix and quaternion math |
 | [GLFW](https://github.com/glfw/glfw) | 3.5.1 | zlib | Windows and input |
-| [NVRHI](https://github.com/NVIDIA-RTX/NVRHI) | commit `6b96fb0` (2026-10-05) | MIT | Rendering hardware interface over Vulkan |
+| [NVRHI](https://github.com/NVIDIA-RTX/NVRHI) | commit `6b96fb0` (2026-10-05) | MIT | Rendering hardware interface over Vulkan and, on Windows, Direct3D 12 |
 | [Vulkan-Headers](https://github.com/KhronosGroup/Vulkan-Headers) | 1.4.352 | Apache-2.0 OR MIT | Vulkan API declarations (headers only) |
+| [DirectX-Headers](https://github.com/microsoft/DirectX-Headers) | 1.717.0-preview (Windows only) | MIT | Direct3D 12 API declarations, and the GUIDs of its interfaces (`DirectX-Guids`), for NVRHI's Direct3D 12 backend |
 | [stb](https://github.com/nothings/stb) | commit `2c980bb` | MIT OR public domain | Image decoding (`stb_image`), PNG and Radiance HDR encoding (`stb_image_write`) and mipmap generation (`stb_image_resize2`) |
 | [cgltf](https://github.com/jkuhlmann/cgltf) | 1.15 | MIT | Parsing glTF 2.0 files |
 | [meshoptimizer](https://github.com/zeux/meshoptimizer) | 1.3 | MIT | Welding vertices and ordering imported meshes for the GPU |

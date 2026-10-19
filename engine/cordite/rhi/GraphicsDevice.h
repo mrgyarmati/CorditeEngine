@@ -3,10 +3,10 @@
 /// @file
 /// The GPU device.
 ///
-/// GraphicsDevice creates the Vulkan instance and device and wraps them in an NVRHI
-/// device, which is what the renderer programs against. It can be created without a
-/// window ("headless") to render offscreen, which is how the automated rendering tests
-/// and the editor's command-line mode work.
+/// GraphicsDevice creates the device of a graphics API - Vulkan, or on Windows Direct3D 12
+/// - and wraps it in an NVRHI device, which is what the renderer programs against. It can
+/// be created without a window ("headless") to render offscreen, which is how the
+/// automated rendering tests and the editor's command-line mode work.
 ///
 /// @code
 /// GraphicsDeviceDesc desc;
@@ -17,10 +17,15 @@
 /// nvrhi::TextureHandle target = graphics->device()->createTexture(textureDesc);
 /// ...
 /// graphics->collectGarbage();   // once per frame
+///
+/// // Direct3D 12 instead, on WARP - its rasterizer that runs on the CPU:
+/// CORDITE_TRY_ASSIGN(auto warp, GraphicsDevice::create({.backend = GraphicsBackend::Direct3D12,
+///                                                       .preferredAdapter = "Basic Render"}));
 /// @endcode
 ///
 /// Only one GraphicsDevice can exist at a time, and it must be created and destroyed on
-/// the main thread.
+/// the main thread. A device of Direct3D 12 draws offscreen only, for now: it cannot make a
+/// Swapchain.
 
 #include "cordite/core/Base.h"
 #include "cordite/core/Result.h"
@@ -44,11 +49,23 @@ struct VulkanContext;
 /// program uses the Vulkan of the system.
 inline constexpr std::string_view kBundledVulkanLibrary = "libMoltenVK.dylib";
 
+/// The graphics API a GraphicsDevice draws with.
+enum class GraphicsBackend : uint8_t {
+    /// The one the engine draws with when it is not told: Vulkan.
+    Auto,
+    Vulkan,
+    /// Windows only; elsewhere a device of it fails with Unsupported.
+    Direct3D12,
+};
+
+/// "Auto", "Vulkan" or "Direct3D 12".
+std::string_view nameOf(GraphicsBackend backend);
+
 enum class AdapterType : uint8_t {
     Discrete,
     Integrated,
     Virtual,
-    /// A CPU rasterizer such as lavapipe.
+    /// A CPU rasterizer such as lavapipe or WARP.
     Software,
     Other,
 };
@@ -63,7 +80,9 @@ struct AdapterInfo {
     uint32_t deviceId = 0;
     /// Memory in heaps local to the device, in bytes.
     uint64_t dedicatedMemoryBytes = 0;
-    /// Vulkan version the device supports, e.g. "1.4.321".
+    /// What the device supports of its graphics API: for Vulkan its version, e.g.
+    /// "1.4.321"; for Direct3D 12 its highest feature level and shader model, e.g.
+    /// "12_1, shader model 6.6".
     std::string apiVersion;
     /// The device can time its own work (see GpuTimer). Nearly every GPU can; software
     /// implementations sometimes cannot.
@@ -74,11 +93,16 @@ struct AdapterInfo {
 };
 
 struct GraphicsDeviceDesc {
+    /// The graphics API to draw with.
+    GraphicsBackend backend = GraphicsBackend::Auto;
+
     std::string applicationName = "Cordite";
 
-    /// Enables NVRHI's validation layer and, when it is installed, the Khronos Vulkan
-    /// validation layer. Every problem either of them reports is logged and recorded;
-    /// see validationIssues(). Costs performance; meant for development and tests.
+    /// Enables NVRHI's validation layer and, when it is installed, the validation of the
+    /// graphics API itself: the Khronos validation layer of Vulkan, the debug layer of
+    /// Direct3D 12 (Windows' optional feature "Graphics Tools"). Every problem any of
+    /// them reports is logged and recorded; see validationIssues(). Costs performance;
+    /// meant for development and tests.
     bool validation = false;
 
     /// Vulkan instance extensions needed to present to a window, from
@@ -87,15 +111,17 @@ struct GraphicsDeviceDesc {
     std::vector<std::string> presentationExtensions;
 
     /// Case-insensitive substring of the adapter name to prefer, e.g. "llvmpipe" or
-    /// "RTX". Empty picks the most capable adapter (discrete before integrated).
+    /// "RTX". Empty picks the most capable adapter (discrete before integrated). WARP, the
+    /// software rasterizer of Direct3D 12, is called "Microsoft Basic Render Driver".
     std::string preferredAdapter;
 };
 
 class GraphicsDevice {
 public:
-    /// Fails with Unsupported when no Vulkan 1.3 capable adapter is available, with
-    /// DeviceError when Vulkan itself reports an error, and with InvalidState when a
-    /// GraphicsDevice already exists.
+    /// Fails with Unsupported when no adapter can draw for the engine - for Vulkan, none
+    /// of version 1.3; for Direct3D 12, none of feature level 11_0 and shader model 6.0,
+    /// and anywhere but Windows - with DeviceError when the graphics API itself reports an
+    /// error, and with InvalidState when a GraphicsDevice already exists.
     [[nodiscard]] static Result<std::unique_ptr<GraphicsDevice>> create(const GraphicsDeviceDesc& desc);
     ~GraphicsDevice();
     CORDITE_NON_MOVABLE(GraphicsDevice);
@@ -103,14 +129,18 @@ public:
     /// The NVRHI device. Never null; owned by the GraphicsDevice.
     [[nodiscard]] nvrhi::IDevice* device() const;
 
+    /// The graphics API it draws with: Vulkan or Direct3D12, never Auto.
+    [[nodiscard]] GraphicsBackend backend() const;
+
     [[nodiscard]] const AdapterInfo& adapter() const;
 
     /// True when the device can create a Swapchain.
     [[nodiscard]] bool canPresent() const;
 
-    /// True when the Khronos validation layer is active. It can be requested but
-    /// unavailable, in which case only NVRHI's own validation runs.
-    [[nodiscard]] bool hasVulkanValidation() const;
+    /// True when the validation of the graphics API itself is active - the Khronos layer
+    /// of Vulkan, the debug layer of Direct3D 12. It can be requested but unavailable, in
+    /// which case only NVRHI's own validation runs.
+    [[nodiscard]] bool hasApiValidation() const;
 
     /// Warnings and errors reported by the validation layers since the last clear, in
     /// order. Tests assert that this stays empty.
@@ -126,7 +156,8 @@ public:
     /// query - is there.
     void waitIdle();
 
-    /// Raw Vulkan handles, for the rhi module's own implementation files only.
+    /// Raw Vulkan handles, for the rhi module's own implementation files only. The device
+    /// must draw with Vulkan.
     [[nodiscard]] const VulkanContext& vulkan() const;
 
 private:

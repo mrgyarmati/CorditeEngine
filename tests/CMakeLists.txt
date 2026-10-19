@@ -311,6 +311,10 @@ cordite_add_test_suite(render
     # and a renderer of its own: in a Debug build it runs for more than five minutes, and
     # beside the other suites, in any build, for close to fifteen.
     TIMEOUT 1500)
+if(WIN32)
+    # The tests of a device of Direct3D 12 make a mistake on it behind NVRHI's back.
+    target_link_libraries(cordite_render_tests PRIVATE Microsoft::DirectX-Headers)
+endif()
 
 # Measures what the scenarios cost - the showcase, a scene full of lights - writes it to
 # tests/perf/output/ and checks it against tests/perf/budgets.json. See the comment at

@@ -38,7 +38,7 @@ of slowly turning the code base into a ball of mud.
 | `physics` | `core`, `math`, `assets`, `world` | The simulation of rigid bodies: `PhysicsWorld` holds bodies - shapes, a mass, where each is and how it moves - steps them on in time and answers what a ray hits. Jolt Physics is behind it and shows in none of its headers. The `Collider` and `RigidBody` components say what of a world is simulated, and `PhysicsSystem` keeps the two in step; it is also what makes the shapes of colliders out of mesh assets. |
 | `audio` | `core`, `math`, `assets`, `world` | Sound: the `AudioSource` and `AudioListener` components, and `AudioSystem`, which gives the sources of a world voices, places them around whoever listens, mixes them through five buses and plays the result on a device - or, for tests and tools, into memory. miniaudio does the mixing and is seen by nothing outside the module. |
 | `scripting` | `core`, `math`, `platform`, `assets`, `world`, `animation`, `physics`, `audio` | Gameplay scripts: `ScriptRuntime` is the Lua state they run in and what keeps a script that is wrong from being more than an error - limits on instructions, memory and nesting, a build of Lua without what reaches the machine, an environment for every chunk - with the catalogue of the functions scripts are given, and the conversion of values between JSON and Lua. The `Script` component names a script for an entity; `ScriptSystem` gives each such entity an instance and calls it, and tells it what its sequences passed and what its body met. What scripts call is in the `Script...Api.cpp` sources, one per subject: entities, the world and its hierarchy and transforms, components (through the reflection), vectors and rotations, the controls of the game, the simulation. |
-| `rhi` | `core`, `math`, `platform` | The GPU: Vulkan instance and device creation, the NVRHI device the renderer programs against, the swapchain, and texture readback. The only module that calls Vulkan. |
+| `rhi` | `core`, `math`, `platform` | The GPU: the device of Vulkan or, on Windows, of Direct3D 12, the NVRHI device the renderer programs against, the swapchain, and texture readback. The only module that calls Vulkan or Direct3D. |
 | `shaders` | `core` | What a shader *is* to the engine: requests and their permutation keys, compiled binaries, the on-disk cache, and the `ShaderLibrary` that resolves a request from memory, disk or a compiler. |
 | `shader_compiler` | `core`, `shaders` | The Slang-based implementation of `IShaderCompiler`, and the cache of the engine's shaders compiled ahead that an exported game has instead (`EngineShaderCache`). Kept separate so exported games do not link a compiler. |
 | `renderer` | `core`, `math`, `assets`, `world`, `animation`, `rhi`, `shaders` | Drawing: the scene renderer and its passes (depth, G-buffer, deferred lighting, forward, debug views), the GPU copies of assets it draws with, the targets of a view, the components that make an entity visible or make it a light, the lights of a world sorted into the clusters of a view and the cookies they shine through, the environment that surrounds a world made ready to light it, ambient occlusion worked out from the screen; the view a camera gives, debug line drawing, and the `ShaderManager` that turns shader binaries into GPU shader objects. |
@@ -321,6 +321,23 @@ NVRHI does not create instances, devices or swapchains; `GraphicsDevice` and `Sw
 do, and hand the handles to NVRHI. NVRHI is built with the dynamic Vulkan-Hpp dispatcher
 and, as a static library, expects the application to provide and initialize it.
 
+### Direct3D 12 beside Vulkan, on Windows
+
+A machine without Vulkan - an old one, a virtual one - has Direct3D 12 on Windows, and
+NVRHI has a backend for it. A `GraphicsDevice` draws with either (`GraphicsDeviceDesc::
+backend`): what is common to both - the NVRHI device, what the adapter is, the record of
+validation - is `GraphicsDevice` itself, and what is not is a backend of the module
+(`DeviceBackend.h`), one file each: `vulkan/VulkanDevice.cpp`, `d3d12/D3D12Device.cpp`.
+The objects of the API outlive the NVRHI device made of them. On Direct3D 12 the device
+asks for feature level 11_0 and shader model 6.0, which the engine's DXIL is compiled for;
+adapters come in the order the system prefers for performance, and WARP - the rasterizer
+of Direct3D 12 that runs on the CPU, "Microsoft Basic Render Driver" - is the last of them,
+as lavapipe is for Vulkan. That is where it stands so far: a device of Direct3D 12 draws
+offscreen and reads back, and is never chosen unless asked for; the renderer, a window and
+the choice of the API for a machine come next. Direct3D 12 is an API rather than OpenGL
+because its shaders are DXIL, which the Slang the engine has compiles already, and NVRHI
+has no OpenGL at all.
+
 ### One GraphicsDevice, one Engine per process
 
 That dispatcher is a single global table of Vulkan entry points, shared by NVRHI and the
@@ -342,6 +359,12 @@ the `GraphicsDevice`, and every GPU test asserts that the record is empty. A ded
 test triggers a deliberate error to prove the mechanism detects one. The validation
 layers come from a Vulkan SDK that `scripts/bootstrap.ps1 -WithVulkanSdk` installs
 inside the repository in copy-only mode, so no system-wide install is needed.
+
+On Direct3D 12 the debug layer of the API takes the Khronos layer's place. It is a part of
+Windows that has to be added - the optional feature "Graphics Tools" - and without it only
+NVRHI's validation runs, as on Vulkan without the SDK. What the layer says is kept by the
+device of Direct3D 12 and collected from there - every frame, and whenever the record is
+asked for - rather than called back with, which only newer versions of the layer do.
 
 ### The swapchain is 8-bit UNORM, not sRGB
 
