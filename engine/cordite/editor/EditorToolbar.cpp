@@ -137,8 +137,9 @@ std::vector<ToolbarButton> playButtons(PlayState state) {
     const bool stopped = state == PlayState::Stopped;
     const bool paused = state == PlayState::Paused;
     std::vector<ToolbarButton> buttons;
+    // Play becomes Stop while the scene plays: what a click would do is what it shows.
     buttons.push_back({
-        .icon = icons::kPlay,
+        .icon = stopped ? icons::kPlay : icons::kStop,
         .tooltip = stopped ? "Play (F5)" : "Stop (Shift+F5)",
         .command = stopped ? "play.start" : "play.stop",
         .active = !stopped,

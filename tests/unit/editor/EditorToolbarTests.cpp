@@ -42,9 +42,10 @@ TEST_SUITE("EditorToolbar") {
         CHECK_FALSE(buttons[2].enabled);
     }
 
-    TEST_CASE("while a scene plays, play stops it and pause holds it") {
+    TEST_CASE("while a scene plays, play becomes stop, and pause holds it") {
         const std::vector<ToolbarButton> buttons = playButtons(PlayState::Playing);
         REQUIRE(buttons.size() == 3);
+        CHECK(sameIcon(buttons[0].icon, icons::kStop));
         CHECK(buttons[0].command == "play.stop");
         CHECK(buttons[0].active);
         CHECK(buttons[0].tooltip == "Stop (Shift+F5)");
@@ -58,6 +59,7 @@ TEST_SUITE("EditorToolbar") {
     TEST_CASE("a scene that is held is resumed, stepped or stopped") {
         const std::vector<ToolbarButton> buttons = playButtons(PlayState::Paused);
         REQUIRE(buttons.size() == 3);
+        CHECK(sameIcon(buttons[0].icon, icons::kStop));
         CHECK(buttons[0].command == "play.stop");
         CHECK(buttons[0].active);
         CHECK(buttons[1].command == "play.resume");

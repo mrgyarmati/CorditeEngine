@@ -1733,8 +1733,9 @@ panels, EditorApp    the interface, built on the three layers above
   frame. The newest message of any kind is in the status bar, whatever is in front.
 - **The editor is laid out after Unity and Unreal Engine** (`EditorToolbar.h`): a
   toolbar under the menu - save, undo and redo at the left, play, pause and step in
-  the middle - and a status bar - the newest message, whether the scene plays, how
-  many entities it has and how many are selected. A button is described first
+  the middle, play a Stop button while the scene plays - and a status bar - the newest
+  message, whether the scene plays, how many entities it has and how many are
+  selected. A button is described first
   (`ToolbarButton`: its icon, what it says, the command it queues, whether it can be
   clicked), which is what the tests hold, and then drawn. Panels have icons on their
   tabs, and rows of the hierarchy and of the assets what they are (`EditorIcons.h`).

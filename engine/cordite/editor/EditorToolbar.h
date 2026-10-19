@@ -52,8 +52,9 @@ struct ToolbarButton {
 /// uses, the world's or the entity's own, which a click switches.
 [[nodiscard]] std::vector<ToolbarButton> gizmoButtons(GizmoMode mode, GizmoSpace space);
 
-/// Play, pause and step. Play starts the scene, and stops it while it plays; pause holds
-/// a scene that plays and resumes one that is held; step runs one frame of a held scene.
+/// Play, pause and step. Play starts the scene, and while it plays - or is held - is a
+/// Stop button that stops it, drawn in the accent; pause holds a scene that plays and
+/// resumes one that is held; step runs one frame of a held scene.
 [[nodiscard]] std::vector<ToolbarButton> playButtons(PlayState state);
 
 /// Draws the toolbar along the top of the main viewport, under the menu, where it takes

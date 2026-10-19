@@ -85,8 +85,9 @@ A scene is a file of its own (`.scene.json`) among the assets: File > New scene,
 
 Press **Play** (**F5**): the scene runs as it would in the game - scripts, physics, sound and
 animation - seen through the game's camera, in the first viewport. **F6** pauses and resumes,
-**F10** steps a single frame while paused, and **Stop** (**Shift+F5**) puts the scene back
-exactly as it was before you pressed Play. Changes made while playing are part of the game,
+**F10** steps a single frame while paused, and **Stop** (**Shift+F5**) - the Play button of
+the toolbar, which is a Stop button while the scene plays - puts the scene back exactly as it
+was before you pressed Play. Changes made while playing are part of the game,
 not of the scene: they are gone when it stops.
 
 View > Game camera switches the viewport you used last between the editor's camera and the
