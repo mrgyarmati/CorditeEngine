@@ -28,6 +28,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -86,8 +87,18 @@ public:
 };
 
 /// The dialogs of the system the program runs on (nativefiledialog-extended). Fails with
-/// Unavailable, saying why, when the system has none to give.
+/// Unsupported, saying why, when the system has none to give.
 [[nodiscard]] Result<std::unique_ptr<FileDialogs>> makeSystemFileDialogs();
+
+/// Runs `work` where a dialog of the system can be shown from, and waits for it. On Windows
+/// that is a thread of its own, in a single-threaded apartment of COM, while the messages of
+/// the calling thread are dispatched: the dialogs of the shell want such an apartment, and
+/// the editor's main thread is a multithreaded one once miniaudio has made its context there.
+/// Asked for from that thread, a dialog over its window waits for the thread to answer, and
+/// the thread waits for the dialog - the editor froze. On a thread of its own the dialog has
+/// its apartment, and the window it is shown over keeps answering it. Elsewhere `work` runs
+/// on the calling thread, where macOS needs its dialogs.
+void runForSystemDialog(const std::function<void()>& work);
 
 /// How the dialogs of a system tell files apart by their names.
 enum class FileNameMatching : uint8_t {

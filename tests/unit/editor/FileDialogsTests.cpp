@@ -5,9 +5,22 @@
 
 #include "support/TestSupport.h"
 
+#if CORDITE_PLATFORM_WINDOWS
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <objbase.h>
+#include <windows.h>
+#endif
+
+#include <array>
 #include <filesystem>
 #include <memory>
 #include <string>
+#include <thread>
 #include <vector>
 
 using namespace cordite;
@@ -128,6 +141,49 @@ TEST_SUITE("FileDialogs") {
         CHECK(bundle.name == "Depot.app");
         CHECK(sameDirectory(bundle.directory, directory.path()));
         CHECK(exportGameRequest(project, "Big: Game", GameLayout::Bundle).name == "Big- Game.app");
+    }
+
+    TEST_CASE("a dialog of the system is shown from a thread that can, and its window keeps answering it") {
+        std::thread::id ranOn;
+        bool singleThreaded = false;
+#if CORDITE_PLATFORM_WINDOWS
+        // As the editor's main thread is once miniaudio has made its context there: a
+        // multithreaded apartment of COM, with a window of its own that a dialog is shown
+        // over - and which the dialog tells so, by a message the thread has to answer.
+        const HRESULT apartment = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+        REQUIRE(SUCCEEDED(apartment));
+        HWND window = CreateWindowExW(0, L"STATIC", L"asks", WS_OVERLAPPEDWINDOW, 0, 0, 100, 100, nullptr, nullptr,
+                                      nullptr, nullptr);
+        REQUIRE(window != nullptr);
+        DWORD_PTR answered = 0;
+        LRESULT sent = 0;
+        runForSystemDialog([&] {
+            ranOn = std::this_thread::get_id();
+            APTTYPE type{};
+            APTTYPEQUALIFIER qualifier{};
+            singleThreaded =
+                SUCCEEDED(CoGetApartmentType(&type, &qualifier)) && (type == APTTYPE_STA || type == APTTYPE_MAINSTA);
+            // Unanswered, this would wait for good; the timeout makes it a failure instead.
+            sent = SendMessageTimeoutW(window, WM_SETTEXT, 0, reinterpret_cast<LPARAM>(L"answered"), SMTO_BLOCK, 5000,
+                                       &answered);
+        });
+        CHECK(ranOn != std::this_thread::get_id());
+        CHECK(singleThreaded);
+        CHECK(sent != 0);
+        std::array<wchar_t, 16> text{};
+        GetWindowTextW(window, text.data(), static_cast<int>(text.size()));
+        CHECK(std::wstring(text.data()) == L"answered");
+        DestroyWindow(window);
+        CoUninitialize();
+#else
+        // macOS shows its dialogs on the main thread, and Linux asks the portal from any.
+        runForSystemDialog([&] {
+            ranOn = std::this_thread::get_id();
+            singleThreaded = true;
+        });
+        CHECK(ranOn == std::this_thread::get_id());
+        CHECK(singleThreaded);
+#endif
     }
 
     TEST_CASE("the system's dialogs are made where the system has them, and say why where it has not") {
