@@ -30,7 +30,7 @@ bool ShaderLibrary::isUpToDate(const ShaderBinary& binary) const {
         return true;
     }
     // A compiler upgrade can change the generated code for unchanged sources.
-    if (m_desc.compiler != nullptr && binary.compilerVersion != m_desc.compiler->version()) {
+    if (m_desc.compiler != nullptr && binary.compilerVersion != m_desc.compiler->version(m_desc.target)) {
         return false;
     }
 
@@ -60,7 +60,7 @@ Result<std::shared_ptr<const ShaderBinary>> ShaderLibrary::load(ShaderRequest re
     }
 
     if (m_cache) {
-        if (std::optional<ShaderBinary> cached = m_cache->load(key)) {
+        if (std::optional<ShaderBinary> cached = m_cache->load(key, m_desc.target)) {
             if (isUpToDate(*cached)) {
                 ++m_stats.diskHits;
                 auto binary = std::make_shared<const ShaderBinary>(std::move(*cached));
@@ -78,14 +78,15 @@ Result<std::shared_ptr<const ShaderBinary>> ShaderLibrary::load(ShaderRequest re
     }
 
     const Stopwatch stopwatch;
-    Result<ShaderBinary> compiled = m_desc.compiler->compile(request);
+    Result<ShaderBinary> compiled = m_desc.compiler->compile(request, m_desc.target);
     if (!compiled) {
         ++m_stats.failures;
         return tl::unexpected(compiled.error().withContext(fmt::format("compiling {}", request.describe())));
     }
-    if (!isSpirv(compiled->code)) {
+    if (compiled->target != m_desc.target || !isCodeOf(m_desc.target, compiled->code)) {
         ++m_stats.failures;
-        return makeError(ErrorCode::InvalidState, "the compiler produced no SPIR-V for {}", request.describe());
+        return makeError(ErrorCode::InvalidState, "the compiler produced no {} for {}", nameOf(m_desc.target),
+                         request.describe());
     }
     ++m_stats.compilations;
     CORDITE_LOG_DEBUG("Shaders", "compiled {} in {:.0f} ms", request.describe(), stopwatch.elapsedMilliseconds());

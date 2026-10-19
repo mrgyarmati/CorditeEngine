@@ -304,6 +304,17 @@ Vulkan directly. Step-by-step guide for adding a pass:
 - **Shaders are Slang**, in `shaders/`. Matrices are column-major (`mul(matrix, vector)`
   matches glm's `matrix * vector`). Resources use HLSL registers with NVRHI's default
   Vulkan offsets: `tN` -> N, `sN` -> 128 + N, `bN` -> 256 + N, `uN` -> 384 + N.
+- **A shader is compiled to a target** (`ShaderTarget`): SPIR-V for Vulkan, and on Windows
+  DXIL for Direct3D 12 - of shader model 6.0, the least there is, since the machines
+  without Vulkan that it is for are old ones. DXIL is written by DXC, which Slang loads
+  from beside itself (`dxcompiler.dll`, pinned, copied there by the build); DXC signs what
+  it writes, and Direct3D 12 refuses what is unsigned (`isDxil`). A cache keeps each
+  permutation once for each target, under the key of its request - DXIL as
+  `<key>.dxil.cshader` beside the SPIR-V - and its file says nothing of the target: the code
+  says it itself, so caches of SPIR-V made before stay good. The version of a compiler is
+  per target (`IShaderCompiler::version`), and DXC's is a part of DXIL's: another DXC
+  makes the DXIL anew and leaves the SPIR-V. A game of Windows ships both
+  (`gameShaderTargets()`).
 - **A C++ struct that mirrors a shader constant buffer** is named after the `cbuffer`,
   has a `static_assert` on its size, and is laid out so that every packing rule agrees
   on it: fill each 16 bytes exactly with a `Vec4`, a `Vec3` followed by one float, or a

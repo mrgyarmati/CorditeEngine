@@ -4,6 +4,10 @@
 #include "cordite/core/FileSystem.h"
 #include "cordite/core/Log.h"
 
+#include <fmt/format.h>
+
+#include <optional>
+#include <string>
 #include <system_error>
 
 namespace cordite {
@@ -79,20 +83,24 @@ Result<ShaderBinary> decodeShaderBinary(std::span<const std::byte> data) {
     if (reader.remaining() != 0) {
         return makeError(ErrorCode::ParseError, "compiled shader has {} unexpected trailing bytes", reader.remaining());
     }
-    if (!isSpirv(binary.code)) {
-        return makeError(ErrorCode::ParseError, "compiled shader does not contain SPIR-V");
+    const std::optional<ShaderTarget> target = targetOf(binary.code);
+    if (!target) {
+        return makeError(ErrorCode::ParseError, "compiled shader holds neither SPIR-V nor signed DXIL");
     }
+    binary.target = *target;
     return binary;
 }
 
 ShaderCache::ShaderCache(std::filesystem::path directory) : m_directory(std::move(directory)) {}
 
-std::filesystem::path ShaderCache::entryPath(const Hash128& key) const {
-    return m_directory / pathFromUtf8(key.toHex() + kExtension);
+std::filesystem::path ShaderCache::entryPath(const Hash128& key, ShaderTarget target) const {
+    // SPIR-V where it always was: the caches made before there were other targets stay.
+    const std::string suffix = target == ShaderTarget::Spirv ? std::string() : fmt::format(".{}", nameOf(target));
+    return m_directory / pathFromUtf8(key.toHex() + suffix + kExtension);
 }
 
-std::optional<ShaderBinary> ShaderCache::load(const Hash128& key) const {
-    const std::filesystem::path path = entryPath(key);
+std::optional<ShaderBinary> ShaderCache::load(const Hash128& key, ShaderTarget target) const {
+    const std::filesystem::path path = entryPath(key, target);
     if (!fileExists(path)) {
         return std::nullopt;
     }
@@ -116,14 +124,23 @@ std::optional<ShaderBinary> ShaderCache::load(const Hash128& key) const {
         std::filesystem::remove(path, ignored);
         return std::nullopt;
     }
+    if (binary->target != target) {
+        // Code of another target under this one's name was not written by a cache.
+        CORDITE_LOG_WARN("Shaders", "discarding {}: it holds {}, not {}", pathToUtf8(path), nameOf(binary->target),
+                         nameOf(target));
+        std::error_code ignored;
+        std::filesystem::remove(path, ignored);
+        return std::nullopt;
+    }
     return std::move(*binary);
 }
 
 Status ShaderCache::store(const Hash128& key, const ShaderBinary& binary) const {
-    if (!isSpirv(binary.code)) {
-        return makeError(ErrorCode::InvalidArgument, "refusing to cache a shader that is not valid SPIR-V");
+    if (!isCodeOf(binary.target, binary.code)) {
+        return makeError(ErrorCode::InvalidArgument, "refusing to cache a shader that is not valid {}",
+                         nameOf(binary.target));
     }
-    return writeBinaryFile(entryPath(key), encodeShaderBinary(binary));
+    return writeBinaryFile(entryPath(key, binary.target), encodeShaderBinary(binary));
 }
 
 Status ShaderCache::clear() const {

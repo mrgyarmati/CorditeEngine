@@ -1,5 +1,6 @@
 #include "cordite/shader_compiler/SlangShaderCompiler.h"
 
+#include "cordite/core/Base.h"
 #include "cordite/core/FileSystem.h"
 #include "cordite/core/Hash.h"
 #include "cordite/core/Log.h"
@@ -17,8 +18,13 @@ namespace cordite {
 namespace {
 
 /// Bumped when the options below change in a way that alters the generated code, so that
-/// shaders cached with the old options are rebuilt.
+/// shaders cached with the old options are rebuilt: one for SPIR-V, one for DXIL.
 constexpr int kOptionsRevision = 1;
+constexpr int kDxilOptionsRevision = 1;
+
+/// The version of DXC beside the program, which writes DXIL (CMakeLists.txt); empty where
+/// there is none.
+constexpr std::string_view kDxcVersion = CORDITE_DXC_VERSION;
 
 SlangStage toSlangStage(ShaderStage stage) {
     switch (stage) {
@@ -59,11 +65,13 @@ tl::unexpected<Error> compileError(slang::IBlob* diagnostics, std::string_view f
 struct SlangShaderCompiler::Impl {
     SlangShaderCompilerDesc desc;
     Slang::ComPtr<slang::IGlobalSession> globalSession;
-    std::string version;
+    /// version(), by target.
+    std::string spirvVersion;
+    std::string dxilVersion;
     // The global session and the sessions created from it are not thread-safe.
     std::mutex mutex;
 
-    Result<Slang::ComPtr<slang::ISession>> createSession(const ShaderRequest& request);
+    Result<Slang::ComPtr<slang::ISession>> createSession(const ShaderRequest& request, ShaderTarget target);
     [[nodiscard]] std::filesystem::path resolveSource(std::string_view relativePath) const;
     [[nodiscard]] std::string toRootRelative(const std::filesystem::path& path) const;
 };
@@ -90,30 +98,37 @@ std::string SlangShaderCompiler::Impl::toRootRelative(const std::filesystem::pat
     return pathToUtf8(path);
 }
 
-Result<Slang::ComPtr<slang::ISession>> SlangShaderCompiler::Impl::createSession(const ShaderRequest& request) {
+Result<Slang::ComPtr<slang::ISession>> SlangShaderCompiler::Impl::createSession(const ShaderRequest& request,
+                                                                                ShaderTarget target) {
     // The options are given in slangc's command-line syntax and parsed by Slang itself,
     // which keeps this code independent of the numeric option identifiers in slang.h.
-    std::vector<std::string> arguments = {
-        "-target",
-        "spirv",
-        "-profile",
-        "spirv_1_5",
-        "-matrix-layout-column-major",
-        // NVRHI's default mapping from HLSL registers to Vulkan bindings.
-        "-fvk-t-shift",
-        "0",
-        "all",
-        "-fvk-s-shift",
-        "128",
-        "all",
-        "-fvk-b-shift",
-        "256",
-        "all",
-        "-fvk-u-shift",
-        "384",
-        "all",
-        desc.optimize ? "-O2" : "-O0",
-    };
+    std::vector<std::string> arguments;
+    if (target == ShaderTarget::Dxil) {
+        // Direct3D 12 takes the registers as they are.
+        arguments = {"-target", "dxil", "-profile", "sm_6_0", "-matrix-layout-column-major"};
+    } else {
+        arguments = {
+            "-target",
+            "spirv",
+            "-profile",
+            "spirv_1_5",
+            "-matrix-layout-column-major",
+            // NVRHI's default mapping from HLSL registers to Vulkan bindings.
+            "-fvk-t-shift",
+            "0",
+            "all",
+            "-fvk-s-shift",
+            "128",
+            "all",
+            "-fvk-b-shift",
+            "256",
+            "all",
+            "-fvk-u-shift",
+            "384",
+            "all",
+        };
+    }
+    arguments.emplace_back(desc.optimize ? "-O2" : "-O0");
     if (desc.debugInfo) {
         arguments.emplace_back("-g2");
     }
@@ -156,20 +171,36 @@ Result<std::unique_ptr<SlangShaderCompiler>> SlangShaderCompiler::create(const S
         return makeError(ErrorCode::Unsupported, "cannot initialize the Slang shader compiler");
     }
 
-    impl->version = fmt::format("slang-{} options-{} {}{}", impl->globalSession->getBuildTagString(), kOptionsRevision,
-                                desc.optimize ? "O2" : "O0", desc.debugInfo ? " g2" : "");
+    const std::string_view optimization = desc.optimize ? "O2" : "O0";
+    const std::string_view debugInfo = desc.debugInfo ? " g2" : "";
+    impl->spirvVersion = fmt::format("slang-{} options-{} {}{}", impl->globalSession->getBuildTagString(),
+                                     kOptionsRevision, optimization, debugInfo);
+    impl->dxilVersion = fmt::format("slang-{} dxc-{} dxil-options-{} {}{}", impl->globalSession->getBuildTagString(),
+                                    kDxcVersion, kDxilOptionsRevision, optimization, debugInfo);
     return std::unique_ptr<SlangShaderCompiler>(new SlangShaderCompiler(std::move(impl)));
+}
+
+bool canCompileTo(ShaderTarget target) {
+#if CORDITE_PLATFORM_WINDOWS
+    return target == ShaderTarget::Spirv || !kDxcVersion.empty();
+#else
+    return target == ShaderTarget::Spirv;
+#endif
 }
 
 SlangShaderCompiler::SlangShaderCompiler(std::unique_ptr<Impl> impl) : m_impl(std::move(impl)) {}
 
 SlangShaderCompiler::~SlangShaderCompiler() = default;
 
-std::string SlangShaderCompiler::version() const {
-    return m_impl->version;
+std::string SlangShaderCompiler::version(ShaderTarget target) const {
+    return target == ShaderTarget::Dxil ? m_impl->dxilVersion : m_impl->spirvVersion;
 }
 
-Result<ShaderBinary> SlangShaderCompiler::compile(const ShaderRequest& request) {
+Result<ShaderBinary> SlangShaderCompiler::compile(const ShaderRequest& request, ShaderTarget target) {
+    if (!canCompileTo(target)) {
+        return makeError(ErrorCode::Unsupported, "shaders are compiled to {} on Windows only, where DXC is",
+                         nameOf(target));
+    }
     const std::lock_guard lock(m_impl->mutex);
 
     const std::filesystem::path sourcePath = m_impl->resolveSource(request.path);
@@ -177,7 +208,7 @@ Result<ShaderBinary> SlangShaderCompiler::compile(const ShaderRequest& request) 
         return makeError(ErrorCode::NotFound, "shader source '{}' was not found in any shader directory", request.path);
     }
 
-    CORDITE_TRY_ASSIGN(const Slang::ComPtr<slang::ISession> session, m_impl->createSession(request));
+    CORDITE_TRY_ASSIGN(const Slang::ComPtr<slang::ISession> session, m_impl->createSession(request, target));
 
     // Passing no source text makes Slang read the file itself, so that relative
     // #include directives resolve against the file's own directory.
@@ -222,8 +253,9 @@ Result<ShaderBinary> SlangShaderCompiler::compile(const ShaderRequest& request) 
 
     ShaderBinary binary;
     binary.stage = request.stage;
+    binary.target = target;
     binary.entryPoint = request.entryPoint;
-    binary.compilerVersion = m_impl->version;
+    binary.compilerVersion = version(target);
     binary.code.resize(code->getBufferSize());
     std::memcpy(binary.code.data(), code->getBufferPointer(), binary.code.size());
 

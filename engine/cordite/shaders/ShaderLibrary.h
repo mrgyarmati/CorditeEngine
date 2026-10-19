@@ -58,6 +58,9 @@ struct ShaderLibraryDesc {
     /// Accept cache entries without checking them against the source files. Set for
     /// exported games, which ship a cache but no sources.
     bool trustCache = false;
+
+    /// What the shaders are compiled to: the code of the device they are for.
+    ShaderTarget target = ShaderTarget::Spirv;
 };
 
 /// Counters describing where shaders came from, for tests and the profiler.
@@ -95,6 +98,9 @@ public:
     [[nodiscard]] ShaderLibraryStats stats() const;
 
     [[nodiscard]] const std::vector<std::filesystem::path>& sourceRoots() const { return m_desc.sourceRoots; }
+
+    /// What the shaders of the library are compiled to.
+    [[nodiscard]] ShaderTarget target() const { return m_desc.target; }
 
 private:
     struct Entry {

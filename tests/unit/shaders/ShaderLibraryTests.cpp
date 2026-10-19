@@ -330,4 +330,65 @@ TEST_SUITE("ShaderLibrary") {
         }
         CHECK(std::ranges::count(asked, std::string("passes/None.slang"), &ShaderRequest::path) == 1);
     }
+
+    TEST_CASE("a library of one target compiles to it, and keeps it beside the code of others") {
+        Fixture fixture;
+        ShaderLibraryDesc spirvDesc = fixture.desc();
+        ShaderLibraryDesc dxilDesc = fixture.desc();
+        dxilDesc.target = ShaderTarget::Dxil;
+        {
+            ShaderLibrary spirv(spirvDesc);
+            REQUIRE(spirv.load(Fixture::request()).has_value());
+        }
+        // The SPIR-V of the cache is no DXIL: the DXIL is compiled, as DXIL.
+        ShaderLibrary dxil(dxilDesc);
+        CHECK(dxil.target() == ShaderTarget::Dxil);
+        const auto compiled = dxil.load(Fixture::request());
+        REQUIRE_MESSAGE(compiled.has_value(), test::errorOf(compiled));
+        CHECK((*compiled)->target == ShaderTarget::Dxil);
+        CHECK(isDxil((*compiled)->code));
+        CHECK(fixture.compiler.targets == std::vector<ShaderTarget>{ShaderTarget::Spirv, ShaderTarget::Dxil});
+        CHECK((*compiled)->compilerVersion == fixture.compiler.version(ShaderTarget::Dxil));
+
+        // Both stay in the cache, each found by a library of its target.
+        ShaderRequest request = Fixture::request();
+        REQUIRE(request.normalize().has_value());
+        const ShaderCache cache(fixture.cacheRoot);
+        CHECK(fileExists(cache.entryPath(request.key(), ShaderTarget::Spirv)));
+        CHECK(fileExists(cache.entryPath(request.key(), ShaderTarget::Dxil)));
+        ShaderLibrary again(dxilDesc);
+        REQUIRE(again.load(Fixture::request()).has_value());
+        CHECK(again.stats().diskHits == 1);
+        CHECK(fixture.compiler.compileCount == 2);
+
+        // Another version of the compiler of DXIL makes it anew.
+        fixture.compiler.compilerVersion = "fake-2";
+        ShaderLibrary newer(dxilDesc);
+        REQUIRE(newer.load(Fixture::request()).has_value());
+        CHECK(newer.stats().compilations == 1);
+    }
+
+    TEST_CASE("code of another target than the library's is refused") {
+        Fixture fixture;
+
+        // A compiler that answers DXIL with SPIR-V.
+        class WrongTarget final : public IShaderCompiler {
+        public:
+            [[nodiscard]] std::string version(ShaderTarget /*target*/) const override { return "wrong-1"; }
+
+            [[nodiscard]] Result<ShaderBinary> compile(const ShaderRequest& request, ShaderTarget /*target*/) override {
+                return ShaderBinary{.stage = request.stage, .code = test::makeFakeSpirv()};
+            }
+        } wrong;
+
+        ShaderLibraryDesc desc = fixture.desc();
+        desc.compiler = &wrong;
+        desc.target = ShaderTarget::Dxil;
+        ShaderLibrary library(desc);
+        const auto loaded = library.load(Fixture::request());
+        REQUIRE_FALSE(loaded.has_value());
+        CHECK(loaded.error().code == ErrorCode::InvalidState);
+        CHECK(loaded.error().message.find("no dxil") != std::string::npos);
+        CHECK(library.stats().failures == 1);
+    }
 }

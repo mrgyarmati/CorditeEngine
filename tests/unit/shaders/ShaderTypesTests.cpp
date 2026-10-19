@@ -157,4 +157,49 @@ TEST_SUITE("ShaderTypes") {
         CHECK(nameOf(ShaderStage::Pixel) == "pixel");
         CHECK(nameOf(ShaderStage::Compute) == "compute");
     }
+
+    TEST_CASE("target names") {
+        CHECK(nameOf(ShaderTarget::Spirv) == "spirv");
+        CHECK(nameOf(ShaderTarget::Dxil) == "dxil");
+    }
+
+    TEST_CASE("isDxil asks for a signed container of the size it says, with a part of DXIL") {
+        const std::vector<std::byte> dxil = test::makeFakeDxil();
+        CHECK(isDxil(dxil));
+        CHECK(isDxil(test::makeFakeDxil({})));
+        CHECK(isCodeOf(ShaderTarget::Dxil, dxil));
+        CHECK_FALSE(isCodeOf(ShaderTarget::Spirv, dxil));
+        CHECK(targetOf(dxil) == ShaderTarget::Dxil);
+        CHECK(targetOf(test::makeFakeSpirv()) == ShaderTarget::Spirv);
+        CHECK_FALSE(targetOf(std::vector<std::byte>(64)).has_value());
+        CHECK_FALSE(isDxil(test::makeFakeSpirv()));
+        CHECK_FALSE(isDxil({}));
+
+        // Each word of the header broken in turn: the magic, the hash - unsigned, all of it
+        // nothing - the size, the count and the offset of the parts, the letters of the part.
+        const auto broken = [&dxil](size_t offset, std::span<const std::byte> bytes) {
+            std::vector<std::byte> code = dxil;
+            std::ranges::copy(bytes, code.begin() + static_cast<std::ptrdiff_t>(offset));
+            return code;
+        };
+        const auto word = [](uint32_t value) {
+            std::array<std::byte, 4> bytes{};
+            std::memcpy(bytes.data(), &value, sizeof(value));
+            return bytes;
+        };
+        CHECK_FALSE(isDxil(broken(0, word(0x43425845u))));
+        CHECK_FALSE(isDxil(broken(4, std::vector<std::byte>(16))));
+        CHECK(isDxil(broken(4, std::vector<std::byte>(15))));
+        CHECK_FALSE(isDxil(broken(24, word(static_cast<uint32_t>(dxil.size()) + 1))));
+        CHECK_FALSE(isDxil(broken(24, word(static_cast<uint32_t>(dxil.size()) - 4))));
+        CHECK_FALSE(isDxil(broken(28, word(65))));
+        CHECK_FALSE(isDxil(broken(28, word(0))));
+        CHECK_FALSE(isDxil(broken(32, word(static_cast<uint32_t>(dxil.size()) - 4))));
+        CHECK_FALSE(isDxil(broken(36, word(0x48534844u))));
+        // Cut short anywhere, it is no container of its size.
+        for (size_t length = 0; length < dxil.size(); ++length) {
+            CAPTURE(length);
+            CHECK_FALSE(isDxil(std::span(dxil).first(length)));
+        }
+    }
 }

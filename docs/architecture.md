@@ -386,6 +386,23 @@ has exactly one cache file, which is replaced when it goes stale, instead of lea
 orphan behind for every edit. A test pins the key of a known request, because changing
 the key function would silently invalidate every cache.
 
+### A shader is compiled for Vulkan, and on Windows for Direct3D 12
+
+The person whose engine this is chose Direct3D 12 as what a Windows machine without Vulkan
+draws with, over OpenGL, which NVRHI has no backend for and which would have meant a second
+renderer to keep, and over a Vulkan drawn on the CPU, which is slow. So a shader has a
+target beside its request: SPIR-V, or DXIL. Slang writes DXIL through DXC, Microsoft's
+compiler, pinned as its release and loaded from beside the program - of it only
+`dxcompiler.dll`, which signs what it writes: the validator beside it is under terms of its
+own, and is not needed since DXC signs by itself. DXIL is of shader model 6.0, on purpose:
+the machines this is for are old.
+
+The target is not part of the key, which a test pins: it is beside it, in the name of the
+file - `<key>.dxil.cshader` - and in the version of the compiler, which for DXIL names DXC,
+so that another DXC makes DXIL anew and SPIR-V stays. The file format has no field for the
+target; the code says what it is (its magic number), which kept every cache of SPIR-V made
+before readable. A game of Windows ships its shaders in both.
+
 ### Entities and components are stored with EnTT
 
 EnTT is the de-facto standard C++ entity-component store: sparse sets with dense,

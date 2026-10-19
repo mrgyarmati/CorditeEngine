@@ -24,6 +24,8 @@
 
 #include <filesystem>
 #include <memory>
+#include <span>
+#include <vector>
 
 namespace cordite {
 
@@ -32,12 +34,19 @@ namespace cordite {
 [[nodiscard]] Result<std::unique_ptr<IShaderCompiler>>
 makeSlangShaderCompiler(const std::filesystem::path& sourceDirectory);
 
+/// What the shaders of a game of the system that runs this are compiled to: SPIR-V for
+/// Vulkan, and on Windows DXIL too, for the Direct3D 12 that a machine without Vulkan
+/// draws with.
+[[nodiscard]] std::vector<ShaderTarget> gameShaderTargets();
+
 /// Compiles every permutation of the engine's shaders (engineShaderRequests()), from the
-/// sources in `sourceDirectory`, into a shader cache in `cacheDirectory` - kept as a
-/// ShaderLibrary keeps one, which an engine without a compiler reads from
-/// `EngineDesc::cacheDirectory / "shaders"`. What is in the cache already, and up to date,
-/// stays. Fails with the first permutation that does not compile, naming it.
+/// sources in `sourceDirectory`, to every target of `targets`, into a shader cache in
+/// `cacheDirectory` - kept as a ShaderLibrary keeps one, which an engine without a
+/// compiler reads from `EngineDesc::cacheDirectory / "shaders"`. What is in the cache
+/// already, and up to date, stays. Fails with the first permutation that does not compile,
+/// naming it and its target.
 [[nodiscard]] Status compileEngineShaders(const std::filesystem::path& sourceDirectory,
-                                          const std::filesystem::path& cacheDirectory);
+                                          const std::filesystem::path& cacheDirectory,
+                                          std::span<const ShaderTarget> targets = gameShaderTargets());
 
 } // namespace cordite

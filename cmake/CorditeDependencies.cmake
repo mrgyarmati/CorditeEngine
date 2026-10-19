@@ -470,6 +470,31 @@ else()
         IMPORTED_SONAME "${cordite_slang_library}")
 endif()
 
+# --- DXC: the DirectX shader compiler, through which Slang writes DXIL for Direct3D 12 -----
+# Windows only, as Direct3D 12 is. Slang loads dxcompiler.dll from beside itself; nothing is
+# linked against it. DXC signs what it writes itself since 1.8.2502, so dxil.dll - the
+# validator, under Microsoft's own license - is neither copied nor needed. The release of its
+# publisher is pinned: building DXC takes LLVM.
+set(CORDITE_DXC_VERSION "")
+if(WIN32)
+    set(CORDITE_DXC_VERSION "1.9.2609")
+    cordite_declare_dependency(dxc
+        URL https://github.com/microsoft/DirectXShaderCompiler/releases/download/v1.9.2609/dxc_2026_09_29.zip
+        SHA256 ad31b1fc8443175d204f77a611fdb3ef2ec42759bdc2f1167368de24a4a7e7f1
+        SOURCES_ONLY)
+    FetchContent_MakeAvailable(dxc)
+    if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(ARM64|aarch64)$")
+        set(cordite_dxc_arch arm64)
+    else()
+        set(cordite_dxc_arch x64)
+    endif()
+    set(cordite_dxc_library "${dxc_SOURCE_DIR}/bin/${cordite_dxc_arch}/dxcompiler.dll")
+    if(NOT EXISTS "${cordite_dxc_library}")
+        message(FATAL_ERROR "The DXC release has no ${cordite_dxc_arch}/dxcompiler.dll")
+    endif()
+    list(APPEND CORDITE_SLANG_RUNTIME_FILES "${cordite_dxc_library}")
+endif()
+
 # Copies the shader compiler's runtime libraries next to the built executables.
 if(CORDITE_SLANG_RUNTIME_FILES)
     add_custom_target(cordite_slang_runtime ALL

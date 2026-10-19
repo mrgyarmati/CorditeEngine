@@ -102,11 +102,18 @@ validation layers.
 
 | Library | Version | License | Used for |
 |---------|---------|---------|----------|
-| [Slang](https://github.com/shader-slang/slang) | 2026.19 (official prebuilt binaries) | Apache-2.0 WITH LLVM-exception | Shader compilation to SPIR-V |
+| [Slang](https://github.com/shader-slang/slang) | 2026.19 (official prebuilt binaries) | Apache-2.0 WITH LLVM-exception | Shader compilation to SPIR-V, and through DXC to DXIL |
+| [DXC](https://github.com/microsoft/DirectXShaderCompiler), the DirectX shader compiler | 1.9.2609 (official prebuilt binaries; Windows only) | MIT and the LLVM Release License (University of Illinois/NCSA) | `dxcompiler.dll`, which Slang loads to write DXIL for Direct3D 12 |
 | [nativefiledialog-extended](https://github.com/btzy/nativefiledialog-extended) | 1.4.1 | Zlib | The system's own dialogs in which the editor's File menu asks for paths (`editor/FileDialogs.h`) |
 
 Slang is a shared library. On Windows its DLLs are copied next to the executables at
 build time; on Linux and macOS the executables find it through their build RPATH.
+
+DXC comes as its publisher's release, of which only `dxcompiler.dll` is copied beside the
+executables, where Slang finds it; nothing is linked against it. The release also holds
+`dxil.dll`, the validator, under Microsoft's own license terms: it is not used - DXC signs
+the DXIL it writes itself since 1.8.2502 - nor copied. No exported game carries DXC: a game
+ships its shaders compiled.
 
 nativefiledialog-extended is built from its sources by its own CMake project. On Linux it
 asks xdg-desktop-portal for its dialogs over D-Bus, and the build needs the headers of

@@ -35,7 +35,8 @@ Result<nvrhi::ShaderHandle> ShaderManager::get(ShaderRequest request) {
     nvrhi::ShaderDesc desc;
     desc.shaderType = toNvrhiStage(request.stage);
     desc.debugName = request.describe();
-    // Slang names the SPIR-V entry point "main" whatever the source function is called.
+    // Slang names the SPIR-V entry point "main" whatever the source function is called;
+    // DXIL holds the one entry point, which Direct3D 12 does not ask the name of.
     desc.entryName = "main";
 
     nvrhi::ShaderHandle shader = m_device->createShader(desc, binary->code.data(), binary->code.size());

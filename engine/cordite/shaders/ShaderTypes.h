@@ -21,8 +21,10 @@
 #include "cordite/core/Hash.h"
 #include "cordite/core/Result.h"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -37,6 +39,19 @@ enum class ShaderStage : uint8_t {
 };
 
 std::string_view nameOf(ShaderStage stage);
+
+/// What a shader is compiled to: the code of one kind of device.
+enum class ShaderTarget : uint8_t {
+    /// SPIR-V, for Vulkan.
+    Spirv,
+    /// DXIL, signed, for Direct3D 12 (Windows).
+    Dxil,
+};
+
+inline constexpr std::array<ShaderTarget, 2> kShaderTargets = {ShaderTarget::Spirv, ShaderTarget::Dxil};
+
+/// "spirv" or "dxil".
+std::string_view nameOf(ShaderTarget target);
 
 /// A preprocessor definition, `#define name value`.
 struct ShaderDefine {
@@ -77,13 +92,15 @@ struct ShaderDependency {
     bool operator==(const ShaderDependency&) const = default;
 };
 
-/// A compiled shader: SPIR-V plus what is needed to tell whether it is still up to date.
+/// A compiled shader: its code plus what is needed to tell whether it is still up to date.
 struct ShaderBinary {
     ShaderStage stage = ShaderStage::Vertex;
+    /// What the code is.
+    ShaderTarget target = ShaderTarget::Spirv;
     std::string entryPoint;
-    /// IShaderCompiler::version() of the compiler that produced the code.
+    /// IShaderCompiler::version() of the compiler that produced the code, for its target.
     std::string compilerVersion;
-    /// SPIR-V module. Its size is a multiple of four bytes.
+    /// A SPIR-V module, whose size is a multiple of four bytes; or a DXIL container.
     std::vector<std::byte> code;
     /// Every file that was read to compile the shader, the main file included.
     std::vector<ShaderDependency> dependencies;
@@ -93,5 +110,16 @@ struct ShaderBinary {
 
 /// Returns true when `code` starts with the SPIR-V magic number and holds whole words.
 [[nodiscard]] bool isSpirv(std::span<const std::byte> code);
+
+/// Returns true when `code` is a DXIL container that is signed: the magic "DXBC", a hash
+/// that is not all nothing - Direct3D 12 refuses a shader that is unsigned - and the size
+/// the container says it has.
+[[nodiscard]] bool isDxil(std::span<const std::byte> code);
+
+/// Whether `code` is the code of `target` (isSpirv(), isDxil()).
+[[nodiscard]] bool isCodeOf(ShaderTarget target, std::span<const std::byte> code);
+
+/// The target whose code `code` is; none for what is the code of none.
+[[nodiscard]] std::optional<ShaderTarget> targetOf(std::span<const std::byte> code);
 
 } // namespace cordite

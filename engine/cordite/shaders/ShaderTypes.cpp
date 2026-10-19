@@ -7,6 +7,9 @@ namespace cordite {
 namespace {
 
 constexpr uint32_t kSpirvMagic = 0x07230203;
+/// "DXBC" and "DXIL" as the words of a DXIL container are, in little-endian byte order.
+constexpr uint32_t kDxbcMagic = 0x43425844;
+constexpr uint32_t kDxilPart = 0x4C495844;
 
 /// Bumped when the meaning of a request changes, to orphan every existing cache entry.
 constexpr uint32_t kRequestKeyVersion = 1;
@@ -50,6 +53,16 @@ std::string_view nameOf(ShaderStage stage) {
             return "pixel";
         case ShaderStage::Compute:
             return "compute";
+    }
+    return "unknown";
+}
+
+std::string_view nameOf(ShaderTarget target) {
+    switch (target) {
+        case ShaderTarget::Spirv:
+            return "spirv";
+        case ShaderTarget::Dxil:
+            return "dxil";
     }
     return "unknown";
 }
@@ -115,6 +128,56 @@ bool isSpirv(std::span<const std::byte> code) {
     uint32_t magic = 0;
     std::memcpy(&magic, code.data(), sizeof(magic));
     return magic == kSpirvMagic;
+}
+
+bool isDxil(std::span<const std::byte> code) {
+    // The container: "DXBC", a hash of 16 bytes, a version, its size in bytes and how many
+    // parts it has, the offsets of the parts - and each part its four letters and size.
+    constexpr size_t kHeaderBytes = 32;
+    constexpr size_t kPartHeaderBytes = 8;
+    constexpr uint32_t kMaxParts = 64;
+    const auto readWord = [&code](size_t offset) {
+        uint32_t word = 0;
+        std::memcpy(&word, code.data() + offset, sizeof(word));
+        return word;
+    };
+    if (code.size() < kHeaderBytes || readWord(0) != kDxbcMagic) {
+        return false;
+    }
+    // Unsigned, the hash is nothing: the validator gives it when it passes the shader.
+    const std::span<const std::byte> hash = code.subspan(4, 16);
+    if (std::ranges::all_of(hash, [](std::byte part) { return part == std::byte{0}; })) {
+        return false;
+    }
+    const uint32_t size = readWord(24);
+    const uint32_t parts = readWord(28);
+    if (size != code.size() || parts > kMaxParts || kHeaderBytes + size_t{parts} * sizeof(uint32_t) > code.size()) {
+        return false;
+    }
+    for (uint32_t part = 0; part < parts; ++part) {
+        const uint32_t offset = readWord(kHeaderBytes + size_t{part} * sizeof(uint32_t));
+        if (size_t{offset} + kPartHeaderBytes > code.size()) {
+            return false;
+        }
+        if (readWord(offset) == kDxilPart) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool isCodeOf(ShaderTarget target, std::span<const std::byte> code) {
+    return target == ShaderTarget::Dxil ? isDxil(code) : isSpirv(code);
+}
+
+std::optional<ShaderTarget> targetOf(std::span<const std::byte> code) {
+    if (isSpirv(code)) {
+        return ShaderTarget::Spirv;
+    }
+    if (isDxil(code)) {
+        return ShaderTarget::Dxil;
+    }
+    return std::nullopt;
 }
 
 } // namespace cordite

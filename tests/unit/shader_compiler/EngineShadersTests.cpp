@@ -4,6 +4,7 @@
 
 #include "cordite/shaders/EngineShaders.h"
 
+#include "cordite/core/Base.h"
 #include "cordite/shader_compiler/EngineShaderCache.h"
 #include "cordite/shader_compiler/SlangShaderCompiler.h"
 #include "cordite/shaders/ShaderLibrary.h"
@@ -27,25 +28,36 @@ TEST_SUITE("EngineShaders") {
             }
         }
 
-        // What an exported game has: the cache, trusted, without a compiler or sources.
-        ShaderLibrary shipped({.cacheDirectory = directory.path() / "shaders", .trustCache = true});
+        // What an exported game has: the cache, trusted, without a compiler or sources - of
+        // every target its system draws with: on Windows the DXIL of Direct3D 12 as well.
+#if CORDITE_PLATFORM_WINDOWS
+        CHECK(gameShaderTargets() == std::vector<ShaderTarget>{ShaderTarget::Spirv, ShaderTarget::Dxil});
+#else
+        CHECK(gameShaderTargets() == std::vector<ShaderTarget>{ShaderTarget::Spirv});
+#endif
         const std::vector<ShaderRequest> requests = engineShaderRequests();
-        for (const ShaderRequest& request : requests) {
-            CAPTURE(request.describe());
-            const Result<std::shared_ptr<const ShaderBinary>> binary = shipped.load(request);
-            REQUIRE_MESSAGE(binary.has_value(), test::errorOf(binary));
-            CHECK(isSpirv((*binary)->code));
-            CHECK_FALSE((*binary)->dependencies.empty());
+        for (const ShaderTarget target : gameShaderTargets()) {
+            CAPTURE(nameOf(target));
+            ShaderLibrary shipped(
+                {.cacheDirectory = directory.path() / "shaders", .trustCache = true, .target = target});
+            for (const ShaderRequest& request : requests) {
+                CAPTURE(request.describe());
+                const Result<std::shared_ptr<const ShaderBinary>> binary = shipped.load(request);
+                REQUIRE_MESSAGE(binary.has_value(), test::errorOf(binary));
+                CHECK((*binary)->target == target);
+                CHECK(isCodeOf(target, (*binary)->code));
+                CHECK_FALSE((*binary)->dependencies.empty());
+            }
+            CHECK(shipped.stats().diskHits == requests.size());
+            CHECK(shipped.stats().compilations == 0);
         }
-        CHECK(shipped.stats().diskHits == requests.size());
-        CHECK(shipped.stats().compilations == 0);
     }
 
     TEST_CASE("the compiler an engine is made with, and what a cache cannot be made of") {
         const Result<std::unique_ptr<IShaderCompiler>> compiler =
             makeSlangShaderCompiler(test::sourceDirectory() / "shaders");
         REQUIRE_MESSAGE(compiler.has_value(), test::errorOf(compiler));
-        CHECK_FALSE((*compiler)->version().empty());
+        CHECK_FALSE((*compiler)->version(ShaderTarget::Spirv).empty());
 
         // Without the sources, the first permutation of the list is named.
         const test::TempDirectory directory;
