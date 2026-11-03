@@ -46,7 +46,7 @@ What a file is, its ending says:
 | Kind | Files |
 |------|-------|
 | Texture | `.png`, `.jpg`, `.jpeg`, `.tga`, `.bmp`, and `.hdr` for images of light (skies) |
-| Model | `.gltf`, `.glb` - with the meshes, materials, skeletons and animations inside |
+| Model | `.gltf`, `.glb` - with the meshes, materials, skeletons and animations inside; `.fbx`, `.obj` - with the meshes and materials, and the MTL files an OBJ file names |
 | Material | `.material.json` - see [Materials](materials.md) |
 | Scene | `.scene.json` |
 | Prefab | `.prefab.json` - see [Prefabs](prefabs.md) |

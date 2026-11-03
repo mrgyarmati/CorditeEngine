@@ -19,9 +19,9 @@
 /// const AssetInfo* cube = database.find(builtinMeshId(BuiltinMesh::Cube));
 /// @endcode
 ///
-/// File types: `.gltf` and `.glb` are models, which contain meshes and materials (and
-/// textures, when images are embedded; skeletons and animations, when they are
-/// skinned); `.png`, `.jpg`, `.jpeg`, `.tga`, `.bmp` and `.hdr`
+/// File types: `.gltf`, `.glb`, `.fbx` and `.obj` are models, which contain meshes and
+/// materials (and textures, when images are embedded; skeletons and animations, when
+/// glTF files are skinned); `.png`, `.jpg`, `.jpeg`, `.tga`, `.bmp` and `.hdr`
 /// are textures; `.material.json` is a material; `.scene.json` is a scene;
 /// `.prefab.json` is a prefab; `.lua` is a script; `.wav`, `.flac` and `.mp3` are sounds.
 /// Other files are ignored, as are directories whose names start with a dot.

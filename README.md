@@ -137,7 +137,7 @@ whatever the game did to it.
 A game is a project: a directory with a `project.cordite` - double-click it to open the
 project in the editor - and an `assets`
 directory holding models (glTF 2.0: `.gltf`, `.glb` - with their skeletons and
-animations, when they are skinned), textures (PNG, JPEG, TGA, BMP,
+animations, when they are skinned - and FBX and OBJ: `.fbx`, `.obj`, without them), textures (PNG, JPEG, TGA, BMP,
 HDR), materials (`.material.json`), scenes (`.scene.json`), prefabs (`.prefab.json`), scripts (`.lua`) and sounds (WAV, FLAC, MP3).
 Every asset has an id
 that survives renaming and moving - it is kept in a `.meta` file next to the asset -

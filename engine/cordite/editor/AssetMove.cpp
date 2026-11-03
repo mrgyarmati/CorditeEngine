@@ -1,7 +1,7 @@
 #include "cordite/editor/AssetMove.h"
 
 #include "cordite/assets/AssetDatabase.h"
-#include "cordite/assets/GltfImporter.h"
+#include "cordite/assets/FbxImporter.h"
 #include "cordite/core/FileSystem.h"
 #include "cordite/core/Json.h"
 #include "cordite/core/Log.h"
@@ -49,7 +49,7 @@ std::string quotedList(const std::vector<std::string>& names) {
 Status checkNamedByPath(const AssetDatabase& database, const AssetInfo& asset, std::string_view to) {
     if (asset.type == AssetType::Model && directoryOf(asset.path) != directoryOf(to)) {
         const Result<GltfDocument> model =
-            importGltf(database.sourceFile(asset), {.loadData = false, .rootDirectory = database.rootDirectory()});
+            importModelFile(database.sourceFile(asset), {.loadData = false, .rootDirectory = database.rootDirectory()});
         if (!model) {
             return makeError(ErrorCode::InvalidArgument,
                              "cannot tell which files {} names by where they are, and would leave behind: {}",
@@ -231,7 +231,7 @@ Status checkDirectoryNamedByPath(const AssetDatabase& database, std::string_view
             continue;
         }
         const Result<GltfDocument> model =
-            importGltf(database.sourceFile(asset), {.loadData = false, .rootDirectory = database.rootDirectory()});
+            importModelFile(database.sourceFile(asset), {.loadData = false, .rootDirectory = database.rootDirectory()});
         if (!model) {
             return makeError(ErrorCode::InvalidArgument,
                              "cannot tell which files {} names by where they are, and whether the move breaks it: {}",

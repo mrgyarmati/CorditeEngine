@@ -179,6 +179,25 @@ TEST_SUITE("AssetImport") {
         }
     }
 
+    TEST_CASE("an OBJ file comes with its MTL file and the images that names, beside it") {
+        ImportFixture fixture;
+        REQUIRE(writeTextFile(fixture.downloads / "models" / "crate.mtl",
+                              "newmtl Wood\nKd 1 1 1\nmap_Kd ../textures/wall.png\n")
+                    .has_value());
+        REQUIRE(writeTextFile(fixture.downloads / "models" / "crate.obj",
+                              "mtllib crate.mtl\no Crate\nv 0 0 0\nv 1 0 0\nv 1 1 0\nvt 0 0\nvt 1 0\nvt 1 1\n"
+                              "usemtl Wood\nf 1/1 2/2 3/3\n")
+                    .has_value());
+        const AssetImport imported =
+            unwrap(importAssets(*fixture.context, {fixture.downloads / "models" / "crate.obj"}, "props"));
+        CHECK(imported.files == std::vector<std::string>{"props/crate.obj", "props/crate.mtl", "textures/wall.png"});
+        const AssetDatabase& database = fixture.assets->database();
+        const AssetInfo* wall = database.findByReference("textures/wall.png");
+        REQUIRE(wall != nullptr);
+        CHECK(database.dependents(wall->id).size() == 1);
+        CHECK(fixture.assets->loadMesh(database.findByReference("props/crate.obj#mesh/0")->id).has_value());
+    }
+
     TEST_CASE("a glTF file that names a file that is not there is refused") {
         ImportFixture fixture;
         ImportFixture::writeModel(fixture.downloads / "models" / "lost.gltf", "missing.png");

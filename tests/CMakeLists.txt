@@ -126,6 +126,7 @@ cordite_add_test_suite(assets
         unit/assets/AssetDatabaseTests.cpp
         unit/assets/AssetManagerTests.cpp
         unit/assets/AssetTestSupport.h
+        unit/assets/FbxImporterTests.cpp
         unit/assets/GltfExporterTests.cpp
         unit/assets/GltfImporterTests.cpp
         unit/assets/GltfSkinningTests.cpp

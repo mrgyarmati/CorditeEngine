@@ -30,6 +30,7 @@ set(CORDITE_SHIPPED_LICENSES
     "nlohmann-json|${nlohmann_json_SOURCE_DIR}/LICENSE.MIT"
     "nvrhi|${nvrhi_SOURCE_DIR}/LICENSE.txt"
     "spdlog|${spdlog_SOURCE_DIR}/LICENSE"
+    "ufbx|${ufbx_SOURCE_DIR}/LICENSE"
     "stb|${stb_SOURCE_DIR}/LICENSE"
     "tl-expected|${tl_expected_SOURCE_DIR}/COPYING"
     "vulkan-headers|${vulkan_headers_SOURCE_DIR}/LICENSE.md"

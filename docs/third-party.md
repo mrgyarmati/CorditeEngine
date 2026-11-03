@@ -23,6 +23,7 @@ pinned in [cmake/CorditeDependencies.cmake](../cmake/CorditeDependencies.cmake) 
 | [cgltf](https://github.com/jkuhlmann/cgltf) | 1.15 | MIT | Parsing glTF 2.0 files |
 | [meshoptimizer](https://github.com/zeux/meshoptimizer) | 1.3 | MIT | Welding vertices and ordering imported meshes for the GPU |
 | [MikkTSpace](https://github.com/mmikk/MikkTSpace) | commit `3e895b4` | zlib | Tangents for meshes that come without them |
+| [ufbx](https://github.com/ufbx/ufbx) | 0.23.1 | MIT OR public domain | Parsing FBX and OBJ files, with the MTL files OBJ files name |
 | [CLI11](https://github.com/CLIUtils/CLI11) | 2.7.2 | BSD-3-Clause | Command-line parsing in the executables |
 | [EnTT](https://github.com/skypjack/entt) | 3.16.0 | MIT | Entity and component storage behind `World` |
 | [Jolt Physics](https://github.com/jrouwe/JoltPhysics) | 5.6.0 | MIT | Rigid bodies, collision queries and character movement behind `PhysicsWorld` |

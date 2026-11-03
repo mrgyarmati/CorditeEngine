@@ -201,6 +201,12 @@ cordite_declare_dependency(mikktspace
     SHA256 aeba65ddee85a679133d510d71d00b108f603752f90b15b9ecf7777033f6e351
     SOURCES_ONLY)
 
+# --- ufbx: FBX and OBJ parsing (one source; the cordite_ufbx target below compiles it) ----
+cordite_declare_dependency(ufbx
+    URL https://github.com/ufbx/ufbx/archive/refs/tags/v0.23.1.tar.gz
+    SHA256 21edd1021dfb430e37aa6214c9b3bbaa5634b1859cbbef7231e738af4f19c956
+    SOURCES_ONLY)
+
 # --- Jolt Physics: rigid bodies, collision queries, character movement -------------------
 # Its CMake project is in Build/. It is built like the engine around it: with exceptions
 # and run-time type information - the engine derives from its interfaces - and for the
@@ -309,7 +315,7 @@ cordite_dependency_option(NFD_OVERRIDE_RECENT_WITH_DEFAULT ON)
 FetchContent_MakeAvailable(
     fmt spdlog nlohmann_json tl_expected enkits xxhash glm
     glfw vulkan_headers ${cordite_directx_headers} nvrhi stb cli11 entt imgui
-    cgltf meshoptimizer mikktspace joltphysics lua miniaudio
+    cgltf meshoptimizer mikktspace ufbx joltphysics lua miniaudio
     inter jetbrains_mono lucide ltc_code nfd)
 set_target_properties(nfd PROPERTIES FOLDER "ThirdParty")
 
@@ -334,6 +340,15 @@ add_library(cordite_mikktspace STATIC "${mikktspace_SOURCE_DIR}/mikktspace.c")
 add_library(cordite::mikktspace ALIAS cordite_mikktspace)
 target_include_directories(cordite_mikktspace SYSTEM PUBLIC "${mikktspace_SOURCE_DIR}")
 set_target_properties(cordite_mikktspace PROPERTIES FOLDER "ThirdParty")
+
+add_library(cordite_ufbx STATIC "${ufbx_SOURCE_DIR}/ufbx.c")
+add_library(cordite::ufbx ALIAS cordite_ufbx)
+target_include_directories(cordite_ufbx SYSTEM PUBLIC "${ufbx_SOURCE_DIR}")
+if(UNIX)
+    # ufbx uses the mathematics library.
+    target_link_libraries(cordite_ufbx PUBLIC m)
+endif()
+set_target_properties(cordite_ufbx PROPERTIES FOLDER "ThirdParty")
 
 # miniaudio with its decoders for WAV, FLAC and MP3 and every way of playing sound the
 # platform has - each looked for when the program runs, so that building needs none of

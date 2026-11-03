@@ -967,6 +967,12 @@ Step-by-step guide: [work-with-assets](.claude/skills/work-with-assets/SKILL.md)
   All textures of a material share one layout (`uvChannel`, `uvScale`, `uvOffset`); the
   occlusion texture is the one exception, and only when `occlusionUvChannel` gives it
   the other set of coordinates, which is then used as it is.
+- **FBX and OBJ files are read by ufbx** (`FbxImporter.h`) into the same `GltfDocument`
+  as glTF files, brought to +Y up and metres and to glTF's texture coordinates, so
+  everything after the import treats a model alike. Skins and animations of FBX files
+  are not imported yet; what is left out is in `warnings`. An OBJ file's MTL files are
+  read only from inside the asset directory, and images are named relative to the file,
+  as in glTF.
 - **Files are untrusted.** Every count and offset of a glTF file is checked before use,
   with arithmetic that cannot overflow, before cgltf's own validation runs (which
   can be made to overflow). A mesh is limited by `kMaxMeshVertices` and

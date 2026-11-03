@@ -1,6 +1,6 @@
 #include "cordite/assets/AssetDatabase.h"
 
-#include "cordite/assets/GltfImporter.h"
+#include "cordite/assets/FbxImporter.h"
 #include "cordite/assets/Material.h"
 #include "cordite/assets/Prefab.h"
 #include "cordite/assets/RenderTarget.h"
@@ -34,7 +34,7 @@ struct FileKind {
 };
 
 /// Longer extensions first: "x.material.json" is a material, not an unknown ".json".
-constexpr std::array<FileKind, 17> kFileKinds = {{
+constexpr std::array<FileKind, 19> kFileKinds = {{
     {".material.json", AssetType::Material},
     {".target.json", AssetType::RenderTarget},
     {".sequence.json", AssetType::Sequence},
@@ -46,6 +46,8 @@ constexpr std::array<FileKind, 17> kFileKinds = {{
     {".mp3", AssetType::Sound},
     {".gltf", AssetType::Model},
     {".glb", AssetType::Model},
+    {".fbx", AssetType::Model},
+    {".obj", AssetType::Model},
     {".png", AssetType::Texture},
     {".jpg", AssetType::Texture},
     {".jpeg", AssetType::Texture},
@@ -494,7 +496,7 @@ void AssetDatabase::addModelContents(const ScannedFile& file, const Uuid& modelI
 
     // Only the structure: which meshes, materials and images the file holds.
     Result<GltfDocument> imported =
-        importGltf(file.absolutePath, {.loadData = false, .rootDirectory = m_desc.rootDirectory});
+        cordite::importModelFile(file.absolutePath, {.loadData = false, .rootDirectory = m_desc.rootDirectory});
     if (!imported) {
         // Still listed, so that references to it say "cannot be loaded" and not "unknown".
         addProblem(imported.error().describe());

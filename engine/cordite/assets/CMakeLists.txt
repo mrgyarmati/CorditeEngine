@@ -12,6 +12,8 @@ cordite_add_module(assets
         GltfExporter.h
         GltfImporter.cpp
         GltfImporter.h
+        FbxImporter.cpp
+        FbxImporter.h
         Image.cpp
         Image.h
         ImageCompare.cpp
@@ -46,4 +48,5 @@ cordite_add_module(assets
         cordite::cgltf
         cordite::mikktspace
         cordite::miniaudio
+        cordite::ufbx
         meshoptimizer)

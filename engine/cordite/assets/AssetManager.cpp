@@ -1,7 +1,7 @@
 #include "cordite/assets/AssetManager.h"
 
+#include "cordite/assets/FbxImporter.h"
 #include "cordite/assets/GltfDocument.h"
-#include "cordite/assets/GltfImporter.h"
 #include "cordite/assets/MeshProcessing.h"
 #include "cordite/assets/Primitives.h"
 #include "cordite/core/FileSystem.h"
@@ -123,8 +123,8 @@ Status AssetManager::importModelFile(const AssetInfo& asset) {
         return imported->second;
     }
 
-    Result<GltfDocument> result =
-        importGltf(m_database.sourceFile(*file), {.loadData = true, .rootDirectory = m_database.rootDirectory()});
+    Result<GltfDocument> result = cordite::importModelFile(
+        m_database.sourceFile(*file), {.loadData = true, .rootDirectory = m_database.rootDirectory()});
     if (!result) {
         m_importedFiles.emplace(file->id, tl::unexpected(result.error()));
         return tl::unexpected(result.error());

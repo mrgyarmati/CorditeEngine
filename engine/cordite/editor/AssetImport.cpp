@@ -1,7 +1,7 @@
 #include "cordite/editor/AssetImport.h"
 
 #include "cordite/assets/AssetDatabase.h"
-#include "cordite/assets/GltfImporter.h"
+#include "cordite/assets/FbxImporter.h"
 #include "cordite/core/FileSystem.h"
 #include "cordite/core/Log.h"
 #include "cordite/editor/AssetMove.h"
@@ -43,9 +43,10 @@ Result<std::string> besideModel(std::string_view model, std::string_view uri) {
     return reference;
 }
 
-/// Adds what a glTF file names by where it is to what is copied.
+/// Adds what a model file names by where it is - a glTF file its buffers and images, an
+/// OBJ file its MTL files and images - to what is copied.
 Status planModelFiles(const std::filesystem::path& model, const std::string& target, std::vector<PlannedCopy>& plan) {
-    const Result<GltfDocument> document = importGltf(model, {.loadData = false});
+    const Result<GltfDocument> document = importModelFile(model, {.loadData = false});
     if (!document) {
         return makeError(ErrorCode::InvalidArgument, "cannot tell which files {} names by where they are: {}",
                          pathToUtf8(model), document.error().describe());

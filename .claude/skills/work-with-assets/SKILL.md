@@ -38,7 +38,7 @@ my-game/
     .cordite/                     derived data; not committed
 ```
 
-File types are told apart by extension: `.gltf`/`.glb` model, `.png .jpg .jpeg .tga
+File types are told apart by extension: `.gltf`/`.glb`/`.fbx`/`.obj` model, `.png .jpg .jpeg .tga
 .bmp .hdr` texture, `.material.json` material, `.scene.json` scene, `.prefab.json`
 prefab, `.lua` script,
 `.wav .flac .mp3` sound. Anything else, and any directory whose name starts with a dot,
@@ -140,8 +140,10 @@ to it, to the property). In code: `AssetInfo::dependencies` and
 
 ## Import a model
 
-glTF 2.0, `.gltf` or `.glb`. What comes across and what does not is listed at the top of
-`GltfImporter.h`. One model file yields:
+glTF 2.0, `.gltf` or `.glb`, and FBX or OBJ, `.fbx` or `.obj` (with the MTL files an OBJ
+file names). What comes across and what does not is listed at the top of
+`GltfImporter.h` and `FbxImporter.h`: FBX and OBJ bring meshes, materials and images,
+but no skins or animations. One model file yields:
 
 - a **model**: the node hierarchy, placed in a scene with `asset.instantiate`;
 - a **mesh** per glTF mesh (`#mesh/N`), with one submesh per material it uses;
