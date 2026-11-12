@@ -145,6 +145,30 @@ public:
         OpenProject,
     };
 
+    /// What leaves the scene that is open, and would lose the changes it has not saved.
+    enum class Leaving : uint8_t {
+        None,
+        /// File > New scene: an empty scene in its place.
+        NewScene,
+        /// File > Open scene, Ctrl+O: a scene a dialog names.
+        OpenScene,
+        /// File > New project: a project made where a dialog says, which the editor
+        /// closes to begin again on.
+        NewProject,
+        /// File > Open project: a project a dialog names, which the editor closes to begin
+        /// again on.
+        OpenProject,
+        /// File > Exit.
+        Exit,
+    };
+
+    /// What a person answers when asked whether to save the changes of the scene first.
+    enum class UnsavedChangesAnswer : uint8_t {
+        Save,
+        DontSave,
+        Cancel,
+    };
+
     /// Loads the project, starts the engine and opens the scene. Fails when any of
     /// that cannot be done.
     [[nodiscard]] static Result<std::unique_ptr<EditorApp>> create(const EditorAppDesc& desc);
@@ -207,6 +231,23 @@ public:
 
     /// Whether the editor has dialogs to ask for paths with (EditorAppDesc::fileDialogs).
     [[nodiscard]] bool hasFileDialogs() const { return m_fileDialogs != nullptr; }
+
+    /// Does what `leaving` says, as the File menu does - asking for a path where it needs
+    /// one - and first, when the scene has changes that are not saved, asks whether to save
+    /// them: a question of the editor's own, drawn in its window from the next frame on,
+    /// which unsavedChangesQuestion() says is open and answerUnsavedChanges() answers, as
+    /// its buttons do. Without such changes it goes ahead at once. A question that was not
+    /// answered is replaced by the new one.
+    void leave(Leaving leaving);
+
+    /// What the open question about unsaved changes is about; Leaving::None while none is.
+    [[nodiscard]] Leaving unsavedChangesQuestion() const { return m_leaving; }
+
+    /// Answers the open question about unsaved changes. Save writes the scene to its file -
+    /// a scene without one where a dialog says - and goes on once it is written; a save
+    /// that fails, or a dialog that is cancelled, leaves the scene where it was. DontSave
+    /// goes on and lets the changes go; Cancel changes nothing. Nothing without a question.
+    void answerUnsavedChanges(UnsavedChangesAnswer answer);
 
     /// Playing the scene where it is edited: start it, hold it, stop it. Start and stop
     /// between frames, never during one - which is where commands run.
@@ -289,6 +330,13 @@ private:
     void showPathDialog();
     /// What the dialog of `dialog` asks for.
     [[nodiscard]] FileDialogRequest pathRequest(PathDialog dialog) const;
+    /// Does what `leaving` says, the changes of the scene saved or given up - the second
+    /// when `discardChanges`, which the project commands that a dialog's answer runs are
+    /// told: they refuse to lose changes otherwise.
+    void goAhead(Leaving leaving, bool discardChanges);
+    /// Draws the question about unsaved changes while one is open, and answers it as its
+    /// buttons say - and its keys: Enter saves, Escape cancels.
+    void drawUnsavedChangesQuestion();
 
     std::optional<Project> m_project;
     /// What the person at the editor chose about it, and where it is kept (empty: nowhere).
@@ -325,6 +373,14 @@ private:
     FileDialogs* m_fileDialogs = nullptr;
     /// The dialog to show before the next frame.
     PathDialog m_pathDialog = PathDialog::None;
+    /// Whether the project command that the answer of that dialog runs gives up the
+    /// changes of the scene (`discardChanges`): a person said not to save them.
+    bool m_discardChanges = false;
+    /// What the open question about unsaved changes is about; None while none is open.
+    Leaving m_leaving = Leaving::None;
+    /// What is done once the scene has been saved where the Save as dialog says, when the
+    /// question was answered with Save for a scene without a file; None for nothing.
+    Leaving m_leavingAfterSave = Leaving::None;
     std::optional<std::filesystem::path> m_projectToOpen;
     bool m_showInterfaceDemo = false;
     bool m_showStatistics = false;

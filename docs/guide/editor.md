@@ -83,6 +83,10 @@ cylinder, cone, capsule and torus. Give a shape a Collider to make it solid.
 A scene is a file of its own (`.scene.json`) among the assets: File > New scene, Open scene
 (**Ctrl+O**), Save (**Ctrl+S**) and Save as. The title of the window shows the scene, with a
 `*` when it has changes that are not saved. The project names the scene a game starts with.
+Whatever would leave such a scene - a new or another scene, a new or another project, Exit -
+asks first: **Save** (**Enter**) writes it, to a file you choose if it has none yet, and then
+goes on; **Don't save** goes on without; **Cancel** (**Escape**) stays. Closing the window
+itself does not ask yet.
 
 ## Playing
 

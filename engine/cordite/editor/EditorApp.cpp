@@ -46,6 +46,10 @@ constexpr float kMaxLodErrorPixels = 64.0f;
 constexpr const char* kNoDialogs = "Asks for a path in a dialog of the system, which an editor without a window "
                                    "has not got: the commands that take a path - scene.open, scene.save, "
                                    "project.new, project.open, project.export - do the same.";
+/// What the parameter of the project commands that lets the changes of the scene go says.
+constexpr const char* kDiscardChangesDescription =
+    "Let the changes of the scene that are not saved go, instead of refusing: what a person who answers "
+    "\"Don't save\" asks for. Defaults to false.";
 /// The windows that are closed until someone asks for them, as editor.showPanel names them.
 constexpr const char* kStatisticsPanelName = "statistics";
 constexpr const char* kInterfaceDemoPanelName = "interfaceDemo";
@@ -1191,28 +1195,33 @@ Json EditorApp::describePlay() const {
 Status EditorApp::registerProjectCommands() {
     // Another project is another engine - other assets, another cache - so the editor
     // ends, and whoever runs it begins again on the project (projectToOpen()).
-    const auto refuseToLeave = [this]() -> Status {
+    // A script cannot answer the question a person is asked about changes that are not
+    // saved, so a command refuses to lose them unless it is told to.
+    const auto refuseToLeave = [this](const Json& parameters) -> Status {
         if (m_context->isPlaying()) {
             return makeError(ErrorCode::InvalidState, "the scene is being played: stop it first");
         }
-        if (m_context->hasUnsavedChanges()) {
+        if (m_context->hasUnsavedChanges() && !jsonGetOr<bool>(parameters, "discardChanges", false)) {
             return makeError(ErrorCode::InvalidState,
-                             "the scene has changes that are not saved, and would be lost: save it, or undo them");
+                             "the scene has changes that are not saved, and would be lost: save it, undo them, or "
+                             "say discardChanges");
         }
         return {};
     };
     CORDITE_TRY(m_commands.add({
         .name = "project.new",
-        .description = "Makes a new project - a directory with a project.cordite and its assets - with a scene to "
-                       "begin with: a camera that looks at a box on a floor, under a sun and a sky. Then the "
-                       "editor closes, and the program that runs it opens it again on the new project. Refused "
-                       "while the scene is played or has changes that are not saved, and for a directory that "
-                       "holds a project already. Returns the project and its start scene.",
-        .parameters =
-            {{"path", Type::String, "The directory of the project: not there yet, or one without a project in it."},
-             {"name", Type::String, "What the game is called. Defaults to the name of the directory.", false}},
+        .description =
+            "Makes a new project - a directory with a project.cordite and its assets - with a scene to "
+            "begin with: a camera that looks at a box on a floor, under a sun and a sky. Then the "
+            "editor closes, and the program that runs it opens it again on the new project. Refused "
+            "while the scene is played or has changes that are not saved - unless told to discard "
+            "them - and for a directory that holds a project already. Returns the project and its start scene.",
+        .parameters = {{"path", Type::String,
+                        "The directory of the project: not there yet, or one without a project in it."},
+                       {"name", Type::String, "What the game is called. Defaults to the name of the directory.", false},
+                       {"discardChanges", Type::Boolean, kDiscardChangesDescription, false}},
         .handler = [this, refuseToLeave](const Json& parameters) -> Result<Json> {
-            CORDITE_TRY(refuseToLeave());
+            CORDITE_TRY(refuseToLeave(parameters));
             CORDITE_TRY_ASSIGN(const Project made,
                                createStarterProject(pathFromUtf8(parameters.at("path").get<std::string>()),
                                                     jsonGetOr<std::string>(parameters, "name", "")));
@@ -1227,12 +1236,14 @@ Status EditorApp::registerProjectCommands() {
     }));
     CORDITE_TRY(m_commands.add({
         .name = "project.open",
-        .description = "Opens another project: the editor closes, and the program that runs it opens it again on "
-                       "that project. Refused while the scene is played or has changes that are not saved, and "
-                       "for a path that holds no project. Returns the project.",
-        .parameters = {{"path", Type::String, "The project: its directory, or its project.cordite."}},
+        .description =
+            "Opens another project: the editor closes, and the program that runs it opens it again on "
+            "that project. Refused while the scene is played or has changes that are not saved - unless told "
+            "to discard them - and for a path that holds no project. Returns the project.",
+        .parameters = {{"path", Type::String, "The project: its directory, or its project.cordite."},
+                       {"discardChanges", Type::Boolean, kDiscardChangesDescription, false}},
         .handler = [this, refuseToLeave](const Json& parameters) -> Result<Json> {
-            CORDITE_TRY(refuseToLeave());
+            CORDITE_TRY(refuseToLeave(parameters));
             CORDITE_TRY_ASSIGN(const Project project,
                                loadProject(pathFromUtf8(parameters.at("path").get<std::string>())));
             m_projectToOpen = project.directory;
@@ -1645,6 +1656,8 @@ void EditorApp::drawInterface() {
     if (m_showInterfaceDemo) {
         ImGui::ShowDemoWindow(&m_showInterfaceDemo);
     }
+    // Last, so that it is in front of everything.
+    drawUnsavedChangesQuestion();
 }
 
 void EditorApp::handleShortcuts() {
@@ -1673,7 +1686,7 @@ void EditorApp::handleShortcuts() {
         }
     }
     if (ImGui::Shortcut(ImGuiMod_Ctrl | ImGuiKey_O, route)) {
-        askForPath(PathDialog::OpenScene);
+        leave(Leaving::OpenScene);
     }
 
     // Playing begins and ends between two frames, where commands run: these are queued
@@ -1775,30 +1788,32 @@ void EditorApp::drawFileMenu() {
     }
     // An item that asks for a path in a dialog: none without dialogs, which it says.
     const bool dialogs = hasFileDialogs();
-    const auto pathItem = [this, dialogs](const char* label, const char* shortcut, bool enabled, PathDialog dialog) {
+    const auto pathItem = [dialogs](const char* label, const char* shortcut, bool enabled, const auto& choose) {
         if (ImGui::MenuItem(label, shortcut, false, enabled && dialogs)) {
-            askForPath(dialog);
+            choose();
         }
         if (!dialogs && ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip | ImGuiHoveredFlags_AllowWhenDisabled)) {
             ImGui::SetTooltip("%s", kNoDialogs);
         }
     };
-    pathItem("New project...", nullptr, !m_context->isPlaying(), PathDialog::NewProject);
-    pathItem("Open project...", nullptr, !m_context->isPlaying(), PathDialog::OpenProject);
+    // What leaves the scene asks first whether to save its changes, if it has any.
+    pathItem("New project...", nullptr, !m_context->isPlaying(), [this] { leave(Leaving::NewProject); });
+    pathItem("Open project...", nullptr, !m_context->isPlaying(), [this] { leave(Leaving::OpenProject); });
     ImGui::Separator();
     if (ImGui::MenuItem("New scene")) {
-        reportIfFailed(m_context->newScene());
+        leave(Leaving::NewScene);
     }
-    pathItem("Open scene...", "Ctrl+O", true, PathDialog::OpenScene);
+    pathItem("Open scene...", "Ctrl+O", true, [this] { leave(Leaving::OpenScene); });
     if (ImGui::MenuItem("Save", "Ctrl+S", false, !m_context->scenePath().empty())) {
         reportIfFailed(m_context->saveScene());
     }
-    pathItem("Save as...", nullptr, true, PathDialog::SaveSceneAs);
+    pathItem("Save as...", nullptr, true, [this] { askForPath(PathDialog::SaveSceneAs); });
     ImGui::Separator();
-    pathItem("Export game...", nullptr, m_project.has_value() && !m_context->isPlaying(), PathDialog::ExportGame);
+    pathItem("Export game...", nullptr, m_project.has_value() && !m_context->isPlaying(),
+             [this] { askForPath(PathDialog::ExportGame); });
     ImGui::Separator();
     if (ImGui::MenuItem("Exit")) {
-        m_engine->requestExit();
+        leave(Leaving::Exit);
     }
     ImGui::EndMenu();
 }
@@ -2155,6 +2170,10 @@ FileDialogRequest EditorApp::pathRequest(PathDialog dialog) const {
 
 void EditorApp::showPathDialog() {
     const PathDialog dialog = std::exchange(m_pathDialog, PathDialog::None);
+    // Both belong to this dialog alone: what a question about unsaved changes left for it
+    // to do - leave once the scene is saved, give up its changes - is not done for another.
+    const Leaving afterSave = std::exchange(m_leavingAfterSave, Leaving::None);
+    const bool discardChanges = std::exchange(m_discardChanges, false);
     if (dialog == PathDialog::None) {
         return;
     }
@@ -2175,25 +2194,139 @@ void EditorApp::showPathDialog() {
     // why it would not.
     Json parameters = Json::object();
     parameters["path"] = pathToUtf8(path);
+    // A person who said not to save the changes has said what the project commands ask.
+    Json leavingParameters = parameters;
+    if (discardChanges) {
+        leavingParameters["discardChanges"] = true;
+    }
     switch (dialog) {
         case PathDialog::OpenScene:
             reportIfFailed(m_context->openScene(path));
             break;
         case PathDialog::SaveSceneAs:
-            reportIfFailed(m_context->saveScene(path));
+            if (reportIfFailed(m_context->saveScene(path))) {
+                goAhead(afterSave, false);
+            }
             break;
         case PathDialog::ExportGame:
             m_submittedLines.push_back(fmt::format("project.export {}", parameters.dump()));
             break;
         case PathDialog::NewProject:
             // Named after the directory it is made in, which the dialog asked the name of.
-            m_submittedLines.push_back(fmt::format("project.new {}", parameters.dump()));
+            m_submittedLines.push_back(fmt::format("project.new {}", leavingParameters.dump()));
             break;
         case PathDialog::OpenProject:
-            m_submittedLines.push_back(fmt::format("project.open {}", parameters.dump()));
+            m_submittedLines.push_back(fmt::format("project.open {}", leavingParameters.dump()));
             break;
         case PathDialog::None:
             break;
+    }
+}
+
+void EditorApp::leave(Leaving leaving) {
+    if (leaving == Leaving::None) {
+        return;
+    }
+    if (!m_context->hasUnsavedChanges()) {
+        goAhead(leaving, false);
+        return;
+    }
+    m_leaving = leaving;
+}
+
+void EditorApp::answerUnsavedChanges(UnsavedChangesAnswer answer) {
+    const Leaving leaving = std::exchange(m_leaving, Leaving::None);
+    if (leaving == Leaving::None) {
+        return;
+    }
+    switch (answer) {
+        case UnsavedChangesAnswer::Save:
+            if (m_context->scenePath().empty()) {
+                // Saved where a dialog says first; the dialog goes ahead once it has.
+                m_leavingAfterSave = leaving;
+                askForPath(PathDialog::SaveSceneAs);
+            } else if (reportIfFailed(m_context->saveScene())) {
+                goAhead(leaving, false);
+            }
+            break;
+        case UnsavedChangesAnswer::DontSave:
+            goAhead(leaving, true);
+            break;
+        case UnsavedChangesAnswer::Cancel:
+            break;
+    }
+}
+
+void EditorApp::goAhead(Leaving leaving, bool discardChanges) {
+    switch (leaving) {
+        case Leaving::NewScene:
+            reportIfFailed(m_context->newScene());
+            break;
+        case Leaving::OpenScene:
+            // Opening a scene replaces the one there, and asks nothing of changes.
+            askForPath(PathDialog::OpenScene);
+            break;
+        case Leaving::NewProject:
+            askForPath(PathDialog::NewProject);
+            m_discardChanges = discardChanges;
+            break;
+        case Leaving::OpenProject:
+            askForPath(PathDialog::OpenProject);
+            m_discardChanges = discardChanges;
+            break;
+        case Leaving::Exit:
+            m_engine->requestExit();
+            break;
+        case Leaving::None:
+            break;
+    }
+}
+
+void EditorApp::drawUnsavedChangesQuestion() {
+    // Known by what follows ###, as every window of the editor is (see windowName).
+    static constexpr const char* kTitle = "Unsaved changes###UnsavedChanges";
+    if (m_leaving != Leaving::None && !ImGui::IsPopupOpen(kTitle)) {
+        ImGui::OpenPopup(kTitle);
+    }
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (!ImGui::BeginPopupModal(kTitle, nullptr,
+                                ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings)) {
+        return;
+    }
+    if (m_leaving == Leaving::None) {
+        // Answered from outside - by a test or another part of the editor - since it was
+        // drawn last.
+        ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+        return;
+    }
+    ImGui::Text("The scene \"%s\" has changes that are not saved.", m_context->world().sceneName().c_str());
+    ImGui::TextUnformatted("Save them first?");
+    ImGui::Spacing();
+    // Every key is asked for in every frame, and then decided on: a shortcut is heard from
+    // the frame after the one that asked for it.
+    const bool enterPressed = ImGui::Shortcut(ImGuiKey_Enter);
+    const bool keypadEnterPressed = ImGui::Shortcut(ImGuiKey_KeypadEnter);
+    const bool escapePressed = ImGui::Shortcut(ImGuiKey_Escape);
+    const bool saveClicked = ImGui::Button("Save");
+    ImGui::SameLine();
+    const bool dontSaveClicked = ImGui::Button("Don't save");
+    ImGui::SameLine();
+    const bool cancelClicked = ImGui::Button("Cancel");
+    std::optional<UnsavedChangesAnswer> answer;
+    if (saveClicked || enterPressed || keypadEnterPressed) {
+        answer = UnsavedChangesAnswer::Save;
+    } else if (dontSaveClicked) {
+        answer = UnsavedChangesAnswer::DontSave;
+    } else if (cancelClicked || escapePressed) {
+        answer = UnsavedChangesAnswer::Cancel;
+    }
+    if (answer) {
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
+    if (answer) {
+        answerUnsavedChanges(*answer);
     }
 }
 
