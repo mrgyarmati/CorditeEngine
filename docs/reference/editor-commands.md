@@ -438,6 +438,14 @@ Opens another project: the editor closes, and the program that runs it opens it 
 | `path` | string | yes | The project: its directory, or its project.cordite. |
 | `discardChanges` | boolean | no | Let the changes of the scene that are not saved go, instead of refusing: what a person who answers "Don't save" asks for. Defaults to false. |
 
+## project.recent
+
+Lists the projects opened last, as File > Open recent does: the newest first, each with whether it is still there. With forgetMissing, takes those that are not out of the list first. The list is the person's, kept in their preferences; an editor without a file of preferences - a batch run - has its own, which it forgets. Open one with project.open.
+
+| Parameter | Kind | Needed | Meaning |
+|---|---|---|---|
+| `forgetMissing` | boolean | no | Take the projects that are no longer there out of the list first. Defaults to false. |
+
 ## scene.describe
 
 Returns the hierarchy: every entity with its id, path, state, component names and children.

@@ -244,6 +244,11 @@ Result<std::unique_ptr<EditorApp>> EditorApp::create(const EditorAppDesc& desc) 
     }
     app->m_engine->ui().setTheme(app->m_preferences.theme);
     app->m_assets.browser().setView(app->m_preferences.assetView);
+    // The project is the newest of those File > Open recent lists, the next time too.
+    if (const std::optional<Project>& project = app->m_project; project) {
+        rememberRecentProject(app->m_preferences, project->directory);
+        app->savePreferences("the project is open, but not among the recent ones next time");
+    }
 
     // Paths are asked for in the dialogs of the system - where there is a window to show
     // them over, and a person to answer - or in those a test gives.
@@ -1157,13 +1162,8 @@ Status EditorApp::registerViewportCommands() {
 void EditorApp::chooseTheme(UiTheme theme) {
     m_engine->ui().setTheme(theme);
     m_preferences.theme = theme;
-    if (m_preferencesFile.empty()) {
-        return;
-    }
     // The interface is in the theme either way; only the next session would not know.
-    if (const Status saved = saveEditorPreferences(m_preferencesFile, m_preferences); !saved) {
-        CORDITE_LOG_WARN("Editor", "the theme is used, but not remembered: {}", saved.error().message);
-    }
+    savePreferences("the theme is used, but not remembered");
 }
 
 void EditorApp::rememberAssetView() {
@@ -1174,11 +1174,15 @@ void EditorApp::rememberAssetView() {
     // Remembered once, whether the file can be written or not: a file that cannot be is
     // said once, not in every frame.
     m_preferences.assetView = view;
+    savePreferences("the view of the assets is used, but not remembered");
+}
+
+void EditorApp::savePreferences(std::string_view whatIsLost) {
     if (m_preferencesFile.empty()) {
         return;
     }
     if (const Status saved = saveEditorPreferences(m_preferencesFile, m_preferences); !saved) {
-        CORDITE_LOG_WARN("Editor", "the view of the assets is used, but not remembered: {}", saved.error().message);
+        CORDITE_LOG_WARN("Editor", "{}: {}", whatIsLost, saved.error().message);
     }
 }
 
@@ -1274,6 +1278,33 @@ Status EditorApp::registerProjectCommands() {
             Json result = Json::object();
             result["project"] = pathToUtf8(project.directory);
             result["name"] = project.settings.name;
+            return result;
+        },
+    }));
+    CORDITE_TRY(m_commands.add({
+        .name = "project.recent",
+        .description = "Lists the projects opened last, as File > Open recent does: the newest first, each with "
+                       "whether it is still there. With forgetMissing, takes those that are not out of the list "
+                       "first. The list is the person's, kept in their preferences; an editor without a file of "
+                       "preferences - a batch run - has its own, which it forgets. Open one with project.open.",
+        .parameters = {{"forgetMissing", Type::Boolean,
+                        "Take the projects that are no longer there out of the list first. Defaults to false.", false}},
+        .handler = [this](const Json& parameters) -> Result<Json> {
+            Json result = Json::object();
+            size_t forgotten = 0;
+            if (jsonGetOr<bool>(parameters, "forgetMissing", false)) {
+                forgotten = forgetMissingRecentProjects(m_preferences);
+                savePreferences("the missing projects are gone from the list, but come back next time");
+            }
+            Json projects = Json::array();
+            for (const std::filesystem::path& directory : m_preferences.recentProjects) {
+                Json project = Json::object();
+                project["path"] = pathToUtf8(directory);
+                project["exists"] = recentProjectExists(directory);
+                projects.push_back(std::move(project));
+            }
+            result["projects"] = std::move(projects);
+            result["forgotten"] = forgotten;
             return result;
         },
     }));
@@ -1822,6 +1853,10 @@ void EditorApp::drawFileMenu() {
     // What leaves the scene asks first whether to save its changes, if it has any.
     pathItem("New project...", nullptr, !m_context->isPlaying(), [this] { leave(Leaving::NewProject); });
     pathItem("Open project...", nullptr, !m_context->isPlaying(), [this] { leave(Leaving::OpenProject); });
+    if (ImGui::BeginMenu("Open recent", !m_context->isPlaying())) {
+        drawRecentProjectsMenu();
+        ImGui::EndMenu();
+    }
     ImGui::Separator();
     if (ImGui::MenuItem("New scene")) {
         leave(Leaving::NewScene);
@@ -2002,6 +2037,31 @@ void EditorApp::drawViewMenu() {
         m_submittedLines.push_back(fmt::format(R"(editor.theme {{"theme": "{}"}})", nameOf(*theme)));
     }
     ImGui::EndMenu();
+}
+
+void EditorApp::drawRecentProjectsMenu() {
+    if (m_preferences.recentProjects.empty()) {
+        ImGui::TextDisabled("No project has been opened yet");
+        return;
+    }
+    bool anyMissing = false;
+    for (size_t index = 0; index < m_preferences.recentProjects.size(); ++index) {
+        const std::filesystem::path& directory = m_preferences.recentProjects[index];
+        const bool exists = recentProjectExists(directory);
+        const bool open = m_project && sameProjectDirectory(m_project->directory, directory);
+        anyMissing = anyMissing || !exists;
+        // Known by its place: a path is no id, and may hold what ImGui reads in a label (###).
+        const std::string label =
+            fmt::format("{}{}###recent{}", pathToUtf8(directory), exists ? "" : " (missing)", index);
+        if (ImGui::MenuItem(label.c_str(), nullptr, open, exists && !open)) {
+            openRecentProject(directory);
+        }
+    }
+    ImGui::Separator();
+    if (ImGui::MenuItem("Remove missing projects", nullptr, false, anyMissing)) {
+        forgetMissingRecentProjects(m_preferences);
+        savePreferences("the missing projects are gone from the list, but come back next time");
+    }
 }
 
 void EditorApp::drawEntityMenu() {
@@ -2246,6 +2306,11 @@ void EditorApp::showPathDialog() {
     }
 }
 
+void EditorApp::openRecentProject(const std::filesystem::path& directory) {
+    m_recentProjectToOpen = directory;
+    leave(Leaving::OpenRecentProject);
+}
+
 void EditorApp::leave(Leaving leaving) {
     if (leaving == Leaving::None) {
         return;
@@ -2297,6 +2362,15 @@ void EditorApp::goAhead(Leaving leaving, bool discardChanges) {
             askForPath(PathDialog::OpenProject);
             m_discardChanges = discardChanges;
             break;
+        case Leaving::OpenRecentProject: {
+            Json parameters = Json::object();
+            parameters["path"] = pathToUtf8(std::exchange(m_recentProjectToOpen, {}));
+            if (discardChanges) {
+                parameters["discardChanges"] = true;
+            }
+            m_submittedLines.push_back(fmt::format("project.open {}", parameters.dump()));
+            break;
+        }
         case Leaving::Exit:
             m_engine->requestExit();
             break;
