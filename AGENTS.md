@@ -2018,7 +2018,8 @@ with CTest under the module name. See the skills
   run the test with `CORDITE_UPDATE_REFERENCES=1`, read the change, and commit it.
 - **Performance is tested against budgets.** The `performance` suite (labels `gpu` and
   `perf`) runs scenarios - the showcase as a game would run it, a field under six
-  hundred lights - and checks what each costs against `tests/perf/budgets.json`. Counts
+  hundred lights - and checks what each costs against `tests/perf/budgets.json`. CTest
+  runs it alone (`RUN_SERIAL`), so that what it measures is not the other suites. Counts
   and sizes - draw calls, triangles, lights and the entries of their lists, bytes on
   the GPU - are the same everywhere and have tight budgets: a change that exceeds one
   raises it in the same commit, with a reason, or has a mistake. Times have budgets
