@@ -2954,6 +2954,28 @@ TEST_SUITE("EditorApp") {
         CHECK(editor->context().assets().database().revision() != revision);
     }
 
+    TEST_CASE("an editor keeps the shaders it compiled in the project, and the next one compiles none") {
+        const TempDirectory directory;
+        const Project project = unwrap(createProject(directory.path() / "game", "Game"));
+        EditorAppDesc desc = headlessDesc(UVec2(320, 180));
+        desc.project = project.directory;
+        // Where nobody says where derived data goes, as for a person at the editor.
+        desc.engine.cacheDirectory.clear();
+        {
+            const std::unique_ptr<EditorApp> editor = createEditor(desc);
+            REQUIRE(editor->runFrames(1).has_value());
+            CHECK(editor->engine().shaders().stats().compilations > 0);
+            checkNoValidationIssues(editor->engine().graphics());
+        }
+        CHECK(directoryExists(project.cacheDirectory() / "shaders"));
+
+        const std::unique_ptr<EditorApp> editor = createEditor(desc);
+        REQUIRE(editor->runFrames(1).has_value());
+        CHECK(editor->engine().shaders().stats().compilations == 0);
+        CHECK(editor->engine().shaders().stats().diskHits > 0);
+        checkNoValidationIssues(editor->engine().graphics());
+    }
+
     TEST_CASE("a new project is made by command, and the editor closes so that it is opened instead") {
         const TempDirectory directory;
         EditorAppDesc desc = headlessDesc(UVec2(320, 180));
