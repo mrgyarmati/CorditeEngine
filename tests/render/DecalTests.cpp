@@ -182,7 +182,7 @@ TEST_SUITE("Decals") {
         ground.decal("red", Vec3(0.0f), Vec3(2.0f, 2.0f, 1.0f));
         const Image after = ground.render(RenderDebugView::BaseColor);
         // Half of the red, by the alpha of its color, over the ground.
-        for (const auto [x, y] : std::initializer_list<std::pair<uint32_t, uint32_t>>{{32, 32}, {16, 16}, {47, 47}}) {
+        for (const auto& [x, y] : std::initializer_list<std::pair<uint32_t, uint32_t>>{{32, 32}, {16, 16}, {47, 47}}) {
             checkPixel(after, x, y, glm::mix(kGround, kRed, 0.5f));
         }
         // Outside the box, the ground exactly as it was.
@@ -286,7 +286,7 @@ TEST_SUITE("Decals") {
         const float tilt = glm::radians(45.0f);
         const Vec3 along(-std::sin(tilt), -std::cos(tilt), 0.0f);
         ground.scene.world.transform(entity).rotation = lookRotation(along);
-        for (const auto [fadeAngle, roughly] :
+        for (const auto& [fadeAngle, roughly] :
              std::initializer_list<std::pair<float, float>>{{60.0f, 1.0f}, {50.0f, 0.5f}, {45.0f, 0.0f}}) {
             CAPTURE(fadeAngle);
             ground.scene.world.tryGet<DecalComponent>(entity)->fadeAngle = fadeAngle;

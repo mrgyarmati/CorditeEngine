@@ -67,6 +67,12 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
         target_compile_options(cordite_build_options INTERFACE -Wno-missing-designated-field-initializers)
     endif()
 endif()
+# GCC says the same under -Wmissing-field-initializers, which it has no designated half of:
+# GCC 13, Ubuntu 24.04's, gave some 650 such warnings in a build. Turned off, it no longer
+# warns of a member left out of an initializer without names either; Clang still does.
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    target_compile_options(cordite_build_options INTERFACE -Wno-missing-field-initializers)
+endif()
 
 if(CORDITE_ENABLE_SANITIZERS)
     if(MSVC)

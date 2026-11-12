@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -1012,7 +1013,7 @@ Result<GltfSkin> convertSkin(const cgltf_data& data, const cgltf_skin& source, s
             }
             if (std::ranges::all_of(values, [](float value) { return std::isfinite(value); })) {
                 // Column after column, in the file as in memory.
-                std::memcpy(&inverseBind[index], values.data(), sizeof(Mat4));
+                inverseBind[index] = std::bit_cast<Mat4>(values);
             } else {
                 hasNoNumber = true;
             }

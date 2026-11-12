@@ -8,8 +8,8 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cmath>
-#include <cstring>
 #include <utility>
 
 namespace cordite {
@@ -61,12 +61,11 @@ void weldVertices(std::vector<MeshVertex>& vertices, std::vector<MeshSkinVertex>
     // into positive zero and changes nothing else.
     static_assert(sizeof(MeshVertex) == 14 * sizeof(float), "MeshVertex must consist of floats only");
     for (MeshVertex& vertex : vertices) {
-        std::array<float, 14> values{};
-        std::memcpy(values.data(), &vertex, sizeof(vertex));
+        auto values = std::bit_cast<std::array<float, 14>>(vertex);
         for (float& value : values) {
             value += 0.0f;
         }
-        std::memcpy(&vertex, values.data(), sizeof(vertex));
+        vertex = std::bit_cast<MeshVertex>(values);
     }
 
     for (MeshSkinVertex& entry : skin) {
