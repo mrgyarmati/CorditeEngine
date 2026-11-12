@@ -119,7 +119,7 @@ system. "Run by a person" means someone used the editor or a game there.
 |---------|-------|----------|
 | Vulkan 1.3 (Windows, Linux) | Production | Every GPU suite; swapchain tests |
 | Vulkan via MoltenVK (macOS) | Unknown | Code path present (`VulkanDevice.cpp:168-175`); never run |
-| Direct3D 12 (Windows) | Offscreen only | No swapchain; `Auto` never selects it; no CTest sets `CORDITE_GRAPHICS=d3d12`. See [BASELINE.md](BASELINE.md) for the suite run on D3D12 in this audit |
+| Direct3D 12 (Windows) | Offscreen only | No swapchain; `Auto` never selects it; `render_d3d12` runs the GPU suite on it (P1-08), its 14 known failures listed. See [BASELINE.md](BASELINE.md) for the suite run on D3D12 in this audit |
 | WARP (D3D12 software) | Offscreen only | `CORDITE_GRAPHICS=warp` |
 | OpenGL 4.5 | Absent; **decided 12 November** as the Linux fallback when there is no Vulkan | No code. NVRHI has no GL backend; see GL-01 to GL-08 in [PHASE_1_2_BACKLOG.md](PHASE_1_2_BACKLOG.md) |
 | Metal (native) | Absent | Not planned |

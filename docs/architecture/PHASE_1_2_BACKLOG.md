@@ -154,6 +154,10 @@ then P1-03 and P1-04 (the largest usability gap), then the rest.
 
 ### P1-08 Run the GPU suite on Direct3D 12 in CTest, with known failures listed - P1
 
+**Done 12 November:** `render_d3d12`, the 14 cases in `tests/render/expected-failures/d3d12.txt`.
+The mip-level readback, which the audit saw pass alone, fails alone as well now, so every
+entry is checked alone.
+
 - **Modules / files:** `tests/CMakeLists.txt`, `cmake/CorditeModule.cmake`
   (`cordite_configure_gpu_test`), `tests/render/RenderTestSupport.cpp`.
 - **Depends on:** nothing. Covers R5.

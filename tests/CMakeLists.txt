@@ -266,28 +266,56 @@ cordite_add_test_suite(shader_compiler
 # Empty for a device without known failures, which is every machine but CI's.
 set(CORDITE_EXPECTED_GPU_FAILURES "" CACHE STRING
     "A list of tests/render/expected-failures/ (without .txt) whose GPU test cases are expected to fail")
-set(cordite_expected_gpu_failures "")
-set(cordite_render_arguments "")
-if(CORDITE_EXPECTED_GPU_FAILURES)
-    set(cordite_expected_failures_file
-        "${CMAKE_CURRENT_SOURCE_DIR}/render/expected-failures/${CORDITE_EXPECTED_GPU_FAILURES}.txt")
-    if(NOT EXISTS "${cordite_expected_failures_file}")
-        message(FATAL_ERROR "CORDITE_EXPECTED_GPU_FAILURES names no list: ${cordite_expected_failures_file}")
+
+# Reads the patterns of render/expected-failures/<name>.txt into <patterns>, and the
+# argument of cordite_render_tests that leaves them out into <arguments>.
+function(cordite_read_expected_gpu_failures name patterns arguments)
+    set(file "${CMAKE_CURRENT_SOURCE_DIR}/render/expected-failures/${name}.txt")
+    if(NOT EXISTS "${file}")
+        message(FATAL_ERROR "there is no list of expected failures ${file}")
     endif()
-    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${cordite_expected_failures_file}")
-    file(STRINGS "${cordite_expected_failures_file}" cordite_expected_failure_lines)
-    foreach(line IN LISTS cordite_expected_failure_lines)
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${file}")
+    file(STRINGS "${file}" lines)
+    set(read "")
+    foreach(line IN LISTS lines)
         string(STRIP "${line}" line)
         if(line STREQUAL "" OR line MATCHES "^#")
             continue()
         endif()
         if(line MATCHES ",")
-            message(FATAL_ERROR "${cordite_expected_failures_file}: doctest splits a pattern at its commas: ${line}")
+            message(FATAL_ERROR "${file}: doctest splits a pattern at its commas: ${line}")
         endif()
-        list(APPEND cordite_expected_gpu_failures "${line}")
+        list(APPEND read "${line}")
     endforeach()
-    string(REPLACE ";" "," cordite_excluded_cases "${cordite_expected_gpu_failures}")
-    set(cordite_render_arguments "--test-case-exclude=${cordite_excluded_cases}")
+    string(REPLACE ";" "," excluded "${read}")
+    set(${patterns} "${read}" PARENT_SCOPE)
+    set(${arguments} "--test-case-exclude=${excluded}" PARENT_SCOPE)
+endfunction()
+
+# Registers every pattern as a test <prefix>_<n> that runs that case of cordite_render_tests
+# alone, with `environment` (a list of NAME=value), and must fail. A pattern that names no
+# case runs nothing, which passes - and so fails here.
+function(cordite_add_expected_gpu_failures prefix patterns labels environment)
+    set(number 0)
+    foreach(pattern IN LISTS patterns)
+        math(EXPR number "${number} + 1")
+        set(test ${prefix}_${number})
+        add_test(NAME ${test}
+            COMMAND cordite_render_tests "--test-case=${pattern}"
+            WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}")
+        set_tests_properties(${test} PROPERTIES LABELS "${labels}" WILL_FAIL TRUE TIMEOUT 600)
+        cordite_configure_gpu_test(${test} "${labels}")
+        if(environment)
+            set_property(TEST ${test} APPEND PROPERTY ENVIRONMENT ${environment})
+        endif()
+    endforeach()
+endfunction()
+
+set(cordite_expected_gpu_failures "")
+set(cordite_render_arguments "")
+if(CORDITE_EXPECTED_GPU_FAILURES)
+    cordite_read_expected_gpu_failures("${CORDITE_EXPECTED_GPU_FAILURES}" cordite_expected_gpu_failures
+                                       cordite_render_arguments)
 endif()
 
 # Everything below renders on a real Vulkan device.
@@ -345,20 +373,23 @@ cordite_add_test_suite(render
     TIMEOUT 1500
     ARGUMENTS
         ${cordite_render_arguments})
-set(cordite_expected_failure_number 0)
-foreach(pattern IN LISTS cordite_expected_gpu_failures)
-    math(EXPR cordite_expected_failure_number "${cordite_expected_failure_number} + 1")
-    set(test render_expected_failure_${cordite_expected_failure_number})
-    add_test(NAME ${test}
-        COMMAND cordite_render_tests "--test-case=${pattern}"
-        WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}")
-    # A pattern that names no test runs nothing, which passes - and so fails here.
-    set_tests_properties(${test} PROPERTIES LABELS "gpu" WILL_FAIL TRUE TIMEOUT 600)
-    cordite_configure_gpu_test(${test} "gpu")
-endforeach()
+cordite_add_expected_gpu_failures(render_expected_failure "${cordite_expected_gpu_failures}" "gpu" "")
 if(WIN32)
     # The tests of a device of Direct3D 12 make a mistake on it behind NVRHI's back.
     target_link_libraries(cordite_render_tests PRIVATE Microsoft::DirectX-Headers)
+
+    # The same suite drawn with Direct3D 12, what it is known to fail left out and checked
+    # to fail alone. Labelled d3d12 as well, so that `verify` runs it in one configuration
+    # and not in all four.
+    cordite_read_expected_gpu_failures(d3d12 cordite_d3d12_failures cordite_d3d12_arguments)
+    add_test(NAME render_d3d12
+        COMMAND cordite_render_tests ${cordite_d3d12_arguments}
+        WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}")
+    set_tests_properties(render_d3d12 PROPERTIES LABELS "gpu;d3d12" TIMEOUT 1500)
+    cordite_configure_gpu_test(render_d3d12 "gpu;d3d12")
+    set_property(TEST render_d3d12 APPEND PROPERTY ENVIRONMENT "CORDITE_GRAPHICS=d3d12")
+    cordite_add_expected_gpu_failures(render_d3d12_expected_failure "${cordite_d3d12_failures}" "gpu;d3d12"
+                                      "CORDITE_GRAPHICS=d3d12")
 endif()
 
 # Measures what the scenarios cost - the showcase, a scene full of lights - writes it to

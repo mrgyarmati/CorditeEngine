@@ -2018,16 +2018,18 @@ with CTest under the module name. See the skills
 - **The GPU tests draw with what `CORDITE_GRAPHICS` names** (`testGraphics()`): Vulkan
   unless it is `d3d12` or `warp`. Every device and engine of the tests is made with it, but
   those of the tests that are about one API - Vulkan's adapter, the defaults, a window -
-  which say which. No CTest runs the suite on Direct3D 12 yet: 14 of its tests do not pass
-  there so far - eight reference pictures, three of fog, the exact light of open ground,
-  the console of the editor, and a readback of a mip level, which passes alone and fails in
-  a whole run.
+  which say which. On Windows `render_d3d12` runs the suite on Direct3D 12 (labels `gpu`
+  and `d3d12`: `verify` runs it in its default configuration only), without the 14 cases
+  that do not pass there so far - eight reference pictures, three of fog, the exact light of
+  open ground, the console of the editor, a readback of a mip level - which
+  `tests/render/expected-failures/d3d12.txt` lists, and which each must still fail alone.
 - **What a device is known to fail is a list, checked both ways**
-  (`tests/render/expected-failures/<name>.txt`, chosen with
-  `-DCORDITE_EXPECTED_GPU_FAILURES=<name>`; CI's Linux job has `lavapipe`): its cases are
-  left out of `render`, and each runs alone as `render_expected_failure_<n>`, which must
-  fail - a case that passes, or a line that names no case, fails it. A line is a pattern
-  of doctest's `-tc` without a comma. A case goes on a list with what is known of why,
+  (`tests/render/expected-failures/<name>.txt`, chosen for `render` with
+  `-DCORDITE_EXPECTED_GPU_FAILURES=<name>` - CI's Linux job has `lavapipe` - and `d3d12` for
+  `render_d3d12`): its cases are left out of the suite, and each runs alone as
+  `render_expected_failure_<n>` (`render_d3d12_expected_failure_<n>`), which must fail - a
+  case that passes, or a line that names no case, fails it. A line is a pattern of
+  doctest's `-tc` without a comma. A case goes on a list with what is known of why,
   and the ticket to find out (P1-13); never to make a change pass.
 - **A shader is compiled once in a run of the GPU tests** (`sharedCacheDirectory()` in
   `RenderTestSupport.h`): the `RenderContext` of every test and the engines and editors of

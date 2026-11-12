@@ -80,8 +80,10 @@ early in Phase 2 (P2-04).
   commit until 12 November: the GPU suites had never run there. 17 cases fail on lavapipe
   and are listed as expected failures (P1-13). Windows CI excludes the `gpu` label. macOS
   CI runs only on demand and without GPU tests.
-- No CTest runs the GPU suite on D3D12. AGENTS.md lists 14 failures there in prose, with
-  no skip list. The [baseline](BASELINE.md) records what this audit measured.
+- No CTest ran the GPU suite on D3D12 at the time of the audit; AGENTS.md listed 14
+  failures there in prose. Since P1-08 `render_d3d12` runs it, with those 14 in
+  `tests/render/expected-failures/d3d12.txt`. The [baseline](BASELINE.md) records what
+  this audit measured.
 - MoltenVK and the macOS bundle have never run.
 - clang-tidy and clang-cl run only locally.
 
