@@ -23,6 +23,7 @@
 #include "cordite/renderer/RenderDebugView.h"
 #include "cordite/rhi/TextureReadback.h"
 #include "cordite/shaders/EngineShaders.h"
+#include "cordite/world/Components.h"
 #include "cordite/world/EntityPath.h"
 #include "cordite/world/SceneSerializer.h"
 
@@ -2132,6 +2133,59 @@ TEST_SUITE("EditorApp") {
         checkNoValidationIssues(editor->engine().graphics());
     }
 
+    TEST_CASE("a model and a prefab of a project are dragged onto a row of the hierarchy, or below the rows") {
+        EditorAppDesc desc = headlessDesc(UVec2(1280, 720));
+        desc.project = showcaseProject();
+        const std::unique_ptr<EditorApp> editor = createEditor(desc);
+        const AssetBrowser& browser = editor->assetBrowser().browser();
+        const AssetDatabase& database = editor->context().assets().database();
+        World& world = editor->context().world();
+        run(*editor, "scene.new");
+        run(*editor, "entity.create", R"({"name": "Yard"})");
+        run(*editor, "editor.focusPanel", R"({"panel": "assets"})");
+        const float line = ImGui::GetTextLineHeightWithSpacing();
+        // The first of what a search finds is the tile that is dragged: it must be the asset.
+        const auto browseFor = [&](std::string_view folder, std::string_view search, std::string_view reference) {
+            run(*editor, "assets.browse",
+                fmt::format(R"({{"folder": "{}", "search": "{}", "view": "grid"}})", folder, search));
+            REQUIRE(editor->runFrames(3).has_value());
+            const std::vector<AssetBrowserRow> contents = browser.contents(database);
+            REQUIRE_FALSE(contents.empty());
+            REQUIRE(contents.front().path == reference);
+        };
+
+        // A model, onto the row of an entity: the whole of it under that entity.
+        browseFor("models", "crate", "models/crate.gltf");
+        const Entity yard = world.findByName("Yard");
+        dragPointer(*editor, regionOf("###Assets/contents_") + Vec2(20.0f),
+                    regionOf("###Hierarchy/tree_") + Vec2(60.0f, line * 0.4f));
+        REQUIRE(world.children(yard).size() == 1);
+        const Entity crate = world.children(yard).front();
+        CHECK(world.name(crate) == "crate");
+        CHECK_FALSE(world.children(crate).empty());
+        CHECK(editor->context().selection() == std::vector<Entity>{crate});
+
+        // A prefab, below the rows: a root, marked with the prefab it was placed from.
+        browseFor("prefabs", "bollard", "prefabs/bollard.prefab.json");
+        dragPointer(*editor, regionOf("###Assets/contents_") + Vec2(20.0f),
+                    regionOf("###Hierarchy/tree_") + Vec2(60.0f, line * 12.0f));
+        REQUIRE(world.roots().size() == 2);
+        const Entity bollard = world.roots()[1];
+        CHECK(world.name(bollard) == "Bollard");
+        const auto* instance = world.tryGet<PrefabInstanceComponent>(bollard);
+        REQUIRE(instance != nullptr);
+        const AssetInfo* prefab = database.findByReference("prefabs/bollard.prefab.json");
+        REQUIRE(prefab != nullptr);
+        CHECK(instance->prefab == prefab->id);
+
+        // Each drop is one step of the history.
+        run(*editor, "editor.undo");
+        CHECK(world.roots().size() == 1);
+        run(*editor, "editor.undo");
+        CHECK(world.children(world.findByName("Yard")).empty());
+        checkNoValidationIssues(editor->engine().graphics());
+    }
+
     TEST_CASE("the Assets panel shows a folder clicked in its tree, and goes into one by a double click") {
         EditorAppDesc desc = headlessDesc(UVec2(1280, 720));
         desc.project = showcaseProject();
@@ -3040,6 +3094,35 @@ TEST_SUITE("EditorApp") {
         REQUIRE(editor->runFrames(1).has_value());
         CHECK(log.contains("dialog of the system"));
         CHECK(log.contains("project.open"));
+    }
+
+    TEST_CASE("File > Open project answered with the file of a project opens it, and with no project nothing") {
+        const TempDirectory directory;
+        AnsweringDialogs dialogs;
+        EditorAppDesc desc = headlessDesc(UVec2(320, 180));
+        desc.fileDialogs = &dialogs;
+        const std::unique_ptr<EditorApp> editor = createEditor(desc);
+
+        // A file that is no project's: said, and the editor goes on as it was.
+        REQUIRE(writeTextFile(directory.path() / "notes.cordite", "not a project").has_value());
+        {
+            const test::LogCapture log(LogLevel::Error);
+            editor->askForPath(EditorApp::PathDialog::OpenProject);
+            dialogs.answer = std::optional(directory.path() / "notes.cordite");
+            REQUIRE(unwrap(editor->runFrame()));
+            CHECK(log.count(LogLevel::Error) >= 1);
+        }
+        CHECK_FALSE(editor->projectToOpen().has_value());
+        CHECK(unwrap(editor->runFrame()));
+
+        // The file of a project: the editor closes, to begin again on that project.
+        editor->askForPath(EditorApp::PathDialog::OpenProject);
+        dialogs.answer = std::optional(showcaseProject() / "project.cordite");
+        REQUIRE(editor->runFrames(1).has_value());
+        REQUIRE(editor->projectToOpen().has_value());
+        CHECK(*editor->projectToOpen() == showcaseProject());
+        CHECK_FALSE(unwrap(editor->runFrame()));
+        checkNoValidationIssues(editor->engine().graphics());
     }
 
     TEST_CASE("an editor opens another project by command, and nothing that is no project") {

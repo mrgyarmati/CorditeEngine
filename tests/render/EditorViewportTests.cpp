@@ -3,6 +3,7 @@
 #include "cordite/assets/ImageCompare.h"
 #include "cordite/core/FileSystem.h"
 #include "cordite/core/Uuid.h"
+#include "cordite/editor/AssetBrowser.h"
 #include "cordite/editor/EditorApp.h"
 #include "cordite/editor/Gizmo.h"
 #include "cordite/editor/ViewportPanel.h"
@@ -13,6 +14,7 @@
 #include "cordite/renderer/RenderResources.h"
 #include "cordite/renderer/SceneRenderer.h"
 #include "cordite/rhi/TextureReadback.h"
+#include "cordite/world/Components.h"
 
 #include "render/EditorTestSupport.h"
 #include "render/RenderTestSupport.h"
@@ -25,6 +27,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -604,6 +607,48 @@ TEST_SUITE("EditorViewports") {
         // Undone, the material is gone again; the cubes are steps of their own.
         run(*editor, "editor.undo");
         CHECK(materialsOf(second).empty());
+        checkNoValidationIssues(editor->engine().graphics());
+    }
+
+    TEST_CASE("a model and a prefab of a project land where they are dropped onto a viewport") {
+        EditorAppDesc desc = headlessDesc(UVec2(1280, 720));
+        desc.project = showcaseProject();
+        const std::unique_ptr<EditorApp> editor = createEditor(desc);
+        const AssetBrowser& browser = editor->assetBrowser().browser();
+        const AssetDatabase& database = editor->context().assets().database();
+        const World& world = editor->context().world();
+        run(*editor, "scene.new");
+        // An empty scene, seen down at the origin from ten metres up and five back: the
+        // middle of the picture.
+        run(*editor, "viewport.lookAt", R"({"position": [0, 10, 5], "target": [0, 0, 0]})");
+        run(*editor, "editor.focusPanel", R"({"panel": "assets"})");
+        const auto browseFor = [&](std::string_view folder, std::string_view search, std::string_view reference) {
+            run(*editor, "assets.browse",
+                fmt::format(R"({{"folder": "{}", "search": "{}", "view": "grid"}})", folder, search));
+            REQUIRE(editor->runFrames(3).has_value());
+            const std::vector<AssetBrowserRow> contents = browser.contents(database);
+            REQUIRE_FALSE(contents.empty());
+            REQUIRE(contents.front().path == reference);
+        };
+        // A model, where nothing is in the way: its origin on the grid.
+        browseFor("models", "crate", "models/crate.gltf");
+        const Vec2 tile = regionOf("###Assets/contents_") + Vec2(20.0f);
+        const Vec2 middle = pictureOf(editor->viewport()).center();
+        dragPointer(*editor, tile, middle);
+        REQUIRE(world.roots().size() == 1);
+        const Entity crate = world.roots().back();
+        CHECK(world.name(crate) == "crate");
+        CHECK(world.transform(crate).position.y == 0.0f);
+        CHECK(glm::length(world.transform(crate).position) < 0.02f);
+
+        // A prefab, where the crate is in the way: on top of the crate, as drawn.
+        browseFor("prefabs", "bollard", "prefabs/bollard.prefab.json");
+        dragPointer(*editor, tile, middle);
+        REQUIRE(world.roots().size() == 2);
+        const Entity bollard = world.roots().back();
+        CHECK(world.name(bollard) == "Bollard");
+        CHECK(world.tryGet<PrefabInstanceComponent>(bollard) != nullptr);
+        CHECK(world.transform(bollard).position.y > 0.1f);
         checkNoValidationIssues(editor->engine().graphics());
     }
 }
