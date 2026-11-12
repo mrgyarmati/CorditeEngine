@@ -19,8 +19,9 @@
                   -Changed to lint only what uncommitted changes affect.
     verify        Run the whole pre-commit gate: format-check, MSVC builds and tests in
                   all three configurations, clang-cl build and tests, and tidy on the
-                  changed files. Prints one PASS/FAIL line per step. '-Filter quick'
-                  runs only the first three steps.
+                  changed files. The GPU suite on Direct3D 12 (label d3d12) runs in the
+                  default configuration only. Prints one PASS/FAIL line per step.
+                  '-Filter quick' runs only the first three steps.
     perf          Run the performance tests on their own and print what they measured
                   next to the run before (tests/perf/output/). Use -Config Release for
                   the numbers a shipped game would have.
@@ -468,11 +469,12 @@ function Invoke-Verify {
     if ($Filter -ne 'quick') {
         $steps += @(
             @{ Name = 'build msvc Release'; Arguments = @('build', '-Config', 'Release') },
-            @{ Name = 'test msvc Release'; Arguments = @('test', '-Config', 'Release') },
+            # The GPU suite on Direct3D 12 (label d3d12) runs once, in the default configuration.
+            @{ Name = 'test msvc Release'; Arguments = @('test', '-Config', 'Release', '-ExcludeLabel', 'd3d12') },
             @{ Name = 'build msvc Debug'; Arguments = @('build', '-Config', 'Debug') },
-            @{ Name = 'test msvc Debug'; Arguments = @('test', '-Config', 'Debug') },
+            @{ Name = 'test msvc Debug'; Arguments = @('test', '-Config', 'Debug', '-ExcludeLabel', 'd3d12') },
             @{ Name = 'build clang-cl RelWithDebInfo'; Arguments = @('build', '-Preset', 'windows-clang') },
-            @{ Name = 'test clang-cl RelWithDebInfo'; Arguments = @('test', '-Preset', 'windows-clang') },
+            @{ Name = 'test clang-cl RelWithDebInfo'; Arguments = @('test', '-Preset', 'windows-clang', '-ExcludeLabel', 'd3d12') },
             @{ Name = 'tidy (changed files)'; Arguments = @('tidy', '-Changed') }
         )
     }

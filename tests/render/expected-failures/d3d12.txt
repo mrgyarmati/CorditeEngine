@@ -1,0 +1,33 @@
+# The cases of the GPU suite that fail on Direct3D 12, which `render_d3d12` draws with on
+# Windows (CORDITE_GRAPHICS=d3d12): left out of it, and each run alone as a test of its own
+# that must still fail (render_d3d12_expected_failure_<n>) - one that passes, or that names
+# no test, fails; take it off the list. Each line is a pattern of doctest's -tc: a part of
+# the name of one case, between *, with no comma in it (doctest splits its filters at
+# commas). See lavapipe.txt for the same of Mesa's Vulkan on the CPU.
+#
+# These are the fourteen the Phase 0 audit measured (docs/architecture/BASELINE.md, note 2),
+# and none is understood yet. Measured on an AMD Radeon RX 9070 XT, 12 November 2026.
+
+# Reference pictures.
+*the editor showing the showcase scene matches the reference image*
+*the editor showing a selected light matches the reference image*
+*the editor showing the assets of the showcase matches the reference image*
+*the viewport alone matches its reference image*
+*the viewport shows the scene through the camera of the game*
+*the editor playing the showcase matches the reference image*
+*the editor in the light theme matches the reference image*
+*the showcase as a game shows it matches the reference image*
+
+# Fog: thousands of pixels off by more than 2.5 of 255 from what the fog's arithmetic says.
+*a fog leaves numbers in every pixel*
+*what a view shows through fog is what the fog on each line of sight says*
+*the sky is behind all the fog there is*
+
+# Ambient occlusion: an open floor does not get all of the light from around it.
+*an open floor gets all the light from around it*
+
+# The editor: the console has no line in it when a command fails.
+*the assets are in front of the console until something fails*
+
+# Readback: the third level of a texture of mip levels reads back as 0, not 255.
+*a mip level reads back at its own size*
