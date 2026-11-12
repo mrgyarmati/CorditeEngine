@@ -217,6 +217,13 @@ Result<std::unique_ptr<EditorApp>> EditorApp::create(const EditorAppDesc& desc) 
     if (!engineDesc.shaderCompiler) {
         engineDesc.shaderCompiler = makeSlangShaderCompiler;
     }
+    // And keeps what it compiled where it keeps what it remembers, checked against the
+    // sources every time it is read. Kept in memory alone, every shader was compiled anew
+    // whenever a project opened: nine tenths of the three and a half seconds the showcase
+    // took to open.
+    if (engineDesc.cacheDirectory.empty()) {
+        engineDesc.cacheDirectory = stateDirectory;
+    }
     if (engineDesc.applicationName == EngineDesc().applicationName) {
         engineDesc.applicationName = kEditorName;
     }

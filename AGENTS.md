@@ -822,7 +822,10 @@ Vulkan or Direct3D directly. Step-by-step guide for adding a pass:
   shaderCompiler`: `makeSlangShaderCompiler`, which the editor and the tests pass). Without
   one it needs no sources and reads every shader from its cache, trusted as it is - the
   cache an exported game ships (`compileEngineShaders`). The `engine` module does not
-  depend on `shader_compiler`, and `module_layering` keeps it so.
+  depend on `shader_compiler`, and `module_layering` keeps it so. The editor keeps what it
+  compiles in the project's `.cordite/shaders`, checked against the sources when read:
+  with a cache in memory alone it compiled every shader each time a project opened - three
+  seconds of the showcase's three and a half, which a test now holds to none.
 - **Swapchain back buffers** are 8-bit UNORM; the final pass writes display-encoded
   (sRGB) values itself. Do not render linear values straight to the back buffer. A
   finished picture is dithered by a level at the most, so that slow gradients show no

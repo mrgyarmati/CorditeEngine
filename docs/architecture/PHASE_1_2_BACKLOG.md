@@ -76,6 +76,13 @@ then P1-03 and P1-04 (the largest usability gap), then the rest.
 - **Acceptance:** the scenario is in `budgets.json` with a time budget. A project that
   fails to open shows its error. The window never reports "not responding" while the
   showcase opens.
+- **Measured 12 November:** the showcase took 3.5 s to open, of which 2.9 s were
+  `SceneRenderer::create` compiling all 54 shaders: the editor gave the engine no cache
+  directory, so the cache was in memory and nothing was kept between sessions. The editor
+  now keeps it in the project's `.cordite/shaders`, and the showcase opens in 0.5 s; a test
+  holds a second opening to no compilation. Items 1 and 2 matter less now: a progress
+  window is for a first opening, or a project much larger than the showcase. Item 3 is
+  still to do.
 - **Tests:** a perf scenario; EditorAppTests for an unreadable project file and for a
   missing start scene.
 

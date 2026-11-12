@@ -89,7 +89,10 @@ namespace cordite {
 
 struct EditorAppDesc {
     /// How to start the engine. The application name and the window title default to
-    /// the editor's when left at the engine's defaults.
+    /// the editor's when left at the engine's defaults; the shader compiler to Slang's;
+    /// the cache directory, where compiled shaders are kept between sessions, to the
+    /// project's (Project::cacheDirectory), or `.cordite` in the working directory without
+    /// a project.
     EngineDesc engine;
 
     /// The project to work on: a directory with a project.cordite, or that file (see
