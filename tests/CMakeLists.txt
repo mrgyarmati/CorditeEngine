@@ -376,6 +376,10 @@ cordite_add_test_suite(performance
     LABELS
         gpu
         perf)
+# What a scenario costs is measured on a machine that does nothing else: beside the other
+# suites its times are theirs too, and on a runner of four cores drawing with lavapipe it
+# ran out of its five minutes.
+set_tests_properties(performance PROPERTIES RUN_SERIAL TRUE)
 
 # Runs the real editor executable in batch mode: it opens the showcase project, runs a
 # script of commands on it, renders and saves a picture. It exits with a non-zero status
