@@ -12,6 +12,7 @@
 #include "cordite/core/FileSystem.h"
 #include "cordite/core/Json.h"
 #include "cordite/core/StringUtils.h"
+#include "cordite/editor/AssetFiles.h"
 #include "cordite/editor/AssetImport.h"
 #include "cordite/editor/EditorActions.h"
 #include "cordite/engine/SceneAssets.h"
@@ -553,6 +554,46 @@ Status registerAssetCommands(CommandRegistry& commands, EditorContext& context) 
             result["files"] = std::move(brought);
             result["problems"] = describeProblems(database);
             return result;
+        },
+    }));
+
+    CORDITE_TRY(commands.add({
+        .name = "asset.createDirectory",
+        .description = "Makes a directory of the assets, and the directories it is in, and reads the assets again: "
+                       "the Assets panel shows it, empty. Refused for a place outside the asset directory, with a "
+                       "part that is empty or begins with a dot, and for one where there is a file or a directory. "
+                       "Returns the directory. Not undoable: directories are no part of the document.",
+        .parameters = {{"path", Type::String,
+                        "Where the directory goes, inside the asset directory, with forward slashes: "
+                        "\"materials/metal\"."}},
+        .handler = [&context](const Json& parameters) -> Result<Json> {
+            CORDITE_TRY_ASSIGN(const std::string made,
+                               createAssetDirectory(context, parameters.at("path").get_ref<const std::string&>()));
+            Json result = Json::object();
+            result["path"] = made;
+            return result;
+        },
+    }));
+
+    CORDITE_TRY(commands.add({
+        .name = "asset.createMaterial",
+        .description = "Writes a material with every property at its default - white, matte, no textures - "
+                       "into the assets, making the directories it is in, and reads the assets again; set its "
+                       "properties in its file, or place it on a mesh with component.set. Refused for a place "
+                       "outside the asset directory, for a name that does not end in .material.json, and where "
+                       "there is a file. Returns the material. Not undoable: files are no part of the document.",
+        .parameters = {{"path", Type::String,
+                        "Where the material goes, inside the asset directory, with forward slashes: "
+                        "\"materials/rust.material.json\"."}},
+        .handler = [&context](const Json& parameters) -> Result<Json> {
+            CORDITE_TRY_ASSIGN(const Uuid made,
+                               createMaterial(context, parameters.at("path").get_ref<const std::string&>()));
+            const AssetInfo* material = context.assets().database().find(made);
+            if (material == nullptr) {
+                return makeError(ErrorCode::InvalidState, "the new material {} is not among the assets",
+                                 made.toString());
+            }
+            return describeAsset(*material);
         },
     }));
 

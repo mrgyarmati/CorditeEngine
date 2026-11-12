@@ -4,6 +4,7 @@
 #include "cordite/core/Log.h"
 #include "cordite/core/StringUtils.h"
 #include "cordite/editor/AssetCommands.h"
+#include "cordite/editor/AssetFiles.h"
 #include "cordite/editor/AssetMove.h"
 #include "cordite/editor/AssetPreview.h"
 #include "cordite/editor/EditorActions.h"
@@ -1426,6 +1427,47 @@ Status EditorApp::registerProjectCommands() {
 
     // Here and not with the other commands of assets: the project names its start scene by
     // where it is, and the application is what has the project.
+    CORDITE_TRY(m_commands.add({
+        .name = "asset.delete",
+        .description =
+            "Deletes the file of an asset and its .meta, and reads the assets again: a model goes with all "
+            "that is in it; the buffers and images a glTF file names stay. Refused while the scene is played, "
+            "for what is built in or inside a file (delete the file), for the scene that is open, and - "
+            "unless told to force it - for an asset that something uses: another asset, a property of the "
+            "open scene, or the project, whose start scene it is. The message lists what uses it. Returns the "
+            "file, and what used it. Files are no part of the document: editor.undo does not bring it back.",
+        .parameters = {{"asset", Type::String, "The asset whose file is deleted: its id, or where it is."},
+                       {"force", Type::Boolean,
+                        "Delete it although something uses it, which then refers to an asset that is not "
+                        "there. Defaults to false.",
+                        false}},
+        .handler = [this](const Json& parameters) -> Result<Json> {
+            CORDITE_TRY_ASSIGN(const AssetInfo* asset,
+                               m_context->resolveAsset(parameters.at("asset").get<std::string>()));
+            const bool force = jsonGetOr<bool>(parameters, "force", false);
+            const bool startScene = m_project && m_project->settings.startScene == asset->path;
+            if (startScene && !force) {
+                return makeError(ErrorCode::InvalidState,
+                                 "{} is the start scene of the project: delete it anyway with force, or have the "
+                                 "project start with another first",
+                                 asset->path);
+            }
+            CORDITE_TRY_ASSIGN(const AssetDeletion deleted, deleteAsset(*m_context, asset->id, force));
+            const AssetDatabase& database = m_context->assets().database();
+            Json users = Json::array();
+            for (const Uuid& user : deleted.users.assets) {
+                // Other files, which are still there after the assets were read again.
+                const AssetInfo* found = database.find(user);
+                users.push_back(found != nullptr ? found->reference() : user.toString());
+            }
+            Json result = Json::object();
+            result["path"] = deleted.path;
+            result["usedBy"] = std::move(users);
+            result["usedInScene"] = deleted.users.sceneReferences;
+            result["wasStartScene"] = startScene;
+            return result;
+        },
+    }));
     CORDITE_TRY(m_commands.add({
         .name = "asset.move",
         .description =

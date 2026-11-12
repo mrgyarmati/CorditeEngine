@@ -610,6 +610,7 @@ void AssetDatabase::resolvePendingDependencies() {
 
 Status AssetDatabase::refresh() {
     m_assets.clear();
+    m_directories.clear();
     m_indexById.clear();
     m_indexByReference.clear();
     m_problems.clear();
@@ -640,6 +641,8 @@ Status AssetDatabase::refresh() {
         if (entry->is_directory(statusError)) {
             if (name.starts_with('.')) {
                 entry.disable_recursion_pending();
+            } else if (Result<std::string> directory = relativePathWithin(m_desc.rootDirectory, entry->path())) {
+                m_directories.push_back(std::move(*directory));
             }
             continue;
         }
@@ -661,6 +664,7 @@ Status AssetDatabase::refresh() {
                          error.message());
     }
     std::ranges::sort(files, {}, &ScannedFile::relativePath);
+    std::ranges::sort(m_directories);
     std::ranges::sort(metaFiles);
 
     for (const ScannedFile& file : files) {

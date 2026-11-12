@@ -1044,6 +1044,15 @@ Step-by-step guide: [work-with-assets](.claude/skills/work-with-assets/SKILL.md)
   to the same places beside it, and a .meta beside a file stays behind - in this
   project the file is new. Everything is checked before the first copy, and a copy
   that fails takes the others back.
+- **A folder or a material is made, and a file deleted, by command** (`editor/AssetFiles.h`:
+  `asset.createDirectory`, `asset.createMaterial`, `asset.delete`; in the Assets panel, the
+  menu of the contents' empty space and of an asset). Every path stays inside the asset
+  directory, and the assets are read again after. A directory is no asset, so the database
+  lists those it finds (`AssetDatabase::directories()`) and the browser shows one that is
+  empty. A file is deleted with its .meta, a model with all that is in it; what uses it -
+  another asset, a property of the open scene, the project's start scene
+  (`findAssetUsers`) - refuses it unless forced, and the message lists the users. None of
+  it is undoable: files are no part of the document.
 - **A picture of an asset is drawn by the scene renderer** (`AssetPreview`,
   `asset.preview`), in a world of its own: a mesh as it is, a material on a ball, a
   model or a prefab as placed, whole, in an editor's stand-in light and the finishing
@@ -1777,7 +1786,9 @@ panels, EditorApp    the interface, built on the three layers above
   (`AssetBrowserRow::key`), not a path: what the engine has built in is a folder
   (`kBuiltinFolder`) beside a project's directory that may have its name. A search
   looks in the folder shown and below it, and lists what it finds side by side; the
-  tree is not narrowed by it. A folder that is gone - moved, emptied - shows the
+  tree is not narrowed by it. A directory is a folder whether assets are in it or not
+  (`AssetDatabase::directories()`), but for one whose name begins with a dot.
+  A folder that is gone - moved, deleted - shows the
   nearest above it while it is gone (`shownFolder()`), as a chosen asset stays chosen.
   Choosing an asset from outside the panel shows the folder it is in (`reveal`). The
   grid or the list is a person's choice, kept in the editor's preferences

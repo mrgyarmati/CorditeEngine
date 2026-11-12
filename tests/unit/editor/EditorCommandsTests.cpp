@@ -94,16 +94,43 @@ TEST_SUITE("EditorCommands") {
             }
         }
 
-        CHECK(names ==
-              std::set<std::string>{
-                  "asset.get",       "asset.import",  "asset.instantiate", "asset.list",       "asset.refresh",
-                  "component.add",   "component.get", "component.remove",  "component.set",    "component.types",
-                  "editor.commands", "editor.redo",   "editor.state",      "editor.undo",      "entity.copy",
-                  "entity.create",   "entity.cut",    "entity.delete",     "entity.paste",     "entity.duplicate",
-                  "entity.get",      "entity.rename", "entity.setEnabled", "entity.setParent", "prefab.create",
-                  "scene.describe",  "scene.get",     "scene.new",         "scene.open",       "scene.save",
-                  "scene.validate",  "selection.get", "selection.set",
-              });
+        CHECK(names == std::set<std::string>{
+                           "asset.createDirectory",
+                           "asset.createMaterial",
+                           "asset.get",
+                           "asset.import",
+                           "asset.instantiate",
+                           "asset.list",
+                           "asset.refresh",
+                           "component.add",
+                           "component.get",
+                           "component.remove",
+                           "component.set",
+                           "component.types",
+                           "editor.commands",
+                           "editor.redo",
+                           "editor.state",
+                           "editor.undo",
+                           "entity.copy",
+                           "entity.create",
+                           "entity.cut",
+                           "entity.delete",
+                           "entity.paste",
+                           "entity.duplicate",
+                           "entity.get",
+                           "entity.rename",
+                           "entity.setEnabled",
+                           "entity.setParent",
+                           "prefab.create",
+                           "scene.describe",
+                           "scene.get",
+                           "scene.new",
+                           "scene.open",
+                           "scene.save",
+                           "scene.validate",
+                           "selection.get",
+                           "selection.set",
+                       });
         CHECK(catalogue.size() == fixture.commands.commands().size());
     }
 

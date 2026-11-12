@@ -2,6 +2,31 @@
 
 Every command of the editor: what the menus, the toolbar and the Inspector do, by name, with JSON parameters and a JSON result - typed in the Console, run from a script of commands (`--exec`), or by an agent. Written by the engine (`commandReference`, editor/ReferenceDocs.h) and held to it by a test: do not change it by hand. How to run them is in the [guide](../guide/automation.md).
 
+## asset.createDirectory
+
+Makes a directory of the assets, and the directories it is in, and reads the assets again: the Assets panel shows it, empty. Refused for a place outside the asset directory, with a part that is empty or begins with a dot, and for one where there is a file or a directory. Returns the directory. Not undoable: directories are no part of the document.
+
+| Parameter | Kind | Needed | Meaning |
+|---|---|---|---|
+| `path` | string | yes | Where the directory goes, inside the asset directory, with forward slashes: "materials/metal". |
+
+## asset.createMaterial
+
+Writes a material with every property at its default - white, matte, no textures - into the assets, making the directories it is in, and reads the assets again; set its properties in its file, or place it on a mesh with component.set. Refused for a place outside the asset directory, for a name that does not end in .material.json, and where there is a file. Returns the material. Not undoable: files are no part of the document.
+
+| Parameter | Kind | Needed | Meaning |
+|---|---|---|---|
+| `path` | string | yes | Where the material goes, inside the asset directory, with forward slashes: "materials/rust.material.json". |
+
+## asset.delete
+
+Deletes the file of an asset and its .meta, and reads the assets again: a model goes with all that is in it; the buffers and images a glTF file names stay. Refused while the scene is played, for what is built in or inside a file (delete the file), for the scene that is open, and - unless told to force it - for an asset that something uses: another asset, a property of the open scene, or the project, whose start scene it is. The message lists what uses it. Returns the file, and what used it. Files are no part of the document: editor.undo does not bring it back.
+
+| Parameter | Kind | Needed | Meaning |
+|---|---|---|---|
+| `asset` | string | yes | The asset whose file is deleted: its id, or where it is. |
+| `force` | boolean | no | Delete it although something uses it, which then refers to an asset that is not there. Defaults to false. |
+
 ## asset.get
 
 Describes one asset: the assets it depends on (`dependencies`) and those that depend on it (`usedBy`: a material that has a texture, a scene or a prefab whose entities refer to it - as their files were last read or saved), where the open scene refers to it (`usedInScene`: entity, component and property), what its importer left out, and what is in it - the size of a mesh or a texture, the properties of a material, the nodes of a model, the text of a script, the length of a sound, the entities of a prefab with the assets they use and what is wrong with them ("problems"). Fails with the reason when the asset cannot be loaded.

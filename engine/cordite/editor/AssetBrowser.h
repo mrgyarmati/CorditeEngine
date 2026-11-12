@@ -95,10 +95,11 @@ struct AssetFolderStep {
 
 /// The key of the folder at `path` of `database`, whether it is shown in the tree or not
 /// and whatever the filter lists: kTopFolder for an empty path, the directory's own path
-/// for a directory that holds an asset, and kBuiltinFolder for "builtin" - unless the
-/// project has a directory of that name, which a path finds first, as it does for the
-/// rows of AssetBrowser::find(). None for anything else: a file, or a directory that holds
-/// no asset, which the browser does not know of.
+/// for a directory of the assets - empty or not (AssetDatabase::directories()) - and
+/// kBuiltinFolder for "builtin", unless the project has a directory of that name, which a
+/// path finds first, as it does for the rows of AssetBrowser::find(). None for anything
+/// else: a file, or a directory whose name begins with a dot, which is no part of the
+/// assets.
 [[nodiscard]] std::optional<std::string> assetFolderAt(const AssetDatabase& database, std::string_view path);
 
 /// What of the assets is shown.
@@ -281,6 +282,18 @@ private:
 /// What the Assets panel asks for when the file of an asset is renamed or moved, as a
 /// line for the console: `asset.move`.
 [[nodiscard]] std::string moveAssetCommand(const Uuid& asset, std::string_view to);
+
+/// What the Assets panel asks for when the file of an asset is deleted, as a line for the
+/// console: `asset.delete`, told to `force` it when a person said to delete it anyway.
+[[nodiscard]] std::string deleteAssetCommand(const Uuid& asset, bool force);
+
+/// What the Assets panel asks for when a folder is made, as a line for the console:
+/// `asset.createDirectory`.
+[[nodiscard]] std::string createDirectoryCommand(std::string_view path);
+
+/// What the Assets panel asks for when a material is made, as a line for the console:
+/// `asset.createMaterial`.
+[[nodiscard]] std::string createMaterialCommand(std::string_view path);
 
 /// What the Assets panel asks for when a sound is to be heard, as a line for the console:
 /// `asset.listen`, with the sound - or without one, which stops what is heard.

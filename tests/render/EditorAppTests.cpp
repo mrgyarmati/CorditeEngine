@@ -3373,6 +3373,46 @@ TEST_SUITE("EditorApp") {
         CHECK(*editor->projectToOpen() == showcaseProject());
     }
 
+    TEST_CASE("asset.delete takes away a file of the assets, and the start scene only when told to") {
+        const TempDirectory directory;
+        const Project project = unwrap(createStarterProject(directory.path() / "game", "Game"));
+        EditorAppDesc desc = headlessDesc(UVec2(320, 180));
+        desc.project = project.directory;
+        const std::unique_ptr<EditorApp> editor = createEditor(desc);
+
+        // A material that nothing uses goes, with its .meta, and is no asset any more.
+        const Json made = run(*editor, "asset.createMaterial", R"({"path": "materials/spare.material.json"})");
+        const Json deleted =
+            run(*editor, "asset.delete", fmt::format(R"({{"asset": "{}"}})", made["id"].get<std::string>()));
+        CHECK(deleted["path"] == "materials/spare.material.json");
+        CHECK(deleted["usedBy"].empty());
+        CHECK(deleted["usedInScene"] == 0);
+        CHECK_FALSE(fileExists(project.assetDirectory() / "materials" / "spare.material.json"));
+        CHECK(refusal(*editor, "asset.get", fmt::format(R"({{"asset": "{}"}})", made["id"].get<std::string>())).code ==
+              ErrorCode::NotFound);
+
+        // The start scene: while it is open, and then while it is the project's start.
+        const std::string start = project.settings.startScene;
+        CHECK(
+            refusal(*editor, "asset.delete", fmt::format(R"({{"asset": "{}"}})", start)).message.find("start scene") !=
+            std::string::npos);
+        run(*editor, "scene.new");
+        CHECK(refusal(*editor, "asset.delete", fmt::format(R"({{"asset": "{}"}})", start)).code ==
+              ErrorCode::InvalidState);
+        CHECK(fileExists(project.startScenePath()));
+        CHECK(run(*editor, "asset.delete",
+                  fmt::format(R"({{"asset": "{}", "force": true}})", start))["wasStartScene"] == true);
+        CHECK_FALSE(fileExists(project.startScenePath()));
+
+        // Nothing while the scene is played.
+        run(*editor, "asset.createMaterial", R"({"path": "materials/spare.material.json"})");
+        run(*editor, "play.start");
+        CHECK(refusal(*editor, "asset.delete", R"({"asset": "materials/spare.material.json", "force": true})").code ==
+              ErrorCode::InvalidState);
+        run(*editor, "play.stop");
+        checkNoValidationIssues(editor->engine().graphics());
+    }
+
     TEST_CASE("an editor remembers the projects it opens, and opens one of them again") {
         const TempDirectory directory;
         const Project first = unwrap(createProject(directory.path() / "first", "First"));
@@ -3602,13 +3642,39 @@ TEST_SUITE("EditorApp") {
 
     TEST_CASE("the application adds its commands to the catalogue") {
         const std::unique_ptr<EditorApp> editor = createEditor(headlessDesc(UVec2(640, 360)));
-        for (const char* name :
-             {"editor.runFrames",  "editor.screenshot",  "editor.statistics",   "editor.showPanel", "editor.exit",
-              "editor.focusPanel", "editor.theme",       "assets.browse",       "viewport.lookAt",  "viewport.frame",
-              "viewport.camera",   "viewport.debugView", "viewport.gizmo",      "entity.create",    "scene.save",
-              "play.start",        "play.stop",          "play.pause",          "play.resume",      "play.step",
-              "play.status",       "asset.move",         "asset.import",        "asset.preview",    "project.export",
-              "project.new",       "project.open",       "asset.moveDirectory", "asset.listen"}) {
+        for (const char* name : {"editor.runFrames",
+                                 "editor.screenshot",
+                                 "editor.statistics",
+                                 "editor.showPanel",
+                                 "editor.exit",
+                                 "editor.focusPanel",
+                                 "editor.theme",
+                                 "assets.browse",
+                                 "viewport.lookAt",
+                                 "viewport.frame",
+                                 "viewport.camera",
+                                 "viewport.debugView",
+                                 "viewport.gizmo",
+                                 "entity.create",
+                                 "scene.save",
+                                 "play.start",
+                                 "play.stop",
+                                 "play.pause",
+                                 "play.resume",
+                                 "play.step",
+                                 "play.status",
+                                 "asset.move",
+                                 "asset.import",
+                                 "asset.preview",
+                                 "project.export",
+                                 "project.new",
+                                 "project.open",
+                                 "asset.moveDirectory",
+                                 "asset.listen",
+                                 "asset.delete",
+                                 "asset.createDirectory",
+                                 "asset.createMaterial",
+                                 "project.recent"}) {
             CAPTURE(name);
             const CommandDesc* command = editor->commands().find(name);
             REQUIRE(command != nullptr);

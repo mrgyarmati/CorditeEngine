@@ -108,6 +108,13 @@ private:
     void drawSceneUsers(std::vector<std::string>& submittedLines) const;
     /// The dialog in which a file is given another name or place, once a menu asked for it.
     void drawMoveDialog(const EditorContext& context, std::vector<std::string>& submittedLines);
+    /// The question whether to delete the file of an asset, with what uses it, and the
+    /// command it is answered with.
+    void drawDeleteDialog(const EditorContext& context, std::vector<std::string>& submittedLines);
+    /// The menu of the contents' empty space: a new folder or material in the folder shown.
+    void drawContentsMenu(const EditorContext& context);
+    /// The dialog that names a new folder or material, and the command that makes it.
+    void drawCreateDialog(std::vector<std::string>& submittedLines);
     /// The picture of `asset`, as large as there is room for.
     void drawPicture(Engine& engine, EditorContext& context, ShadowQuality shadows, const AssetInfo& asset);
     /// What a sound has instead of a picture: how long it is, and Play and Stop
@@ -145,6 +152,18 @@ private:
     std::string m_movingDirectory;
     std::string m_moveTarget;
     bool m_openMoveDialog = false;
+    /// The asset whose file a person asked to delete, until the question is answered.
+    Uuid m_deleting;
+    bool m_openDeleteDialog = false;
+    /// What the dialog of something new makes, and where; None while it is closed.
+    enum class Creating : uint8_t {
+        None,
+        Folder,
+        Material
+    };
+    Creating m_creating = Creating::None;
+    std::string m_createTarget;
+    bool m_openCreateDialog = false;
     /// The entities of the open scene that use the chosen asset, with their paths: found
     /// when its list opens, not in every frame it is open.
     std::vector<std::pair<Uuid, std::string>> m_sceneUsers;

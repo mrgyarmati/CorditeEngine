@@ -106,6 +106,16 @@ DirectoryTree directoryTreeOf(const AssetDatabase& database) {
             begin = slash + 1;
         }
     }
+    // A directory that holds no asset is a folder all the same: one that was just made.
+    for (const std::string& directory : database.directories()) {
+        size_t begin = 0;
+        while (begin < directory.size()) {
+            const size_t slash = std::min(directory.find('/', begin), directory.size());
+            tree[std::string(begin == 0 ? kTopFolder : std::string_view(directory).substr(0, begin - 1))].emplace(
+                directory.substr(begin, slash - begin));
+            begin = slash + 1;
+        }
+    }
     return tree;
 }
 
@@ -588,6 +598,27 @@ std::string moveAssetCommand(const Uuid& asset, std::string_view to) {
     parameters["asset"] = asset.toString();
     parameters["to"] = to;
     return fmt::format("asset.move {}", parameters.dump());
+}
+
+std::string deleteAssetCommand(const Uuid& asset, bool force) {
+    Json parameters = Json::object();
+    parameters["asset"] = asset.toString();
+    if (force) {
+        parameters["force"] = true;
+    }
+    return fmt::format("asset.delete {}", parameters.dump());
+}
+
+std::string createDirectoryCommand(std::string_view path) {
+    Json parameters = Json::object();
+    parameters["path"] = std::string(path);
+    return fmt::format("asset.createDirectory {}", parameters.dump());
+}
+
+std::string createMaterialCommand(std::string_view path) {
+    Json parameters = Json::object();
+    parameters["path"] = std::string(path);
+    return fmt::format("asset.createMaterial {}", parameters.dump());
 }
 
 std::string listenCommand(std::optional<Uuid> sound) {

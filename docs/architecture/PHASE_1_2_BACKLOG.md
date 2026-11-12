@@ -128,6 +128,8 @@ then P1-03 and P1-04 (the largest usability gap), then the rest.
 
 ### P1-06 Asset browser: delete, new folder, new material - P1
 
+**Done 12 November.**
+
 - **Modules / files:** `editor` (`AssetBrowserPanel.cpp`, `AssetCommands.cpp`),
   `assets` (`AssetDatabase`).
 - **Depends on:** nothing.
