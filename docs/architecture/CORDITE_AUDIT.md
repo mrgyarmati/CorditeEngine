@@ -99,8 +99,10 @@ right.
 - **Direct3D 12 is offscreen only.** `Auto` always means Vulkan, so a machine without
   Vulkan 1.3 cannot run the editor or a game. There is no OpenGL, by a recorded design
   decision.
-- **GPU tests run only on this machine** (Windows) and on Linux lavapipe in CI. No CTest
-  runs the D3D12 suite. macOS has never been run.
+- **GPU tests run only on this machine** (Windows) and, configured for it, on Linux lavapipe
+  in CI - which did not build there from the first commit until 12 November, so they had
+  never run: 17 cases fail on lavapipe ([P1-13](PHASE_1_2_BACKLOG.md#p1-13-the-gpu-test-cases-that-fail-on-lavapipe---p1)).
+  No CTest runs the D3D12 suite. macOS has never been run.
 
 ## Reuse, refactor or replace
 

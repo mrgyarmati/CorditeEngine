@@ -259,6 +259,36 @@ cordite_add_test_suite(shader_compiler
     LIBRARIES
         cordite::shader_compiler)
 
+# The cases of the GPU suite that a device is known to fail, from
+# render/expected-failures/<name>.txt: left out of the suite, and each run alone as a test
+# that must fail - so that the suite says what else breaks, and the list what it holds.
+# Empty for a device without known failures, which is every machine but CI's.
+set(CORDITE_EXPECTED_GPU_FAILURES "" CACHE STRING
+    "A list of tests/render/expected-failures/ (without .txt) whose GPU test cases are expected to fail")
+set(cordite_expected_gpu_failures "")
+set(cordite_render_arguments "")
+if(CORDITE_EXPECTED_GPU_FAILURES)
+    set(cordite_expected_failures_file
+        "${CMAKE_CURRENT_SOURCE_DIR}/render/expected-failures/${CORDITE_EXPECTED_GPU_FAILURES}.txt")
+    if(NOT EXISTS "${cordite_expected_failures_file}")
+        message(FATAL_ERROR "CORDITE_EXPECTED_GPU_FAILURES names no list: ${cordite_expected_failures_file}")
+    endif()
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${cordite_expected_failures_file}")
+    file(STRINGS "${cordite_expected_failures_file}" cordite_expected_failure_lines)
+    foreach(line IN LISTS cordite_expected_failure_lines)
+        string(STRIP "${line}" line)
+        if(line STREQUAL "" OR line MATCHES "^#")
+            continue()
+        endif()
+        if(line MATCHES ",")
+            message(FATAL_ERROR "${cordite_expected_failures_file}: doctest splits a pattern at its commas: ${line}")
+        endif()
+        list(APPEND cordite_expected_gpu_failures "${line}")
+    endforeach()
+    string(REPLACE ";" "," cordite_excluded_cases "${cordite_expected_gpu_failures}")
+    set(cordite_render_arguments "--test-case-exclude=${cordite_excluded_cases}")
+endif()
+
 # Everything below renders on a real Vulkan device.
 cordite_add_test_suite(render
     SOURCES
@@ -311,7 +341,20 @@ cordite_add_test_suite(render
     # Every rendering feature adds to this suite, and each of its tests starts a device
     # and a renderer of its own: in a Debug build it runs for more than five minutes, and
     # beside the other suites, in any build, for close to fifteen.
-    TIMEOUT 1500)
+    TIMEOUT 1500
+    ARGUMENTS
+        ${cordite_render_arguments})
+set(cordite_expected_failure_number 0)
+foreach(pattern IN LISTS cordite_expected_gpu_failures)
+    math(EXPR cordite_expected_failure_number "${cordite_expected_failure_number} + 1")
+    set(test render_expected_failure_${cordite_expected_failure_number})
+    add_test(NAME ${test}
+        COMMAND cordite_render_tests "--test-case=${pattern}"
+        WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}")
+    # A pattern that names no test runs nothing, which passes - and so fails here.
+    set_tests_properties(${test} PROPERTIES LABELS "gpu" WILL_FAIL TRUE TIMEOUT 600)
+    cordite_configure_gpu_test(${test} "gpu")
+endforeach()
 if(WIN32)
     # The tests of a device of Direct3D 12 make a mistake on it behind NVRHI's back.
     target_link_libraries(cordite_render_tests PRIVATE Microsoft::DirectX-Headers)

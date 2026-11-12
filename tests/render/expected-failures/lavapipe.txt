@@ -1,0 +1,37 @@
+# The cases of the GPU suite (`render`) that fail on lavapipe, Mesa's Vulkan on the CPU,
+# which CI draws with. Configure with -DCORDITE_EXPECTED_GPU_FAILURES=lavapipe to leave
+# them out of `render` and run each as a test of its own that must still fail
+# (render_expected_failure_<n>): one that passes, or that names no test, fails - take it
+# off the list. Each line is a pattern of doctest's -tc: a part of the name of one case,
+# between *, with no comma in it (doctest splits its filters at commas).
+#
+# Not one of them is understood yet: the ticket to find out which are the engine's and
+# which the driver's is in docs/architecture/PHASE_1_2_BACKLOG.md (P1-13). Measured on
+# Mesa 25 with LLVM 20 (Ubuntu 24.04), 12 November 2026.
+
+# Reference pictures: 0.4 to 26 percent of their pixels differ, by up to 229 of 255.
+*debug shapes match the reference image*
+*the editor showing the showcase scene matches the reference image*
+*the editor showing a selected light matches the reference image*
+*the editor showing the assets of the showcase matches the reference image*
+*the viewport alone matches its reference image*
+*the viewport shows the scene through the camera of the game*
+*the editor playing the showcase matches the reference image*
+*the editor in the light theme matches the reference image*
+*the showcase as a game shows it matches the reference image*
+*the pattern matches its reference image*
+*the built-in shapes under the default lighting match the reference image*
+
+# Anti-aliasing: a higher quality follows an edge less far, and a picture turned round is
+# not smoothed as the upright one is.
+*the further an edge is followed to where its step ends*
+*it does the same whichever way round a picture is*
+
+# Decals: the pixels a decal lays its material and its normals on are off by more than
+# 2.5 of 255.
+*metal and specular by the same amount*
+*a decal's normal map bends the normal of what it lands on in the frame of its image*
+*a decal bends the normals the decals before it left*
+
+# Motion blur: the moving bar is up to 34 of 255 from the reconstruction filter's own.
+*what moves is smeared along the way it went*

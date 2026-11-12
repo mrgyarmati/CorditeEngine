@@ -45,9 +45,12 @@ jobs:
           - preset: linux
             build: linux-dev
             test_arguments: ""
+            # lavapipe fails a few GPU test cases: tests/render/expected-failures/lavapipe.txt.
+            configure_arguments: "-DCORDITE_EXPECTED_GPU_FAILURES=lavapipe"
           - preset: linux-sanitize
             build: linux-sanitize
             test_arguments: "-LE gpu"
+            configure_arguments: ""
     steps:
       - uses: actions/checkout@v4
 
@@ -69,7 +72,7 @@ jobs:
           key: deps-${{ runner.os }}-${{ matrix.preset }}-${{ hashFiles('cmake/CorditeDependencies.cmake') }}
 
       - name: Configure
-        run: cmake --preset ${{ matrix.preset }}
+        run: cmake --preset ${{ matrix.preset }} ${{ matrix.configure_arguments }}
 
       - name: Build
         run: cmake --build --preset ${{ matrix.build }}
