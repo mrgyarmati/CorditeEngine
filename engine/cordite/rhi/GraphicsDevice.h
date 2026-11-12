@@ -148,6 +148,17 @@ public:
     [[nodiscard]] size_t validationIssueCount() const;
     void clearValidationIssues();
 
+    /// Says that the device was lost, and why: what the swapchain, a readback or a backend
+    /// found out from the graphics API - and what a test reports to stand in for a driver.
+    /// The first reason is kept. Main thread only.
+    void reportLost(std::string reason);
+
+    /// Fails with DeviceLost, naming the adapter and why, once the device is lost - reported,
+    /// or found by asking the API where it can be asked (Direct3D 12); succeeds while it is
+    /// not. Nothing more can be drawn with a lost device: the engine checks once a frame, and
+    /// ends the frame with the error. Main thread only.
+    [[nodiscard]] Status checkLost();
+
     /// Releases GPU resources whose last use has finished executing. Call once per frame.
     void collectGarbage();
 

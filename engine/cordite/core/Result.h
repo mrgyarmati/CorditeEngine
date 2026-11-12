@@ -40,6 +40,9 @@ enum class ErrorCode : uint8_t {
     VersionMismatch,
     DeviceError,
     ScriptError,
+    /// The GPU was lost - a driver that stopped, a device that was removed - and nothing more
+    /// can be drawn with it: what lives on the CPU is still there.
+    DeviceLost,
 };
 
 /// Returns the identifier of an error code, e.g. "NotFound".

@@ -135,6 +135,12 @@ work. **Mitigation:** in Phase 1, at minimum make sure the editor reports the er
 offers to save the scene (the world is CPU-side) before exiting (P1-07). Full device
 recreation can wait.
 
+**Since P1-07:** a lost device is `ErrorCode::DeviceLost`, recorded by
+`GraphicsDevice::reportLost` where the API says so - the swapchain, a readback, a wait,
+Direct3D 12's removed reason - and checked by the engine at both ends of every frame. The
+editor then keeps the unsaved scene in `.cordite/recovery.json` and the next editor offers
+it back (`scene.recover`). Recreating the device without a restart is still to do.
+
 ## R9 - Synchronous loading, unused job system
 
 `AssetManager` is synchronous and not thread-safe (`AssetManager.h:24`). There are no

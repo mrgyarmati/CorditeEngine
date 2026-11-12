@@ -314,6 +314,10 @@ Result<SwapchainFrame> Swapchain::beginFrame() {
             impl.needsRecreation = true;
             continue;
         }
+        if (result == VK_ERROR_DEVICE_LOST) {
+            impl.graphics.reportLost("acquiring an image of the swapchain said so");
+            return tl::unexpected(impl.graphics.checkLost().error());
+        }
         if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
             return makeError(ErrorCode::DeviceError, "cannot acquire a swapchain image: {}",
                              nvrhi::vulkan::resultToString(result));
@@ -373,6 +377,9 @@ Status Swapchain::present() {
     const VkResult result = VULKAN_HPP_DEFAULT_DISPATCHER.vkQueuePresentKHR(vulkan.graphicsQueue, &presentInfo);
     if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
         impl.needsRecreation = true;
+    } else if (result == VK_ERROR_DEVICE_LOST) {
+        impl.graphics.reportLost("presenting said so");
+        return impl.graphics.checkLost();
     } else if (result != VK_SUCCESS) {
         return makeError(ErrorCode::DeviceError, "cannot present: {}", nvrhi::vulkan::resultToString(result));
     }

@@ -384,4 +384,35 @@ TEST_SUITE("EditorContext") {
         CHECK(context.scenePath().empty());
         CHECK(context.hasUnsavedChanges());
     }
+
+    TEST_CASE("a scene that was kept is restored as changes that are not saved, to the file it was of") {
+        EditorFixture fixture;
+        EditorContext& context = fixture.context;
+        const Json scene = context.documentScene();
+        const size_t entities = fixture.world.entityCount();
+        REQUIRE(context.newScene().has_value());
+        CHECK(fixture.world.entityCount() == 0);
+
+        const std::filesystem::path file = std::filesystem::path("scenes") / "kept.scene.json";
+        REQUIRE(context.restoreScene(scene, file).has_value());
+        CHECK(fixture.world.entityCount() == entities);
+        CHECK(context.scenePath() == file);
+        CHECK(context.hasUnsavedChanges());
+        CHECK_FALSE(context.history().canUndo());
+        // What cannot be read changes nothing.
+        CHECK_FALSE(context.restoreScene(Json::parse(R"({"format": "cordite.scene", "version": 1, "entities": 3})"), {})
+                        .has_value());
+        CHECK(fixture.world.entityCount() == entities);
+        CHECK(context.scenePath() == file);
+    }
+
+    TEST_CASE("while a scene is played, its document is the scene that stays, and nothing is restored") {
+        EditorFixture fixture;
+        EditorContext& context = fixture.context;
+        const Json before = context.documentScene();
+        REQUIRE(context.beginPlay().has_value());
+        fixture.world.destroyEntity(fixture.lamp);
+        CHECK(context.documentScene() == before);
+        CHECK(context.restoreScene(before, {}).error().code == ErrorCode::InvalidState);
+    }
 }

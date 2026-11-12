@@ -15,6 +15,7 @@
 #include "cordite/editor/EditorPreferences.h"
 #include "cordite/editor/Gizmo.h"
 #include "cordite/editor/NewProject.h"
+#include "cordite/editor/SceneRecovery.h"
 #include "cordite/engine/Project.h"
 #include "cordite/platform/InputMap.h"
 #include "cordite/renderer/CameraView.h"
@@ -3373,6 +3374,92 @@ TEST_SUITE("EditorApp") {
         CHECK(*editor->projectToOpen() == showcaseProject());
     }
 
+    TEST_CASE("a lost GPU keeps the changes of the scene, and the next editor offers to open them") {
+        const TempDirectory directory;
+        const Project project = unwrap(createProject(directory.path() / "game", "Game"));
+        EditorAppDesc desc = headlessDesc(UVec2(320, 180));
+        desc.project = project.directory;
+        const std::filesystem::path kept = project.cacheDirectory() / std::string(kSceneRecoveryFileName);
+        const std::filesystem::path yard = project.assetDirectory() / "scenes" / "yard.scene.json";
+        {
+            const std::unique_ptr<EditorApp> editor = createEditor(desc);
+            REQUIRE(editor->context().saveScene(yard).has_value());
+            // Nothing unsaved: nothing is kept, and the error says so.
+            editor->engine().graphics().reportLost("a test stands in for the driver");
+            const Result<bool> frame = editor->runFrame();
+            REQUIRE_FALSE(frame.has_value());
+            CHECK(frame.error().code == ErrorCode::DeviceLost);
+            CHECK(test::errorOf(frame).find("no changes that were not saved") != std::string::npos);
+            CHECK_FALSE(fileExists(kept));
+        }
+        {
+            const std::unique_ptr<EditorApp> editor = createEditor(desc);
+            CHECK_FALSE(editor->keptScene().has_value());
+            CHECK(run(*editor, "scene.recover")["kept"] == false);
+            REQUIRE(editor->context().openScene(yard).has_value());
+            run(*editor, "entity.create", R"({"name": "Lamp"})");
+            editor->engine().graphics().reportLost("a test stands in for the driver");
+            const Result<bool> frame = editor->runFrame();
+            REQUIRE_FALSE(frame.has_value());
+            CHECK(frame.error().code == ErrorCode::DeviceLost);
+            CHECK(test::errorOf(frame).find("a test stands in for the driver") != std::string::npos);
+            CHECK(test::errorOf(frame).find(std::string(kSceneRecoveryFileName)) != std::string::npos);
+            REQUIRE(fileExists(kept));
+            CHECK(unwrap(readSceneRecovery(kept)).scenePath == yard);
+        }
+
+        // The next editor on the project asks; scene.recover answers as its buttons do.
+        const std::unique_ptr<EditorApp> editor = createEditor(desc);
+        REQUIRE(editor->keptScene().has_value());
+        REQUIRE(editor->runFrames(2).has_value());
+        const ImGuiWindow* question = ImGui::FindWindowByName("###KeptScene");
+        REQUIRE(question != nullptr);
+        CHECK(question->Active);
+        const Json said = run(*editor, "scene.recover");
+        CHECK(said["kept"] == true);
+        CHECK(pathFromUtf8(said["scenePath"].get<std::string>()) == yard);
+
+        // Not over changes that are not saved, unless told to.
+        run(*editor, "entity.create", R"({"name": "Bench"})");
+        CHECK(refusal(*editor, "scene.recover", R"({"open": true})").code == ErrorCode::InvalidState);
+        CHECK(run(*editor, "scene.recover", R"({"open": true, "discardChanges": true})")["kept"] == false);
+        EditorContext& context = editor->context();
+        CHECK(findEntityByPath(context.world(), "Lamp").has_value());
+        CHECK_FALSE(findEntityByPath(context.world(), "Bench").has_value());
+        // The changes that were kept are changes until they are saved - to the file they were of.
+        CHECK(context.hasUnsavedChanges());
+        CHECK(context.scenePath() == yard);
+        CHECK_FALSE(fileExists(kept));
+        CHECK(refusal(*editor, "scene.recover", R"({"open": false})").code == ErrorCode::NotFound);
+        // The question closes in the frame after it was answered, and is gone in the one after.
+        REQUIRE(editor->runFrames(2).has_value());
+        CHECK_FALSE(ImGui::FindWindowByName("###KeptScene")->Active);
+        checkNoValidationIssues(editor->engine().graphics());
+    }
+
+    TEST_CASE("a kept scene can be let go of, and one that cannot be read is said and left alone") {
+        const TempDirectory directory;
+        const Project project = unwrap(createProject(directory.path() / "game", "Game"));
+        EditorAppDesc desc = headlessDesc(UVec2(320, 180));
+        desc.project = project.directory;
+        const std::filesystem::path kept = project.cacheDirectory() / std::string(kSceneRecoveryFileName);
+        REQUIRE(writeSceneRecovery(kept, {.scene = Json::parse(R"({"format": "cordite.scene", "version": 1,
+                                                                    "entities": []})")})
+                    .has_value());
+        {
+            const std::unique_ptr<EditorApp> editor = createEditor(desc);
+            REQUIRE(editor->keptScene().has_value());
+            CHECK(run(*editor, "scene.recover", R"({"open": false})")["kept"] == false);
+            CHECK_FALSE(fileExists(kept));
+        }
+        REQUIRE(writeTextFile(kept, "not a kept scene").has_value());
+        const test::LogCapture log(LogLevel::Warn);
+        const std::unique_ptr<EditorApp> editor = createEditor(desc);
+        CHECK_FALSE(editor->keptScene().has_value());
+        CHECK(log.contains("kept scene"));
+        CHECK(fileExists(kept));
+    }
+
     TEST_CASE("asset.delete takes away a file of the assets, and the start scene only when told to") {
         const TempDirectory directory;
         const Project project = unwrap(createStarterProject(directory.path() / "game", "Game"));
@@ -3674,7 +3761,8 @@ TEST_SUITE("EditorApp") {
                                  "asset.delete",
                                  "asset.createDirectory",
                                  "asset.createMaterial",
-                                 "project.recent"}) {
+                                 "project.recent",
+                                 "scene.recover"}) {
             CAPTURE(name);
             const CommandDesc* command = editor->commands().find(name);
             REQUIRE(command != nullptr);

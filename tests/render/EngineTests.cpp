@@ -114,6 +114,29 @@ TEST_SUITE("Engine") {
         checkNoValidationIssues(engine->graphics());
     }
 
+    TEST_CASE("a lost GPU ends the next frame with DeviceLost, and says why it was lost first") {
+        const std::unique_ptr<Engine> engine = createEngine(headlessDesc());
+        REQUIRE(test::unwrap(engine->runFrame()));
+        GraphicsDevice& graphics = engine->graphics();
+        CHECK(graphics.checkLost().has_value());
+
+        // What a backend reports when the API says so; a test stands in for the driver.
+        graphics.reportLost("the driver stopped");
+        graphics.reportLost("and then something else");
+        const Status lost = graphics.checkLost();
+        REQUIRE_FALSE(lost.has_value());
+        CHECK(lost.error().code == ErrorCode::DeviceLost);
+        CHECK(test::errorOf(lost).find("the driver stopped") != std::string::npos);
+        CHECK(test::errorOf(lost).find("something else") == std::string::npos);
+        CHECK(test::errorOf(lost).find(graphics.adapter().name) != std::string::npos);
+
+        const Result<bool> frame = engine->runFrame();
+        REQUIRE_FALSE(frame.has_value());
+        CHECK(frame.error().code == ErrorCode::DeviceLost);
+        // And every frame after it.
+        CHECK(engine->runFrame().error().code == ErrorCode::DeviceLost);
+    }
+
     TEST_CASE("captureFrame returns the last rendered frame") {
         const std::unique_ptr<Engine> engine = createEngine(headlessDesc(UVec2(200, 100)));
 

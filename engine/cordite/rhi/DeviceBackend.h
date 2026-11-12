@@ -22,6 +22,7 @@
 #include <nvrhi/nvrhi.h>
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -58,6 +59,11 @@ public:
 
     /// The raw Vulkan objects of a device of Vulkan; null for any other.
     [[nodiscard]] virtual const VulkanContext* vulkan() const { return nullptr; }
+
+    /// Why the device is lost, when the API can be asked and says it is - Direct3D 12 keeps
+    /// the reason a device was removed; Vulkan says so only in the results of its calls,
+    /// which those who make them report (GraphicsDevice::reportLost). None otherwise.
+    [[nodiscard]] virtual std::optional<std::string> lostReason() const { return std::nullopt; }
 };
 
 /// What a function that makes a device hands back.

@@ -7,6 +7,8 @@
 #include "cordite/world/SceneSerializer.h"
 
 #include <algorithm>
+#include <cstdint>
+#include <limits>
 #include <ranges>
 #include <utility>
 
@@ -122,6 +124,22 @@ void EditorContext::resetDocumentState() {
     m_history.clear();
     m_selection.clear();
     m_savedStateId = m_history.stateId();
+}
+
+Json EditorContext::documentScene() const {
+    return m_play ? m_play->scene : serializeScene(m_world, m_components);
+}
+
+Status EditorContext::restoreScene(const Json& scene, std::filesystem::path path) {
+    if (m_play) {
+        return makeError(ErrorCode::InvalidState, "the scene is being played: stop it before restoring another");
+    }
+    CORDITE_TRY(deserializeScene(m_world, scene, m_components));
+    m_scenePath = std::move(path);
+    resetDocumentState();
+    // No state of a history: its states are counted up from nothing, one an edit.
+    m_savedStateId = std::numeric_limits<uint64_t>::max();
+    return {};
 }
 
 bool EditorContext::hasUnsavedChanges() const {

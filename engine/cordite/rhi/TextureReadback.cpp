@@ -1,5 +1,7 @@
 #include "cordite/rhi/TextureReadback.h"
 
+#include <fmt/format.h>
+
 #include <algorithm>
 #include <cstring>
 
@@ -58,7 +60,8 @@ Result<TexturePixels> readTexture(GraphicsDevice& device, nvrhi::ITexture* textu
     commandList->close();
     nvrhiDevice->executeCommandList(commandList);
     if (!nvrhiDevice->waitForIdle()) {
-        return makeError(ErrorCode::DeviceError, "the device was lost while reading back '{}'", desc.debugName);
+        device.reportLost(fmt::format("waiting for the copy of '{}' to read it back failed", desc.debugName));
+        return tl::unexpected(device.checkLost().error());
     }
 
     size_t rowPitch = 0;

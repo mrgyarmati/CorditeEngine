@@ -295,6 +295,19 @@ Result<std::unique_ptr<EditorApp>> EditorApp::create(const EditorAppDesc& desc) 
             return error.withContext(fmt::format("the start scene {} of the project", pathToUtf8(scene)));
         }));
     }
+    // A scene that the editor before this one kept, when it could not go on, is offered back:
+    // not opened in place of the one that opens now until somebody says so.
+    app->m_stateDirectory = stateDirectory;
+    if (const std::filesystem::path kept = stateDirectory / pathFromUtf8(kSceneRecoveryFileName); fileExists(kept)) {
+        if (Result<SceneRecovery> recovery = readSceneRecovery(kept)) {
+            CORDITE_LOG_WARN(
+                "Editor", "the editor before kept changes of {} that were not saved: scene.recover opens them",
+                recovery->scenePath.empty() ? std::string("a new scene") : pathToUtf8(recovery->scenePath));
+            app->m_keptScene = std::move(*recovery);
+        } else {
+            CORDITE_LOG_WARN("Editor", "a kept scene is there, but cannot be read: {}", recovery.error().message);
+        }
+    }
     if (const std::optional<Project>& project = app->m_project; desc.watchAssets && project) {
         app->m_assetWatcher = std::make_unique<DirectoryWatcher>(
             DirectoryWatcherDesc{.directory = project->assetDirectory(), .interval = desc.assetWatchInterval});
@@ -307,6 +320,30 @@ Result<std::unique_ptr<EditorApp>> EditorApp::create(const EditorAppDesc& desc) 
 EditorApp::~EditorApp() = default;
 
 Result<bool> EditorApp::runFrame() {
+    Result<bool> ran = drawFrame();
+    if (!ran && ran.error().code == ErrorCode::DeviceLost) {
+        // Nothing more can be drawn, but the scene is on the CPU, as it was.
+        return makeError(ErrorCode::DeviceLost, "{}; {}", ran.error().message, keepScene());
+    }
+    return ran;
+}
+
+std::string EditorApp::keepScene() {
+    if (!m_context->hasUnsavedChanges()) {
+        return "the scene had no changes that were not saved";
+    }
+    const std::filesystem::path file = m_stateDirectory / pathFromUtf8(kSceneRecoveryFileName);
+    if (const Status kept =
+            writeSceneRecovery(file, {.scenePath = m_context->scenePath(), .scene = m_context->documentScene()});
+        !kept) {
+        return fmt::format("the changes of the scene that were not saved could not be kept: {}", kept.error().message);
+    }
+    return fmt::format("the changes of the scene that were not saved were kept in {}, which the editor offers to "
+                       "open the next time it opens this project",
+                       pathToUtf8(file));
+}
+
+Result<bool> EditorApp::drawFrame() {
     followAssetFiles();
     // A dialog that asks for a path holds the program until it is answered: here, between
     // frames, it stops none half drawn. What it is answered with may be a line to run.
@@ -755,6 +792,53 @@ Status EditorApp::registerApplicationCommands() {
         },
     }));
 
+    CORDITE_TRY(m_commands.add({
+        .name = "scene.recover",
+        .description =
+            "Says whether the editor before this one kept a scene it could not go on with - the GPU was lost "
+            "while the scene had changes that were not saved - and which file it was of. With `open` true it "
+            "opens it in place of the scene that is open, as changes that are not saved until it is saved; "
+            "with `open` false it lets it go. Either way the kept file is deleted. Refused while the scene is "
+            "played, without a kept scene, and - to open one - over changes that are not saved, unless told "
+            "discardChanges. Returns whether a scene is kept, and its file.",
+        .parameters = {{"open", Type::Boolean,
+                        "true opens the kept scene, false lets it go; left out, nothing is done but saying.", false},
+                       {"discardChanges", Type::Boolean,
+                        "Open it over changes of the open scene that are not saved, which are lost then. Defaults "
+                        "to false.",
+                        false}},
+        .handler = [this](const Json& parameters) -> Result<Json> {
+            if (parameters.contains("open")) {
+                if (!m_keptScene) {
+                    return makeError(ErrorCode::NotFound, "no scene was kept");
+                }
+                if (m_context->isPlaying()) {
+                    return makeError(ErrorCode::InvalidState, "the scene is being played: stop it first");
+                }
+                if (parameters.at("open").get<bool>()) {
+                    if (m_context->hasUnsavedChanges() && !jsonGetOr<bool>(parameters, "discardChanges", false)) {
+                        return makeError(ErrorCode::InvalidState,
+                                         "the open scene has changes that are not saved, and would be lost: save "
+                                         "it, undo them, or say discardChanges");
+                    }
+                    CORDITE_TRY(m_context->restoreScene(m_keptScene->scene, m_keptScene->scenePath));
+                }
+                const std::filesystem::path file = m_stateDirectory / pathFromUtf8(kSceneRecoveryFileName);
+                std::error_code error;
+                if (std::filesystem::remove(file, error); error) {
+                    CORDITE_LOG_WARN("Editor", "the kept scene is done with, but its file {} is still there: {}",
+                                     pathToUtf8(file), error.message());
+                }
+                m_keptScene.reset();
+            }
+            Json result = Json::object();
+            result["kept"] = m_keptScene.has_value();
+            if (m_keptScene) {
+                result["scenePath"] = pathToUtf8(m_keptScene->scenePath);
+            }
+            return result;
+        },
+    }));
     return m_commands.add({
         .name = "probes.capture",
         .description = "Takes the pictures of all environment probes again, in the next frames: what is around them "
@@ -1757,6 +1841,7 @@ void EditorApp::drawInterface() {
     }
     // Last, so that it is in front of everything.
     drawUnsavedChangesQuestion();
+    drawKeptSceneQuestion();
 }
 
 void EditorApp::handleShortcuts() {
@@ -2422,6 +2507,47 @@ void EditorApp::goAhead(Leaving leaving, bool discardChanges) {
         case Leaving::None:
             break;
     }
+}
+
+void EditorApp::drawKeptSceneQuestion() {
+    static constexpr const char* kTitle = "Kept scene###KeptScene";
+    const bool asking = m_keptScene && !m_keptSceneLater && !m_context->isPlaying();
+    if (asking && !ImGui::IsPopupOpen(kTitle)) {
+        ImGui::OpenPopup(kTitle);
+    }
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (!ImGui::BeginPopupModal(kTitle, nullptr,
+                                ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings)) {
+        return;
+    }
+    if (!asking) {
+        // Answered by a command since it was drawn last.
+        ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+        return;
+    }
+    const std::string scene =
+        m_keptScene->scenePath.empty() ? std::string("a new scene") : pathToUtf8(m_keptScene->scenePath.filename());
+    ImGui::TextUnformatted(
+        fmt::format("The editor stopped - the GPU was lost - before the changes of {} were saved.", scene).c_str());
+    ImGui::TextUnformatted("It kept them. Open them, in place of the scene that is open?");
+    ImGui::Spacing();
+    if (ImGui::Button("Open")) {
+        m_submittedLines.emplace_back(R"(scene.recover {"open": true, "discardChanges": true})");
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Let them go")) {
+        m_submittedLines.emplace_back(R"(scene.recover {"open": false})");
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Later")) {
+        // Asked again the next time the project opens; scene.recover answers meanwhile.
+        m_keptSceneLater = true;
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
 }
 
 void EditorApp::drawUnsavedChangesQuestion() {
