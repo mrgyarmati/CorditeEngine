@@ -1,4 +1,5 @@
 #pragma once
+/// | `asset.import`     | Copies files from outside into the assets, with what a glTF names.    |
 
 /// @file
 /// The editor commands that deal with assets.

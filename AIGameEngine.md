@@ -324,7 +324,7 @@ Early UE3 titles relied heavily on normal maps, aggressive specular response, an
 - Asset browser should be like in Unity and Unreal Engine. List and Grid view with folder tree on the side.
 - File open should use file open dialog, not hand typing. 
 - The play button should change to stop button, not just highlight when play started.
-- We need OpenGL support as fall back if no Vulkan available.
+- We need OpenGL support as fall back if no Vulkan available. (Decided 12 November 2026: an OpenGL backend for Linux without Vulkan; Direct3D 12 stays the Windows path. See docs/architecture/CORDITE_AUDIT.md.)
 
-- When I tried to open a project, so I clicked on Open Project in menu, the whole editor went to frozen (not responding)
-- From Asset Browser I cannot drag and drop anything to viewport niether to hierarchy 
+- When I tried to open a project, so I clicked on Open Project in menu, the whole editor went to frozen (not responding) (fixed in 6f550ce)
+- From Asset Browser I cannot drag and drop anything to viewport niether to hierarchy (fixed in b0d88f7)

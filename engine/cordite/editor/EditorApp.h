@@ -37,7 +37,10 @@
 ///
 /// Besides the scene-editing and asset commands (see EditorCommands.h) the application
 /// adds the ones that need a running editor: `editor.screenshot`, `editor.runFrames`,
-/// `editor.statistics`, `editor.showPanel`, `editor.focusPanel`, `editor.exit`, those of
+/// `editor.statistics`, `editor.showPanel`, `editor.focusPanel`, `editor.theme`,
+/// `editor.exit` and `probes.capture`; those of the project - `project.new`, `project.open`
+/// and `project.export`; those of assets that need the engine or the open scene -
+/// `asset.listen`, `asset.preview`, `asset.move` and `asset.moveDirectory`; those of
 /// the viewports - `viewport.open`, `viewport.close`, `viewport.list`, `viewport.lookAt`,
 /// `viewport.frame`, `viewport.show`, `viewport.camera`, `viewport.debugView`,
 /// `viewport.quality` and `viewport.gizmo` - and those that play the scene (PlayMode.h):

@@ -2,8 +2,10 @@
 
 Cordite is a 3D game engine for Windows, macOS and Linux (Ubuntu 24.04+), written in
 C++20 and rendered with Vulkan through NVRHI. Its default look is the gritty,
-high-contrast, normal-mapped style of late-2000s console games. The product vision and
-feature list are in [AIGameEngine.md](AIGameEngine.md); the generic coding standard is
+high-contrast, normal-mapped style of late-2000s console games. The visual and rendering
+brief is [AIGameEngine.md](AIGameEngine.md); where the engine goes next is
+[docs/GAME_ENGINE_PLAN.md](docs/GAME_ENGINE_PLAN.md), with its audit and backlog in
+[docs/architecture/](docs/architecture/CORDITE_AUDIT.md); the generic coding standard is
 [coding-standards.md](coding-standards.md). This file is the concrete, project-specific
 version of both. When they disagree, this file wins.
 
