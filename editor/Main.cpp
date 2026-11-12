@@ -147,7 +147,9 @@ int exportProject(const Options& options) {
     }
     // On macOS an application bundle, which is called so.
     const Result<GameExport> made =
-        exportGame(*project, {.destination = gameDestinationFor(pathFromUtf8(options.exportTo), nativeGameLayout())});
+        exportGame(*project, {.destination = gameDestinationFor(pathFromUtf8(options.exportTo), nativeGameLayout()),
+                              // Where an editor of the project keeps its shaders.
+                              .shaderCache = project->cacheDirectory() / "shaders"});
     if (!made) {
         CORDITE_LOG_CRITICAL("Editor", "cannot export: {}", made.error().describe());
         return kExitFailure;

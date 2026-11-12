@@ -13,6 +13,7 @@
 
 #include <cstddef>
 #include <filesystem>
+#include <map>
 #include <string>
 #include <string_view>
 
@@ -250,6 +251,46 @@ TEST_SUITE("GameExport") {
         const std::filesystem::path empty = fixture.directory.path() / "empty";
         REQUIRE(ensureDirectory(empty).has_value());
         CHECK(unwrap(exportGame(fixture.project, fixture.desc(empty))).files == made.files);
+    }
+
+    TEST_CASE("shaders kept between exports are compiled once, and the game gets the same files") {
+        const ExportFixture fixture;
+        const std::filesystem::path kept = fixture.directory.path() / "kept-shaders";
+        const auto filesIn = [](const std::filesystem::path& directory) {
+            std::map<std::filesystem::path, std::filesystem::file_time_type> files;
+            for (const auto& entry : std::filesystem::recursive_directory_iterator(directory)) {
+                if (entry.is_regular_file()) {
+                    files[std::filesystem::relative(entry.path(), directory)] = entry.last_write_time();
+                }
+            }
+            return files;
+        };
+        // Without a cache kept, the game is compiled into, as it always was.
+        const std::filesystem::path plain = fixture.directory.path() / "games" / "Plain";
+        const GameExport compiledInto = unwrap(exportGame(fixture.project, fixture.desc(plain)));
+
+        GameExportDesc desc = fixture.desc(fixture.directory.path() / "games" / "First");
+        desc.shaderCache = kept;
+        const GameExport first = unwrap(exportGame(fixture.project, desc));
+        // The same files of shaders, by name, as the game compiled into has - and as many in all.
+        const auto shipped = filesIn(unwrap(loadProject(first.game)).cacheDirectory() / "shaders");
+        const auto expected = filesIn(unwrap(loadProject(plain)).cacheDirectory() / "shaders");
+        REQUIRE(shipped.size() == expected.size());
+        for (const auto& [name, written] : expected) {
+            CAPTURE(pathToUtf8(name));
+            CHECK(shipped.contains(name));
+        }
+        CHECK(first.files == compiledInto.files);
+        // The project is as it was: the cache is where it was said to be.
+        CHECK_FALSE(std::filesystem::exists(fixture.project.cacheDirectory()));
+
+        // Exported again: nothing kept is compiled, or written, again.
+        const auto before = filesIn(kept);
+        CHECK(before.size() >= shipped.size());
+        desc.destination = fixture.directory.path() / "games" / "Second";
+        const GameExport second = unwrap(exportGame(fixture.project, desc));
+        CHECK(filesIn(kept) == before);
+        CHECK(second.files == first.files);
     }
 
     TEST_CASE("a game exported again replaces what the export wrote, and nothing else") {

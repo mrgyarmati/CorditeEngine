@@ -2,6 +2,7 @@
 
 #include "cordite/core/Base.h"
 #include "cordite/core/FileSystem.h"
+#include "cordite/core/Hash.h"
 #include "cordite/core/Json.h"
 #include "cordite/core/Log.h"
 #include "cordite/core/Platform.h"
@@ -9,6 +10,9 @@
 #include "cordite/engine/Engine.h"
 #include "cordite/rhi/GraphicsDevice.h"
 #include "cordite/shader_compiler/EngineShaderCache.h"
+#include "cordite/shaders/EngineShaders.h"
+#include "cordite/shaders/ShaderCache.h"
+#include "cordite/shaders/ShaderTypes.h"
 
 #include <fmt/format.h>
 
@@ -317,8 +321,24 @@ Status writeGame(const Project& project, const GameExportDesc& desc, GameLayout 
     // What the game has instead of a compiler: the engine's shaders, compiled, where its
     // engine looks for them.
     const std::filesystem::path cache = game.cacheDirectory() / "shaders";
-    CORDITE_TRY(compileEngineShaders(shaders, cache));
-    CORDITE_TRY(countTree(cache, made));
+    if (desc.shaderCache.empty()) {
+        CORDITE_TRY(compileEngineShaders(shaders, cache));
+        CORDITE_TRY(countTree(cache, made));
+    } else {
+        // Compiled where they are kept - only what is not there yet, or no longer up to date
+        // with its sources - and then the files of the game's permutations copied over: a
+        // game exported again costs copies, not the minutes of compiling every shader twice.
+        CORDITE_TRY(compileEngineShaders(shaders, desc.shaderCache));
+        const ShaderCache kept(desc.shaderCache);
+        const ShaderCache shipped(cache);
+        for (const ShaderTarget target : gameShaderTargets()) {
+            for (ShaderRequest request : engineShaderRequests()) {
+                CORDITE_TRY(request.normalize());
+                const Hash128 key = request.key();
+                CORDITE_TRY(copyFile(kept.entryPath(key, target), shipped.entryPath(key, target), made));
+            }
+        }
+    }
 
     // Last: a directory that says an export made it is one.
     Json record = Json::object();

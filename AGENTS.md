@@ -157,9 +157,14 @@ under the name of the game - the project file, the assets with their .meta files
 engine's shaders compiled into the game's cache, `licenses/`, and last a record that an
 export made the directory (`.cordite/export.json`). Exported there again, what the record
 names is replaced and nothing else; a directory that holds what no export made is
-refused. `licenses/` is the notice of every library the program is made of, which the
-build copies beside the player (`cmake/CorditeLicenses.cmake`; Lua and MikkTSpace keep
-theirs in a header, so theirs are in `cmake/licenses/`): a library that the engine starts
+refused. The editor and `--export` compile the shaders into the project's own cache
+(`GameExportDesc::shaderCache`, `.cordite/shaders`, where the editor keeps its own) and
+copy the game's permutations from there: exported again, the showcase took 8 seconds, every
+shader compiled anew for two targets, and takes one. `exportGame` without it compiles into
+the game, and writes nothing outside it. `licenses/` is the notice of every library the
+program is made of, which the build copies beside the player
+(`cmake/CorditeLicenses.cmake`; Lua and MikkTSpace keep theirs in a header, so theirs are
+in `cmake/licenses/`): a library that the engine starts
 to link adds its notice there in the same change. The game runs on the kind of system
 that exported it, with the player of the editor's build: a game to be shipped is exported
 by a `Release` build. `export_smoke` exports the showcase and plays it from where it was
