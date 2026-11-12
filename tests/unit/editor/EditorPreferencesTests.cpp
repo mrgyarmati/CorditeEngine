@@ -7,7 +7,9 @@
 
 #include <fmt/format.h>
 
+#include <algorithm>
 #include <string>
+#include <string_view>
 
 using namespace cordite;
 
@@ -28,7 +30,7 @@ TEST_SUITE("EditorPreferences") {
                 const EditorPreferences preferences{.theme = theme, .assetView = view};
                 const Json document = editorPreferencesDocument(preferences);
                 CHECK(document == Json::parse(fmt::format(R"({{"format": "cordite.preferences", "version": 1, )"
-                                                          R"("theme": "{}", "assetView": "{}"}})",
+                                                          R"("theme": "{}", "assetView": "{}", "recentProjects": []}})",
                                                           nameOf(theme), nameOf(view))));
                 CHECK(test::unwrap(parseEditorPreferences(document)) == preferences);
             }
@@ -147,5 +149,84 @@ TEST_SUITE("EditorPreferences") {
         CHECK(file.filename() == "editor-preferences.json");
         CHECK(file.parent_path().filename() == "Cordite");
         CHECK(file.parent_path().parent_path() == userConfigurationDirectory());
+    }
+
+    TEST_CASE("recent projects are kept the newest first, each once, and ten at the most") {
+        const test::TempDirectory directory;
+        const auto project = [&directory](int number) { return directory.path() / fmt::format("game{}", number); };
+        EditorPreferences preferences;
+        for (int number = 1; number <= 12; ++number) {
+            rememberRecentProject(preferences, project(number));
+        }
+        // The two opened first are gone; the newest is first.
+        REQUIRE(preferences.recentProjects.size() == kMaxRecentProjects);
+        CHECK(sameProjectDirectory(preferences.recentProjects.front(), project(12)));
+        CHECK(sameProjectDirectory(preferences.recentProjects.back(), project(3)));
+
+        // Opened again - by another way to the same directory - it comes first, and is there once.
+        rememberRecentProject(preferences, project(7) / "assets" / "..");
+        REQUIRE(preferences.recentProjects.size() == kMaxRecentProjects);
+        CHECK(sameProjectDirectory(preferences.recentProjects.front(), project(7)));
+        CHECK(std::ranges::count_if(preferences.recentProjects, [&](const std::filesystem::path& entry) {
+                  return sameProjectDirectory(entry, project(7));
+              }) == 1);
+        CHECK(sameProjectDirectory(preferences.recentProjects[1], project(12)));
+        // Kept as absolute paths, whatever they were given as.
+        for (const std::filesystem::path& entry : preferences.recentProjects) {
+            CHECK(entry.is_absolute());
+        }
+        rememberRecentProject(preferences, pathFromUtf8("relative/game"));
+        CHECK(preferences.recentProjects.front().is_absolute());
+    }
+
+    TEST_CASE("projects that are gone are taken out of the list, and the others keep their order") {
+        const test::TempDirectory directory;
+        EditorPreferences preferences;
+        for (const char* name : {"kept", "gone", "also kept", "not a project"}) {
+            const std::filesystem::path project = directory.path() / name;
+            REQUIRE(ensureDirectory(project).has_value());
+            if (std::string_view(name) != "gone" && std::string_view(name) != "not a project") {
+                REQUIRE(writeTextFile(project / "project.cordite", "{}").has_value());
+            }
+            rememberRecentProject(preferences, project);
+        }
+        std::filesystem::remove_all(directory.path() / "gone");
+        CHECK(recentProjectExists(directory.path() / "kept"));
+        CHECK_FALSE(recentProjectExists(directory.path() / "gone"));
+        CHECK_FALSE(recentProjectExists(directory.path() / "not a project"));
+        CHECK(forgetMissingRecentProjects(preferences) == 2);
+        REQUIRE(preferences.recentProjects.size() == 2);
+        CHECK(sameProjectDirectory(preferences.recentProjects[0], directory.path() / "also kept"));
+        CHECK(sameProjectDirectory(preferences.recentProjects[1], directory.path() / "kept"));
+        CHECK(forgetMissingRecentProjects(preferences) == 0);
+    }
+
+    TEST_CASE("recent projects are saved and loaded as they were") {
+        const test::TempDirectory directory;
+        EditorPreferences preferences{.theme = UiTheme::Light};
+        rememberRecentProject(preferences, directory.path() / "first");
+        rememberRecentProject(preferences, directory.path() / pathFromUtf8("második"));
+        const std::filesystem::path file = directory.path() / "preferences.json";
+        REQUIRE(saveEditorPreferences(file, preferences).has_value());
+        CHECK(test::unwrap(loadEditorPreferences(file)) == preferences);
+    }
+
+    TEST_CASE("recent projects that are not a list of absolute paths, or too many, are an error") {
+        const auto refused = [](const Json& value, std::string_view fragment) {
+            const Result<EditorPreferences> parsed = parseEditorPreferences(preferencesWith("recentProjects", value));
+            REQUIRE_FALSE(parsed.has_value());
+            CHECK(parsed.error().code == ErrorCode::ParseError);
+            CHECK_MESSAGE(test::errorOf(parsed).find(fragment) != std::string::npos, test::errorOf(parsed));
+        };
+        refused(std::string("D:/games"), "must be a list");
+        refused(Json::array({5}), "must be the directory of a project");
+        refused(Json::array({""}), "must be the directory of a project");
+        refused(Json::array({"games/depot"}), "not an absolute path");
+        const test::TempDirectory directory;
+        Json tooMany = Json::array();
+        for (size_t index = 0; index <= kMaxRecentProjects; ++index) {
+            tooMany.push_back(pathToUtf8(directory.path() / fmt::format("game{}", index)));
+        }
+        refused(tooMany, "at most 10");
     }
 }

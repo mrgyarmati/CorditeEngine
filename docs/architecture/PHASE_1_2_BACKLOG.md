@@ -115,6 +115,8 @@ then P1-03 and P1-04 (the largest usability gap), then the rest.
 
 ### P1-05 Recent projects - P1
 
+**Done 12 November.**
+
 - **Modules / files:** `editor` (the per-user settings that already keep the theme),
   File menu.
 - **Depends on:** P1-02.

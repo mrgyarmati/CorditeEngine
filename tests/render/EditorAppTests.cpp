@@ -3373,6 +3373,55 @@ TEST_SUITE("EditorApp") {
         CHECK(*editor->projectToOpen() == showcaseProject());
     }
 
+    TEST_CASE("an editor remembers the projects it opens, and opens one of them again") {
+        const TempDirectory directory;
+        const Project first = unwrap(createProject(directory.path() / "first", "First"));
+        const Project second = unwrap(createProject(directory.path() / "second", "Second"));
+        EditorAppDesc desc = headlessDesc(UVec2(320, 180));
+        desc.preferencesFile = directory.path() / "preferences.json";
+        using Leaving = EditorApp::Leaving;
+        const auto recent = [](EditorApp& editor) { return run(editor, "project.recent")["projects"]; };
+        const auto names = [](const Json& projects, const Project& project) {
+            return sameProjectDirectory(pathFromUtf8(projects["path"].get<std::string>()), project.directory);
+        };
+
+        desc.project = first.directory;
+        {
+            const std::unique_ptr<EditorApp> editor = createEditor(desc);
+            const Json projects = recent(*editor);
+            REQUIRE(projects.size() == 1);
+            CHECK(names(projects[0], first));
+            CHECK(projects[0]["exists"] == true);
+        }
+        // Remembered in the file, the newest first.
+        desc.project = second.directory;
+        const std::unique_ptr<EditorApp> editor = createEditor(desc);
+        Json projects = recent(*editor);
+        REQUIRE(projects.size() == 2);
+        CHECK(names(projects[0], second));
+        CHECK(names(projects[1], first));
+        CHECK(unwrap(loadEditorPreferences(desc.preferencesFile)).recentProjects.size() == 2);
+
+        // Opened again, after the question about the changes of the scene: told to discard them.
+        run(*editor, "entity.create", R"({"name": "Lamp"})");
+        editor->openRecentProject(first.directory);
+        CHECK(editor->unsavedChangesQuestion() == Leaving::OpenRecentProject);
+        editor->answerUnsavedChanges(EditorApp::UnsavedChangesAnswer::DontSave);
+        REQUIRE(editor->runFrames(1).has_value());
+        REQUIRE(editor->projectToOpen().has_value());
+        CHECK(sameProjectDirectory(*editor->projectToOpen(), first.directory));
+
+        // A project that is gone is said to be, and taken out of the list when asked.
+        std::filesystem::remove_all(first.directory);
+        projects = recent(*editor);
+        CHECK(projects[1]["exists"] == false);
+        const Json forgotten = run(*editor, "project.recent", R"({"forgetMissing": true})");
+        CHECK(forgotten["forgotten"] == 1);
+        REQUIRE(forgotten["projects"].size() == 1);
+        CHECK(names(forgotten["projects"][0], second));
+        CHECK(unwrap(loadEditorPreferences(desc.preferencesFile)).recentProjects.size() == 1);
+    }
+
     TEST_CASE("an editor opens another project by command, and nothing that is no project") {
         const std::unique_ptr<EditorApp> editor = createEditor(headlessDesc(UVec2(320, 180)));
         const TempDirectory directory;

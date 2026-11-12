@@ -1953,10 +1953,13 @@ panels, EditorApp    the interface, built on the three layers above
   to what it was, and a style replaced in the middle of a frame would keep colors of
   the old theme. The View menu queues `editor.theme` for that reason.
 - **What a person chose about the editor is theirs, not a project's**: the theme and
-  how the Assets panel shows a folder are kept in `editor-preferences.json` in their
-  configuration directory (`EditorPreferences`, `userConfigurationDirectory`). A batch
-  run reads and writes none, and is drawn in the default theme with the grid, so its
-  pictures do not depend on who runs it.
+  how the Assets panel shows a folder, and the projects they opened last, are kept
+  in `editor-preferences.json` in their configuration directory (`EditorPreferences`,
+  `userConfigurationDirectory`). A batch run reads and writes none, and is drawn in the
+  default theme with the grid, so its pictures do not depend on who runs it. The recent
+  projects (File > Open recent, `project.recent`) are absolute paths, newest first, each
+  once - one directory reached two ways is one (`sameProjectDirectory`) - and ten at the
+  most; one that is gone is greyed out until it is taken out of the list.
 
 ## Testing
 

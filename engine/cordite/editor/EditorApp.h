@@ -164,6 +164,9 @@ public:
         /// File > Open project: a project a dialog names, which the editor closes to begin
         /// again on.
         OpenProject,
+        /// File > Open recent: the project chosen there (openRecentProject()), which the
+        /// editor closes to begin again on.
+        OpenRecentProject,
         /// File > Exit.
         Exit,
     };
@@ -246,6 +249,14 @@ public:
     /// answered is replaced by the new one.
     void leave(Leaving leaving);
 
+    /// Opens a project of File > Open recent, as the menu does: after asking whether to save
+    /// the changes of the scene, if it has any, by `project.open` - which refuses what is no
+    /// project, and says so in the console. The editor then closes (projectToOpen()).
+    void openRecentProject(const std::filesystem::path& directory);
+
+    /// What a person chose about the editor, and the projects they opened last.
+    [[nodiscard]] const EditorPreferences& preferences() const { return m_preferences; }
+
     /// What the open question about unsaved changes is about; Leaving::None while none is.
     [[nodiscard]] Leaving unsavedChangesQuestion() const { return m_leaving; }
 
@@ -309,6 +320,9 @@ private:
     /// when the panel or `assets.browse` has switched it - and writes them, if there is a
     /// file for them.
     void rememberAssetView();
+    /// Writes the preferences, when there is a file for them; says `whatIsLost` - what the
+    /// next session will not know - when they cannot be written.
+    void savePreferences(std::string_view whatIsLost);
     /// What editor.theme returns: the theme in use, and the names of all.
     [[nodiscard]] Json describeTheme() const;
     /// What play.status returns: whether the scene is being played, and how it goes.
@@ -316,6 +330,9 @@ private:
     void drawInterface();
     void drawMainMenu();
     void drawFileMenu();
+    /// File > Open recent: the projects opened last, those that are gone greyed out, and an
+    /// item that takes those out of the list.
+    void drawRecentProjectsMenu();
     void drawEntityMenu();
     void drawAssetMenu();
     /// A menu of the assets of one type, called `label`; `nothing` is said in it when
@@ -387,6 +404,8 @@ private:
     /// What is done once the scene has been saved where the Save as dialog says, when the
     /// question was answered with Save for a scene without a file; None for nothing.
     Leaving m_leavingAfterSave = Leaving::None;
+    /// The project File > Open recent chose, until it is opened or the question is answered.
+    std::filesystem::path m_recentProjectToOpen;
     std::optional<std::filesystem::path> m_projectToOpen;
     bool m_showInterfaceDemo = false;
     bool m_showStatistics = false;
