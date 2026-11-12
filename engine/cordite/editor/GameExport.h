@@ -82,6 +82,11 @@ struct GameExportDesc {
     /// How the game is laid out. Empty: as the games of this system are
     /// (nativeGameLayout()).
     std::optional<GameLayout> layout;
+    /// A shader cache that outlives the export - the one an editor keeps in the project's
+    /// `.cordite/shaders` - which the engine's shaders are compiled into, as far as it does
+    /// not hold them already, and copied from into the game. Empty: they are compiled into
+    /// the game itself, every time, and nothing outside the destination is written.
+    std::filesystem::path shaderCache;
 };
 
 /// What exportGame() wrote.
@@ -118,7 +123,7 @@ struct GameExport {
 /// wrote there before, and fails with IoError for a file that cannot be taken away or
 /// copied, and as compileEngineShaders() does; what it wrote is taken away again then - the
 /// directories it made, or what it put into the directory that was there. The project is
-/// not changed.
+/// not changed; a `desc.shaderCache` is written into, and kept.
 [[nodiscard]] Result<GameExport> exportGame(const Project& project, const GameExportDesc& desc);
 
 } // namespace cordite

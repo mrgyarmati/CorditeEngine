@@ -99,6 +99,9 @@ public:
 
     [[nodiscard]] const std::vector<std::filesystem::path>& sourceRoots() const { return m_desc.sourceRoots; }
 
+    /// Where compiled shaders are kept between sessions; empty when they are kept in memory.
+    [[nodiscard]] const std::filesystem::path& cacheDirectory() const { return m_desc.cacheDirectory; }
+
     /// What the shaders of the library are compiled to.
     [[nodiscard]] ShaderTarget target() const { return m_desc.target; }
 

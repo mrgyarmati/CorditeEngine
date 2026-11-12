@@ -105,6 +105,13 @@ then P1-03 and P1-04 (the largest usability gap), then the rest.
   must write to a temporary name and rename. Script results are unchanged.
 - **Tests:** unit tests for cancellation at each stage and for the clean-up. An
   EditorAppTests case that frames keep coming while an import runs.
+- **Measured 12 November, on the showcase:** `asset.refresh` costs next to nothing;
+  `project.export` took 7.6 s every time, because it compiled every permutation of the
+  engine's shaders for SPIR-V and DXIL into the game, which is replaced on every export.
+  The editor now compiles them into the project's `.cordite/shaders` and copies them, and
+  an export again takes about half a second. What is left of this ticket - work in the
+  background, progress and Cancel - matters for a first export and for large imports, and
+  is not started; measure a large glTF before designing it.
 
 ### P1-05 Recent projects - P1
 

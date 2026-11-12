@@ -1306,10 +1306,13 @@ Status EditorApp::registerProjectCommands() {
             const std::vector<std::filesystem::path>& sources = m_engine->shaders().sourceRoots();
             const std::filesystem::path destination =
                 gameDestinationFor(pathFromUtf8(parameters.at("path").get<std::string>()), nativeGameLayout());
-            CORDITE_TRY_ASSIGN(const GameExport made,
-                               exportGame(*m_project, {.destination = destination,
-                                                       .shaderDirectory = sources.empty() ? std::filesystem::path()
-                                                                                          : sources.front()}));
+            CORDITE_TRY_ASSIGN(
+                const GameExport made,
+                exportGame(*m_project, {.destination = destination,
+                                        .shaderDirectory = sources.empty() ? std::filesystem::path() : sources.front(),
+                                        // Where this editor keeps its own: what it
+                                        // compiled is not compiled again.
+                                        .shaderCache = m_engine->shaders().cacheDirectory()}));
             Json result = Json::object();
             result["program"] = pathToUtf8(made.program);
             result["game"] = pathToUtf8(made.game);
