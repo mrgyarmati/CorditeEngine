@@ -127,6 +127,7 @@ void runScenario(const std::string& name, bool withShadows) {
     const EngineDesc desc = test::measuredEngineDesc("Lights", assets.path(), cache.path());
     std::unique_ptr<Engine> engine = test::startEngine(desc);
     const std::string adapter = engine->graphics().adapter().name;
+    const AdapterType adapterType = engine->graphics().adapter().type;
 
     World& world = engine->world();
     buildScene(world, withShadows);
@@ -237,7 +238,7 @@ void runScenario(const std::string& name, bool withShadows) {
     checkBudget(timeBudgets, "lightClustersMedian", clusterTime.median);
     checkBudget(timeBudgets, "shadowPlanMedian", planTime.median);
 #endif
-    test::checkFrameTimeBudgets(timeBudgets, times);
+    test::checkFrameTimeBudgets(timeBudgets, times, adapterType);
 }
 
 } // namespace

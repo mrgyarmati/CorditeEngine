@@ -259,6 +259,6 @@ only the ImGui renderer draws in 2D.
 | `Game` and `cordite-player` | Verified | `engine/Game.cpp`, `player/Main.cpp` | `GameTests`, `player_starts` | |
 | Player settings | Verified | `engine/GameSettings.h` | `GameSettingsTests` (8) | |
 | Export (Windows directory) | Verified | `editor/GameExport.cpp` | `export_smoke` | |
-| Linux export and run | Partial | same files | Linux CI builds and runs the tests on lavapipe | No hardware run recorded |
+| Linux export and run | Partial | same files | Linux CI builds and runs the tests on lavapipe since 12 November (it did not build before) | No hardware run recorded |
 | macOS application bundle | Unknown | `GameExport.cpp` bundle layout | Layout tested on every OS | Never run on a Mac |
 | No console window on Windows | Verified | | `programs_open_no_console` | |

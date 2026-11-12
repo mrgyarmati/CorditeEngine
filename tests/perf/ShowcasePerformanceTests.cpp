@@ -103,6 +103,7 @@ TEST_SUITE("Performance") {
         std::unique_ptr<Engine> engine;
         milliseconds["coldStart"] = millisecondsFor([&] { engine = startEngine(desc); });
         const std::string adapter = engine->graphics().adapter().name;
+        const AdapterType adapterType = engine->graphics().adapter().type;
         engine.reset();
         milliseconds["warmStart"] = millisecondsFor([&] { engine = startEngine(desc); });
 
@@ -239,6 +240,6 @@ TEST_SUITE("Performance") {
 #endif
         // Whatever the build, they ran, and it took some time.
         CHECK(times.scripts.median > 0.0);
-        test::checkFrameTimeBudgets(timeBudgets, times);
+        test::checkFrameTimeBudgets(timeBudgets, times, adapterType);
     }
 }

@@ -110,7 +110,7 @@ system. "Run by a person" means someone used the editor or a game there.
 | Platform | Compilers | Built in CI | GPU tests | Editor / game run by a person | Export |
 |----------|-----------|-------------|-----------|-------------------------------|--------|
 | Windows 11 x64 | MSVC (`windows`), clang-cl (`windows-clang`) | MSVC only, RelWithDebInfo and Release, `-ExcludeLabel gpu` | **Locally only**: all GPU suites pass on an AMD Radeon RX 9070 XT ([baseline](BASELINE.md)) | Yes (the user's machine) | Verified (`export_smoke`) |
-| Ubuntu 24.04 x64 | GCC (`linux`), GCC with ASan and UBSan (`linux-sanitize`) | Yes, on every push | **Yes, lavapipe (software Vulkan) under xvfb**, with validation layers | Not recorded | Built and smoke-tested in CI; not run on hardware |
+| Ubuntu 24.04 x64 | GCC (`linux`), GCC with ASan and UBSan (`linux-sanitize`) | Yes, on every push (it did not build from the first commit until 12 November) | **Yes, lavapipe (software Vulkan) under xvfb**, with validation layers, but for 17 cases listed as expected failures (P1-13) | Not recorded | Built and smoke-tested in CI; not run on hardware |
 | macOS 15 | Apple Clang (`macos`) | Only on manual dispatch and `v*` tags, `-LE gpu` | No | **No** (README: "not yet run on a Mac") | Bundle layout tested as files only |
 
 ### Graphics backends
@@ -143,6 +143,6 @@ entirely through GLFW.
 | clang-cl | yes | no |
 | clang-tidy | changed files | **no** |
 | GCC, ASan/UBSan | no | yes |
-| GPU tests | Windows hardware | Linux lavapipe only |
+| GPU tests | Windows hardware | Linux lavapipe only, 17 cases expected to fail |
 | D3D12 suite | no | no |
 | macOS | no | manual only |

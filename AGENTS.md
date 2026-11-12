@@ -1994,6 +1994,13 @@ with CTest under the module name. See the skills
   there so far - eight reference pictures, three of fog, the exact light of open ground,
   the console of the editor, and a readback of a mip level, which passes alone and fails in
   a whole run.
+- **What a device is known to fail is a list, checked both ways**
+  (`tests/render/expected-failures/<name>.txt`, chosen with
+  `-DCORDITE_EXPECTED_GPU_FAILURES=<name>`; CI's Linux job has `lavapipe`): its cases are
+  left out of `render`, and each runs alone as `render_expected_failure_<n>`, which must
+  fail - a case that passes, or a line that names no case, fails it. A line is a pattern
+  of doctest's `-tc` without a comma. A case goes on a list with what is known of why,
+  and the ticket to find out (P1-13); never to make a change pass.
 - **A shader is compiled once in a run of the GPU tests** (`sharedCacheDirectory()` in
   `RenderTestSupport.h`): the `RenderContext` of every test and the engines and editors of
   the fixtures (`headlessDesc()`) share one cache for the run. Compiled anew for every test,
@@ -2016,10 +2023,12 @@ with CTest under the module name. See the skills
   the GPU - are the same everywhere and have tight budgets: a change that exceeds one
   raises it in the same commit, with a reason, or has a mistake. Times have budgets
   many times what a desktop GPU needs and are checked in optimized builds only, because
-  a test must not fail for a busy machine. To see what a change did to them, run
-  `./scripts/dev.ps1 perf` before and after: it runs the suite alone and prints every
-  scenario's run next to the one before. The numbers come from `Engine::statistics()`,
-  which the editor shows under View > Statistics and returns from `editor.statistics`.
+  a test must not fail for a busy machine. The GPU's time is not checked on a software
+  adapter (lavapipe, WARP): that is how fast a CPU rasterizes. To see what a change did
+  to them, run `./scripts/dev.ps1 perf` before and after: it runs the suite alone and
+  prints every scenario's run next to the one before. The numbers come from
+  `Engine::statistics()`, which the editor shows under View > Statistics and returns from
+  `editor.statistics`.
 - Windows opened by tests are hidden (`visible = false`) or use the headless window
   system, so the suite never disturbs the desktop and runs on machines without one.
 - Only one `Engine`, one `WindowSystem` and one `GraphicsDevice` can exist at a time;

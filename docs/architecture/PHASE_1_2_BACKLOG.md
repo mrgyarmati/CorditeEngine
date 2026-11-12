@@ -141,7 +141,9 @@ then P1-03 and P1-04 (the largest usability gap), then the rest.
   records what this audit measured.
 - **Acceptance:** the entry passes on a Windows GPU. Adding a new failure fails it.
   Fixing a listed test is noticed, because the list is also checked the other way.
-  The mechanism takes a backend name, so GL-07 reuses it for OpenGL.
+  The mechanism takes a backend name, so GL-07 reuses it for OpenGL. It exists since
+  P1-13 for lavapipe (`CORDITE_EXPECTED_GPU_FAILURES`, `tests/render/expected-failures/`):
+  this ticket adds a list for Direct3D 12 and a CTest entry that draws with it.
 - **Tests:** the entry itself.
 
 ### P1-09 Inspector: reset to default and search - P2
@@ -209,6 +211,30 @@ is overridden. Variants come in Phase 4, where the plan lists them.
   - The showcase gains a nested prefab with an override, kept by `samples` tests.
 
 This is the largest Phase 1 item.
+
+### P1-13 The GPU test cases that fail on lavapipe - P1
+
+Added 12 November, after Linux CI built for the first time since the repository's first
+commit and reached its GPU suites.
+
+- **Modules / files:** `tests/render/expected-failures/lavapipe.txt`, and whichever of the
+  renderer, the editor's pictures or the tests each case turns out to be about.
+- **Depends on:** nothing.
+- **Problem:** 17 of the 479 cases of `render` fail on lavapipe (Mesa 25, LLVM 20), which
+  CI draws with: eleven reference pictures (0.4 to 26 percent of their pixels, by up to
+  229 of 255 - the debug lines most), two of anti-aliasing (a higher quality follows an
+  edge less far; a picture turned round is not smoothed as the upright one is), three of
+  decals (colors and normals off by more than 2.5 of 255) and one of motion blur (34 of
+  255 from the filter's own). They are listed, so that CI is green and says what else
+  breaks; each listed case runs alone and must still fail.
+- **Work:** for each, find whether the engine or the driver is wrong: run it on
+  lavapipe with the validation layers, compare its picture with the one the GPU draws,
+  and read what differs. Fix the engine where it is wrong. Where lavapipe is, say why in
+  the list, or give the test a tolerance it can justify - never a wider one to pass.
+- **Acceptance:** every case left on the list has a reason beside it that names what
+  lavapipe does differently.
+- **Tests:** the cases themselves; `render_expected_failure_<n>` fails for a case that
+  starts passing.
 
 ## Phase 2 - Runtime UI foundation
 

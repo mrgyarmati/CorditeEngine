@@ -36,6 +36,7 @@
 #include "cordite/renderer/MeshPass.h"
 #include "cordite/renderer/RenderResources.h"
 #include "cordite/renderer/SceneRenderer.h"
+#include "cordite/rhi/GraphicsDevice.h"
 #include "cordite/shader_compiler/EngineShaderCache.h"
 
 #include "render/RenderTestSupport.h"
@@ -281,11 +282,14 @@ inline void checkBudget(const Json& budgets, const char* name, double value) {
 }
 
 /// Checks the frame times against the budgets "cpuFrameMedian" and "gpuFrameMedian".
-/// Does nothing in builds that are not optimized: their times say nothing.
-inline void checkFrameTimeBudgets([[maybe_unused]] const Json& timeBudgets, [[maybe_unused]] const FrameTimes& times) {
+/// Does nothing in builds that are not optimized: their times say nothing. Nor does the
+/// GPU's time on a software adapter (lavapipe, WARP), which is how fast a CPU rasterizes -
+/// a hundred times what a GPU takes - and not how fast the engine draws.
+inline void checkFrameTimeBudgets([[maybe_unused]] const Json& timeBudgets, [[maybe_unused]] const FrameTimes& times,
+                                  [[maybe_unused]] AdapterType adapter) {
 #if defined(NDEBUG)
     checkBudget(timeBudgets, "cpuFrameMedian", times.cpu.median);
-    if (times.gpuMeasurements > 0) {
+    if (times.gpuMeasurements > 0 && adapter != AdapterType::Software) {
         checkBudget(timeBudgets, "gpuFrameMedian", times.gpu.median);
     }
 #endif

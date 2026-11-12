@@ -76,8 +76,10 @@ early in Phase 2 (P2-04).
 
 ## R5 - Untested platforms and backends
 
-- CI renders only on Linux lavapipe. Windows CI excludes the `gpu` label. macOS CI runs
-  only on demand and without GPU tests.
+- CI renders only on Linux lavapipe, and did not build on Linux at all from the first
+  commit until 12 November: the GPU suites had never run there. 17 cases fail on lavapipe
+  and are listed as expected failures (P1-13). Windows CI excludes the `gpu` label. macOS
+  CI runs only on demand and without GPU tests.
 - No CTest runs the GPU suite on D3D12. AGENTS.md lists 14 failures there in prose, with
   no skip list. The [baseline](BASELINE.md) records what this audit measured.
 - MoltenVK and the macOS bundle have never run.
