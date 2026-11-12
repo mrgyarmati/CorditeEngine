@@ -1884,7 +1884,11 @@ panels, EditorApp    the interface, built on the three layers above
   and `editor/Main.cpp` makes another on that project - with the frames of a batch run
   that are left, without its script. Both are refused while the scene is played, and the
   commands while it has changes that are not saved, unless told `discardChanges`: a script
-  cannot answer the question a person is asked first. A new project
+  cannot answer the question a person is asked first. `project.open` also refuses a
+  project whose controls cannot be read, while this editor is there to say so; a start
+  scene that cannot be read keeps no project from opening - the next editor opens it with an
+  empty scene, and says why in the console. A scene asked for by name (`--scene`,
+  `EditorAppDesc::scene`) that cannot be read is no editor. A new project
   (`createStarterProject`, `editor/NewProject.h`) has a start scene made of the engine's own
   components and built-in assets: a camera, a sun, a sky, a floor and a box, so that it
   plays and exports as it is; `new_project_smoke` makes one of each kind, exports one and
