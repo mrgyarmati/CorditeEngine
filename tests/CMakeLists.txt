@@ -204,6 +204,7 @@ cordite_add_test_suite(editor
         unit/editor/AssetBrowserTests.cpp
         unit/editor/AssetCommandsTests.cpp
         unit/editor/AssetDropTests.cpp
+        unit/editor/AssetFilesTests.cpp
         unit/editor/AssetImportTests.cpp
         unit/editor/AssetMoveTests.cpp
         unit/editor/ColliderOutlinesTests.cpp

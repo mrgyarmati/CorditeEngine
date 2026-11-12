@@ -204,6 +204,12 @@ public:
     /// followed by what it contains.
     [[nodiscard]] std::span<const AssetInfo> assets() const { return m_assets; }
 
+    /// Every directory of the asset directory, empty ones too, relative to it with forward
+    /// slashes, in the order of their paths - but those whose names begin with a dot and
+    /// what is in them, which are no part of the assets. A directory is no asset; this is
+    /// where one that holds none is seen, until something is put in it.
+    [[nodiscard]] std::span<const std::string> directories() const { return m_directories; }
+
     /// The assets that need this one - whose dependencies name it - each once, in the
     /// order of assets(). The file an asset is in is not among them: a model needs what
     /// it holds, and holding it is no use of it. Empty for an asset that nothing needs;
@@ -250,6 +256,7 @@ private:
 
     AssetDatabaseDesc m_desc;
     std::vector<AssetInfo> m_assets;
+    std::vector<std::string> m_directories;
     std::unordered_map<Uuid, size_t> m_indexById;
     std::unordered_map<std::string, size_t> m_indexByReference;
     std::vector<std::string> m_problems;

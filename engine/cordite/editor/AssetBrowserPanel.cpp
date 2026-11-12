@@ -3,6 +3,7 @@
 #include "cordite/assets/Sound.h"
 #include "cordite/audio/AudioSystem.h"
 #include "cordite/core/StringUtils.h"
+#include "cordite/editor/AssetFiles.h"
 #include "cordite/editor/EditorActions.h"
 #include "cordite/editor/EditorIcons.h"
 #include "cordite/editor/PropertyEditor.h"
@@ -75,9 +76,9 @@ void drawAssetLinks(const AssetDatabase& database, std::span<const Uuid> assets,
 }
 
 /// The menu of the row that was drawn last, for its asset. Returns whether it is open;
-/// `moveAsked` says that its file is to be renamed or moved.
+/// `moveAsked` says that its file is to be renamed or moved, `deleteAsked` deleted.
 bool drawAssetMenu(const EditorContext& context, const AssetInfo& asset, std::vector<std::string>& submittedLines,
-                   bool& moveAsked) {
+                   bool& moveAsked, bool& deleteAsked) {
     if (!ImGui::BeginPopupContextItem("asset_menu")) {
         return false;
     }
@@ -98,6 +99,9 @@ bool drawAssetMenu(const EditorContext& context, const AssetInfo& asset, std::ve
         ImGui::Separator();
         if (ImGui::MenuItem("Rename or move...")) {
             moveAsked = true;
+        }
+        if (ImGui::MenuItem("Delete...", nullptr, false, !context.isPlaying())) {
+            deleteAsked = true;
         }
     }
     ImGui::EndPopup();
@@ -257,6 +261,7 @@ void AssetBrowserPanel::draw(Engine& engine, EditorContext& context, ShadowQuali
         ImGui::SameLine();
         if (ImGui::BeginChild("contents", ImVec2(-besidePanes, -footerHeight))) {
             drawContents(context, submittedLines, click);
+            drawContentsMenu(context);
         }
         ImGui::EndChild();
         if (pictured) {
@@ -276,6 +281,8 @@ void AssetBrowserPanel::draw(Engine& engine, EditorContext& context, ShadowQuali
         ImGui::Separator();
         drawSelection(context, submittedLines);
         drawMoveDialog(context, submittedLines);
+        drawDeleteDialog(context, submittedLines);
+        drawCreateDialog(submittedLines);
         apply(click);
     }
     ImGui::End();
@@ -343,6 +350,102 @@ void AssetBrowserPanel::drawSound(Engine& engine, EditorContext& context, const 
     } else if (ImGui::Button(fmt::format("{}  Play", icons::kPlay.text()).c_str())) {
         submittedLines.push_back(listenCommand(asset.id));
     }
+}
+
+void AssetBrowserPanel::drawDeleteDialog(const EditorContext& context, std::vector<std::string>& submittedLines) {
+    if (m_openDeleteDialog) {
+        ImGui::OpenPopup("Delete asset");
+        m_openDeleteDialog = false;
+    }
+    if (!ImGui::BeginPopupModal("Delete asset", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        return;
+    }
+    const AssetDatabase& database = context.assets().database();
+    const AssetInfo* asset = database.find(m_deleting);
+    const Result<AssetUsers> users = findAssetUsers(context, m_deleting);
+    if (asset == nullptr || !users) {
+        // Gone while the question was open: the assets were read again.
+        ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+        return;
+    }
+    ImGui::TextUnformatted(fmt::format("Delete {} and its .meta? This cannot be undone.", asset->path).c_str());
+    if (!users->empty()) {
+        ImGui::Spacing();
+        ImGui::TextUnformatted("It is used by:");
+        for (const Uuid& user : users->assets) {
+            const AssetInfo* found = database.find(user);
+            ImGui::BulletText("%s", found != nullptr ? found->reference().c_str() : user.toString().c_str());
+        }
+        if (users->sceneReferences > 0) {
+            ImGui::BulletText("%zu propert%s of the open scene", users->sceneReferences,
+                              users->sceneReferences == 1 ? "y" : "ies");
+        }
+        ImGui::TextDisabled("Deleted anyway, those refer to an asset that is not there.");
+    }
+    ImGui::Spacing();
+    if (ImGui::Button(users->empty() ? "Delete" : "Delete anyway")) {
+        submittedLines.push_back(deleteAssetCommand(m_deleting, !users->empty()));
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
+}
+
+void AssetBrowserPanel::drawContentsMenu(const EditorContext& context) {
+    // Only a directory of the project takes something new: not what the engine has built in.
+    const std::string& folder = m_browser.folder();
+    if (context.assets().database().rootDirectory().empty() || folder == kBuiltinFolder) {
+        return;
+    }
+    if (!ImGui::BeginPopupContextWindow("contents_menu",
+                                        ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverItems)) {
+        return;
+    }
+    if (ImGui::MenuItem("New folder...")) {
+        m_creating = Creating::Folder;
+        m_createTarget = freeAssetPath(context, folder, "New folder", "");
+        m_openCreateDialog = true;
+    }
+    if (ImGui::MenuItem("New material...")) {
+        m_creating = Creating::Material;
+        m_createTarget = freeAssetPath(context, folder, "New material", ".material.json");
+        m_openCreateDialog = true;
+    }
+    ImGui::EndPopup();
+}
+
+void AssetBrowserPanel::drawCreateDialog(std::vector<std::string>& submittedLines) {
+    if (m_openCreateDialog) {
+        ImGui::OpenPopup("New asset");
+        m_openCreateDialog = false;
+    }
+    if (!ImGui::BeginPopupModal("New asset", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        return;
+    }
+    const bool folder = m_creating == Creating::Folder;
+    ImGui::TextUnformatted(folder ? "Where the new folder goes, inside the asset directory:"
+                                  : "Where the new material goes, inside the asset directory:");
+    if (ImGui::IsWindowAppearing()) {
+        ImGui::SetKeyboardFocusHere();
+    }
+    ImGui::SetNextItemWidth(kMoveFieldWidth);
+    const bool entered = ImGui::InputText("##path", &m_createTarget, ImGuiInputTextFlags_EnterReturnsTrue);
+    if (ImGui::Button("Create") || entered) {
+        const std::string path(trim(m_createTarget));
+        submittedLines.push_back(folder ? createDirectoryCommand(path) : createMaterialCommand(path));
+        m_creating = Creating::None;
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+        m_creating = Creating::None;
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
 }
 
 void AssetBrowserPanel::drawPicture(Engine& engine, EditorContext& context, ShadowQuality shadows,
@@ -587,8 +690,9 @@ void AssetBrowserPanel::handleRow(const EditorContext& context, const AssetBrows
             submittedLines.push_back(placeAssetCommand(context, row.asset));
         }
         bool moveAsked = false;
+        bool deleteAsked = false;
         if (const AssetInfo* asset = database.find(row.asset);
-            asset != nullptr && drawAssetMenu(context, *asset, submittedLines, moveAsked)) {
+            asset != nullptr && drawAssetMenu(context, *asset, submittedLines, moveAsked, deleteAsked)) {
             click.chosen = row.asset;
         }
         if (moveAsked) {
@@ -596,6 +700,10 @@ void AssetBrowserPanel::handleRow(const EditorContext& context, const AssetBrows
             m_movingDirectory.clear();
             m_moveTarget = row.path;
             m_openMoveDialog = true;
+        }
+        if (deleteAsked) {
+            m_deleting = row.asset;
+            m_openDeleteDialog = true;
         }
         if (ImGui::BeginDragDropSource()) {
             ImGui::SetDragDropPayload(PropertyEditor::kAssetPayload, &row.asset, sizeof(Uuid));

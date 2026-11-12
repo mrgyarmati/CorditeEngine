@@ -5,6 +5,7 @@
 #include "cordite/assets/Primitives.h"
 #include "cordite/assets/Sound.h"
 #include "cordite/core/FileSystem.h"
+#include "cordite/editor/AssetBrowser.h"
 #include "cordite/editor/AssetDrop.h"
 #include "cordite/editor/EditorActions.h"
 #include "cordite/editor/EditorCommands.h"
@@ -19,6 +20,7 @@
 #include "support/SkinnedModelSupport.h"
 #include "support/TestSupport.h"
 
+#include <algorithm>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -1791,6 +1793,36 @@ TEST_SUITE("AssetCommands") {
             many["files"].push_back("x.png");
         }
         CHECK(fixture.fail("asset.import", many.dump()).message.find("1024 files") != std::string::npos);
+    }
+
+    TEST_CASE("a folder and a material are made by command, as the Assets panel asks, inside the assets") {
+        AssetFixture fixture;
+        const std::string folderLine = createDirectoryCommand("props/metal");
+        CHECK(folderLine == R"(asset.createDirectory {"path":"props/metal"})");
+        CHECK(fixture.run("asset.createDirectory",
+                          folderLine.substr(std::string_view("asset.createDirectory ").size()))["path"] ==
+              "props/metal");
+        CHECK(directoryExists(fixture.root / "props" / "metal"));
+        // Shown by the browser, empty as it is.
+        const std::vector<AssetBrowserRow> folders = fixture.browser.folders(fixture.assets->database());
+        CHECK(std::ranges::find(folders, "props/metal", &AssetBrowserRow::path) != folders.end());
+
+        const std::string materialLine = createMaterialCommand("props/metal/rust.material.json");
+        const Json material =
+            fixture.run("asset.createMaterial", materialLine.substr(std::string_view("asset.createMaterial ").size()));
+        CHECK(material["type"] == "material");
+        CHECK(material["id"] == fixture.id("props/metal/rust.material.json"));
+
+        CHECK(fixture.fail("asset.createDirectory", R"({"path": "props/metal"})").code == ErrorCode::AlreadyExists);
+        CHECK(fixture.fail("asset.createDirectory", R"({"path": "../outside"})").code == ErrorCode::InvalidArgument);
+        CHECK(fixture.fail("asset.createMaterial", R"({"path": "props/rust.png"})").code == ErrorCode::InvalidArgument);
+        CHECK(fixture.fail("asset.createMaterial", R"({"path": "props/metal/rust.material.json"})").code ==
+              ErrorCode::AlreadyExists);
+        // What the panel asks for when a file is deleted.
+        const Uuid asset = Uuid::generate();
+        CHECK(deleteAssetCommand(asset, false) == fmt::format(R"(asset.delete {{"asset":"{}"}})", asset.toString()));
+        CHECK(deleteAssetCommand(asset, true) ==
+              fmt::format(R"(asset.delete {{"asset":"{}","force":true}})", asset.toString()));
     }
 
     TEST_CASE("the entities that use an asset are found in the order of the hierarchy, and selected by a line") {

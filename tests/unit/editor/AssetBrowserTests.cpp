@@ -520,13 +520,15 @@ TEST_SUITE("AssetBrowser") {
         CHECK(folders.back().path == kBuiltinAssetPath);
         CHECK(folders.back().depth == 1);
 
-        // A directory with no asset in it, or below it, is no folder the browser knows of.
+        // A directory is a folder whether assets are in it or not - one that was just made has
+        // none - but for one whose name begins with a dot, which is no part of the assets.
         std::filesystem::create_directories(project.root / "empty" / "deeper");
+        std::filesystem::create_directories(project.root / ".scratch" / "notes");
         project.write("deep/down/below/note.lua", "return {}");
         REQUIRE(project.assets->refresh().has_value());
         CHECK(outline(browser.folders(project.database())) ==
-              Lines{"Assets/ *", "  deep/", "    down/", "      below/", "  materials/", "  models/", "  scenes/",
-                    "  scripts/", "  textures/", "    old/", "  builtin/"});
+              Lines{"Assets/ *", "  deep/", "    down/", "      below/", "  empty/", "    deeper/", "  materials/",
+                    "  models/", "  scenes/", "  scripts/", "  textures/", "    old/", "  builtin/"});
         // Without a project, there is what the engine has built in.
         const std::unique_ptr<AssetManager> bare = unwrap(AssetManager::create());
         CHECK(outline(browser.folders(bare->database())) == Lines{"Assets/ *", "  builtin/"});
@@ -633,7 +635,8 @@ TEST_SUITE("AssetBrowser") {
         AssetBrowser browser;
         browser.showFolder("textures/old");
         CHECK(browser.shownFolder(project.database()) == "textures/old");
-        REQUIRE(std::filesystem::remove(project.root / "textures" / "old" / "rust.png"));
+        // Deleted, or moved away: a folder emptied of assets is still one while it is there.
+        REQUIRE(std::filesystem::remove_all(project.root / "textures" / "old") > 0);
         REQUIRE(project.assets->refresh().has_value());
         // It stays the folder, and the one above it is shown meanwhile.
         CHECK(browser.folder() == "textures/old");
@@ -702,9 +705,12 @@ TEST_SUITE("AssetBrowser") {
             CAPTURE(std::string(path));
             CHECK_FALSE(assetFolderAt(project.database(), path).has_value());
         }
+        // A directory with no asset in it is a folder; one whose name begins with a dot is none.
         std::filesystem::create_directories(project.root / "empty");
+        std::filesystem::create_directories(project.root / ".scratch");
         REQUIRE(project.assets->refresh().has_value());
-        CHECK_FALSE(assetFolderAt(project.database(), "empty").has_value());
+        CHECK(assetFolderAt(project.database(), "empty") == "empty");
+        CHECK_FALSE(assetFolderAt(project.database(), ".scratch").has_value());
     }
 
     TEST_CASE("the contents are shown as a grid at first, or as a list, by name") {

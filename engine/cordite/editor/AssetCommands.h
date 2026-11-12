@@ -1,5 +1,4 @@
 #pragma once
-/// | `asset.import`     | Copies files from outside into the assets, with what a glTF names.    |
 
 /// @file
 /// The editor commands that deal with assets.
@@ -8,6 +7,9 @@
 /// |--------------------|-----------------------------------------------------------------------|
 /// | `asset.list`       | Lists the assets, optionally of one type.                             |
 /// | `asset.get`        | Describes one asset: what it needs, and what is in it.                |
+/// | `asset.import`     | Copies files from outside into the assets, with what a glTF names.    |
+/// | `asset.createDirectory` | Makes a directory of the assets, which the Assets panel shows.   |
+/// | `asset.createMaterial`  | Writes a material with every property at its default.            |
 /// | `asset.refresh`    | Reads the asset directory again after files changed.                  |
 /// | `asset.instantiate`| Places a model or a prefab in the scene as a group of entities.       |
 /// | `prefab.create`    | Makes a prefab of an entity and everything below it.                  |

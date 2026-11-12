@@ -83,6 +83,12 @@ goes with it and its id stays. Directories are renamed and moved
 the same way, with everything in them. What still names an old path - a line of a script,
 say - is listed, to be changed by hand.
 
+Right-click the empty space beside the files for **New folder...** and **New material...**,
+which make one in the folder shown - a material white and matte, to be changed in its file.
+Right-click a file for **Delete...**: it goes with its `.meta`, after the editor has said
+what uses it, if anything does - a material that has a texture, a scene, the scene that is
+open. Deleting is not undone.
+
 ## Bringing files in
 
 Drop files from Explorer, Finder or a file manager onto the editor window: they are copied
