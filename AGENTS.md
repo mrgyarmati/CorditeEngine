@@ -2319,6 +2319,11 @@ body explaining what changed and why. One logical change per commit.
   that they use `nvrhi`. A change to what links what is not tested until Linux has built
   it, and Windows builds alone do not show what MSVC's headers include for each other:
   `std::ranges::count` compiled there without `<algorithm>`.
+- AddressSanitizer intercepts `dlopen`, and a library opened by name is then searched for as
+  if the sanitizer had asked, without the RUNPATH of the library that did: Slang finds its
+  compiler of SPIR-V beside itself that way, and found nothing in the `linux-sanitize`
+  build. Its tests are told where Slang is (`LD_LIBRARY_PATH`, `tests/CMakeLists.txt`), and
+  are given four times as long, as instrumented code needs.
 - `doctest::Approx(x).epsilon(e)` allows a difference of `e` times one plus the larger of
   the two numbers: its scale is one unless it is told otherwise. For numbers below one
   that is an absolute tolerance of about `e`, not a share: `Approx(0.35).epsilon(0.1)`

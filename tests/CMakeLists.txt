@@ -413,3 +413,26 @@ add_test(NAME assets_listed
     COMMAND cordite_assets_tests --success "--out=${PROJECT_BINARY_DIR}/assets-listed.txt"
     WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}")
 set_tests_properties(assets_listed PROPERTIES LABELS "lint" TIMEOUT 300)
+
+# What the sanitizers change about running the tests, for every test above.
+if(CORDITE_ENABLE_SANITIZERS)
+    get_property(cordite_tests DIRECTORY PROPERTY TESTS)
+    foreach(test IN LISTS cordite_tests)
+        # Instrumented code runs several times slower: the editor's suite takes four and a
+        # half minutes of a five-minute limit alone, and runs out of it beside the others.
+        # The limit is there to end a test that hangs, which it still does.
+        get_test_property(${test} TIMEOUT timeout)
+        if(NOT timeout)
+            set(timeout 1500)
+        endif()
+        math(EXPR timeout "${timeout} * 4")
+        set_tests_properties(${test} PROPERTIES TIMEOUT ${timeout})
+        # Slang loads its compilers for SPIR-V (slang-glslang) with dlopen, by name, and
+        # finds them through the RUNPATH of its own library. AddressSanitizer intercepts
+        # dlopen, and the search is then that of the sanitizer's library, which has no
+        # RUNPATH: the tests are told where Slang is instead.
+        if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+            set_property(TEST ${test} APPEND PROPERTY ENVIRONMENT "LD_LIBRARY_PATH=${slang_SOURCE_DIR}/lib")
+        endif()
+    endforeach()
+endif()
