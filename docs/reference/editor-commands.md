@@ -421,20 +421,22 @@ Makes a game of the project: a directory with its program - cordite-player, unde
 
 ## project.new
 
-Makes a new project - a directory with a project.cordite and its assets - with a scene to begin with: a camera that looks at a box on a floor, under a sun and a sky. Then the editor closes, and the program that runs it opens it again on the new project. Refused while the scene is played or has changes that are not saved, and for a directory that holds a project already. Returns the project and its start scene.
+Makes a new project - a directory with a project.cordite and its assets - with a scene to begin with: a camera that looks at a box on a floor, under a sun and a sky. Then the editor closes, and the program that runs it opens it again on the new project. Refused while the scene is played or has changes that are not saved - unless told to discard them - and for a directory that holds a project already. Returns the project and its start scene.
 
 | Parameter | Kind | Needed | Meaning |
 |---|---|---|---|
 | `path` | string | yes | The directory of the project: not there yet, or one without a project in it. |
 | `name` | string | no | What the game is called. Defaults to the name of the directory. |
+| `discardChanges` | boolean | no | Let the changes of the scene that are not saved go, instead of refusing: what a person who answers "Don't save" asks for. Defaults to false. |
 
 ## project.open
 
-Opens another project: the editor closes, and the program that runs it opens it again on that project. Refused while the scene is played or has changes that are not saved, and for a path that holds no project. Returns the project.
+Opens another project: the editor closes, and the program that runs it opens it again on that project. Refused while the scene is played or has changes that are not saved - unless told to discard them - and for a path that holds no project. Returns the project.
 
 | Parameter | Kind | Needed | Meaning |
 |---|---|---|---|
 | `path` | string | yes | The project: its directory, or its project.cordite. |
+| `discardChanges` | boolean | no | Let the changes of the scene that are not saved go, instead of refusing: what a person who answers "Don't save" asks for. Defaults to false. |
 
 ## scene.describe
 

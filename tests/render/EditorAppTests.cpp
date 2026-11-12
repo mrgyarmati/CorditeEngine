@@ -3125,6 +3125,170 @@ TEST_SUITE("EditorApp") {
         checkNoValidationIssues(editor->engine().graphics());
     }
 
+    TEST_CASE("what leaves a scene with changes that are not saved asks first, and Cancel and Escape change nothing") {
+        const TempDirectory directory;
+        AnsweringDialogs dialogs;
+        EditorAppDesc desc = headlessDesc(UVec2(640, 360));
+        desc.fileDialogs = &dialogs;
+        const std::unique_ptr<EditorApp> editor = createEditor(desc);
+        EditorContext& context = editor->context();
+        using Leaving = EditorApp::Leaving;
+        using Answer = EditorApp::UnsavedChangesAnswer;
+
+        // Without changes nothing is asked: the dialog of the path comes at once.
+        editor->leave(Leaving::OpenProject);
+        CHECK(editor->unsavedChangesQuestion() == Leaving::None);
+        REQUIRE(editor->runFrames(1).has_value());
+        CHECK(dialogs.asked.size() == 1);
+
+        run(*editor, "entity.create", R"({"name": "Lamp"})");
+        REQUIRE(context.hasUnsavedChanges());
+        for (const Leaving leaving :
+             {Leaving::NewScene, Leaving::OpenScene, Leaving::NewProject, Leaving::OpenProject, Leaving::Exit}) {
+            CAPTURE(static_cast<int>(leaving));
+            editor->leave(leaving);
+            CHECK(editor->unsavedChangesQuestion() == leaving);
+            // Drawn in front of everything, it holds what was asked for until it is answered.
+            REQUIRE(unwrap(editor->runFrame()));
+            const ImGuiWindow* question = ImGui::FindWindowByName("###UnsavedChanges");
+            REQUIRE(question != nullptr);
+            CHECK(question->Active);
+            CHECK(dialogs.asked.size() == 1);
+            editor->answerUnsavedChanges(Answer::Cancel);
+            CHECK(editor->unsavedChangesQuestion() == Leaving::None);
+            REQUIRE(unwrap(editor->runFrame()));
+            CHECK(dialogs.asked.size() == 1);
+            CHECK(findEntityByPath(context.world(), "Lamp").has_value());
+            CHECK(context.hasUnsavedChanges());
+        }
+
+        // Escape answers Cancel - heard from the frame after the question asked for it.
+        editor->leave(Leaving::Exit);
+        REQUIRE(editor->runFrames(2).has_value());
+        pressShortcut(*editor, ImGuiKey_Escape);
+        REQUIRE(unwrap(editor->runFrame()));
+        CHECK(editor->unsavedChangesQuestion() == Leaving::None);
+        CHECK(unwrap(editor->runFrame()));
+        CHECK(findEntityByPath(context.world(), "Lamp").has_value());
+        // An answer without a question does nothing.
+        editor->answerUnsavedChanges(Answer::DontSave);
+        CHECK(unwrap(editor->runFrame()));
+        checkNoValidationIssues(editor->engine().graphics());
+    }
+
+    TEST_CASE("Save writes the scene and goes on, where a dialog says for a scene without a file") {
+        const TempDirectory directory;
+        AnsweringDialogs dialogs;
+        EditorAppDesc desc = headlessDesc(UVec2(640, 360));
+        desc.fileDialogs = &dialogs;
+        const std::unique_ptr<EditorApp> editor = createEditor(desc);
+        EditorContext& context = editor->context();
+        using Leaving = EditorApp::Leaving;
+        using Answer = EditorApp::UnsavedChangesAnswer;
+
+        // A scene without a file: Save as is asked first, and the new scene follows.
+        run(*editor, "entity.create", R"({"name": "Lamp"})");
+        editor->leave(Leaving::NewScene);
+        editor->answerUnsavedChanges(Answer::Save);
+        dialogs.answer = std::optional(directory.path() / "yard.scene.json");
+        REQUIRE(editor->runFrames(1).has_value());
+        REQUIRE(dialogs.asked.size() == 1);
+        CHECK(dialogs.asked[0].kind == FileDialogKind::Save);
+        CHECK(fileExists(directory.path() / "yard.scene.json"));
+        CHECK(context.scenePath().empty());
+        CHECK_FALSE(findEntityByPath(context.world(), "Lamp").has_value());
+        REQUIRE(context.openScene(directory.path() / "yard.scene.json").has_value());
+        CHECK(findEntityByPath(context.world(), "Lamp").has_value());
+
+        // A Save as that is cancelled leaves the scene where it was, changes and all.
+        run(*editor, "scene.new");
+        run(*editor, "entity.create", R"({"name": "Bench"})");
+        editor->leave(Leaving::NewScene);
+        editor->answerUnsavedChanges(Answer::Save);
+        dialogs.answer = std::optional<std::filesystem::path>();
+        REQUIRE(editor->runFrames(1).has_value());
+        CHECK(findEntityByPath(context.world(), "Bench").has_value());
+        CHECK(context.hasUnsavedChanges());
+
+        // A scene with a file is written there, and what was asked for follows: Enter saves.
+        REQUIRE(context.saveScene(directory.path() / "yard.scene.json").has_value());
+        run(*editor, "entity.create", R"({"name": "Post"})");
+        editor->leave(Leaving::OpenScene);
+        REQUIRE(editor->runFrames(2).has_value());
+        pressShortcut(*editor, ImGuiKey_Enter);
+        REQUIRE(editor->runFrames(1).has_value());
+        CHECK_FALSE(context.hasUnsavedChanges());
+        REQUIRE(dialogs.asked.size() == 3);
+        CHECK(dialogs.asked[2].kind == FileDialogKind::Open);
+        CHECK(unwrap(readTextFile(directory.path() / "yard.scene.json")).find("Post") != std::string::npos);
+
+        // Exit goes ahead once the scene is saved.
+        run(*editor, "entity.create", R"({"name": "Tree"})");
+        editor->leave(Leaving::Exit);
+        editor->answerUnsavedChanges(Answer::Save);
+        CHECK_FALSE(unwrap(editor->runFrame()));
+        CHECK_FALSE(context.hasUnsavedChanges());
+    }
+
+    TEST_CASE("Don't save goes on, and a project command that a dialog runs is told to discard the changes") {
+        const TempDirectory directory;
+        AnsweringDialogs dialogs;
+        EditorAppDesc desc = headlessDesc(UVec2(640, 360));
+        desc.fileDialogs = &dialogs;
+        using Leaving = EditorApp::Leaving;
+        using Answer = EditorApp::UnsavedChangesAnswer;
+        {
+            const std::unique_ptr<EditorApp> editor = createEditor(desc);
+            run(*editor, "entity.create", R"({"name": "Lamp"})");
+            editor->leave(Leaving::NewScene);
+            editor->answerUnsavedChanges(Answer::DontSave);
+            CHECK_FALSE(findEntityByPath(editor->context().world(), "Lamp").has_value());
+            CHECK_FALSE(editor->context().hasUnsavedChanges());
+
+            run(*editor, "entity.create", R"({"name": "Lamp"})");
+            editor->leave(Leaving::OpenProject);
+            editor->answerUnsavedChanges(Answer::DontSave);
+            dialogs.answer = std::optional(showcaseProject() / "project.cordite");
+            REQUIRE(editor->runFrames(1).has_value());
+            REQUIRE(editor->projectToOpen().has_value());
+            CHECK(*editor->projectToOpen() == showcaseProject());
+        }
+        // A project to open that is asked for later, without a question, is not told to.
+        const std::unique_ptr<EditorApp> editor = createEditor(desc);
+        run(*editor, "entity.create", R"({"name": "Lamp"})");
+        {
+            const test::LogCapture log(LogLevel::Error);
+            editor->askForPath(EditorApp::PathDialog::OpenProject);
+            REQUIRE(editor->runFrames(1).has_value());
+            CHECK(log.contains("discardChanges"));
+        }
+        CHECK_FALSE(editor->projectToOpen().has_value());
+        checkNoValidationIssues(editor->engine().graphics());
+    }
+
+    TEST_CASE("the project commands refuse to lose changes that are not saved unless told to discard them") {
+        const TempDirectory directory;
+        const std::unique_ptr<EditorApp> editor = createEditor(headlessDesc(UVec2(320, 180)));
+        run(*editor, "entity.create", R"({"name": "Lamp"})");
+        Json open = Json::object();
+        open["path"] = pathToUtf8(showcaseProject());
+        const Error refused = refusal(*editor, "project.open", open.dump());
+        CHECK(refused.code == ErrorCode::InvalidState);
+        CHECK(refused.message.find("discardChanges") != std::string::npos);
+        Json made = Json::object();
+        made["path"] = pathToUtf8(directory.path() / "game");
+        CHECK(refusal(*editor, "project.new", made.dump()).code == ErrorCode::InvalidState);
+        CHECK_FALSE(directoryExists(directory.path() / "game"));
+        CHECK_FALSE(editor->projectToOpen().has_value());
+
+        open["discardChanges"] = false;
+        CHECK(refusal(*editor, "project.open", open.dump()).code == ErrorCode::InvalidState);
+        open["discardChanges"] = true;
+        CHECK(run(*editor, "project.open", open.dump())["name"] == "Showcase");
+        REQUIRE(editor->projectToOpen().has_value());
+        CHECK(*editor->projectToOpen() == showcaseProject());
+    }
+
     TEST_CASE("an editor opens another project by command, and nothing that is no project") {
         const std::unique_ptr<EditorApp> editor = createEditor(headlessDesc(UVec2(320, 180)));
         const TempDirectory directory;

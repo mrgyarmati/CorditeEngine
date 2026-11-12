@@ -1877,11 +1877,20 @@ panels, EditorApp    the interface, built on the three layers above
   is made for the assets and the cache of one project, so File > New project and Open
   project (`project.new`, `project.open`) close the editor (`EditorApp::projectToOpen`),
   and `editor/Main.cpp` makes another on that project - with the frames of a batch run
-  that are left, without its script. Both are refused while the scene is played or has
-  changes that are not saved. A new project (`createStarterProject`, `editor/NewProject.h`)
-  has a start scene made of the engine's own components and built-in assets: a camera, a
-  sun, a sky, a floor and a box, so that it plays and exports as it is; `new_project_smoke`
-  makes one of each kind, exports one and plays it.
+  that are left, without its script. Both are refused while the scene is played, and the
+  commands while it has changes that are not saved, unless told `discardChanges`: a script
+  cannot answer the question a person is asked first. A new project
+  (`createStarterProject`, `editor/NewProject.h`) has a start scene made of the engine's own
+  components and built-in assets: a camera, a sun, a sky, a floor and a box, so that it
+  plays and exports as it is; `new_project_smoke` makes one of each kind, exports one and
+  plays it.
+- **What leaves a scene with changes that are not saved asks first** (`EditorApp::leave`):
+  File > New scene, Open scene, New project, Open project, Exit and Ctrl+O. The question -
+  Save, Don't save, Cancel; Enter saves, Escape cancels - is a modal window of the
+  editor's own (`###UnsavedChanges`), not of the system, so that a headless test sees and
+  answers it (`unsavedChangesQuestion`, `answerUnsavedChanges`). Save writes the scene to
+  its file, or asks for one first, and goes on only once it is written; Don't save tells
+  the project command it runs to `discardChanges`. Closing the window does not ask yet.
 - **The File menu asks for paths in the system's own dialogs** (`editor/FileDialogs.h`,
   over nativefiledialog-extended; on Linux xdg-desktop-portal, over D-Bus), never in a
   field to type a path into. A dialog holds the program until it is answered, so it is
