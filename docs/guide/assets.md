@@ -37,7 +37,10 @@ GPU (0, or leaving it out, for no budget): past it, every texture is kept the sa
 mip levels smaller - the fewest at which they fit - which View > Statistics shows. How large
 a texture is kept is also the quality's: up to 1024, 2048 or 4096 texels a side at a low, a
 medium and a high quality. Double-click `project.cordite` to open the project in the editor (on Windows the
-editor registers itself for these files the first time it runs).
+editor registers itself for these files the first time it runs). A start scene that cannot be
+read does not keep the project from opening: the editor opens it with an empty scene and says
+in the console what is wrong, so that it can be mended there. Controls that cannot be read do:
+Open project says so and stays where it was.
 
 ## Kinds of assets
 

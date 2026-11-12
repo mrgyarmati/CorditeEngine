@@ -1341,6 +1341,68 @@ TEST_SUITE("EditorApp") {
         checkNoValidationIssues(editor->engine().graphics());
     }
 
+    TEST_CASE("a project whose start scene cannot be read opens with an empty scene, and says why") {
+        const TempDirectory directory;
+        Project project = unwrap(createProject(directory.path(), "Mended"));
+        const auto consoleInFront = [] {
+            const ImGuiWindow* console = ImGui::FindWindowByName("###Console");
+            REQUIRE(console != nullptr);
+            return console->DockTabIsVisible;
+        };
+        {
+            // Where nothing went wrong, the assets are in front of the console.
+            EditorAppDesc fine = headlessDesc(UVec2(320, 180));
+            fine.project = directory.path();
+            const std::unique_ptr<EditorApp> editor = createEditor(fine);
+            REQUIRE(editor->runFrames(2).has_value());
+            CHECK_FALSE(consoleInFront());
+        }
+        project.settings.startScene = "scenes/yard.scene.json";
+        REQUIRE(saveProject(project).has_value());
+        EditorAppDesc desc = headlessDesc(UVec2(320, 180));
+        desc.project = directory.path();
+
+        // Not there, and then there but no scene: either way the project opens, empty.
+        for (const bool written : {false, true}) {
+            CAPTURE(written);
+            if (written) {
+                REQUIRE(ensureDirectory(project.assetDirectory() / "scenes").has_value());
+                REQUIRE(writeTextFile(project.startScenePath(), "this is no scene").has_value());
+            }
+            const test::LogCapture log(LogLevel::Error);
+            const std::unique_ptr<EditorApp> editor = createEditor(desc);
+            CHECK(log.contains("start scene"));
+            CHECK(log.contains("yard.scene.json"));
+            CHECK(editor->context().world().entityCount() == 0);
+            CHECK(editor->context().scenePath().empty());
+            REQUIRE(editor->project().has_value());
+            CHECK(editor->project()->settings.name == "Mended");
+            REQUIRE(editor->runFrames(2).has_value());
+            // Said where what was asked for and not done is said: the console, in front.
+            CHECK(consoleInFront());
+            checkNoValidationIssues(editor->engine().graphics());
+        }
+
+        // A scene asked for by name is what the editor is started for: without it, no editor.
+        desc.scene = project.startScenePath();
+        CHECK_FALSE(EditorApp::create(desc).has_value());
+    }
+
+    TEST_CASE("project.open refuses a project whose controls cannot be read, and the editor stays") {
+        const TempDirectory directory;
+        Project project = unwrap(createProject(directory.path() / "broken", "Broken"));
+        project.settings.inputMap = "input/controls.input.json";
+        REQUIRE(saveProject(project).has_value());
+        const std::unique_ptr<EditorApp> editor = createEditor(headlessDesc(UVec2(320, 180)));
+        Json open = Json::object();
+        open["path"] = pathToUtf8(project.directory);
+        const Error refused = refusal(*editor, "project.open", open.dump());
+        CHECK(refused.code == ErrorCode::NotFound);
+        CHECK(refused.message.find("controls.input.json") != std::string::npos);
+        CHECK_FALSE(editor->projectToOpen().has_value());
+        CHECK(unwrap(editor->runFrame()));
+    }
+
     TEST_CASE("a project that names controls that cannot be read does not open") {
         const TempDirectory directory;
         Project project = unwrap(createProject(directory.path(), "Broken"));

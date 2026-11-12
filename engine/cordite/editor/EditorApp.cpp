@@ -278,8 +278,16 @@ Result<std::unique_ptr<EditorApp>> EditorApp::create(const EditorAppDesc& desc) 
     CORDITE_TRY(app->registerProjectCommands());
     CORDITE_TRY_ASSIGN(app->m_viewports.front(), ViewportPanel::create(*app->m_engine, app->m_viewportSettings));
 
-    if (!scene.empty()) {
+    if (!desc.scene.empty()) {
+        // A scene that was asked for by name is what the editor was started for.
         CORDITE_TRY(app->m_context->openScene(scene));
+    } else if (!scene.empty()) {
+        // The project's start scene is not: a project whose scene cannot be read opens all
+        // the same, with an empty scene, so that it can be mended in the editor. What is
+        // wrong is said in the console, which comes to the front for it.
+        reportIfFailed(app->m_context->openScene(scene).transform_error([&scene](const Error& error) {
+            return error.withContext(fmt::format("the start scene {} of the project", pathToUtf8(scene)));
+        }));
     }
     if (const std::optional<Project>& project = app->m_project; desc.watchAssets && project) {
         app->m_assetWatcher = std::make_unique<DirectoryWatcher>(
@@ -1246,13 +1254,21 @@ Status EditorApp::registerProjectCommands() {
         .description =
             "Opens another project: the editor closes, and the program that runs it opens it again on "
             "that project. Refused while the scene is played or has changes that are not saved - unless told "
-            "to discard them - and for a path that holds no project. Returns the project.",
+            "to discard them - for a path that holds no project, and for one whose controls cannot "
+            "be read; a start scene that cannot be read is said in the next editor, which opens "
+            "with an empty scene. Returns the project.",
         .parameters = {{"path", Type::String, "The project: its directory, or its project.cordite."},
                        {"discardChanges", Type::Boolean, kDiscardChangesDescription, false}},
         .handler = [this, refuseToLeave](const Json& parameters) -> Result<Json> {
             CORDITE_TRY(refuseToLeave(parameters));
             CORDITE_TRY_ASSIGN(const Project project,
                                loadProject(pathFromUtf8(parameters.at("path").get<std::string>())));
+            // What would keep the next editor from starting is found here, while this one is
+            // still there to say so: controls that cannot be read. A start scene that cannot
+            // be read does not keep a project from opening.
+            if (!project.settings.inputMap.empty()) {
+                CORDITE_TRY(loadInputMap(project.inputMapPath()));
+            }
             m_projectToOpen = project.directory;
             m_engine->requestExit();
             Json result = Json::object();

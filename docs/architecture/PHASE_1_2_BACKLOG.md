@@ -82,7 +82,11 @@ then P1-03 and P1-04 (the largest usability gap), then the rest.
   now keeps it in the project's `.cordite/shaders`, and the showcase opens in 0.5 s; a test
   holds a second opening to no compilation. Items 1 and 2 matter less now: a progress
   window is for a first opening, or a project much larger than the showcase. Item 3 is
-  still to do.
+  done another way: what would keep the next editor from starting is refused by
+  `project.open` while the current one is there to say so (controls that cannot be read),
+  and a start scene that cannot be read no longer keeps a project from opening - it opens
+  with an empty scene, and the console says why. A failure of the device or the window
+  still ends the editor with a dialog. Items 1 and 2 stay open, as P2.
 - **Tests:** a perf scenario; EditorAppTests for an unreadable project file and for a
   missing start scene.
 

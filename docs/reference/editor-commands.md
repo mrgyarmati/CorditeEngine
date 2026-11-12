@@ -431,7 +431,7 @@ Makes a new project - a directory with a project.cordite and its assets - with a
 
 ## project.open
 
-Opens another project: the editor closes, and the program that runs it opens it again on that project. Refused while the scene is played or has changes that are not saved - unless told to discard them - and for a path that holds no project. Returns the project.
+Opens another project: the editor closes, and the program that runs it opens it again on that project. Refused while the scene is played or has changes that are not saved - unless told to discard them - for a path that holds no project, and for one whose controls cannot be read; a start scene that cannot be read is said in the next editor, which opens with an empty scene. Returns the project.
 
 | Parameter | Kind | Needed | Meaning |
 |---|---|---|---|
