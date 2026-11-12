@@ -4,9 +4,12 @@
 /// Editor operations by name: the editor's automation interface.
 ///
 /// Everything a person can do in the editor is also a command: a name, a JSON object of
-/// parameters, and a JSON result. Menus, scripts and AI agents all go through the same
-/// registry, and the registry can describe itself, so a tool can discover what exists
-/// and how to call it.
+/// parameters, and a JSON result. Scripts, the console, batch runs and AI agents go
+/// through the registry, and the registry can describe itself, so a tool can discover what
+/// exists and how to call it. The interface queues command lines where an action must wait
+/// for the frame to end - playing, dialogs, drops - but its menus, panels and gizmo mostly
+/// call EditorActions directly, which the commands call too: the same edit, without the
+/// detour through JSON.
 ///
 /// @code
 /// CommandRegistry commands;

@@ -164,7 +164,7 @@ then P1-03 and P1-04 (the largest usability gap), then the rest.
 
 ### P1-11 Small documentation fixes - P0, docs only
 
-See [CORDITE_AUDIT.md, smallest doc updates](CORDITE_AUDIT.md#smallest-doc-updates).
+**Done 12 November.** See [CORDITE_AUDIT.md, smallest doc updates](CORDITE_AUDIT.md#smallest-doc-updates).
 Includes four stale header comments in the editor.
 
 ### P1-12 Prefab instances that keep their link - P0

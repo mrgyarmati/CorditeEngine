@@ -11,8 +11,10 @@
 /// chosen. A directory is gone into by a double click, a file with something inside it
 /// opened by its arrow; a model or a prefab is placed in the scene by a double click or
 /// from its menu, a scene is opened from its menu, and any asset is dragged onto a
-/// property of the inspector that takes one of its kind, or - a model or a prefab - onto
-/// an entity of the hierarchy, or onto a folder to move its file there. A sound has its
+/// property of the inspector that takes one of its kind; onto a folder to move its file
+/// there; what can be placed - a model, a prefab or a mesh - onto an entity of the
+/// hierarchy, below its rows, or onto a viewport, where it lands under the pointer; and a
+/// material onto the mesh under the pointer in a viewport (AssetDrop.h). A sound has its
 /// length at the right instead of a picture, and is heard with Play.
 ///
 /// @code

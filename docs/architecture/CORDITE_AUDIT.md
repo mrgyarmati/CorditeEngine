@@ -138,8 +138,8 @@ right.
 
 ### Smallest doc updates
 
-Proposed. None of them has been applied: they change project-facing documents and should
-be the owner's call (backlog P1-11).
+Applied on 12 November in backlog P1-11, at the owner's word, but for the design decision
+in `docs/architecture.md`, which changes with the GL-01 ADR.
 
 1. `README.md`, Status:
    - Add a line linking the plan and this audit as the current roadmap.
@@ -172,7 +172,7 @@ be the owner's call (backlog P1-11).
 | # | Question | Decision | Consequence |
 |---|----------|----------|-------------|
 | D1 | Where does the project live? | **`E:\GameEngine`**, not the Cordite repository's folder | These documents moved here, and the original working copy is back to its commit |
-| D5 | Where does the code live? | **Cordite is copied into `E:\GameEngine`** with its history, and all future work happens here | `E:\GameEngine` is a git clone on `main` (`4e03feb`), tracking the same GitHub remote. `E:\GameEngineExperiment` stays untouched as the original |
+| D5 | Where does the code live? | **Cordite is copied into `E:\GameEngine`** with its history, and all future work happens here | `E:\GameEngine` is a git clone of the original with its history. Its `origin` is the project's own repository, github.com/mrgyarmati/CorditeEngine, and the original is `upstream`. `E:\GameEngineExperiment` stays untouched as the original |
 | D2 | Fallback when there is no Vulkan | **OpenGL, because of Linux.** Overrides the plan's default for open decision 3 | A Cordite OpenGL backend behind NVRHI's interfaces; see [OpenGL fallback](#opengl-fallback-decided) and tickets GL-01 to GL-08. Direct3D 12 remains the Windows path |
 | D3 | Text in the first runtime UI | **Bitmap fonts for now** | P2-02 uses stb_truetype atlases, which are already pinned, behind a `FontAtlas` interface. No new dependency. Shaping and MSDF come later, if ever |
 | D4 | Prefabs | **As the plan says** | Phase 1 (P1-12): linked instances, overrides, apply and revert, nested prefabs, override display. Phase 4: variants |
@@ -180,8 +180,8 @@ be the owner's call (backlog P1-11).
 ### Still open
 
 1. **Runtime UI module name (C6, P2-00).** The proposal is `gui`.
-2. **Git remote.** `E:\GameEngine` tracks the same GitHub repository as the original. If
-   the project is to have a repository of its own, set it before the first push.
+2. **Git remote (settled 12 November).** `origin` is github.com/mrgyarmati/CorditeEngine;
+   the original Bitrose repository is `upstream`.
 3. **Branding.** Keep "Cordite" (plan default). Nothing in the audit argues otherwise.
 
 ## OpenGL fallback (decided)
