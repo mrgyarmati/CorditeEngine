@@ -1459,7 +1459,7 @@ TEST_SUITE("EditorApp") {
         // Every preset draws without complaint, and the picture is nearly the same at
         // each: the same shadows with softer or sharper edges, the same look worked out
         // more or less finely.
-        for (const auto [preset, lodErrorPixels] :
+        for (const auto& [preset, lodErrorPixels] :
              std::initializer_list<std::pair<const char*, float>>{{"low", 2.0f}, {"high", 0.5f}, {"medium", 1.0f}}) {
             CAPTURE(preset);
             answer = run(*editor, "viewport.quality", fmt::format(R"({{"preset": "{}"}})", preset));

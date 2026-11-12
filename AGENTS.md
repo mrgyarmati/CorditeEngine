@@ -2312,6 +2312,13 @@ body explaining what changed and why. One logical change per commit.
   because the failed link took its `.ilk` with it and the next one starts from nothing.
   Build the target once more before looking for the cause in the code, and run a
   `verify` that failed that way again from the start.
+- MSVC links static libraries in any order; GNU ld reads each once, in the order of the
+  link line, and keeps only what something before it asked for. A library that uses
+  another without saying so in CMake therefore links on Windows and fails on Linux with
+  undefined references - NVRHI's backends did, until `CorditeDependencies.cmake` said
+  that they use `nvrhi`. A change to what links what is not tested until Linux has built
+  it, and Windows builds alone do not show what MSVC's headers include for each other:
+  `std::ranges::count` compiled there without `<algorithm>`.
 - `doctest::Approx(x).epsilon(e)` allows a difference of `e` times one plus the larger of
   the two numbers: its scale is one unless it is told otherwise. For numbers below one
   that is an absolute tolerance of about `e`, not a share: `Approx(0.35).epsilon(0.1)`

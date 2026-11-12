@@ -202,7 +202,7 @@ TEST_SUITE("RectLights") {
         };
 
         // At the middles of texels, the texels.
-        for (const auto [column, row] : std::initializer_list<std::pair<uint32_t, uint32_t>>{
+        for (const auto& [column, row] : std::initializer_list<std::pair<uint32_t, uint32_t>>{
                  {0, 0}, {32, 32}, {10, 50}, {63, 63}, {63, 0}, {0, 63}}) {
             const LtcFit fit = ltcFit(roughnessOf(column), cosineOf(row));
             const size_t index = row * kLtcTableSize + column;
@@ -356,7 +356,7 @@ TEST_SUITE("RectLights") {
         // Seen at grazing angles too, where Schlick's factor gives the reflectance much of its
         // part. There the cosine that stands in for the lobe reaches below the horizon, where
         // no light is, and the fit gives less: a tenth at 75 degrees, a seventh at 85.
-        for (const auto [degrees, tolerance] : std::initializer_list<std::pair<float, double>>{
+        for (const auto& [degrees, tolerance] : std::initializer_list<std::pair<float, double>>{
                  {0.0f, 0.05}, {45.0f, 0.05}, {75.0f, 0.12}, {85.0f, 0.18}}) {
             const float angle = glm::radians(degrees);
             const Vec3 toViewer(0.0f, std::cos(angle), std::sin(angle));

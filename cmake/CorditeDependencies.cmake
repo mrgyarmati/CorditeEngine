@@ -319,6 +319,16 @@ FetchContent_MakeAvailable(
     inter jetbrains_mono lucide ltc_code nfd)
 set_target_properties(nfd PROPERTIES FOLDER "ThirdParty")
 
+# NVRHI's backends are built on its common library - state tracking, validation helpers -
+# but do not say so, which leaves the order of the two on a link line to whoever links
+# them. MSVC's linker does not mind; GNU ld reads static libraries once, in order, and
+# drops what nothing before it asked for, so `nvrhi` before `nvrhi_vk` fails to link on
+# Linux. Saying it here puts the common library after every backend, on every system.
+target_link_libraries(nvrhi_vk PUBLIC nvrhi)
+if(TARGET nvrhi_d3d12)
+    target_link_libraries(nvrhi_d3d12 PUBLIC nvrhi)
+endif()
+
 # Jolt checks itself where the engine does: in the configurations with assertions. They
 # are reported through the engine's (see cordite/physics/PhysicsWorld.cpp).
 target_compile_definitions(Jolt PUBLIC $<$<NOT:$<CONFIG:Release>>:JPH_ENABLE_ASSERTS>)

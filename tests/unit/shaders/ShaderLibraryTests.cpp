@@ -5,6 +5,7 @@
 #include "support/TestSupport.h"
 #include "unit/shaders/ShaderTestSupport.h"
 
+#include <algorithm>
 #include <atomic>
 #include <string>
 #include <thread>
