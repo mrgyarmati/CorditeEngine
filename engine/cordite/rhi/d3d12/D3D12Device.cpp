@@ -8,10 +8,12 @@
 #include <directx/d3d12.h>
 #include <directx/d3d12sdklayers.h>
 #include <dxgi1_6.h>
+#include <fmt/format.h>
 #include <nvrhi/d3d12.h>
 #include <wrl/client.h>
 
 #include <array>
+#include <cstdint>
 #include <filesystem>
 #include <memory>
 #include <optional>
@@ -155,6 +157,24 @@ void recordMessage(ValidationSink& issues, D3D12_MESSAGE_SEVERITY severity, std:
     }
 }
 
+/// What GetDeviceRemovedReason says, by the name DXGI gives it.
+std::string_view removedReasonName(HRESULT reason) {
+    switch (reason) {
+        case DXGI_ERROR_DEVICE_HUNG:
+            return "the device hung";
+        case DXGI_ERROR_DEVICE_REMOVED:
+            return "the device was removed";
+        case DXGI_ERROR_DEVICE_RESET:
+            return "the device was reset";
+        case DXGI_ERROR_DRIVER_INTERNAL_ERROR:
+            return "the driver failed";
+        case DXGI_ERROR_INVALID_CALL:
+            return "a call was invalid";
+        default:
+            return "another reason";
+    }
+}
+
 /// The objects of Direct3D 12 behind a GraphicsDevice.
 struct D3D12Backend final : public DeviceBackend {
     ComPtr<IDXGIFactory6> factory;
@@ -192,6 +212,18 @@ struct D3D12Backend final : public DeviceBackend {
             }
         }
         infoQueue->ClearStoredMessages();
+    }
+
+    [[nodiscard]] std::optional<std::string> lostReason() const override {
+        if (!device) {
+            return std::nullopt;
+        }
+        const HRESULT reason = device->GetDeviceRemovedReason();
+        if (SUCCEEDED(reason)) {
+            return std::nullopt;
+        }
+        return fmt::format("Direct3D 12 removed the device: {} (0x{:08X})", removedReasonName(reason),
+                           static_cast<uint32_t>(reason));
     }
 };
 

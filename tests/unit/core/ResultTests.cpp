@@ -106,6 +106,7 @@ TEST_SUITE("Result") {
             ErrorCode::Unknown,      ErrorCode::InvalidArgument, ErrorCode::NotFound,    ErrorCode::AlreadyExists,
             ErrorCode::IoError,      ErrorCode::ParseError,      ErrorCode::Unsupported, ErrorCode::OutOfRange,
             ErrorCode::InvalidState, ErrorCode::VersionMismatch, ErrorCode::DeviceError, ErrorCode::ScriptError,
+            ErrorCode::DeviceLost,
         };
         for (const ErrorCode a : codes) {
             CHECK_FALSE(nameOf(a).empty());

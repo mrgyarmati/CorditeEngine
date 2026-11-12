@@ -67,6 +67,8 @@ cordite_add_module(editor
         PropertyEditor.h
         ReferenceDocs.cpp
         ReferenceDocs.h
+        SceneRecovery.cpp
+        SceneRecovery.h
         ScriptCommands.cpp
         ScriptCommands.h
         UndoStack.cpp

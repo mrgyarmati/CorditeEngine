@@ -143,6 +143,10 @@ then P1-03 and P1-04 (the largest usability gap), then the rest.
 
 ### P1-07 Report device loss and keep the user's work - P1
 
+**Done 12 November.** A device lost is `DeviceLost`; the editor keeps the unsaved scene in
+`.cordite/recovery.json`, and the next editor offers it back. The editor stops after the loss,
+with a dialog that says where the scene was kept: recreating the device is not done.
+
 - **Modules / files:** `rhi/Swapchain.cpp:317-319,376-377`, `engine/Engine.cpp:352`,
   `editor/Main.cpp`.
 - **Depends on:** nothing. Covers R8.

@@ -28,6 +28,8 @@ std::string_view nameOf(ErrorCode code) {
             return "DeviceError";
         case ErrorCode::ScriptError:
             return "ScriptError";
+        case ErrorCode::DeviceLost:
+            return "DeviceLost";
     }
     return "Unknown";
 }

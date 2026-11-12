@@ -38,11 +38,11 @@
 /// Besides the scene-editing and asset commands (see EditorCommands.h) the application
 /// adds the ones that need a running editor: `editor.screenshot`, `editor.runFrames`,
 /// `editor.statistics`, `editor.showPanel`, `editor.focusPanel`, `editor.theme`,
-/// `editor.exit` and `probes.capture`; those of the project - `project.new`, `project.open`,
-/// `project.recent` and `project.export`; those of assets that need the engine, the open
-/// scene or the project - `asset.listen`, `asset.preview`, `asset.move`,
-/// `asset.moveDirectory` and `asset.delete`; those of
-/// the viewports - `viewport.open`, `viewport.close`, `viewport.list`, `viewport.lookAt`,
+/// `editor.exit`, `probes.capture` and `scene.recover`; those of the project -
+/// `project.new`, `project.open`, `project.recent` and `project.export`; those of assets
+/// that need the engine, the open scene or the project - `asset.listen`,
+/// `asset.preview`, `asset.move`, `asset.moveDirectory` and `asset.delete`; those of the
+/// viewports - `viewport.open`, `viewport.close`, `viewport.list`, `viewport.lookAt`,
 /// `viewport.frame`, `viewport.show`, `viewport.camera`, `viewport.debugView`,
 /// `viewport.quality` and `viewport.gizmo` - and those that play the scene (PlayMode.h):
 /// `play.start`, `play.stop`, `play.pause`, `play.resume`, `play.step` and `play.status`.
@@ -69,6 +69,7 @@
 #include "cordite/editor/HierarchyPanel.h"
 #include "cordite/editor/InspectorPanel.h"
 #include "cordite/editor/PlayMode.h"
+#include "cordite/editor/SceneRecovery.h"
 #include "cordite/editor/StatisticsPanel.h"
 #include "cordite/editor/ViewportPanel.h"
 #include "cordite/engine/Engine.h"
@@ -186,8 +187,15 @@ public:
     CORDITE_NON_MOVABLE(EditorApp);
 
     /// Runs one frame: commands entered in the console, the panels, rendering. Returns
-    /// false once the editor should close.
+    /// false once the editor should close. A frame that fails because the GPU was lost
+    /// (ErrorCode::DeviceLost) first keeps the changes of the scene that were not saved, in
+    /// the editor's state directory (SceneRecovery.h), and its error says where; the next
+    /// editor on the project offers to open them (keptScene(), `scene.recover`).
     [[nodiscard]] Result<bool> runFrame();
+
+    /// What the editor before this one kept of a scene it could not go on with, until it is
+    /// opened or let go of (`scene.recover`); none otherwise.
+    [[nodiscard]] const std::optional<SceneRecovery>& keptScene() const { return m_keptScene; }
 
     /// Runs up to `count` frames, stopping early if the editor should close.
     [[nodiscard]] Status runFrames(uint32_t count);
@@ -361,6 +369,14 @@ private:
     /// Draws the question about unsaved changes while one is open, and answers it as its
     /// buttons say - and its keys: Enter saves, Escape cancels.
     void drawUnsavedChangesQuestion();
+    /// Draws the question whether to open the scene the editor before kept, while there is
+    /// one and nobody said "later"; the answer is a line of `scene.recover`.
+    void drawKeptSceneQuestion();
+    /// One frame of runFrame(), as it was before a lost GPU had to be thought of.
+    [[nodiscard]] Result<bool> drawFrame();
+    /// Keeps the changes of the scene that were not saved, after the GPU was lost, and says
+    /// where - or that there were none, or why they could not be kept.
+    [[nodiscard]] std::string keepScene();
 
     std::optional<Project> m_project;
     /// What the person at the editor chose about it, and where it is kept (empty: nowhere).
@@ -408,6 +424,12 @@ private:
     /// The project File > Open recent chose, until it is opened or the question is answered.
     std::filesystem::path m_recentProjectToOpen;
     std::optional<std::filesystem::path> m_projectToOpen;
+    /// Where the editor keeps what it remembers: the project's .cordite, or .cordite of the
+    /// working directory without a project.
+    std::filesystem::path m_stateDirectory;
+    /// The scene the editor before kept (keptScene()), and whether its question was put off.
+    std::optional<SceneRecovery> m_keptScene;
+    bool m_keptSceneLater = false;
     bool m_showInterfaceDemo = false;
     bool m_showStatistics = false;
     /// The window that is brought to the front with the next frame: the one

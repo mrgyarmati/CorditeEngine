@@ -223,6 +223,7 @@ cordite_add_test_suite(editor
         unit/editor/NewProjectTests.cpp
         unit/editor/GizmoTests.cpp
         unit/editor/InputCommandsTests.cpp
+        unit/editor/SceneRecoveryTests.cpp
         unit/editor/ScriptCommandsTests.cpp
         unit/editor/PhysicsCommandsTests.cpp
         unit/editor/PosedMeshTests.cpp

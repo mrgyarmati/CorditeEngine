@@ -251,6 +251,8 @@ Result<bool> Engine::beginFrame() {
     if (impl.frameOpen) {
         return makeError(ErrorCode::InvalidState, "the previous frame has not been ended");
     }
+    // A lost GPU draws nothing more: the frame ends before it begins, and says why.
+    CORDITE_TRY(impl.graphics->checkLost());
 
     impl.workClock.restart();
     impl.windowSystem->pollEvents();
@@ -354,6 +356,9 @@ Status Engine::endFrame() {
         std::this_thread::sleep_for(kMinimizedFrameDelay);
     }
     impl.graphics->collectGarbage();
+    // What the API said while the frame was submitted and shown - Direct3D 12 only when it
+    // is asked - is said at its end.
+    CORDITE_TRY(impl.graphics->checkLost());
 
     if (!impl.window) {
         // This frame has seen what was injected; what is injected from now on belongs to

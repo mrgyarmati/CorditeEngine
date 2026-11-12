@@ -11,6 +11,7 @@
 #include <atomic>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -110,6 +111,8 @@ struct GraphicsDevice::Impl final : public nvrhi::IMessageCallback, public Valid
     AdapterInfo adapter;
     bool apiValidation = false;
     bool canPresent = false;
+    /// Why the device was lost, once it was (reportLost, checkLost).
+    std::optional<std::string> lostReason;
 
     mutable std::mutex issuesMutex;
     std::vector<std::string> issues;
@@ -230,9 +233,32 @@ void GraphicsDevice::collectGarbage() {
     m_impl->backend->collectMessages();
 }
 
+void GraphicsDevice::reportLost(std::string reason) {
+    if (!m_impl->lostReason) {
+        CORDITE_LOG_ERROR("RHI", "the GPU {} was lost: {}", m_impl->adapter.name, reason);
+        m_impl->lostReason = std::move(reason);
+    }
+}
+
+Status GraphicsDevice::checkLost() {
+    if (!m_impl->lostReason) {
+        if (std::optional<std::string> reason = m_impl->backend->lostReason()) {
+            reportLost(std::move(*reason));
+        }
+    }
+    if (m_impl->lostReason) {
+        return makeError(ErrorCode::DeviceLost, "the GPU {} was lost: {}", m_impl->adapter.name, *m_impl->lostReason);
+    }
+    return {};
+}
+
 void GraphicsDevice::waitIdle() {
     nvrhi::IDevice* device = m_impl->device;
-    device->waitForIdle();
+    if (!device->waitForIdle()) {
+        // Vulkan says it in the result of the wait, and nowhere else.
+        reportLost("waiting for the GPU to finish failed");
+        return;
+    }
 
     // "Nothing is running" and "the last piece of work is recorded as finished" are two
     // things, and a driver may be a moment late with the second. Whoever polls for a

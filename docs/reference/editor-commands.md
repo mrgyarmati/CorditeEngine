@@ -497,6 +497,15 @@ Loads a scene file, replacing the current scene. Nothing changes if the file is 
 |---|---|---|---|
 | `path` | string | yes | The scene to load: a scene asset as asset.list names it ("scenes/main.scene.json"), or the path of a file. |
 
+## scene.recover
+
+Says whether the editor before this one kept a scene it could not go on with - the GPU was lost while the scene had changes that were not saved - and which file it was of. With `open` true it opens it in place of the scene that is open, as changes that are not saved until it is saved; with `open` false it lets it go. Either way the kept file is deleted. Refused while the scene is played, without a kept scene, and - to open one - over changes that are not saved, unless told discardChanges. Returns whether a scene is kept, and its file.
+
+| Parameter | Kind | Needed | Meaning |
+|---|---|---|---|
+| `open` | boolean | no | true opens the kept scene, false lets it go; left out, nothing is done but saying. |
+| `discardChanges` | boolean | no | Open it over changes of the open scene that are not saved, which are lost then. Defaults to false. |
+
 ## scene.save
 
 Saves the scene to a file, or to the file it already has when no path is given.

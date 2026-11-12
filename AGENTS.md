@@ -811,6 +811,12 @@ Vulkan or Direct3D directly. Step-by-step guide for adding a pass:
 - **A view is perspective or orthographic** (`CameraView::orthographic`). Whatever
   needs the direction to the viewer must ask: with perspective it points at the
   camera's position, without it is the opposite of the camera's direction, everywhere.
+- **A lost GPU ends the frame, and says why** (`ErrorCode::DeviceLost`): what the API says
+  of it - `VK_ERROR_DEVICE_LOST` from acquiring or presenting, a wait for the GPU that fails,
+  the removed reason of Direct3D 12 - is told to `GraphicsDevice::reportLost`, which keeps
+  the first reason, and `checkLost` fails from then on; `Engine::beginFrame` and `endFrame`
+  ask it. A test reports a loss itself, standing in for the driver. Nothing recreates the
+  device: the program ends, and what lives on the CPU - the scene - is still there to keep.
 - **At most a few frames wait for the GPU** (`FramePacer`, called by `Engine::endFrame`).
   Without a window nothing else holds a render loop back, and frames that pile up use
   up the versions of every per-view constant buffer. Code that submits frames of its
@@ -1894,6 +1900,14 @@ panels, EditorApp    the interface, built on the three layers above
   that a script plays (`play.start`, `editor.runFrames`) the same game, frame for
   frame. Without a window the editor opens no sound device: what would be heard is
   mixed into memory.
+- **What the editor could not save is kept when the GPU is lost**
+  (`editor/SceneRecovery.h`): a frame that fails with `DeviceLost` writes the scene - as
+  saving would, the scene before play while one is played - and the file it was of into
+  `recovery.json` of the editor's state directory, when it has changes that are not saved,
+  and the error says where. The next editor there reads it (`keptScene()`) and asks, in a
+  modal of its own (`###KeptScene`), whether to open it, let it go or decide later;
+  `scene.recover` answers for scripts. Opened, it is changes that are not saved, to the file
+  it was of (`EditorContext::restoreScene`). Either answer deletes the file.
 - **The editor works on one project; another is opened by beginning again.** The engine
   is made for the assets and the cache of one project, so File > New project and Open
   project (`project.new`, `project.open`) close the editor (`EditorApp::projectToOpen`),

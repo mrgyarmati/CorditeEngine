@@ -88,6 +88,11 @@ asks first: **Save** (**Enter**) writes it, to a file you choose if it has none 
 goes on; **Don't save** goes on without; **Cancel** (**Escape**) stays. Closing the window
 itself does not ask yet.
 
+If the graphics driver stops while a scene has changes that are not saved, the editor ends
+with a message, but keeps those changes. The next time it opens the project it offers them:
+**Open** puts them back - not yet saved, to the file they were of - **Let them go** forgets
+them, and **Later** asks again the next time.
+
 ## Playing
 
 Press **Play** (**F5**): the scene runs as it would in the game - scripts, physics, sound and

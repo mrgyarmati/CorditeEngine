@@ -137,6 +137,18 @@ public:
     /// (moveAsset()). Nothing is read or written, and what counts as saved stays.
     void setScenePath(std::filesystem::path path) { m_scenePath = std::move(path); }
 
+    /// The scene as saving it would write it (serializeScene): the world, or - while it is
+    /// played - the scene as beginPlay() found it, which is what stays when playing ends.
+    [[nodiscard]] Json documentScene() const;
+
+    /// Replaces the scene with `scene`, a document as documentScene() gives one, whose file
+    /// is `path` (empty for none): what the editor kept of a scene it could not go on with
+    /// (SceneRecovery.h). Unlike openScene() it is changes that are not saved - the very
+    /// changes that were kept - until it is saved. The history and the selection are
+    /// cleared. Fails, changing nothing, while the scene is played, and as
+    /// deserializeScene() fails.
+    [[nodiscard]] Status restoreScene(const Json& scene, std::filesystem::path path);
+
     /// True when edits were made, or undone, since the scene was last saved or loaded.
     /// What is edited while the scene is played does not count: it does not stay.
     [[nodiscard]] bool hasUnsavedChanges() const;
