@@ -24,6 +24,7 @@
 #include <ranges>
 #include <string>
 #include <system_error>
+#include <tuple>
 #include <unordered_set>
 #include <utility>
 
@@ -890,6 +891,66 @@ Status EditorActions::revertPrefabOverrides(Entity entity, std::string_view entr
                                   : fmt::format("Revert {} of '{}' to its prefab", entry, world.name(entity)),
                     std::move(changes)));
     return {};
+}
+
+Result<Uuid> EditorActions::applyPrefabOverrides(Entity entity, std::string_view entry) {
+    CORDITE_TRY(requireValid(m_context, entity));
+    if (m_context.isPlaying()) {
+        return makeError(ErrorCode::InvalidState,
+                         "the scene is being played: stop it before applying, or the prefab is made of a game "
+                         "half-way through");
+    }
+    World& world = m_context.world();
+    Entity root = entity;
+    while (!root.isNull() && !world.has<PrefabInstanceComponent>(root)) {
+        root = world.parent(root);
+    }
+    if (root.isNull()) {
+        return makeError(ErrorCode::InvalidArgument, "'{}' is in no instance of a prefab", world.name(entity));
+    }
+    const Uuid prefab = world.tryGet<PrefabInstanceComponent>(root)->prefab;
+    AssetManager& assets = m_context.assets();
+    CORDITE_TRY_ASSIGN(const std::shared_ptr<const PrefabData> data, assets.loadPrefab(prefab));
+    const PrefabApply apply{.entity = entity, .entry = std::string(entry)};
+    CORDITE_TRY_ASSIGN(Json entities,
+                       prefabEntitiesWithOverrides(world, m_context.components(), root, data->entities, apply));
+    if (entities.size() > kMaxPrefabEntities) {
+        return makeError(ErrorCode::InvalidArgument, "the prefab would be {} entities; a prefab may have {} at most",
+                         entities.size(), kMaxPrefabEntities);
+    }
+    const AssetInfo* asset = assets.database().find(prefab);
+    if (asset == nullptr) {
+        return makeError(ErrorCode::NotFound, "the prefab {} is not among the assets", prefab.toString());
+    }
+    const std::filesystem::path file = assets.database().sourceFile(*asset);
+    // Every instance of the prefab, before anything changes: all of them take what it is now.
+    std::vector<SubtreeChange> found;
+    for (const Entity instance : linkedPrefabRoots(world, prefab)) {
+        found.push_back(subtreeBefore(m_context, instance));
+    }
+
+    CORDITE_TRY(writeJsonFile(file, prefabDocument({.name = data->name, .entities = std::move(entities)})));
+    CORDITE_TRY(assets.refresh());
+
+    markPrefabApplied(world, root, apply);
+    // What changed is told by the instances before and after; a prefab that cannot be read
+    // now - it was just written - is said in the log, and leaves them as they are.
+    std::ignore = syncPrefabInstances(world, m_context.components(), assets, prefab);
+    std::vector<SubtreeChange> changes;
+    for (SubtreeChange& change : found) {
+        CORDITE_TRY(subtreeAfter(m_context, change));
+        if (change.after != change.before) {
+            changes.push_back(std::move(change));
+        }
+    }
+    if (!changes.empty()) {
+        m_context.history().push(
+            subtreeEdit(m_context,
+                        entry.empty() ? fmt::format("Apply '{}' to its prefab", world.name(entity))
+                                      : fmt::format("Apply {} of '{}' to its prefab", entry, world.name(entity)),
+                        std::move(changes)));
+    }
+    return prefab;
 }
 
 std::string defaultPrefabPath(std::string_view entityName) {

@@ -90,6 +90,41 @@ struct PrefabSync {
 [[nodiscard]] Result<PrefabSync> syncPrefabInstance(World& world, const ComponentRegistry& components, Entity root,
                                                     const Json& entities);
 
+/// What of an instance is applied to its prefab: one override of one entity, every override
+/// of one entity, or - from the root, with no entry - the whole instance.
+struct PrefabApply {
+    /// A linked entity of the instance.
+    Entity entity;
+    /// One override of it, as its PrefabLink lists it; empty for all of them - and, when
+    /// `entity` is the root of the instance, for every override of every entity of the
+    /// instance and every entity added to it, with what hangs under it.
+    std::string entry;
+};
+
+/// What the prefab whose entities are `entities` - as its file holds them - becomes when
+/// what `apply` names of the instance whose root is `root` is written into it: the
+/// instance's values of the properties it overrides, the components it added, without
+/// those it left out, its names and whether its entities are enabled - and, for the whole
+/// instance, the entities added to it, under the entities of the prefab they hang under,
+/// with their own ids. A reference to an entity of the instance is led to the entity of
+/// the prefab it is a copy of. The root's Transform and name stay the prefab's. Nothing of
+/// the world changes; markPrefabApplied() does that once the prefab is written.
+///
+/// Fails with InvalidArgument when `root` is no linked instance of the prefab - its root
+/// is linked to another entity than the prefab's root - when `apply.entity` is no linked
+/// entity of it, when `apply.entry` is none of its overrides, and when what is to be
+/// applied holds an instance of another prefab, which cannot be applied yet; as
+/// syncPrefabInstance() does for entities that are wrong. How many entities a prefab may
+/// have is the assets' to say (kMaxPrefabEntities), and whoever writes the file checks it.
+[[nodiscard]] Result<Json> prefabEntitiesWithOverrides(const World& world, const ComponentRegistry& components,
+                                                       Entity root, const Json& entities, const PrefabApply& apply);
+
+/// Makes what prefabEntitiesWithOverrides() wrote into the prefab the prefab's in the
+/// instance: the overrides that were applied are no longer the entities' own, and the
+/// entities added to the instance are linked to themselves in the prefab, which has their
+/// ids. The arguments are those prefabEntitiesWithOverrides() succeeded with.
+void markPrefabApplied(World& world, Entity root, const PrefabApply& apply);
+
 /// What a prefab made of `root` and everything below it holds as its entities: the root
 /// first, hanging under nothing, and without the PrefabInstance it has when it was
 /// placed from a prefab itself - a prefab is not an instance of another. `root` must be

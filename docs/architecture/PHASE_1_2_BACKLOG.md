@@ -219,6 +219,12 @@ is overridden. Variants come in Phase 4, where the plan lists them.
   property, `+Component`, `-Component`, `name`, `enabled`); `syncPrefabInstance` brings an
   instance up to date, which the editor does when a scene opens and on `asset.refresh`;
   edits note overrides in their own step; `prefab.revert` takes them back.
+  **Slice 3 done 13 November:** `prefab.apply` (`applyPrefabOverrides`, over
+  `prefabEntitiesWithOverrides` and `markPrefabApplied` in the world module) writes one
+  override, an entity's, or the whole instance with what was added to it into the prefab,
+  and every instance takes it in one step. Left for later: an instance that holds another
+  prefab is refused until slice 4, and an entity of the prefab deleted from an instance is
+  no override - it comes back.
   1. **ADR and migration.** Replace "a prefab is copied where it is placed" with
      linked instances. Overrides are stored as property patches (the existing
      `PropertyPatch` fits), and added or removed children are recorded. Add

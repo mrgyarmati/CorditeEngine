@@ -164,6 +164,21 @@ public:
     /// changed then.
     [[nodiscard]] Status revertPrefabOverrides(Entity entity, std::string_view entry = {});
 
+    /// Writes what a linked copy of a prefab's entity keeps of its own into the prefab, and
+    /// makes it the prefab's (prefabEntitiesWithOverrides, markPrefabApplied): the override
+    /// `entry` alone, or, when `entry` is empty, every override of the entity - and of every
+    /// entity of the instance, with the entities added to it, when it is the root. Every
+    /// linked instance of the prefab in the scene is then brought up to date with what it
+    /// is now. Returns the prefab.
+    ///
+    /// The file is written and the assets read again, which undo does not take back, as it
+    /// does not for prefab.create; what undo takes back is what changed in the scene, in one
+    /// step. Fails with InvalidState while the scene is played, with InvalidArgument as
+    /// prefabEntitiesWithOverrides() does and for more than kMaxPrefabEntities entities, as
+    /// loading the prefab fails, and as writing its file and AssetManager::refresh() do.
+    /// Nothing has been written before the failures but the last two.
+    [[nodiscard]] Result<Uuid> applyPrefabOverrides(Entity entity, std::string_view entry = {});
+
     /// Fails with InvalidArgument for an empty name or one containing '/', which
     /// separates the names in entity paths.
     [[nodiscard]] Status renameEntity(Entity entity, std::string_view name);

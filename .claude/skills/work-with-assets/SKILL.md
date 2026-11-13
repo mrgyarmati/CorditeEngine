@@ -241,7 +241,9 @@ is edited (`Camera.verticalFovDegrees`, `+Light`, `-Light`, `name`, `enabled`). 
 prefab changes, `asset.refresh` (which the editor queues itself when a file changes) and
 opening a scene bring every linked instance up to date but for its overrides;
 `prefab.revert {"entity": "Cart 2/Body"}` takes overrides back, one (`"override":
-"name"`) or all. A game plays a scene as it was saved, and an instance a script places
+"name"`) or all, and `prefab.apply` (the same parameters) writes them into the prefab
+(on the root, with the entities added to the instance), which every instance then
+takes; the file is not undone. A game plays a scene as it was saved, and an instance a script places
 is not followed. Undoing `prefab.create` takes the mark and the links off the entity; the
 file stays.
 

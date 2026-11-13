@@ -742,6 +742,37 @@ Status registerAssetCommands(CommandRegistry& commands, EditorContext& context) 
     }));
 
     CORDITE_TRY(commands.add({
+        .name = "prefab.apply",
+        .description = "Writes what a linked copy of a prefab's entity keeps of its own into the prefab, so that "
+                       "it is the prefab's: one override, or all of them - of every entity of the instance, and "
+                       "the entities added to it, for its root. Every linked instance of the prefab in the scene "
+                       "then takes what it is now. The root's Transform and name stay the prefab's. The file is "
+                       "written, which undo does not take back; what changed in the scene is one step. Returns "
+                       "the prefab.",
+        .parameters = {{"entity", Type::String,
+                        "A linked copy - an entity with a PrefabLink: its id, its path of names from a root, or "
+                        "its name if that is unique."},
+                       {"override", Type::String,
+                        "The one override to apply, as its PrefabLink lists it: \"Light.intensity\", \"+Light\", "
+                        "\"-Light\", \"name\" or \"enabled\". Without one, every override is applied.",
+                        false}},
+        .handler = [&context](const Json& parameters) -> Result<Json> {
+            CORDITE_TRY_ASSIGN(const Entity entity, context.resolveEntity(parameters.at("entity").get<std::string>()));
+            const auto entry = jsonGetOr<std::string>(parameters, "override", "");
+            EditorActions actions(context);
+            CORDITE_TRY_ASSIGN(const Uuid id, actions.applyPrefabOverrides(entity, entry));
+            CORDITE_TRY_ASSIGN(const std::shared_ptr<const PrefabData> prefab, context.assets().loadPrefab(id));
+            const AssetInfo* asset = context.assets().database().find(id);
+            if (asset == nullptr) {
+                return makeError(ErrorCode::InvalidState, "the prefab {} is not among the assets", id.toString());
+            }
+            Json result = describeAsset(*asset);
+            result["entityCount"] = prefab->entities.size();
+            return result;
+        },
+    }));
+
+    CORDITE_TRY(commands.add({
         .name = "scene.validate",
         .description = "Checks every reference from the scene to an asset - the asset must exist and be of the "
                        "kind the property expects - and every collider for what no shape or body can be made "
