@@ -16,6 +16,29 @@ Json parse(std::string_view text) {
     return unwrap(parseJson(text));
 }
 
+/// Version 1 called "servings" "cooks", and refuses what is no number there.
+Status renameCooks(Json& document) {
+    const auto cooks = document.find("cooks");
+    if (cooks != document.end()) {
+        if (!cooks->is_number_integer()) {
+            return makeError(ErrorCode::ParseError, "'cooks' must be a whole number");
+        }
+        document["servings"] = *cooks;
+        document.erase("cooks");
+    }
+    return {};
+}
+
+/// Version 3 says how long a recipe takes; what was written before takes none.
+Status addMinutes(Json& document) {
+    if (!document.contains("minutes")) {
+        document["minutes"] = 0;
+    }
+    return {};
+}
+
+constexpr std::array<DocumentMigration, 2> kRecipeMigrations = {renameCooks, addMinutes};
+
 Error headerError(std::string_view text) {
     const Result<uint32_t> version = readDocumentHeader(parse(text), kRecipe);
     REQUIRE_FALSE(version.has_value());
@@ -100,6 +123,49 @@ TEST_SUITE("Document") {
             CHECK(error.message == "the recipe has format version 4, but this engine reads versions 1 to 3");
         }
     }
+
+    TEST_CASE("an older document is brought up to the format's version, step by step, and says what it was") {
+        Json first = parse(R"({"format": "cordite.recipe", "version": 1, "cooks": 4})");
+        CHECK(unwrap(migrateDocument(first, kRecipe, kRecipeMigrations)) == 1);
+        CHECK(first == parse(R"({"format": "cordite.recipe", "version": 3, "servings": 4, "minutes": 0})"));
+
+        // From the middle, only the steps after it.
+        Json second = parse(R"({"format": "cordite.recipe", "version": 2, "cooks": "kept", "minutes": 5})");
+        CHECK(unwrap(migrateDocument(second, kRecipe, kRecipeMigrations)) == 2);
+        CHECK(second == parse(R"({"format": "cordite.recipe", "version": 3, "cooks": "kept", "minutes": 5})"));
+
+        // One of now is left as it is.
+        const Json now = parse(R"({"format": "cordite.recipe", "version": 3, "servings": 2})");
+        Json same = now;
+        CHECK(unwrap(migrateDocument(same, kRecipe, kRecipeMigrations)) == 3);
+        CHECK(same == now);
+    }
+
+    TEST_CASE("a migration that fails, or a document that is none, leaves the document as it was") {
+        const Json broken = parse(R"({"format": "cordite.recipe", "version": 1, "cooks": "many"})");
+        Json document = broken;
+        const Result<uint32_t> migrated = migrateDocument(document, kRecipe, kRecipeMigrations);
+        REQUIRE_FALSE(migrated.has_value());
+        CHECK(migrated.error().code == ErrorCode::ParseError);
+        CHECK(test::errorOf(migrated).find("from version 1 to 2") != std::string::npos);
+        CHECK(test::errorOf(migrated).find("cooks") != std::string::npos);
+        CHECK(document == broken);
+
+        const Json newer = parse(R"({"format": "cordite.recipe", "version": 4})");
+        Json unread = newer;
+        CHECK(migrateDocument(unread, kRecipe, kRecipeMigrations).error().code == ErrorCode::VersionMismatch);
+        CHECK(unread == newer);
+        Json other = parse(R"({"format": "cordite.scene", "version": 1})");
+        CHECK(migrateDocument(other, kRecipe, kRecipeMigrations).error().code == ErrorCode::ParseError);
+    }
+
+#if defined(CORDITE_ENABLE_ASSERTS)
+    TEST_CASE("a format is given one migration for each version after its first") {
+        Json document = parse(R"({"format": "cordite.recipe", "version": 1})");
+        const std::array<DocumentMigration, 1> tooFew = {renameCooks};
+        CHECK_THROWS_AS((void)migrateDocument(document, kRecipe, tooFew), test::AssertionFailure);
+    }
+#endif
 
     TEST_CASE("unknown members are named") {
         constexpr std::array<std::string_view, 3> kAllowed = {"format", "version", "servings"};

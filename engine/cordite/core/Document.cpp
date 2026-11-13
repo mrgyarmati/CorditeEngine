@@ -1,10 +1,14 @@
 #include "cordite/core/Document.h"
 
+#include "cordite/core/Assert.h"
 #include "cordite/core/Reflection.h"
+
+#include <fmt/format.h>
 
 #include <algorithm>
 #include <optional>
 #include <string>
+#include <utility>
 
 namespace cordite {
 
@@ -40,6 +44,31 @@ Result<uint32_t> readDocumentHeader(const Json& document, const DocumentFormat& 
                          format.version);
     }
     return version;
+}
+
+Result<uint32_t> migrateDocument(Json& document, const DocumentFormat& format,
+                                 std::span<const DocumentMigration> migrations) {
+    CORDITE_ASSERT(migrations.size() + 1 == format.version, "the {} has {} versions, so {} migrations, not {}",
+                   format.kind, format.version, format.version - 1, migrations.size());
+    if (migrations.size() + 1 != format.version) {
+        return makeError(ErrorCode::InvalidArgument, "the {} has {} versions, so {} migrations, not {}", format.kind,
+                         format.version, format.version - 1, migrations.size());
+    }
+    CORDITE_TRY_ASSIGN(const uint32_t written, readDocumentHeader(document, format));
+    if (written == format.version) {
+        return written;
+    }
+    // On a copy: a step that fails leaves the document as it was read.
+    Json migrated = document;
+    for (uint32_t version = written; version < format.version; ++version) {
+        if (const Status stepped = migrations[version - 1](migrated); !stepped) {
+            return tl::unexpected(stepped.error().withContext(
+                fmt::format("bringing the {} from version {} to {}", format.kind, version, version + 1)));
+        }
+        migrated["version"] = version + 1;
+    }
+    document = std::move(migrated);
+    return written;
 }
 
 Status rejectUnknownMembers(const Json& object, std::span<const std::string_view> allowed) {

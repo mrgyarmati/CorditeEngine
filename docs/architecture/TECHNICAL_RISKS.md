@@ -190,6 +190,8 @@ reflection system (plan section 5.2).
 version 1. The first breaking change to scenes, prefabs or widget assets needs a
 migration mechanism. **Mitigation:** introduce `Document` migrations in the first slice
 that changes a format. The widget asset format (P2-06) starts at version 1.
+Since P1-12 slice 1, `migrateDocument` (`core/Document.h`) does it: one step from each
+version to the next, all or nothing.
 
 ## R14 - Reference images tolerate small changes
 

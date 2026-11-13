@@ -211,6 +211,9 @@ is overridden. Variants come in Phase 4, where the plan lists them.
 - **Depends on:** a `Document` migration mechanism (R13), delivered in slice 1, because
   the scene format changes.
 - **Work, in slices, each built and tested on its own:**
+  **Slice 1 done 13 November:** the design is in `docs/architecture.md` ("A prefab stays
+  linked to what was placed from it"), and `migrateDocument` in `core/Document.h` carries
+  the scene to version 2 in slice 2.
   1. **ADR and migration.** Replace "a prefab is copied where it is placed" with
      linked instances. Overrides are stored as property patches (the existing
      `PropertyPatch` fits), and added or removed children are recorded. Add

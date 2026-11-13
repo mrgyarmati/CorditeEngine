@@ -481,6 +481,10 @@ identical value, and quaternions that are already unit length are not renormaliz
 
 ### A prefab is copied where it is placed
 
+**Superseded on 12 November 2026** by [A prefab stays linked to what was placed from it](#a-prefab-stays-linked-to-what-was-placed-from-it),
+which is being built (backlog P1-12). Until its second slice lands, this is what the
+engine does.
+
 A prefab is a file with a few entities in it: one root and what hangs under it, written
 exactly as a scene writes entities. Placing it creates copies of them with ids of their
 own - what refers to an entity of the group refers to its copy - and marks the root
@@ -514,6 +518,46 @@ Making a prefab writes a file, and writing a file is not an edit of the scene: u
 does not take it back. What `prefab.create` changes in the scene is one component - the
 entity the prefab was made of is marked as its first instance - and that is what the
 history holds.
+
+### A prefab stays linked to what was placed from it
+
+Decided on 12 November 2026, for the plan's prefab workflow (`docs/GAME_ENGINE_PLAN.md`,
+section 5.4; backlog P1-12), and built in slices. It replaces the decision above, whose
+reasons stand - a scene readable without its prefabs, nothing a script or a crate needs -
+and keeps what it can of them.
+
+**What is kept.** A scene still writes every entity of an instance in full. It opens
+without its prefabs, a game plays it as written, and a prefab that is missing or broken
+is a problem that is reported, not a scene that cannot be read.
+
+**What is added.** Every entity placed from a prefab remembers where it came from: the
+prefab, and the entity of the prefab it is a copy of (by its id in the prefab's file).
+The properties an instance has been given values of its own for are listed by name, per
+entity - `Light.intensity` - as its overrides; the root's `Transform` always is one, since
+that is where the instance stands. Overrides are said, not worked out by comparing values:
+a value that differs from the prefab's could be a change made to the instance or an old
+value of a prefab that has changed since, and only the first is to be kept.
+
+**What follows from it.**
+- When a scene is loaded, and when a prefab changes, every instance takes the prefab's
+  values of what it does not override; a component or a child entity the prefab gained or
+  lost is gained or lost too. What the instance has that the prefab never had - a child
+  someone added - stays.
+- Revert takes overrides away, one property or the whole instance, and the prefab's
+  values come back. Apply writes them into the prefab, as `prefab.create` writes a file, and
+  every other instance takes them. Each is one step of the history of the scene; the file
+  that apply writes is not undone, as no file is.
+- A prefab placed inside a prefab keeps its own link, and an override of what is inside it
+  is named through the entities that lead to it. A prefab that contains itself, directly or
+  through others, is refused, naming the chain.
+- The scene format gets a version 2 that holds the links and the overrides. Files of
+  version 1 are read through `migrateDocument` (`core/Document.h`), which brings an old
+  document up to the format's version step by step, and their instances are what they
+  were: copies, linked to nothing. The same mechanism carries every later change of a
+  format.
+
+Variants - a prefab that is another prefab with overrides - come with Phase 4, on the same
+links and overrides.
 
 ### The asset browser is a list that is worked out, and a window that draws it
 
