@@ -121,6 +121,7 @@ TEST_SUITE("EditorCommands") {
                            "entity.rename",
                            "entity.setEnabled",
                            "entity.setParent",
+                           "prefab.apply",
                            "prefab.create",
                            "prefab.revert",
                            "scene.describe",

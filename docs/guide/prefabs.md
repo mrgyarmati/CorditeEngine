@@ -43,6 +43,15 @@ a placed prefab. To give an entity back what the prefab has, run `prefab.revert`
 override, or for all of them; on the top entity it reverts the whole group. All of this is
 undoable.
 
+To make what a placed prefab has of its own the prefab's, run `prefab.apply` - for one
+override, or for all of them; on the top entity it applies the whole group, with the entities
+you added to it. The prefab's file is written, and every placed copy of it in the scene takes
+the change. Undo takes back what changed in the scene; the file stays as it was written.
+
+Two things are not there yet: a prefab placed inside another cannot be applied, and an entity
+of the prefab that you delete from a placed copy comes back the next time the copy is brought
+up to date.
+
 A scene still saves every entity in full. It opens even when a prefab is missing - the editor
 says so in the console - and a game plays it as it was saved: save the scene after a prefab
 changed. What a script places while the game runs is not followed.

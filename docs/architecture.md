@@ -574,6 +574,16 @@ a scene can be undone, and a game, which never runs it, plays what was saved. Ov
 noted by `EditorActions` in the same step as the edit that makes them; an edit that sets a
 value back is still an override, until it is reverted.
 
+Apply (slice 3) is worked out in the world module too, without writing anything:
+`prefabEntitiesWithOverrides` takes the prefab's entities and the instance and returns what
+the file becomes - the values of the overrides, references led back from the copies to the
+prefab's entities, and, for the whole instance, the entities added to it with the ids they
+have, which `markPrefabApplied` then links them to. The editor writes the file, reads the
+assets again and brings every instance of the prefab up to date, and records what changed in
+the scene as one step: the file, as with `prefab.create`, is no part of the document. An
+entity of the prefab that is deleted from an instance is not an override yet - the next
+update brings it back - and an instance that holds another prefab waits for nesting.
+
 ### The asset browser is a list that is worked out, and a window that draws it
 
 The Assets panel shows the assets of a project as the browsers of Unity and Unreal

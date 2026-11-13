@@ -420,6 +420,15 @@ Stops playing: the scripts end, and the scene is what it was when play.start was
 
 It takes no parameters.
 
+## prefab.apply
+
+Writes what a linked copy of a prefab's entity keeps of its own into the prefab, so that it is the prefab's: one override, or all of them - of every entity of the instance, and the entities added to it, for its root. Every linked instance of the prefab in the scene then takes what it is now. The root's Transform and name stay the prefab's. The file is written, which undo does not take back; what changed in the scene is one step. Returns the prefab.
+
+| Parameter | Kind | Needed | Meaning |
+|---|---|---|---|
+| `entity` | string | yes | A linked copy - an entity with a PrefabLink: its id, its path of names from a root, or its name if that is unique. |
+| `override` | string | no | The one override to apply, as its PrefabLink lists it: "Light.intensity", "+Light", "-Light", "name" or "enabled". Without one, every override is applied. |
+
 ## prefab.create
 
 Makes a prefab of an entity and everything below it: writes them into a file among the assets, reads the assets again, and makes the entity an instance of the new prefab: a PrefabInstance component marks it, and a PrefabLink links it and every entity below it to itself in the file. Returns the prefab. asset.instantiate places it, and so does a script, with cordite.world.instantiate. What the editor places stays linked: when the prefab changes, its instances take the change, but for what they keep of their own. Undoing takes the mark and the links off; the file stays.

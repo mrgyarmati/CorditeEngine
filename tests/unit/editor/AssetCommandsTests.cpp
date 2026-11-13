@@ -1088,6 +1088,86 @@ TEST_SUITE("AssetCommands") {
         CHECK(fixture.context->history().stateId() == state);
     }
 
+    TEST_CASE("prefab.apply writes what a copy keeps into its prefab, and every instance takes it") {
+        AssetFixture fixture;
+        fixture.run("asset.instantiate", R"({"asset": "models/cart.gltf"})");
+        fixture.run("prefab.create", R"({"entity": "cart", "path": "prefabs/cart.prefab.json"})");
+        fixture.run("asset.instantiate", R"({"asset": "prefabs/cart.prefab.json", "name": "Second"})");
+        const std::filesystem::path file = fixture.root / "prefabs" / "cart.prefab.json";
+        const auto fov = [&](std::string_view path) {
+            return fixture.world.tryGet<CameraComponent>(unwrap(fixture.context->resolveEntity(path)))
+                ->verticalFovDegrees;
+        };
+        const auto overrides = [&](std::string_view path) {
+            return fixture.world.tryGet<PrefabLinkComponent>(unwrap(fixture.context->resolveEntity(path)))->overrides;
+        };
+        fixture.run(
+            "component.set",
+            R"({"entity": "Second/Body/Mirror", "component": "Camera", "properties": {"verticalFovDegrees": 40}})");
+        fixture.run("entity.rename", R"({"entity": "Second/Body/Wheel", "name": "Tyre"})");
+        const Json edited = serializeScene(fixture.world, fixture.components);
+        const std::string writtenBefore = unwrap(readTextFile(file));
+
+        // One override: the prefab has it, so has the other instance, and the copy keeps
+        // nothing of it any more.
+        const Json applied =
+            fixture.run("prefab.apply", R"({"entity": "Second/Body/Mirror", "override": "Camera.verticalFovDegrees"})");
+        CHECK(applied["path"] == "prefabs/cart.prefab.json");
+        CHECK(applied["entityCount"] == 4);
+        CHECK(fov("cart/Body/Mirror") == 40.0f);
+        CHECK(fov("Second/Body/Mirror") == 40.0f);
+        CHECK(overrides("Second/Body/Mirror").empty());
+        // The wheel's new name is still its own.
+        CHECK(fixture.outline() == std::vector<std::string>{"cart", ".Body", "..Wheel", "..Mirror", "Second", ".Body",
+                                                            "..Tyre", "..Mirror"});
+        const Json document = unwrap(readJsonFile(file));
+        CHECK(document["entities"][3]["components"]["Camera"]["verticalFovDegrees"] == 40.0);
+
+        // One step of the scene, which undo takes back; the file stays as it was written.
+        CHECK(fixture.context->history().undoLabel() == "Apply Camera.verticalFovDegrees of 'Mirror' to its prefab");
+        fixture.run("editor.undo");
+        CHECK(serializeScene(fixture.world, fixture.components) == edited);
+        CHECK(unwrap(readTextFile(file)) != writtenBefore);
+        fixture.run("editor.redo");
+        CHECK(fov("cart/Body/Mirror") == 40.0f);
+
+        // Everything, from the root, with what was added to the instance.
+        fixture.run("entity.create", R"({"name": "Lamp", "parent": "Second/Body"})");
+        fixture.run("prefab.apply", R"({"entity": "Second"})");
+        CHECK(fixture.outline() == std::vector<std::string>{"cart", ".Body", "..Tyre", "..Mirror", "..Lamp", "Second",
+                                                            ".Body", "..Tyre", "..Mirror", "..Lamp"});
+        CHECK(overrides("Second/Body/Tyre").empty());
+        CHECK(fixture.run("asset.get", R"({"asset": "prefabs/cart.prefab.json"})")["content"]["entities"] ==
+              json(R"(["cart", "Body", "Tyre", "Mirror", "Lamp"])"));
+        CHECK(fixture.context->history().undoLabel() == "Apply 'Second' to its prefab");
+        // Nothing is left to bring up to date.
+        CHECK(fixture.run("asset.refresh")["prefabInstancesUpdated"] == 0);
+    }
+
+    TEST_CASE("prefab.apply refuses what it cannot apply, and writes nothing") {
+        AssetFixture fixture;
+        fixture.run("asset.instantiate", R"({"asset": "models/cart.gltf"})");
+        fixture.run("prefab.create", R"({"entity": "cart", "path": "prefabs/cart.prefab.json"})");
+        fixture.run("entity.rename", R"({"entity": "cart/Body/Wheel", "name": "Tyre"})");
+        fixture.run("entity.create", R"({"name": "Loose"})");
+        const std::filesystem::path file = fixture.root / "prefabs" / "cart.prefab.json";
+        const std::string written = unwrap(readTextFile(file));
+        const Json before = serializeScene(fixture.world, fixture.components);
+        const uint64_t state = fixture.context->history().stateId();
+
+        CHECK(fixture.fail("prefab.apply", R"({"entity": "Loose"})").code == ErrorCode::InvalidArgument);
+        CHECK(fixture.fail("prefab.apply", R"({"entity": "cart/Body/Tyre", "override": "enabled"})").code ==
+              ErrorCode::InvalidArgument);
+        CHECK(fixture.fail("prefab.apply", R"({"entity": "Nowhere"})").code == ErrorCode::NotFound);
+        REQUIRE(fixture.context->beginPlay().has_value());
+        CHECK(fixture.fail("prefab.apply", R"({"entity": "cart/Body/Tyre"})").code == ErrorCode::InvalidState);
+        REQUIRE(fixture.context->endPlay().has_value());
+
+        CHECK(unwrap(readTextFile(file)) == written);
+        CHECK(serializeScene(fixture.world, fixture.components) == before);
+        CHECK(fixture.context->history().stateId() == state);
+    }
+
     TEST_CASE("a scene that is opened takes what its prefabs were changed to, as changes that are not saved") {
         AssetFixture fixture;
         fixture.run("asset.instantiate", R"({"asset": "models/cart.gltf"})");

@@ -531,4 +531,179 @@ TEST_SUITE("Prefab") {
         CHECK(errorIn(syncPrefabInstance(world, yard.registry, copy, twoRoots)).code == ErrorCode::ParseError);
         CHECK(serializePrefabEntities(world, yard.registry, copy) == before);
     }
+
+    TEST_CASE("what an instance keeps of its own is written into its prefab, and is the prefab's then") {
+        Yard yard;
+        World& world = yard.world;
+        const Json entities = yard.cartEntities();
+        const Entity copy = unwrap(instantiatePrefab(world, yard.registry, entities, kCartPrefab,
+                                                     {.name = "My cart", .position = Vec3(9.0f, 0.0f, 0.0f)}));
+        Entity front;
+        Entity back;
+        for (const Entity child : world.children(copy)) {
+            (world.name(child) == "Front wheel" ? front : back) = child;
+        }
+        // The back wheel is tied more loosely and sees; the front one is renamed, switched off
+        // and sees no more; a lantern is hung on the cart, tied to the front wheel.
+        world.tryGet<Tether>(back)->length = 3.0f;
+        world.add<CameraComponent>(back).verticalFovDegrees = 30.0f;
+        world.tryGet<PrefabLinkComponent>(back)->overrides = {"Tether.length", "+Camera"};
+        world.setName(front, "Leading wheel");
+        world.setEnabled(front, false);
+        world.remove<CameraComponent>(front);
+        world.tryGet<PrefabLinkComponent>(front)->overrides = {"name", "enabled", "-Camera"};
+        const Entity lantern = world.createEntity("Lantern");
+        REQUIRE(world.setParent(lantern, copy).has_value());
+        world.add<Tether>(lantern) = {.to = world.id(front), .length = 0.5f};
+        const Entity wick = world.createEntity("Wick");
+        REQUIRE(world.setParent(wick, lantern).has_value());
+
+        const Json applied =
+            unwrap(prefabEntitiesWithOverrides(world, yard.registry, copy, entities, {.entity = copy}));
+        // Nothing of the world has changed.
+        CHECK(world.tryGet<PrefabLinkComponent>(back)->overrides.size() == 2);
+        CHECK_FALSE(world.has<PrefabLinkComponent>(lantern));
+
+        const auto entityOf = [&applied](const Uuid& id) -> const Json& {
+            for (const Json& entity : applied) {
+                if (entity["id"].get<std::string>() == id.toString()) {
+                    return entity;
+                }
+            }
+            FAIL("no entity " << id.toString());
+            return applied.front();
+        };
+        REQUIRE(applied.size() == 5);
+        // The root keeps the prefab's name and place.
+        CHECK(applied[0] == entities[0]);
+        const Json& prefabFront = entityOf(world.id(yard.front));
+        CHECK(prefabFront["name"] == "Leading wheel");
+        CHECK(prefabFront["enabled"] == false);
+        CHECK_FALSE(prefabFront["components"].contains("Camera"));
+        const Json& prefabBack = entityOf(world.id(yard.back));
+        CHECK(prefabBack["components"]["Tether"]["length"] == 3.0);
+        // Still tied to the prefab's own front wheel, which the copy's stands for.
+        CHECK(prefabBack["components"]["Tether"]["to"] == world.id(yard.front).toString());
+        CHECK(prefabBack["components"]["Camera"]["verticalFovDegrees"] == 30.0);
+        // The lantern and its wick, with their own ids, under the prefab's root; the lantern
+        // tied to the prefab's front wheel.
+        const Json& prefabLantern = entityOf(world.id(lantern));
+        CHECK(prefabLantern["parent"] == world.id(yard.cart).toString());
+        CHECK(prefabLantern["components"]["Tether"]["to"] == world.id(yard.front).toString());
+        CHECK(entityOf(world.id(wick))["parent"] == world.id(lantern).toString());
+
+        // Marked applied, the instance keeps nothing of its own, and is what its prefab is.
+        markPrefabApplied(world, copy, {.entity = copy});
+        for (const Entity entity : {copy, front, back}) {
+            CHECK(world.tryGet<PrefabLinkComponent>(entity)->overrides.empty());
+        }
+        CHECK(world.tryGet<PrefabLinkComponent>(lantern)->source == world.id(lantern));
+        CHECK(world.tryGet<PrefabLinkComponent>(wick)->source == world.id(wick));
+        CHECK_FALSE(unwrap(syncPrefabInstance(world, yard.registry, copy, applied)).changed());
+        CHECK(world.transform(copy).position == Vec3(9.0f, 0.0f, 0.0f));
+
+        // Placed again, the prefab is all of it, its lantern tied to its own front wheel.
+        const Entity again = unwrap(instantiatePrefab(world, yard.registry, applied, kCartPrefab));
+        std::vector<std::string> below;
+        Entity againFront;
+        Entity againLantern;
+        for (const Entity child : world.children(again)) {
+            below.push_back(world.name(child));
+            if (world.name(child) == "Leading wheel") {
+                againFront = child;
+            } else if (world.name(child) == "Lantern") {
+                againLantern = child;
+            }
+        }
+        CHECK(below == std::vector<std::string>{"Leading wheel", "Back wheel", "Lantern"});
+        CHECK(world.tryGet<Tether>(againLantern)->to == world.id(againFront));
+        CHECK(world.children(againLantern).size() == 1);
+    }
+
+    TEST_CASE("one override of one entity is applied alone") {
+        Yard yard;
+        World& world = yard.world;
+        const Json entities = yard.cartEntities();
+        const Entity copy = unwrap(instantiatePrefab(world, yard.registry, entities, kCartPrefab));
+        Entity back;
+        for (const Entity child : world.children(copy)) {
+            if (world.name(child) == "Back wheel") {
+                back = child;
+            }
+        }
+        world.tryGet<Tether>(back)->length = 3.0f;
+        world.setName(back, "Rear wheel");
+        world.tryGet<PrefabLinkComponent>(back)->overrides = {"name", "Tether.length"};
+
+        const PrefabApply apply{.entity = back, .entry = "Tether.length"};
+        const Json applied = unwrap(prefabEntitiesWithOverrides(world, yard.registry, copy, entities, apply));
+        Json expected = entities;
+        for (Json& entity : expected) {
+            if (entity["id"].get<std::string>() == world.id(yard.back).toString()) {
+                entity["components"]["Tether"]["length"] = 3.0;
+            }
+        }
+        CHECK(applied == expected);
+        markPrefabApplied(world, copy, apply);
+        CHECK(world.tryGet<PrefabLinkComponent>(back)->overrides == std::vector<std::string>{"name"});
+
+        // All of one entity that is not the root: its own overrides, and nothing else.
+        const Json all = unwrap(prefabEntitiesWithOverrides(world, yard.registry, copy, applied, {.entity = back}));
+        CHECK(all.size() == applied.size());
+        for (const Json& entity : all) {
+            if (entity["id"].get<std::string>() == world.id(yard.back).toString()) {
+                CHECK(entity["name"] == "Rear wheel");
+            } else {
+                CHECK(std::ranges::find(applied, entity) != applied.end());
+            }
+        }
+    }
+
+    TEST_CASE("what cannot be applied is refused, and nothing is written") {
+        Yard yard;
+        World& world = yard.world;
+        const Json entities = yard.cartEntities();
+        const Entity copy = unwrap(instantiatePrefab(world, yard.registry, entities, kCartPrefab));
+        const Entity wheel = world.children(copy).front();
+        world.tryGet<PrefabLinkComponent>(wheel)->overrides = {"enabled"};
+        const Json before = serializeScene(world, yard.registry);
+
+        SUBCASE("an override the entity does not keep") {
+            const PrefabApply apply{.entity = wheel, .entry = "name"};
+            CHECK(errorIn(prefabEntitiesWithOverrides(world, yard.registry, copy, entities, apply)).code ==
+                  ErrorCode::InvalidArgument);
+        }
+        SUBCASE("an entity of no instance, or of another") {
+            CHECK(errorIn(prefabEntitiesWithOverrides(world, yard.registry, copy, entities, {.entity = yard.post}))
+                      .code == ErrorCode::InvalidArgument);
+            CHECK(errorIn(prefabEntitiesWithOverrides(world, yard.registry, yard.post, entities, {.entity = wheel}))
+                      .code == ErrorCode::InvalidArgument);
+        }
+        SUBCASE("an instance linked to another prefab, or to none") {
+            Json other = entities;
+            other[0]["id"] = "eeeeeeee-eeee-4eee-8eee-000000000009";
+            for (Json& entity : other) {
+                if (entity["parent"] == entities[0]["id"]) {
+                    entity["parent"] = other[0]["id"];
+                }
+            }
+            CHECK(errorIn(prefabEntitiesWithOverrides(world, yard.registry, copy, other, {.entity = copy})).code ==
+                  ErrorCode::InvalidArgument);
+        }
+        SUBCASE("an instance of another prefab inside") {
+            const Entity inner = world.createEntity("Inner");
+            REQUIRE(world.setParent(inner, copy).has_value());
+            world.add<PrefabInstanceComponent>(inner).prefab = kOtherPrefab;
+            const Error refused =
+                errorIn(prefabEntitiesWithOverrides(world, yard.registry, copy, entities, {.entity = copy}));
+            CHECK(refused.code == ErrorCode::InvalidArgument);
+            CHECK(refused.message.find("'Inner'") != std::string::npos);
+            world.destroyEntity(inner);
+        }
+        SUBCASE("entities that are no prefab") {
+            CHECK(errorIn(prefabEntitiesWithOverrides(world, yard.registry, copy, Json::array(), {.entity = copy}))
+                      .code == ErrorCode::ParseError);
+        }
+        CHECK(serializeScene(world, yard.registry) == before);
+    }
 }

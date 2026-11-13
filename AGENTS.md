@@ -913,10 +913,15 @@ Step-by-step guide for adding a component: [add-component](.claude/skills/add-co
   (`editor/PrefabLinks.h`) when a scene is opened, as changes that are not saved, and
   when the assets are read again, as a step of the history (`updatePrefabInstances`).
   `EditorActions` notes an override in the step of every edit of a linked copy, and
-  `revertPrefabOverrides` (`prefab.revert`) takes them back. Nothing may read the marks
-  to decide what an entity does. Scenes of version 1 are read through `migrateDocument`
-  (`core/Document.h`), their instances linked to nothing. Applying an instance to its
-  prefab and prefabs inside prefabs come next (P1-12).
+  `revertPrefabOverrides` (`prefab.revert`) takes them back; `applyPrefabOverrides`
+  (`prefab.apply`) writes them into the prefab - `prefabEntitiesWithOverrides` works out
+  the file, entities added to the instance and all, `markPrefabApplied` makes it the
+  instance's prefab - and brings every instance of it up to date, in one step of the
+  history; the file is not undone. Nothing may read the marks to decide what an entity
+  does. Scenes of version 1 are read through `migrateDocument` (`core/Document.h`), their
+  instances linked to nothing. Prefabs inside prefabs come next (P1-12); until then an
+  instance that holds one cannot be applied, and an entity of the prefab that is deleted
+  from an instance comes back when the instance is next brought up to date.
 - **The showcase uses everything.** The scene of `samples/showcase` must contain every
   component type and every named option that a scene can hold - not those of
   `transient` properties, which only a running game has - and use every asset and
