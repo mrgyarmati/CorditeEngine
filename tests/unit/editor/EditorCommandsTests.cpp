@@ -236,10 +236,13 @@ TEST_SUITE("EditorCommands") {
         CHECK(types[2]["properties"][0]["assetType"] == "Prefab");
         // And what links a copy to the entity of its prefab, which only the editor changes.
         CHECK(types[3]["name"] == "PrefabLink");
-        CHECK(types[3]["properties"][0]["name"] == "source");
+        CHECK(types[3]["properties"][0]["name"] == "prefab");
+        CHECK(types[3]["properties"][0]["assetType"] == "Prefab");
         CHECK(types[3]["properties"][0]["readOnly"] == true);
-        CHECK(types[3]["properties"][1]["name"] == "overrides");
+        CHECK(types[3]["properties"][1]["name"] == "source");
         CHECK(types[3]["properties"][1]["readOnly"] == true);
+        CHECK(types[3]["properties"][2]["name"] == "overrides");
+        CHECK(types[3]["properties"][2]["readOnly"] == true);
 
         // References to assets say what kind of asset they take.
         CHECK(types[4]["name"] == "MeshRenderer");

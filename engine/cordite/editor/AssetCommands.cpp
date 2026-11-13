@@ -15,6 +15,7 @@
 #include "cordite/editor/AssetFiles.h"
 #include "cordite/editor/AssetImport.h"
 #include "cordite/editor/EditorActions.h"
+#include "cordite/editor/PrefabLinks.h"
 #include "cordite/engine/SceneAssets.h"
 #include "cordite/math/MathJson.h"
 #include "cordite/world/ComponentRegistry.h"
@@ -124,10 +125,26 @@ Result<Json> describePrefab(AssetManager& assets, const ComponentRegistry& compo
 
     World scratch;
     Json problems = Json::array();
-    const Result<Entity> placed = instantiatePrefab(scratch, components, prefab->entities, asset.id);
+    // Placed as the editor places it: with the prefabs inside it as they are now. A problem is
+    // said without the name of the file, which is the one described.
+    const Result<Json> current =
+        resolvePrefabEntities(components, asset.id, asset.reference(), prefab->entities, prefabReaderOf(assets));
+    const Result<Entity> placed = current ? instantiatePrefab(scratch, components, *current, asset.id)
+                                          : Result<Entity>(tl::unexpected(current.error()));
     if (placed) {
-        // Without the mark of an instance: it names the prefab itself, which is no use of it.
+        // Without the mark of an instance and the links to the prefab: they name the prefab
+        // itself, which is no use of it.
         scratch.remove<PrefabInstanceComponent>(*placed);
+        std::vector<Entity> linked;
+        scratch.traverse([&](Entity entity, uint32_t /*depth*/) {
+            if (const auto* link = scratch.tryGet<PrefabLinkComponent>(entity);
+                link != nullptr && link->prefab == asset.id) {
+                linked.push_back(entity);
+            }
+        });
+        for (const Entity entity : linked) {
+            scratch.remove<PrefabLinkComponent>(entity);
+        }
         for (const SceneProblem& problem : findSceneProblems(scratch, components, assets.database())) {
             Json entry = Json::object();
             entry["entity"] = entityPath(scratch, problem.entity);

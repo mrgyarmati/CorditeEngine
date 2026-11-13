@@ -1,6 +1,7 @@
 #include "cordite/assets/AssetDatabase.h"
 #include "cordite/assets/AssetManager.h"
 #include "cordite/assets/Prefab.h"
+#include "cordite/core/Json.h"
 #include "cordite/core/Result.h"
 #include "cordite/core/Uuid.h"
 #include "cordite/math/Math.h"
@@ -144,12 +145,24 @@ int worldInstantiate(lua_State* state) {
 
     // A prefab that cannot be read, or whose entities are wrong, is a mistake somebody
     // has to hear of where it is made: an error of the script, which names the file.
-    const Result<std::shared_ptr<const PrefabData>> data = context.assets.loadPrefab(prefab);
-    if (!data) {
-        return luaL_error(state, "%s", data.error().message.c_str());
+    // Placed with the prefabs inside it as they are now, as the editor places it.
+    AssetManager& assets = context.assets;
+    const PrefabReader read = [&assets](const Uuid& id, Json& entities) -> Result<std::string> {
+        CORDITE_TRY_ASSIGN(const std::shared_ptr<const PrefabData> held, assets.loadPrefab(id));
+        entities = held->entities;
+        const AssetInfo* asset = assets.database().find(id);
+        return asset != nullptr ? asset->reference() : id.toString();
+    };
+    Json entities;
+    const Result<std::string> name = read(prefab, entities);
+    if (!name) {
+        return luaL_error(state, "%s", name.error().message.c_str());
     }
-    const Result<Entity> instance =
-        instantiatePrefab(context.world, context.components, (*data)->entities, prefab, options);
+    const Result<Json> current = resolvePrefabEntities(context.components, prefab, *name, entities, read);
+    if (!current) {
+        return luaL_error(state, "%s: %s", name->c_str(), current.error().message.c_str());
+    }
+    const Result<Entity> instance = instantiatePrefab(context.world, context.components, *current, prefab, options);
     if (!instance) {
         const AssetInfo* asset = context.assets.database().find(prefab);
         const std::string file = asset != nullptr ? asset->reference() : prefab.toString();

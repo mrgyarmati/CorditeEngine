@@ -1144,6 +1144,58 @@ TEST_SUITE("AssetCommands") {
         CHECK(fixture.run("asset.refresh")["prefabInstancesUpdated"] == 0);
     }
 
+    TEST_CASE("a prefab inside a prefab reaches the instances of the outer one when it changes") {
+        AssetFixture fixture;
+        // A wheel prefab, and a cart prefab made of an entity with two wheels on it.
+        fixture.run("entity.create", R"({"name": "Wheel", "components": {"Camera": {"verticalFovDegrees": 30}}})");
+        fixture.run("prefab.create", R"({"entity": "Wheel", "path": "prefabs/wheel.prefab.json"})");
+        fixture.run("entity.create", R"({"name": "Cart"})");
+        fixture.run("asset.instantiate",
+                    R"({"asset": "prefabs/wheel.prefab.json", "parent": "Cart", "name": "Front"})");
+        fixture.run("asset.instantiate", R"({"asset": "prefabs/wheel.prefab.json", "parent": "Cart", "name": "Back"})");
+        fixture.run("prefab.create", R"({"entity": "Cart", "path": "prefabs/cart.prefab.json"})");
+        // The cart's file holds the wheels with their links to the wheel prefab.
+        const Json document = unwrap(readJsonFile(fixture.root / "prefabs" / "cart.prefab.json"));
+        CHECK(document["entities"][1]["components"]["PrefabLink"]["prefab"] == fixture.id("prefabs/wheel.prefab.json"));
+        fixture.run("asset.instantiate", R"({"asset": "prefabs/cart.prefab.json", "name": "Second cart"})");
+        const auto fov = [&](std::string_view path) {
+            return fixture.world.tryGet<CameraComponent>(unwrap(fixture.context->resolveEntity(path)))
+                ->verticalFovDegrees;
+        };
+
+        // The wheel changes: every wheel of every cart takes it.
+        fixture.run("component.set",
+                    R"({"entity": "Wheel", "component": "Camera", "properties": {"verticalFovDegrees": 45}})");
+        fixture.run("prefab.apply", R"({"entity": "Wheel", "override": "Camera.verticalFovDegrees"})");
+        CHECK(fov("Cart/Front") == 45.0f);
+        CHECK(fov("Second cart/Front") == 45.0f);
+        CHECK(fov("Second cart/Back") == 45.0f);
+        // The cart's file is as it was: what is inside it is read as its own prefab is now.
+        CHECK(unwrap(readJsonFile(fixture.root / "prefabs" / "cart.prefab.json")) == document);
+        CHECK(fixture.run("asset.refresh")["prefabInstancesUpdated"] == 0);
+    }
+
+    TEST_CASE("a prefab is not made to hold itself, and nothing is written") {
+        AssetFixture fixture;
+        fixture.run("entity.create", R"({"name": "Box"})");
+        fixture.run("prefab.create", R"({"entity": "Box", "path": "prefabs/box.prefab.json"})");
+        fixture.run("asset.instantiate", R"({"asset": "prefabs/box.prefab.json", "parent": "Box", "name": "Inner"})");
+        const std::filesystem::path file = fixture.root / "prefabs" / "box.prefab.json";
+        const std::string written = unwrap(readTextFile(file));
+        const Json before = serializeScene(fixture.world, fixture.components);
+
+        // Applied, the box would hold a box.
+        const Error applied = fixture.fail("prefab.apply", R"({"entity": "Box"})");
+        CHECK(applied.code == ErrorCode::InvalidArgument);
+        CHECK(applied.message.find("'prefabs/box.prefab.json' holds 'prefabs/box.prefab.json'") != std::string::npos);
+        // And made anew over its own file, too.
+        CHECK(
+            fixture.fail("prefab.create", R"({"entity": "Box", "path": "prefabs/box.prefab.json", "overwrite": true})")
+                .code == ErrorCode::InvalidArgument);
+        CHECK(unwrap(readTextFile(file)) == written);
+        CHECK(serializeScene(fixture.world, fixture.components) == before);
+    }
+
     TEST_CASE("prefab.apply refuses what it cannot apply, and writes nothing") {
         AssetFixture fixture;
         fixture.run("asset.instantiate", R"({"asset": "models/cart.gltf"})");

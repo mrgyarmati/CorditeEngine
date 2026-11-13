@@ -919,9 +919,20 @@ Step-by-step guide for adding a component: [add-component](.claude/skills/add-co
   instance's prefab - and brings every instance of it up to date, in one step of the
   history; the file is not undone. Nothing may read the marks to decide what an entity
   does. Scenes of version 1 are read through `migrateDocument` (`core/Document.h`), their
-  instances linked to nothing. Prefabs inside prefabs come next (P1-12); until then an
-  instance that holds one cannot be applied, and an entity of the prefab that is deleted
-  from an instance comes back when the instance is next brought up to date.
+  instances linked to nothing. **A prefab may hold prefabs**: a link names the prefab its
+  source is in (`PrefabLink::prefab`), every entity of an instance is linked to its
+  root's prefab - those of a prefab inside it included - and an entity that is the root of
+  an instance of its own (`isPrefabInstanceRoot`) is no part of the one around it, of
+  whichever prefab. A prefab's file keeps the links of the prefabs inside it, with what it
+  overrides of them (`serializePrefabEntities` keeps those and drops its own), and
+  whatever reads a prefab reads it through `resolvePrefabEntities`, which brings those up to
+  date with their own prefabs first - in memory, the file is not written - and refuses a
+  prefab that holds itself, naming the chain. What it makes of an inner prefab gets an id
+  that follows from where it is (`Uuid::fromName`), so that reading a file twice gives the
+  same entities. The editor reads through `currentPrefabEntities` (`editor/PrefabLinks.h`),
+  scripts through the same function in `cordite.world.instantiate`. An entity of the prefab
+  that is deleted from an instance is no override yet: it comes back when the instance is
+  next brought up to date.
 - **The showcase uses everything.** The scene of `samples/showcase` must contain every
   component type and every named option that a scene can hold - not those of
   `transient` properties, which only a running game has - and use every asset and

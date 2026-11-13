@@ -48,9 +48,19 @@ override, or for all of them; on the top entity it applies the whole group, with
 you added to it. The prefab's file is written, and every placed copy of it in the scene takes
 the change. Undo takes back what changed in the scene; the file stays as it was written.
 
-Two things are not there yet: a prefab placed inside another cannot be applied, and an entity
-of the prefab that you delete from a placed copy comes back the next time the copy is brought
-up to date.
+## Prefabs inside prefabs
+
+A prefab can hold other prefabs: place a prefab under an entity and make a prefab of that
+entity, or place one in a placed prefab and apply it. The prefab inside stays linked to its own
+prefab - a change to a wheel reaches every cart that has wheels - and what the outer prefab
+changes of it is kept as the outer prefab's own. A prefab that would hold itself, directly or
+through others, is refused, and the message names the files in the chain.
+
+`samples/showcase/assets/prefabs/bollard-pair.prefab.json` is a pair of bollards: two
+instances of the bollard prefab, the right one without its cap.
+
+One thing is not there yet: an entity of the prefab that you delete from a placed copy comes
+back the next time the copy is brought up to date. Switch it off instead.
 
 A scene still saves every entity in full. It opens even when a prefab is missing - the editor
 says so in the console - and a game plays it as it was saved: save the scene after a prefab

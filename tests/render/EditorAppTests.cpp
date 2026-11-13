@@ -861,15 +861,15 @@ TEST_SUITE("EditorApp") {
         CHECK(scene["views"] == 2);
         CHECK(scene["captures"]["count"] == 1);
         CHECK(scene["captures"]["dropped"] == 0);
-        CHECK(scene["meshRenderers"] == 2 * 38);
+        CHECK(scene["meshRenderers"] == 2 * 41);
         // The cable of the hoist is posed by its animator: one skeleton of six joints.
         CHECK(statistics["animation"]["animators"] == 1);
         CHECK(statistics["animation"]["joints"] == 6);
-        // The bodies of the scene are there - nineteen of them, two with shapes made of
+        // The bodies of the scene are there - twenty-one of them, two with shapes made of
         // meshes and one that stands for the sentry, a character - and none is
         // simulated: the editor shows a scene, it does not run it. Its joints hold
         // nothing while no time passes, and are not made.
-        CHECK(statistics["physics"]["bodies"] == 19);
+        CHECK(statistics["physics"]["bodies"] == 21);
         CHECK(statistics["physics"]["characters"] == 1);
         CHECK(statistics["physics"]["joints"] == 0);
         CHECK(statistics["physics"]["geometries"] == 2);
@@ -1991,7 +1991,7 @@ TEST_SUITE("EditorApp") {
         CHECK(clockName() == "Clock");
         statistics = run(*editor, "editor.statistics");
         CHECK(statistics["scripts"]["scripts"] == 0);
-        CHECK(statistics["physics"]["bodies"] == 19);
+        CHECK(statistics["physics"]["bodies"] == 21);
         CHECK(statistics["physics"]["joints"] == 0);
         CHECK(statistics["audio"]["voices"] == 0);
         for (const char* command : {"play.stop", "play.pause", "play.resume", "play.step"}) {
@@ -2229,7 +2229,7 @@ TEST_SUITE("EditorApp") {
         CHECK(editor->context().selection() == std::vector<Entity>{crate});
 
         // A prefab, below the rows: a root, marked with the prefab it was placed from.
-        browseFor("prefabs", "bollard", "prefabs/bollard.prefab.json");
+        browseFor("prefabs", "bollard.prefab", "prefabs/bollard.prefab.json");
         dragPointer(*editor, regionOf("###Assets/contents_") + Vec2(20.0f),
                     regionOf("###Hierarchy/tree_") + Vec2(60.0f, line * 12.0f));
         REQUIRE(world.roots().size() == 2);

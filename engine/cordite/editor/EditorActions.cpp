@@ -621,10 +621,10 @@ Result<Entity> EditorActions::instantiateModel(const Uuid& model, const ModelIns
 
 Result<Entity> EditorActions::instantiatePrefab(const Uuid& prefab, const PrefabInstanceOptions& options) {
     CORDITE_TRY(checkPlacement(m_context, options.parent, options.name, options.position));
-    CORDITE_TRY_ASSIGN(const std::shared_ptr<const PrefabData> data, m_context.assets().loadPrefab(prefab));
+    CORDITE_TRY_ASSIGN(const Json entities, currentPrefabEntities(m_context.assets(), m_context.components(), prefab));
 
     const Result<Entity> instance =
-        cordite::instantiatePrefab(m_context.world(), m_context.components(), data->entities, prefab, options);
+        cordite::instantiatePrefab(m_context.world(), m_context.components(), entities, prefab, options);
     if (!instance) {
         // What is wrong is wrong with a file, and the message says which.
         const AssetInfo* asset = m_context.assets().database().find(prefab);
@@ -750,6 +750,13 @@ Result<Uuid> EditorActions::createPrefab(Entity entity, std::string_view assetPa
                          "'{}' is {} entities with what is below it; a prefab may have {} at most", prefab.name,
                          prefab.entities.size(), kMaxPrefabEntities);
     }
+    // A prefab written over must still be one that can be read: not one that holds itself,
+    // which it would if the entity holds an instance of it.
+    if (const AssetInfo* replaced = assets.database().findByReference(reference);
+        replaced != nullptr && replaced->type == AssetType::Prefab) {
+        CORDITE_TRY(resolvePrefabEntities(m_context.components(), replaced->id, reference, prefab.entities,
+                                          prefabReaderOf(assets)));
+    }
 
     if (const std::filesystem::path directory = file.parent_path(); !directory.empty()) {
         CORDITE_TRY(ensureDirectory(directory));
@@ -779,7 +786,7 @@ Result<Uuid> EditorActions::createPrefab(Entity entity, std::string_view assetPa
     PrefabMark after = before;
     after.instance = PrefabInstanceComponent{.prefab = id};
     for (auto& [linked, link] : after.links) {
-        link = PrefabLinkComponent{.source = linked};
+        link = PrefabLinkComponent{.prefab = id, .source = linked};
     }
     if (after != before) {
         CORDITE_TRY(applyPrefabMark(m_context, after));
@@ -793,8 +800,9 @@ Result<Uuid> EditorActions::createPrefab(Entity entity, std::string_view assetPa
             .redo = [context, is] { return applyPrefabMark(*context, *is); },
         });
     }
-    // What was placed from a prefab that was written over takes what it is now.
-    if (const Result<size_t> updated = updatePrefabInstances(id); !updated) {
+    // What was placed from a prefab that was written over takes what it is now, and so does
+    // what holds it inside.
+    if (const Result<size_t> updated = updatePrefabInstances(); !updated) {
         return tl::unexpected(updated.error());
     }
     return id;
@@ -841,12 +849,8 @@ Status EditorActions::revertPrefabOverrides(Entity entity, std::string_view entr
         return makeError(ErrorCode::InvalidArgument, "'{}' is no linked copy of an entity of a prefab",
                          world.name(entity));
     }
-    // The root of its instance: the nearest above it, or it, with a PrefabInstance.
-    Entity root = entity;
-    while (!root.isNull() && !world.has<PrefabInstanceComponent>(root)) {
-        root = world.parent(root);
-    }
-    if (root.isNull() || !world.has<PrefabLinkComponent>(root)) {
+    const Entity root = prefabInstanceRootOf(world, entity);
+    if (root.isNull()) {
         return makeError(ErrorCode::InvalidArgument, "'{}' is in no linked instance of a prefab", world.name(entity));
     }
     const auto* link = world.tryGet<PrefabLinkComponent>(entity);
@@ -855,7 +859,7 @@ Status EditorActions::revertPrefabOverrides(Entity entity, std::string_view entr
     }
     // Loaded before anything changes: a prefab that is gone changes nothing.
     const Uuid prefab = world.tryGet<PrefabInstanceComponent>(root)->prefab;
-    CORDITE_TRY_ASSIGN(const std::shared_ptr<const PrefabData> data, m_context.assets().loadPrefab(prefab));
+    CORDITE_TRY_ASSIGN(const Json entities, currentPrefabEntities(m_context.assets(), m_context.components(), prefab));
 
     SubtreeChange change = subtreeBefore(m_context, root);
     if (!entry.empty()) {
@@ -865,11 +869,12 @@ Status EditorActions::revertPrefabOverrides(Entity entity, std::string_view entr
         while (!pending.empty()) {
             const Entity reverted = pending.back();
             pending.pop_back();
-            if (auto* held = world.tryGet<PrefabLinkComponent>(reverted)) {
-                held->overrides.clear();
-            }
-            if (reverted != root && world.has<PrefabInstanceComponent>(reverted)) {
+            // What is linked to this prefab - not an instance placed in it, of whatever prefab.
+            if (reverted != root && isPrefabInstanceRoot(world, reverted)) {
                 continue;
+            }
+            if (auto* held = world.tryGet<PrefabLinkComponent>(reverted); held != nullptr && held->prefab == prefab) {
+                held->overrides.clear();
             }
             for (const Entity child : world.children(reverted)) {
                 pending.push_back(child);
@@ -878,7 +883,7 @@ Status EditorActions::revertPrefabOverrides(Entity entity, std::string_view entr
     } else {
         world.tryGet<PrefabLinkComponent>(entity)->overrides.clear();
     }
-    CORDITE_TRY(syncPrefabInstance(world, m_context.components(), root, data->entities));
+    CORDITE_TRY(syncPrefabInstance(world, m_context.components(), root, entities));
     CORDITE_TRY(subtreeAfter(m_context, change));
     if (change.after == change.before) {
         return {};
@@ -901,31 +906,34 @@ Result<Uuid> EditorActions::applyPrefabOverrides(Entity entity, std::string_view
                          "half-way through");
     }
     World& world = m_context.world();
-    Entity root = entity;
-    while (!root.isNull() && !world.has<PrefabInstanceComponent>(root)) {
-        root = world.parent(root);
-    }
+    const Entity root = prefabInstanceRootOf(world, entity);
     if (root.isNull()) {
-        return makeError(ErrorCode::InvalidArgument, "'{}' is in no instance of a prefab", world.name(entity));
+        return makeError(ErrorCode::InvalidArgument, "'{}' is in no linked instance of a prefab", world.name(entity));
     }
     const Uuid prefab = world.tryGet<PrefabInstanceComponent>(root)->prefab;
     AssetManager& assets = m_context.assets();
     CORDITE_TRY_ASSIGN(const std::shared_ptr<const PrefabData> data, assets.loadPrefab(prefab));
-    const PrefabApply apply{.entity = entity, .entry = std::string(entry)};
-    CORDITE_TRY_ASSIGN(Json entities,
-                       prefabEntitiesWithOverrides(world, m_context.components(), root, data->entities, apply));
-    if (entities.size() > kMaxPrefabEntities) {
-        return makeError(ErrorCode::InvalidArgument, "the prefab would be {} entities; a prefab may have {} at most",
-                         entities.size(), kMaxPrefabEntities);
-    }
     const AssetInfo* asset = assets.database().find(prefab);
     if (asset == nullptr) {
         return makeError(ErrorCode::NotFound, "the prefab {} is not among the assets", prefab.toString());
     }
+    // Worked out from what the prefab is now, with the prefabs inside it up to date.
+    CORDITE_TRY_ASSIGN(const Json current, currentPrefabEntities(assets, m_context.components(), prefab));
+    const PrefabApply apply{.entity = entity, .entry = std::string(entry)};
+    CORDITE_TRY_ASSIGN(Json entities, prefabEntitiesWithOverrides(world, m_context.components(), root, current, apply));
+    if (entities.size() > kMaxPrefabEntities) {
+        return makeError(ErrorCode::InvalidArgument, "the prefab would be {} entities; a prefab may have {} at most",
+                         entities.size(), kMaxPrefabEntities);
+    }
+    // What is written must still be read: not a prefab that holds itself, which it would if
+    // an instance of it was placed in the instance.
+    CORDITE_TRY(
+        resolvePrefabEntities(m_context.components(), prefab, asset->reference(), entities, prefabReaderOf(assets)));
     const std::filesystem::path file = assets.database().sourceFile(*asset);
-    // Every instance of the prefab, before anything changes: all of them take what it is now.
+    // Every instance, before anything changes: those of the prefab take what it is now, and so
+    // do those of prefabs that hold it.
     std::vector<SubtreeChange> found;
-    for (const Entity instance : linkedPrefabRoots(world, prefab)) {
+    for (const Entity instance : linkedPrefabRoots(world)) {
         found.push_back(subtreeBefore(m_context, instance));
     }
 
@@ -935,7 +943,7 @@ Result<Uuid> EditorActions::applyPrefabOverrides(Entity entity, std::string_view
     markPrefabApplied(world, root, apply);
     // What changed is told by the instances before and after; a prefab that cannot be read
     // now - it was just written - is said in the log, and leaves them as they are.
-    std::ignore = syncPrefabInstances(world, m_context.components(), assets, prefab);
+    std::ignore = syncPrefabInstances(world, m_context.components(), assets);
     std::vector<SubtreeChange> changes;
     for (SubtreeChange& change : found) {
         CORDITE_TRY(subtreeAfter(m_context, change));

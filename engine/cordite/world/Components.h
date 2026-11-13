@@ -96,6 +96,10 @@ struct PrefabInstanceComponent {
 struct PrefabLinkComponent {
     static constexpr std::string_view kName = "PrefabLink";
 
+    /// The prefab whose file `source` is an id in: that of the instance the entity is part
+    /// of. Every entity of an instance is linked to its root's prefab, the entities of a
+    /// prefab placed inside it included; what is linked to another prefab is no part of it.
+    Uuid prefab;
     /// The id the entity has in the prefab's file.
     Uuid source;
     /// What of the entity keeps values of its own when the prefab changes, in the order it

@@ -582,7 +582,23 @@ have, which `markPrefabApplied` then links them to. The editor writes the file, 
 assets again and brings every instance of the prefab up to date, and records what changed in
 the scene as one step: the file, as with `prefab.create`, is no part of the document. An
 entity of the prefab that is deleted from an instance is not an override yet - the next
-update brings it back - and an instance that holds another prefab waits for nesting.
+update brings it back.
+
+Nesting (slice 4) needed one more thing a link says: which prefab its source is in
+(`PrefabLink::prefab`). With the source alone, the entities of a prefab placed inside an
+instance could not be told from those of the instance, nor two copies of the same prefab
+inside one from each other. Every entity of an instance is linked to its root's prefab -
+the entities of a prefab inside it as well, as the outer prefab's - and an entity that is
+the root of an instance of its own is no part of the one around it, whichever prefab it is
+of. A prefab's file keeps the links of the prefabs inside it, which say what of them it
+overrides, as a scene does; `resolvePrefabEntities` brings those up to date with their
+prefabs whenever the file is read, in memory, so that a change to an inner prefab reaches
+every outer one without writing their files, and refuses a prefab that holds itself,
+naming the chain. What it makes of an inner prefab gets an id that follows from where it is,
+so that reading the same files twice gives the same entities - an instance of the outer
+prefab is linked to those ids. Overrides of what is inside are named the way every
+override is: on the entity, whose source - an id in the outer prefab's file - is the path
+to it.
 
 ### The asset browser is a list that is worked out, and a window that draws it
 

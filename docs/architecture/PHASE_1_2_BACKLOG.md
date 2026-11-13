@@ -222,9 +222,12 @@ is overridden. Variants come in Phase 4, where the plan lists them.
   **Slice 3 done 13 November:** `prefab.apply` (`applyPrefabOverrides`, over
   `prefabEntitiesWithOverrides` and `markPrefabApplied` in the world module) writes one
   override, an entity's, or the whole instance with what was added to it into the prefab,
-  and every instance takes it in one step. Left for later: an instance that holds another
-  prefab is refused until slice 4, and an entity of the prefab deleted from an instance is
-  no override - it comes back.
+  and every instance takes it in one step. Left for later: an entity of the prefab deleted
+  from an instance is no override - it comes back.
+  **Slice 4 done 13 November:** a link names the prefab its source is in; a prefab's file
+  keeps the links of the prefabs inside it, and `resolvePrefabEntities` brings those up to
+  date whenever it is read, refusing a prefab that holds itself with the chain named. The
+  showcase has a pair of bollards with an override at both levels.
   1. **ADR and migration.** Replace "a prefab is copied where it is placed" with
      linked instances. Overrides are stored as property patches (the existing
      `PropertyPatch` fits), and added or removed children are recorded. Add
