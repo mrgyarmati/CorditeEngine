@@ -234,9 +234,16 @@ local cart = cordite.world.instantiate("prefabs/cart.prefab.json",
                                        { parent = yard, position = cordite.vec3(2, 0, -1) })
 ```
 
-What is placed is a copy: entities with ids of their own, saved in full with their
-scene. Changing the prefab changes what is placed afterwards, not what was. Undoing
-`prefab.create` takes the mark off the entity; the file stays.
+What is placed is entities with ids of their own, saved in full with their scene, and
+linked to the prefab: each has a `PrefabLink` that names the entity of the file it is a
+copy of, and lists what it keeps of its own (`overrides`) - which the editor notes as it
+is edited (`Camera.verticalFovDegrees`, `+Light`, `-Light`, `name`, `enabled`). When the
+prefab changes, `asset.refresh` (which the editor queues itself when a file changes) and
+opening a scene bring every linked instance up to date but for its overrides;
+`prefab.revert {"entity": "Cart 2/Body"}` takes overrides back, one (`"override":
+"name"`) or all. A game plays a scene as it was saved, and an instance a script places
+is not followed. Undoing `prefab.create` takes the mark and the links off the entity; the
+file stays.
 
 The file is a small scene - the same format for its entities, one root, which comes
 first. `samples/showcase/assets/prefabs/bollard.prefab.json` is the example, with

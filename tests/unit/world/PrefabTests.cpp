@@ -9,6 +9,8 @@
 #include "support/MathTestSupport.h"
 #include "support/TestSupport.h"
 
+#include <fmt/format.h>
+
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -322,5 +324,211 @@ TEST_SUITE("Prefab") {
         REQUIRE(type.fromJson(&loaded, saved).has_value());
         CHECK(loaded.prefab == kCartPrefab);
         CHECK_FALSE(type.fromJson(&loaded, unwrap(parseJson(R"({"prefab": "prefabs/cart.prefab.json"})"))).has_value());
+    }
+
+    TEST_CASE("every copy is linked to the entity of the prefab it was made of, and a prefab holds no links") {
+        Yard yard;
+        World& world = yard.world;
+        const Json entities = yard.cartEntities();
+        const Entity copy = unwrap(instantiatePrefab(world, yard.registry, entities, kCartPrefab));
+        // The prefab's entities have the ids of what it was made of.
+        const auto sourceOf = [&world](Entity entity) {
+            const auto* link = world.tryGet<PrefabLinkComponent>(entity);
+            REQUIRE(link != nullptr);
+            CHECK(link->overrides.empty());
+            return link->source;
+        };
+        CHECK(sourceOf(copy) == world.id(yard.cart));
+        std::set<Uuid> wheels;
+        for (const Entity wheel : world.children(copy)) {
+            wheels.insert(sourceOf(wheel));
+        }
+        CHECK(wheels == std::set<Uuid>{world.id(yard.front), world.id(yard.back)});
+
+        // A prefab made of an instance is no copy of anything.
+        const Json made = serializePrefabEntities(world, yard.registry, copy);
+        for (const Json& entity : made) {
+            CHECK_FALSE(entity["components"].contains("PrefabLink"));
+        }
+    }
+
+    TEST_CASE("an instance takes what its prefab is changed to, but for what it keeps of its own") {
+        Yard yard;
+        World& world = yard.world;
+        Json entities = yard.cartEntities();
+        const Entity copy = unwrap(instantiatePrefab(world, yard.registry, entities, kCartPrefab,
+                                                     {.name = "My cart", .position = Vec3(9.0f, 0.0f, 0.0f)}));
+        const auto wheel = [&](std::string_view name) {
+            for (const Entity child : world.children(copy)) {
+                if (world.name(child) == name) {
+                    return child;
+                }
+            }
+            FAIL("no wheel " << std::string(name));
+            return Entity{};
+        };
+        const Entity front = wheel("Front wheel");
+        const Entity back = wheel("Back wheel");
+        // The back wheel keeps a length of its own, and a camera the prefab does not have.
+        world.tryGet<Tether>(back)->length = 3.0f;
+        world.add<CameraComponent>(back).verticalFovDegrees = 30.0f;
+        world.tryGet<PrefabLinkComponent>(back)->overrides = {"Tether.length", "+Camera"};
+
+        // The prefab changes: its root moves and is renamed, the front wheel is renamed, sees
+        // wider and is switched off, the back one is tied more loosely.
+        const auto prefabEntity = [&entities](std::string_view name) -> Json& {
+            for (Json& entity : entities) {
+                if (entity["name"].get<std::string>() == name) {
+                    return entity;
+                }
+            }
+            FAIL("no entity " << std::string(name));
+            return entities[0];
+        };
+        prefabEntity("Cart")["components"]["Transform"]["position"] = Json::array({1, 2, 3});
+        prefabEntity("Cart")["name"] = "Wagon";
+        prefabEntity("Front wheel")["components"]["Camera"]["verticalFovDegrees"] = 80.0;
+        prefabEntity("Front wheel")["enabled"] = false;
+        prefabEntity("Front wheel")["name"] = "Leading wheel";
+        prefabEntity("Back wheel")["components"]["Tether"]["length"] = 6.0;
+
+        const PrefabSync sync = unwrap(syncPrefabInstance(world, yard.registry, copy, entities));
+        CHECK(sync.changed());
+        CHECK(sync.entitiesCreated == 0);
+        CHECK(sync.entitiesDestroyed == 0);
+        CHECK(sync.componentsAdded == 0);
+        CHECK(sync.componentsRemoved == 0);
+        // The root keeps where it was put and what it was called.
+        CHECK(world.transform(copy).position == Vec3(9.0f, 0.0f, 0.0f));
+        CHECK(world.name(copy) == "My cart");
+        CHECK(world.name(front) == "Leading wheel");
+        CHECK_FALSE(world.isEnabled(front));
+        CHECK(world.tryGet<CameraComponent>(front)->verticalFovDegrees == 80.0f);
+        CHECK(world.tryGet<Tether>(back)->length == 3.0f);
+        CHECK(world.tryGet<CameraComponent>(back) != nullptr);
+
+        // Brought up to date, it is up to date.
+        CHECK_FALSE(unwrap(syncPrefabInstance(world, yard.registry, copy, entities)).changed());
+
+        // A component the prefab gains is gained; one it loses is lost, unless kept.
+        prefabEntity("Leading wheel")["components"].erase("Camera");
+        prefabEntity("Back wheel")["components"]["Camera"] = Json::object();
+        world.tryGet<PrefabLinkComponent>(front)->overrides = {};
+        world.tryGet<PrefabLinkComponent>(back)->overrides = {"-Tether"};
+        world.remove<Tether>(back);
+        const PrefabSync components = unwrap(syncPrefabInstance(world, yard.registry, copy, entities));
+        CHECK(components.componentsRemoved == 1);
+        CHECK(world.tryGet<CameraComponent>(front) == nullptr);
+        CHECK(world.tryGet<Tether>(back) == nullptr);
+        CHECK(world.tryGet<CameraComponent>(back) != nullptr);
+    }
+
+    TEST_CASE("an instance gains what its prefab gains, loses what it loses, and keeps what was added to it") {
+        Yard yard;
+        World& world = yard.world;
+        Json entities = yard.cartEntities();
+        const Entity copy = unwrap(instantiatePrefab(world, yard.registry, entities, kCartPrefab));
+        const Entity added = world.createEntity("Lantern");
+        REQUIRE(world.setParent(added, copy).has_value());
+
+        // The back wheel is gone from the prefab; a seat is new in it, with a cushion on it.
+        const Uuid back = world.id(yard.back);
+        Json kept = Json::array();
+        for (const Json& entity : entities) {
+            if (entity["id"].get<std::string>() != back.toString()) {
+                kept.push_back(entity);
+            }
+        }
+        entities = std::move(kept);
+        const Uuid seat = *Uuid::parse("eeeeeeee-eeee-4eee-8eee-000000000001");
+        const Uuid cushion = *Uuid::parse("eeeeeeee-eeee-4eee-8eee-000000000002");
+        entities.push_back(Json::parse(
+            fmt::format(R"({{"id": "{}", "name": "Seat", "enabled": true, "parent": "{}", "components": {{}}}})",
+                        seat.toString(), world.id(yard.cart).toString())));
+        entities.push_back(Json::parse(fmt::format(
+            R"({{"id": "{}", "name": "Cushion", "enabled": true, "parent": "{}", "components": {{"Tether": {{"to": "{}", "length": 1}}}}}})",
+            cushion.toString(), seat.toString(), seat.toString())));
+
+        const PrefabSync sync = unwrap(syncPrefabInstance(world, yard.registry, copy, entities));
+        CHECK(sync.entitiesDestroyed == 1);
+        CHECK(sync.entitiesCreated == 2);
+        std::vector<std::string> below;
+        for (const Entity child : world.children(copy)) {
+            below.push_back(world.name(child));
+        }
+        CHECK(below == std::vector<std::string>{"Front wheel", "Lantern", "Seat"});
+        const Entity made = world.children(copy).back();
+        CHECK(world.tryGet<PrefabLinkComponent>(made)->source == seat);
+        REQUIRE(world.children(made).size() == 1);
+        CHECK(world.tryGet<PrefabLinkComponent>(world.children(made).front())->source == cushion);
+        // Tied to the seat of the prefab, the new cushion is tied to the new seat.
+        CHECK(world.tryGet<Tether>(world.children(made).front())->to == world.id(made));
+        CHECK(world.tryGet<PrefabLinkComponent>(added) == nullptr);
+    }
+
+    TEST_CASE("a link written in a prefab's file says nothing of the links of an instance") {
+        Yard yard;
+        World& world = yard.world;
+        Json entities = yard.cartEntities();
+        const Entity copy = unwrap(instantiatePrefab(world, yard.registry, entities, kCartPrefab));
+        const PrefabLinkComponent before = *world.tryGet<PrefabLinkComponent>(copy);
+        world.tryGet<PrefabLinkComponent>(copy)->overrides = {"enabled"};
+
+        // Written by hand, or by an editor that made the prefab of an instance before links were
+        // left out: another source, and overrides of its own.
+        entities[0]["components"]["PrefabLink"] =
+            Json::parse(R"({"source": "dddddddd-dddd-4ddd-8ddd-000000000001", "overrides": ["name"]})");
+        const PrefabSync sync = unwrap(syncPrefabInstance(world, yard.registry, copy, entities));
+        CHECK(sync.entitiesCreated == 0);
+        CHECK(sync.entitiesDestroyed == 0);
+        CHECK(sync.componentsAdded == 0);
+        CHECK(sync.componentsRemoved == 0);
+        CHECK(sync.valuesChanged == 0);
+        // Nothing changed - the back wheel of the copy is still tied to the front wheel of the
+        // copy, which the prefab's own front wheel stands for.
+        Entity copyFront;
+        Entity copyBack;
+        for (const Entity child : world.children(copy)) {
+            (world.name(child) == "Front wheel" ? copyFront : copyBack) = child;
+        }
+        CHECK(world.tryGet<Tether>(copyBack)->to == world.id(copyFront));
+        const PrefabLinkComponent* after = world.tryGet<PrefabLinkComponent>(copy);
+        CHECK(after->source == before.source);
+        CHECK(after->overrides == std::vector<std::string>{"enabled"});
+
+        // Placed, the copy is linked to the entity of the file, not to what its link said.
+        const Entity placed = unwrap(instantiatePrefab(world, yard.registry, entities, kCartPrefab));
+        CHECK(world.tryGet<PrefabLinkComponent>(placed)->source == before.source);
+        CHECK(world.tryGet<PrefabLinkComponent>(placed)->overrides.empty());
+    }
+
+    TEST_CASE("what is no linked instance, or no prefab, is not brought up to date, and nothing changes") {
+        Yard yard;
+        World& world = yard.world;
+        Json entities = yard.cartEntities();
+        const Entity copy = unwrap(instantiatePrefab(world, yard.registry, entities, kCartPrefab));
+        CHECK(errorIn(syncPrefabInstance(world, yard.registry, yard.yard, entities)).code ==
+              ErrorCode::InvalidArgument);
+        CHECK(errorIn(syncPrefabInstance(world, yard.registry, Entity{}, entities)).code == ErrorCode::InvalidArgument);
+
+        // A copy placed before prefabs were linked stays what it is.
+        world.remove<PrefabLinkComponent>(copy);
+        entities[0]["name"] = "Wagon";
+        world.setName(copy, "Old cart");
+        CHECK_FALSE(unwrap(syncPrefabInstance(world, yard.registry, copy, entities)).changed());
+        world.add<PrefabLinkComponent>(copy).source = world.id(yard.cart);
+
+        // A prefab that is wrong changes nothing, and says what is wrong.
+        const Json before = serializePrefabEntities(world, yard.registry, copy);
+        Json wrong = entities;
+        wrong[1]["components"]["Wheel"] = Json::object();
+        wrong[1]["components"]["Camera"] = Json::parse(R"({"verticalFovDegrees": 80.0})");
+        CHECK(errorIn(syncPrefabInstance(world, yard.registry, copy, wrong)).message.find("Wheel") !=
+              std::string::npos);
+        CHECK(errorIn(syncPrefabInstance(world, yard.registry, copy, Json::array())).code == ErrorCode::ParseError);
+        Json twoRoots = entities;
+        twoRoots[1]["parent"] = nullptr;
+        CHECK(errorIn(syncPrefabInstance(world, yard.registry, copy, twoRoots)).code == ErrorCode::ParseError);
+        CHECK(serializePrefabEntities(world, yard.registry, copy) == before);
     }
 }

@@ -47,6 +47,19 @@ TypeInfo describePrefabInstance() {
         .build();
 }
 
+TypeInfo describePrefabLink() {
+    return TypeBuilder<PrefabLinkComponent>(std::string(PrefabLinkComponent::kName))
+        .property(
+            "source", &PrefabLinkComponent::source,
+            {.description = "The id this entity has in the file of the prefab it was placed from", .readOnly = true})
+        .property("overrides", &PrefabLinkComponent::overrides,
+                  {.description = "What of this entity keeps values of its own when the prefab changes: "
+                                  "\"Light.intensity\", \"+Light\" (added here), \"-Light\" (removed here), "
+                                  "\"name\", \"enabled\"",
+                   .readOnly = true})
+        .build();
+}
+
 } // namespace
 
 Status registerWorldComponents(ComponentRegistry& registry) {
@@ -57,8 +70,12 @@ Status registerWorldComponents(ComponentRegistry& registry) {
         describeCamera(), {.description = "A point of view the scene can be rendered from, looking along -Z."}));
     CORDITE_TRY(registry.add<PrefabInstanceComponent>(
         describePrefabInstance(),
-        {.description = "Says which prefab the entity was placed from. It is an ordinary "
-                        "entity all the same: changing the prefab later does not change it."}));
+        {.description = "Says which prefab the entity, and what hangs under it, was placed from: the root of an "
+                        "instance, whose entities take what the prefab is changed to (PrefabLink)."}));
+    CORDITE_TRY(registry.add<PrefabLinkComponent>(
+        describePrefabLink(),
+        {.description = "Which entity of a prefab this one is a copy of, and what of it keeps values of its "
+                        "own when the prefab changes. Kept by the editor; read-only."}));
     return {};
 }
 

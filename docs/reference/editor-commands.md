@@ -101,7 +101,7 @@ Draws a picture of an asset as the Assets panel shows it - a mesh as it is, a ma
 
 ## asset.refresh
 
-Reads the asset directory again and reloads everything, after files were added, changed or removed. Returns how many assets there are and what is wrong, if anything.
+Reads the asset directory again and reloads everything, after files were added, changed or removed, and brings the scene's linked prefab instances up to date with their prefabs - one step of the history, while the scene is not played. Returns how many assets there are, how many instances changed and what is wrong, if anything.
 
 It takes no parameters.
 
@@ -422,13 +422,22 @@ It takes no parameters.
 
 ## prefab.create
 
-Makes a prefab of an entity and everything below it: writes them into a file among the assets, reads the assets again, and marks the entity as an instance of the new prefab with a PrefabInstance component. Returns the prefab. asset.instantiate places it, and so does a script, with cordite.world.instantiate. What was placed is a copy: changing the prefab later does not change it. Undoing takes the mark off the entity; the file stays.
+Makes a prefab of an entity and everything below it: writes them into a file among the assets, reads the assets again, and makes the entity an instance of the new prefab: a PrefabInstance component marks it, and a PrefabLink links it and every entity below it to itself in the file. Returns the prefab. asset.instantiate places it, and so does a script, with cordite.world.instantiate. What the editor places stays linked: when the prefab changes, its instances take the change, but for what they keep of their own. Undoing takes the mark and the links off; the file stays.
 
 | Parameter | Kind | Needed | Meaning |
 |---|---|---|---|
 | `entity` | string | yes | The entity to make the prefab of: its id, its path of names from a root, or its name if that is unique. |
 | `path` | string | no | Where the file goes, within the asset directory. Its name ends in ".prefab.json": "prefabs/cart.prefab.json". Without one it is named after the entity, in "prefabs". |
 | `overwrite` | boolean | no | Whether a file that is there already is replaced. Without it, such a file is an error. A prefab that is replaced keeps its id. |
+
+## prefab.revert
+
+Gives a linked copy of a prefab's entity back what its prefab has, where it kept something of its own: one override, or all of them - of every entity of the instance, for its root. The overrides of an entity are the overrides of its PrefabLink component. The Transform of the root of an instance stays its own. Undoable. Returns the entity.
+
+| Parameter | Kind | Needed | Meaning |
+|---|---|---|---|
+| `entity` | string | yes | A linked copy - an entity with a PrefabLink: its id, its path of names from a root, or its name if that is unique. |
+| `override` | string | no | The one override to take back, as its PrefabLink lists it: "Light.intensity", "+Light" (a component it added), "-Light" (one it left out), "name" or "enabled". Without one, every override is taken back. |
 
 ## probes.capture
 

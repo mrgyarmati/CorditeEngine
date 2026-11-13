@@ -46,7 +46,9 @@
 
 #include "cordite/core/Document.h"
 #include "cordite/core/JsonFwd.h"
+#include "cordite/core/Reflection.h"
 #include "cordite/core/Result.h"
+#include "cordite/core/Uuid.h"
 #include "cordite/world/ComponentRegistry.h"
 #include "cordite/world/World.h"
 
@@ -54,11 +56,14 @@
 #include <filesystem>
 #include <optional>
 #include <span>
+#include <unordered_map>
 #include <vector>
 
 namespace cordite {
 
-inline constexpr uint32_t kSceneFormatVersion = 1;
+/// Version 2 added the links of prefab instances (PrefabLinkComponent); a scene of version 1
+/// is read as it is, its instances linked to nothing.
+inline constexpr uint32_t kSceneFormatVersion = 2;
 
 /// What a scene document says it is (cordite/core/Document.h): whoever reads one checks
 /// it with readDocumentHeader() first.
@@ -109,5 +114,12 @@ struct InstantiateOptions {
 [[nodiscard]] Result<std::vector<Entity>> instantiateEntities(World& world, const Json& entities,
                                                               const ComponentRegistry& components,
                                                               const InstantiateOptions& options = {});
+
+/// Redirects the entity references in `json` - the JSON of a component of `type`, as
+/// TypeInfo::toJson writes it, and of the structs nested in it - from the ids `ids` has to
+/// the ids it maps them to: what instantiateEntities() does to copies, and what bringing an
+/// instance of a prefab up to date does to the values it takes. A reference to an id `ids`
+/// does not have, and a value that is no id, is left as it is.
+void remapEntityReferences(Json& json, const TypeInfo& type, const std::unordered_map<Uuid, Uuid>& ids);
 
 } // namespace cordite

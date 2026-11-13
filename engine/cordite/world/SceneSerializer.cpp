@@ -18,6 +18,17 @@ namespace {
 constexpr std::array<std::string_view, 4> kSceneMembers = {"format", "version", "name", "entities"};
 constexpr std::array<std::string_view, 5> kEntityMembers = {"id", "name", "enabled", "parent", "components"};
 
+/// A scene of version 1 has no links of prefab instances, which are components: it is a
+/// scene of version 2 as it is.
+Status fromVersion1(Json& /*document*/) {
+    return {};
+}
+
+constexpr std::array<DocumentMigration, kSceneFormatVersion - 1> kSceneMigrations = {fromVersion1};
+
+/// Reads a scene of the version this engine writes into `world`; see deserializeScene().
+Status readScene(World& world, const Json& document, const ComponentRegistry& components);
+
 /// Maps the identifier of each entity being duplicated to the identifier of its copy.
 using IdMap = std::unordered_map<Uuid, Uuid>;
 
@@ -56,7 +67,7 @@ void remapEntityReference(Json& value, const IdMap& idMap) {
 /// Redirects the entity references inside the JSON of a component, or of a struct nested
 /// in one, according to `idMap`. References to entities outside the map stay as they are.
 /// Malformed values are left alone: parsing reports them afterwards.
-void remapEntityReferences(Json& json, const TypeInfo& type, const IdMap& idMap) {
+void remapReferences(Json& json, const TypeInfo& type, const IdMap& idMap) {
     if (!json.is_object()) {
         return;
     }
@@ -66,7 +77,7 @@ void remapEntityReferences(Json& json, const TypeInfo& type, const IdMap& idMap)
             continue;
         }
         if (property.type() == PropertyType::Object && property.objectType() != nullptr) {
-            remapEntityReferences(*member, *property.objectType(), idMap);
+            remapReferences(*member, *property.objectType(), idMap);
         } else if (property.attributes().semantic == PropertySemantic::EntityReference) {
             if (member->is_array()) {
                 for (Json& element : *member) {
@@ -226,7 +237,7 @@ Result<std::vector<ComponentPlan>> planComponents(const Json& componentsJson, co
         Json redirected;
         if (newIds != nullptr) {
             redirected = componentJson;
-            remapEntityReferences(redirected, descriptor->type, *newIds);
+            remapReferences(redirected, descriptor->type, *newIds);
             source = &redirected;
         }
         CORDITE_TRY_ASSIGN(PropertyPatch patch, descriptor->type.parse(*source));
@@ -324,7 +335,15 @@ Json serializeScene(const World& world, const ComponentRegistry& components) {
 }
 
 Status deserializeScene(World& world, const Json& document, const ComponentRegistry& components) {
-    CORDITE_TRY(readDocumentHeader(document, kSceneFormat));
+    // Read as a scene of now, whatever version it was written in.
+    Json migrated = document;
+    CORDITE_TRY(migrateDocument(migrated, kSceneFormat, kSceneMigrations));
+    return readScene(world, migrated, components);
+}
+
+namespace {
+
+Status readScene(World& world, const Json& document, const ComponentRegistry& components) {
     CORDITE_TRY(rejectUnknownMembers(document, kSceneMembers));
     CORDITE_TRY_ASSIGN(const std::optional<std::string> name, jsonGetOptional<std::string>(document, "name"));
 
@@ -341,6 +360,7 @@ Status deserializeScene(World& world, const Json& document, const ComponentRegis
     CORDITE_TRY(createPlanned(world, plans, [](const EntityPlan& /*plan*/) { return Entity{}; }));
     return {};
 }
+} // namespace
 
 Status saveScene(const std::filesystem::path& path, const World& world, const ComponentRegistry& components) {
     return writeJsonFile(path, serializeScene(world, components));
@@ -406,6 +426,10 @@ Result<std::vector<Entity>> instantiateEntities(World& world, const Json& entiti
         // Null when the recorded parent no longer exists, which makes the entity a root.
         return plan.outsideParentId.isNil() ? Entity{} : world.findById(plan.outsideParentId);
     });
+}
+
+void remapEntityReferences(Json& json, const TypeInfo& type, const std::unordered_map<Uuid, Uuid>& ids) {
+    remapReferences(json, type, ids);
 }
 
 } // namespace cordite

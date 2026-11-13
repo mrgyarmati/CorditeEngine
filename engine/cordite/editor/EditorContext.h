@@ -42,6 +42,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <limits>
 #include <optional>
 #include <span>
 #include <string>
@@ -194,6 +195,10 @@ private:
     std::vector<Uuid> m_selection;
     Json m_clipboard;
     std::filesystem::path m_scenePath;
+    /// What m_savedStateId is when no state of the history is saved: what was restored or
+    /// brought up to date has changes that were not. No history gets there - its states are
+    /// counted up from nothing, one an edit.
+    static constexpr uint64_t kNotSaved = std::numeric_limits<uint64_t>::max();
     uint64_t m_savedStateId = 0;
     uint64_t m_saveCount = 0;
     std::optional<PlayedDocument> m_play;

@@ -89,6 +89,22 @@ struct PrefabInstanceComponent {
     Uuid prefab;
 };
 
+/// Says which entity of a prefab an entity placed from it is a copy of, and what of it has
+/// values of its own (cordite/world/Prefab.h): every entity of an instance has one, under
+/// the root that a PrefabInstance names the prefab of. Entities placed before prefabs were
+/// linked, and those added to an instance by hand, have none, and are left as they are.
+struct PrefabLinkComponent {
+    static constexpr std::string_view kName = "PrefabLink";
+
+    /// The id the entity has in the prefab's file.
+    Uuid source;
+    /// What of the entity keeps values of its own when the prefab changes, in the order it
+    /// got them: "Light.intensity" for a property; "+Light" for a component the prefab's
+    /// entity does not have, "-Light" for one it has that this entity does not; "name" and
+    /// "enabled". The Transform of the instance's root is always its own, and not listed.
+    std::vector<std::string> overrides;
+};
+
 /// Registers the components declared in this file. Other modules that add components
 /// provide a function like this one, and the engine calls them all at start-up. Fails
 /// with AlreadyExists when called twice on the same registry.

@@ -214,6 +214,11 @@ is overridden. Variants come in Phase 4, where the plan lists them.
   **Slice 1 done 13 November:** the design is in `docs/architecture.md` ("A prefab stays
   linked to what was placed from it"), and `migrateDocument` in `core/Document.h` carries
   the scene to version 2 in slice 2.
+  **Slice 2 done 13 November:** scenes are version 2; every placed entity has a
+  `PrefabLink` (its source and its overrides, said by name rather than as patches: a
+  property, `+Component`, `-Component`, `name`, `enabled`); `syncPrefabInstance` brings an
+  instance up to date, which the editor does when a scene opens and on `asset.refresh`;
+  edits note overrides in their own step; `prefab.revert` takes them back.
   1. **ADR and migration.** Replace "a prefab is copied where it is placed" with
      linked instances. Overrides are stored as property patches (the existing
      `PropertyPatch` fits), and added or removed children are recorded. Add

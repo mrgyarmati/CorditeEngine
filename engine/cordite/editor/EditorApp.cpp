@@ -2339,7 +2339,7 @@ void EditorApp::drawAssetMenu() {
         return;
     }
     if (ImGui::MenuItem("Refresh")) {
-        reportIfFailed(m_context->assets().refresh());
+        m_submittedLines.emplace_back("asset.refresh");
     }
     // Placed once the menu has been drawn: the list of assets must not be walked while
     // something is placed from it.

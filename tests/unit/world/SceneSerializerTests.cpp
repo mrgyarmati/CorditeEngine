@@ -375,8 +375,8 @@ TEST_SUITE("SceneSerializer") {
              ErrorCode::ParseError, "version"},
             {"version zero", R"({"format": "cordite.scene", "version": 0, "entities": []})", ErrorCode::VersionMismatch,
              "version 0"},
-            {"newer version", R"({"format": "cordite.scene", "version": 2, "entities": [], "future": {}})",
-             ErrorCode::VersionMismatch, "version 2"},
+            {"newer version", R"({"format": "cordite.scene", "version": 3, "entities": [], "future": {}})",
+             ErrorCode::VersionMismatch, "version 3"},
             {"unknown top-level member", R"({"format": "cordite.scene", "version": 1, "entitites": []})",
              ErrorCode::ParseError, "unknown member 'entitites'"},
             {"name of the wrong type", R"({"format": "cordite.scene", "version": 1, "name": 5, "entities": []})",
@@ -734,5 +734,26 @@ TEST_SUITE("SceneSerializer") {
         CHECK(loaded.entityCount() == kCount + 1);
         CHECK(outline(loaded) == outline(original));
         CHECK(loaded.transform(loaded.findByName("Entity 1999")).position.x == 1999.0f);
+    }
+
+    TEST_CASE("a scene of version 1 is read as it was, and written as one of version 2") {
+        const ComponentRegistry registry = makeRegistry();
+        World world;
+        REQUIRE(deserializeScene(world, json(R"({"format": "cordite.scene", "version": 1, "name": "Old", "entities": [
+                                     {"id": "10000000-0000-4000-8000-000000000001", "name": "Crate", "enabled": true,
+                                      "parent": null, "components": {"PrefabInstance": {
+                                          "prefab": "cccccccc-cccc-4ccc-8ccc-cccccccccccc"}}}]})"),
+                                 registry)
+                    .has_value());
+        const Entity crate = world.findByName("Crate");
+        // A copy, as it was: linked to nothing.
+        CHECK(world.has<PrefabInstanceComponent>(crate));
+        CHECK_FALSE(world.has<PrefabLinkComponent>(crate));
+        const Json written = serializeScene(world, registry);
+        CHECK(written["version"] == kSceneFormatVersion);
+        CHECK(kSceneFormatVersion == 2);
+        World again;
+        REQUIRE(deserializeScene(again, written, registry).has_value());
+        CHECK(serializeScene(again, registry) == written);
     }
 }

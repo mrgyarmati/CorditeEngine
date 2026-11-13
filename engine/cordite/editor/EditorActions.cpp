@@ -7,25 +7,28 @@
 #include "cordite/core/Assert.h"
 #include "cordite/core/FileSystem.h"
 #include "cordite/core/StringUtils.h"
+#include "cordite/editor/PrefabLinks.h"
 #include "cordite/renderer/RenderComponents.h"
 #include "cordite/world/Components.h"
 #include "cordite/world/EntityPath.h"
+#include "cordite/world/Prefab.h"
 #include "cordite/world/SceneSerializer.h"
 
 #include <fmt/format.h>
 
 #include <algorithm>
+#include <array>
 #include <filesystem>
+#include <functional>
 #include <memory>
+#include <ranges>
+#include <string>
 #include <system_error>
 #include <unordered_set>
 #include <utility>
 
 namespace cordite {
 namespace {
-
-/// The name of the component that marks an instance of a prefab.
-constexpr std::string_view kPrefabInstance = "PrefabInstance";
 
 /// Where an entity sits among its siblings, for putting it back there.
 struct Placement {
@@ -163,10 +166,226 @@ Status applyAttachment(EditorContext& context, const Uuid& id, const Attachment&
     return {};
 }
 
+/// The entities under one root as an edit found them and as it left them: a step of the
+/// history that puts back one or the other whole, for edits that change what an instance
+/// of a prefab is made of.
+struct SubtreeChange {
+    Uuid root;
+    Json before;
+    Json after;
+    std::vector<Placement> placement;
+};
+
+/// The entities under `root` as they are, as `before` of a change.
+SubtreeChange subtreeBefore(const EditorContext& context, Entity root) {
+    const std::array<Entity, 1> roots = {root};
+    return {.root = context.world().id(root),
+            .before = serializeEntities(context.world(), roots, context.components()),
+            .placement = placementsOf(context.world(), roots)};
+}
+
+/// Fills in what `change` left of the entities under its root.
+Status subtreeAfter(EditorContext& context, SubtreeChange& change) {
+    CORDITE_TRY_ASSIGN(const Entity root, findEntity(context, change.root));
+    const std::array<Entity, 1> roots = {root};
+    change.after = serializeEntities(context.world(), roots, context.components());
+    return {};
+}
+
+/// A step of the history that puts back the entities of `changes`, as they were when undone
+/// - the last first, so that what is inside another goes back before it - and as they were
+/// left when redone.
+UndoEntry subtreeEdit(EditorContext& context, std::string label, std::vector<SubtreeChange> changes) {
+    EditorContext* target = &context;
+    const auto shared = std::make_shared<const std::vector<SubtreeChange>>(std::move(changes));
+    const auto apply = [target, shared](bool undo) -> Status {
+        const auto put = [target, undo](const SubtreeChange& change) -> Status {
+            const std::array<Uuid, 1> ids = {change.root};
+            CORDITE_TRY(destroyEntities(*target, ids));
+            return restoreEntities(*target, undo ? change.before : change.after, change.placement);
+        };
+        if (undo) {
+            for (const SubtreeChange& change : std::views::reverse(*shared)) {
+                CORDITE_TRY(put(change));
+            }
+        } else {
+            for (const SubtreeChange& change : *shared) {
+                CORDITE_TRY(put(change));
+            }
+        }
+        return {};
+    };
+    return {
+        .label = std::move(label), .undo = [apply] { return apply(true); }, .redo = [apply] { return apply(false); }};
+}
+
+/// What makes an entity and what is below it an instance of a prefab: the PrefabInstance of
+/// the root and the PrefabLink of each, or none.
+struct PrefabMark {
+    Uuid root;
+    std::optional<PrefabInstanceComponent> instance;
+    std::vector<std::pair<Uuid, std::optional<PrefabLinkComponent>>> links;
+
+    friend bool operator==(const PrefabMark& first, const PrefabMark& second) {
+        const auto sameInstance = [](const std::optional<PrefabInstanceComponent>& a,
+                                     const std::optional<PrefabInstanceComponent>& b) {
+            return a.has_value() == b.has_value() && (!a || a->prefab == b->prefab);
+        };
+        const auto sameLink = [](const std::optional<PrefabLinkComponent>& a,
+                                 const std::optional<PrefabLinkComponent>& b) {
+            return a.has_value() == b.has_value() && (!a || (a->source == b->source && a->overrides == b->overrides));
+        };
+        return first.root == second.root && sameInstance(first.instance, second.instance) &&
+               std::ranges::equal(first.links, second.links, [&](const auto& a, const auto& b) {
+                   return a.first == b.first && sameLink(a.second, b.second);
+               });
+    }
+};
+
+/// The mark of `root` and of everything below it, as it is.
+PrefabMark prefabMarkOf(const World& world, Entity root) {
+    PrefabMark mark{.root = world.id(root)};
+    if (const auto* instance = world.tryGet<PrefabInstanceComponent>(root)) {
+        mark.instance = *instance;
+    }
+    std::vector<Entity> pending = {root};
+    while (!pending.empty()) {
+        const Entity entity = pending.back();
+        pending.pop_back();
+        std::optional<PrefabLinkComponent> link;
+        if (const auto* held = world.tryGet<PrefabLinkComponent>(entity)) {
+            link = *held;
+        }
+        mark.links.emplace_back(world.id(entity), std::move(link));
+        for (const Entity child : world.children(entity)) {
+            pending.push_back(child);
+        }
+    }
+    return mark;
+}
+
+/// Gives the entities of `mark` the components it says, and takes away those it has none of.
+/// Every entity is found before any is changed.
+Status applyPrefabMark(EditorContext& context, const PrefabMark& mark) {
+    CORDITE_TRY_ASSIGN(const Entity root, findEntity(context, mark.root));
+    std::vector<Entity> entities;
+    entities.reserve(mark.links.size());
+    for (const auto& [id, link] : mark.links) {
+        CORDITE_TRY_ASSIGN(const Entity entity, findEntity(context, id));
+        entities.push_back(entity);
+    }
+    World& world = context.world();
+    if (mark.instance) {
+        world.add<PrefabInstanceComponent>(root) = *mark.instance;
+    } else {
+        world.remove<PrefabInstanceComponent>(root);
+    }
+    for (size_t index = 0; index < entities.size(); ++index) {
+        if (const std::optional<PrefabLinkComponent>& link = mark.links[index].second) {
+            world.add<PrefabLinkComponent>(entities[index]) = *link;
+        } else {
+            world.remove<PrefabLinkComponent>(entities[index]);
+        }
+    }
+    return {};
+}
+
+/// What an edit changed of the overrides of a linked copy of a prefab's entity.
+struct OverrideChange {
+    Uuid id;
+    std::vector<std::string> before;
+    std::vector<std::string> after;
+};
+
+/// Notes in the PrefabLink of `entity` what `change` makes of its overrides - what an edit
+/// of a linked copy keeps of its own when the prefab changes - and adds that to `changes`.
+/// Nothing for an entity without a link, or a change that changes nothing.
+void noteOverrides(World& world, Entity entity, const std::function<void(std::vector<std::string>&)>& change,
+                   std::vector<OverrideChange>& changes) {
+    auto* link = world.tryGet<PrefabLinkComponent>(entity);
+    if (link == nullptr) {
+        return;
+    }
+    std::vector<std::string> after = link->overrides;
+    change(after);
+    if (after == link->overrides) {
+        return;
+    }
+    changes.push_back({.id = world.id(entity), .before = link->overrides, .after = after});
+    link->overrides = std::move(after);
+}
+
+/// Whether a component is one of what marks an instance of a prefab - never an override.
+bool isPrefabMark(std::string_view component) {
+    return component == PrefabInstanceComponent::kName || component == PrefabLinkComponent::kName;
+}
+
+/// Adds `entry` to the overrides, when it is not among them.
+void addOverride(std::vector<std::string>& overrides, std::string entry) {
+    if (std::ranges::find(overrides, entry) == overrides.end()) {
+        overrides.push_back(std::move(entry));
+    }
+}
+
+/// Notes the properties of `component` that differ between `before` and `after` - the
+/// component as an edit found it and left it - as overrides of `entity`. The Transform of
+/// the root of an instance is always its own, and not noted.
+void noteChangedProperties(World& world, Entity entity, const std::string& component, const Json& before,
+                           const Json& after, std::vector<OverrideChange>& changes) {
+    if (component == "Transform" && world.has<PrefabInstanceComponent>(entity)) {
+        return;
+    }
+    noteOverrides(
+        world, entity,
+        [&](std::vector<std::string>& overrides) {
+            for (const auto& [property, value] : after.items()) {
+                const auto was = before.find(property);
+                if (was == before.end() || *was != value) {
+                    addOverride(overrides, fmt::format("{}.{}", component, property));
+                }
+            }
+        },
+        changes);
+}
+
+/// Sets the overrides of the entity of `id` to `overrides`, when it still has a link.
+Status setOverrides(EditorContext& context, const Uuid& id, const std::vector<std::string>& overrides) {
+    CORDITE_TRY_ASSIGN(const Entity entity, findEntity(context, id));
+    if (auto* link = context.world().tryGet<PrefabLinkComponent>(entity)) {
+        link->overrides = overrides;
+    }
+    return {};
+}
+
+/// `entry`, made to undo and redo `changes` of overrides along with what it does: an edit of
+/// a linked copy and what it keeps of its own are one step of the history.
+UndoEntry withOverrideChanges(EditorContext& context, UndoEntry entry, std::vector<OverrideChange> changes) {
+    if (changes.empty()) {
+        return entry;
+    }
+    EditorContext* target = &context;
+    const auto shared = std::make_shared<const std::vector<OverrideChange>>(std::move(changes));
+    entry.undo = [target, shared, undo = std::move(entry.undo)]() -> Status {
+        CORDITE_TRY(undo());
+        for (const OverrideChange& change : *shared) {
+            CORDITE_TRY(setOverrides(*target, change.id, change.before));
+        }
+        return {};
+    };
+    entry.redo = [target, shared, redo = std::move(entry.redo)]() -> Status {
+        CORDITE_TRY(redo());
+        for (const OverrideChange& change : *shared) {
+            CORDITE_TRY(setOverrides(*target, change.id, change.after));
+        }
+        return {};
+    };
+    return entry;
+}
+
 /// Pushes an entry that applies `before` to a component when undone and `after` when
 /// redone.
 void pushComponentEdit(EditorContext& context, Entity entity, const ComponentDescriptor& descriptor,
-                       PropertyPatch before, PropertyPatch after) {
+                       PropertyPatch before, PropertyPatch after, std::vector<OverrideChange> overrides) {
     EditorContext* target = &context;
     const ComponentDescriptor* type = &descriptor;
     const Uuid id = context.world().id(entity);
@@ -176,11 +395,14 @@ void pushComponentEdit(EditorContext& context, Entity entity, const ComponentDes
         return {};
     };
 
-    context.history().push({
-        .label = fmt::format("Edit {} of '{}'", descriptor.type.name(), context.world().name(entity)),
-        .undo = [apply, before = std::move(before)] { return apply(before); },
-        .redo = [apply, after = std::move(after)] { return apply(after); },
-    });
+    context.history().push(withOverrideChanges(
+        context,
+        {
+            .label = fmt::format("Edit {} of '{}'", descriptor.type.name(), context.world().name(entity)),
+            .undo = [apply, before = std::move(before)] { return apply(before); },
+            .redo = [apply, after = std::move(after)] { return apply(after); },
+        },
+        std::move(overrides)));
 }
 
 /// What one entity's component was and is, for an edit of several.
@@ -191,7 +413,7 @@ struct EntityPatches {
 };
 
 void pushComponentEdits(EditorContext& context, const ComponentDescriptor& descriptor,
-                        std::vector<EntityPatches> patches) {
+                        std::vector<EntityPatches> patches, std::vector<OverrideChange> overrides) {
     EditorContext* target = &context;
     const ComponentDescriptor* type = &descriptor;
     // Shared by undo and redo, which are copied about with the history.
@@ -210,11 +432,14 @@ void pushComponentEdits(EditorContext& context, const ComponentDescriptor& descr
         }
         return {};
     };
-    context.history().push({
-        .label = fmt::format("Edit {} of {} entities", descriptor.type.name(), shared->size()),
-        .undo = [apply] { return apply(true); },
-        .redo = [apply] { return apply(false); },
-    });
+    context.history().push(
+        withOverrideChanges(context,
+                            {
+                                .label = fmt::format("Edit {} of {} entities", descriptor.type.name(), shared->size()),
+                                .undo = [apply] { return apply(true); },
+                                .redo = [apply] { return apply(false); },
+                            },
+                            std::move(overrides)));
 }
 
 /// What placing anything asks of where and as what, before anything is loaded: a parent
@@ -546,11 +771,125 @@ Result<Uuid> EditorActions::createPrefab(Entity entity, std::string_view assetPa
     }
     const Uuid id = listed->id;
 
-    Json mark = Json::object();
-    mark["prefab"] = id.toString();
-    CORDITE_TRY(world.has<PrefabInstanceComponent>(entity) ? setComponentProperties(entity, kPrefabInstance, mark)
-                                                           : addComponent(entity, kPrefabInstance, mark));
+    // What it was made of is its first instance: marked with the prefab, and every entity of
+    // it linked to itself in the file, which has the ids it has. One step of the history, and
+    // no snapshot: the entities keep their handles. Marked so already, there is nothing to edit.
+    const PrefabMark before = prefabMarkOf(m_context.world(), entity);
+    PrefabMark after = before;
+    after.instance = PrefabInstanceComponent{.prefab = id};
+    for (auto& [linked, link] : after.links) {
+        link = PrefabLinkComponent{.source = linked};
+    }
+    if (after != before) {
+        CORDITE_TRY(applyPrefabMark(m_context, after));
+        EditorContext* context = &m_context;
+        // Shared by undo and redo, which are copied about with the history.
+        const auto was = std::make_shared<const PrefabMark>(before);
+        const auto is = std::make_shared<const PrefabMark>(std::move(after));
+        m_context.history().push({
+            .label = fmt::format("Make '{}' an instance of its prefab", world.name(entity)),
+            .undo = [context, was] { return applyPrefabMark(*context, *was); },
+            .redo = [context, is] { return applyPrefabMark(*context, *is); },
+        });
+    }
+    // What was placed from a prefab that was written over takes what it is now.
+    if (const Result<size_t> updated = updatePrefabInstances(id); !updated) {
+        return tl::unexpected(updated.error());
+    }
     return id;
+}
+
+Result<size_t> EditorActions::updatePrefabInstances(std::optional<Uuid> prefab) {
+    if (m_context.isPlaying()) {
+        return makeError(ErrorCode::InvalidState, "the scene is being played: what is played is not the document");
+    }
+    // Every instance as it is, before any is brought up to date: one may be inside another.
+    std::vector<SubtreeChange> found;
+    for (const Entity root : linkedPrefabRoots(m_context.world(), prefab)) {
+        found.push_back(subtreeBefore(m_context, root));
+    }
+    const std::vector<Entity> updated =
+        syncPrefabInstances(m_context.world(), m_context.components(), m_context.assets(), prefab);
+    std::vector<SubtreeChange> changes;
+    for (const Entity root : updated) {
+        const Uuid id = m_context.world().id(root);
+        const auto change = std::ranges::find(found, id, &SubtreeChange::root);
+        if (change != found.end()) {
+            changes.push_back(std::move(*change));
+        }
+    }
+    for (SubtreeChange& change : changes) {
+        CORDITE_TRY(subtreeAfter(m_context, change));
+    }
+    if (changes.empty()) {
+        return size_t{0};
+    }
+    const size_t count = changes.size();
+    m_context.history().push(
+        subtreeEdit(m_context, fmt::format("Bring {} prefab instance(s) up to date", count), std::move(changes)));
+    return count;
+}
+
+Status EditorActions::revertPrefabOverrides(Entity entity, std::string_view entry) {
+    CORDITE_TRY(requireValid(m_context, entity));
+    if (m_context.isPlaying()) {
+        return makeError(ErrorCode::InvalidState, "the scene is being played: stop it before reverting");
+    }
+    World& world = m_context.world();
+    if (!world.has<PrefabLinkComponent>(entity)) {
+        return makeError(ErrorCode::InvalidArgument, "'{}' is no linked copy of an entity of a prefab",
+                         world.name(entity));
+    }
+    // The root of its instance: the nearest above it, or it, with a PrefabInstance.
+    Entity root = entity;
+    while (!root.isNull() && !world.has<PrefabInstanceComponent>(root)) {
+        root = world.parent(root);
+    }
+    if (root.isNull() || !world.has<PrefabLinkComponent>(root)) {
+        return makeError(ErrorCode::InvalidArgument, "'{}' is in no linked instance of a prefab", world.name(entity));
+    }
+    const auto* link = world.tryGet<PrefabLinkComponent>(entity);
+    if (!entry.empty() && std::ranges::find(link->overrides, entry) == link->overrides.end()) {
+        return makeError(ErrorCode::InvalidArgument, "'{}' does not keep {} of its own", world.name(entity), entry);
+    }
+    // Loaded before anything changes: a prefab that is gone changes nothing.
+    const Uuid prefab = world.tryGet<PrefabInstanceComponent>(root)->prefab;
+    CORDITE_TRY_ASSIGN(const std::shared_ptr<const PrefabData> data, m_context.assets().loadPrefab(prefab));
+
+    SubtreeChange change = subtreeBefore(m_context, root);
+    if (!entry.empty()) {
+        std::erase(world.tryGet<PrefabLinkComponent>(entity)->overrides, std::string(entry));
+    } else if (entity == root) {
+        std::vector<Entity> pending = {root};
+        while (!pending.empty()) {
+            const Entity reverted = pending.back();
+            pending.pop_back();
+            if (auto* held = world.tryGet<PrefabLinkComponent>(reverted)) {
+                held->overrides.clear();
+            }
+            if (reverted != root && world.has<PrefabInstanceComponent>(reverted)) {
+                continue;
+            }
+            for (const Entity child : world.children(reverted)) {
+                pending.push_back(child);
+            }
+        }
+    } else {
+        world.tryGet<PrefabLinkComponent>(entity)->overrides.clear();
+    }
+    CORDITE_TRY(syncPrefabInstance(world, m_context.components(), root, data->entities));
+    CORDITE_TRY(subtreeAfter(m_context, change));
+    if (change.after == change.before) {
+        return {};
+    }
+    std::vector<SubtreeChange> changes;
+    changes.push_back(std::move(change));
+    m_context.history().push(
+        subtreeEdit(m_context,
+                    entry.empty() ? fmt::format("Revert '{}' to its prefab", world.name(entity))
+                                  : fmt::format("Revert {} of '{}' to its prefab", entry, world.name(entity)),
+                    std::move(changes)));
+    return {};
 }
 
 std::string defaultPrefabPath(std::string_view entityName) {
@@ -589,11 +928,20 @@ Status EditorActions::renameEntity(Entity entity, std::string_view name) {
         context->world().setName(target, value);
         return {};
     };
-    m_context.history().push({
-        .label = fmt::format("Rename '{}' to '{}'", before, name),
-        .undo = [apply, before = std::move(before)] { return apply(before); },
-        .redo = [apply, after = std::string(name)] { return apply(after); },
-    });
+    // The name of the root of an instance is its own anyway; that of a copy inside is kept.
+    std::vector<OverrideChange> overrides;
+    if (!world.has<PrefabInstanceComponent>(entity)) {
+        noteOverrides(
+            world, entity, [](std::vector<std::string>& entries) { addOverride(entries, "name"); }, overrides);
+    }
+    m_context.history().push(
+        withOverrideChanges(m_context,
+                            {
+                                .label = fmt::format("Rename '{}' to '{}'", before, name),
+                                .undo = [apply, before = std::move(before)] { return apply(before); },
+                                .redo = [apply, after = std::string(name)] { return apply(after); },
+                            },
+                            std::move(overrides)));
     return {};
 }
 
@@ -612,11 +960,16 @@ Status EditorActions::setEntityEnabled(Entity entity, bool enabled) {
         context->world().setEnabled(target, value);
         return {};
     };
-    m_context.history().push({
-        .label = fmt::format("{} '{}'", enabled ? "Enable" : "Disable", world.name(entity)),
-        .undo = [apply, enabled] { return apply(!enabled); },
-        .redo = [apply, enabled] { return apply(enabled); },
-    });
+    std::vector<OverrideChange> overrides;
+    noteOverrides(world, entity, [](std::vector<std::string>& entries) { addOverride(entries, "enabled"); }, overrides);
+    m_context.history().push(
+        withOverrideChanges(m_context,
+                            {
+                                .label = fmt::format("{} '{}'", enabled ? "Enable" : "Disable", world.name(entity)),
+                                .undo = [apply, enabled] { return apply(!enabled); },
+                                .redo = [apply, enabled] { return apply(enabled); },
+                            },
+                            std::move(overrides)));
     return {};
 }
 
@@ -658,19 +1011,38 @@ Status EditorActions::addComponent(Entity entity, std::string_view component, co
 
     EditorContext* context = &m_context;
     const Uuid id = world.id(entity);
-    m_context.history().push({
-        .label = fmt::format("Add {} to '{}'", component, world.name(entity)),
-        .undo = [context, id, descriptor]() -> Status {
-            CORDITE_TRY_ASSIGN(const Entity target, findEntity(*context, id));
-            descriptor->remove(context->world().registry(), target.handle);
-            return {};
+    // A copy keeps what is added to it - or no longer leaves out what the prefab has.
+    std::vector<OverrideChange> overrides;
+    noteOverrides(
+        world, entity,
+        [&](std::vector<std::string>& entries) {
+            if (isPrefabMark(descriptor->type.name())) {
+                return;
+            }
+            const std::string removed = "-" + descriptor->type.name();
+            if (std::ranges::find(entries, removed) != entries.end()) {
+                std::erase(entries, removed);
+            } else {
+                addOverride(entries, "+" + descriptor->type.name());
+            }
         },
-        .redo = [context, id, descriptor, patch = std::move(patch)]() -> Status {
-            CORDITE_TRY_ASSIGN(const Entity target, findEntity(*context, id));
-            descriptor->emplace(context->world().registry(), target.handle, patch);
-            return {};
-        },
-    });
+        overrides);
+    m_context.history().push(
+        withOverrideChanges(m_context,
+                            {
+                                .label = fmt::format("Add {} to '{}'", component, world.name(entity)),
+                                .undo = [context, id, descriptor]() -> Status {
+                                    CORDITE_TRY_ASSIGN(const Entity target, findEntity(*context, id));
+                                    descriptor->remove(context->world().registry(), target.handle);
+                                    return {};
+                                },
+                                .redo = [context, id, descriptor, patch = std::move(patch)]() -> Status {
+                                    CORDITE_TRY_ASSIGN(const Entity target, findEntity(*context, id));
+                                    descriptor->emplace(context->world().registry(), target.handle, patch);
+                                    return {};
+                                },
+                            },
+                            std::move(overrides)));
     return {};
 }
 
@@ -693,19 +1065,38 @@ Status EditorActions::removeComponent(Entity entity, std::string_view component)
 
     EditorContext* context = &m_context;
     const Uuid id = world.id(entity);
-    m_context.history().push({
-        .label = fmt::format("Remove {} from '{}'", component, world.name(entity)),
-        .undo = [context, id, descriptor, restore = std::move(restore)]() -> Status {
-            CORDITE_TRY_ASSIGN(const Entity target, findEntity(*context, id));
-            descriptor->emplace(context->world().registry(), target.handle, restore);
-            return {};
+    // A copy keeps leaving out what is removed from it - or no longer has what it added.
+    std::vector<OverrideChange> overrides;
+    noteOverrides(
+        world, entity,
+        [&](std::vector<std::string>& entries) {
+            if (isPrefabMark(descriptor->type.name())) {
+                return;
+            }
+            const std::string added = "+" + descriptor->type.name();
+            if (std::ranges::find(entries, added) != entries.end()) {
+                std::erase(entries, added);
+            } else {
+                addOverride(entries, "-" + descriptor->type.name());
+            }
         },
-        .redo = [context, id, descriptor]() -> Status {
-            CORDITE_TRY_ASSIGN(const Entity target, findEntity(*context, id));
-            descriptor->remove(context->world().registry(), target.handle);
-            return {};
-        },
-    });
+        overrides);
+    m_context.history().push(
+        withOverrideChanges(m_context,
+                            {
+                                .label = fmt::format("Remove {} from '{}'", component, world.name(entity)),
+                                .undo = [context, id, descriptor, restore = std::move(restore)]() -> Status {
+                                    CORDITE_TRY_ASSIGN(const Entity target, findEntity(*context, id));
+                                    descriptor->emplace(context->world().registry(), target.handle, restore);
+                                    return {};
+                                },
+                                .redo = [context, id, descriptor]() -> Status {
+                                    CORDITE_TRY_ASSIGN(const Entity target, findEntity(*context, id));
+                                    descriptor->remove(context->world().registry(), target.handle);
+                                    return {};
+                                },
+                            },
+                            std::move(overrides)));
     return {};
 }
 
@@ -723,11 +1114,14 @@ Status EditorActions::setComponentProperties(Entity entity, std::string_view com
     CORDITE_TRY_ASSIGN(PropertyPatch restore, descriptor->type.parse(before));
 
     edit.applyTo(instance);
-    if (descriptor->type.toJson(instance) == before) {
+    const Json after = descriptor->type.toJson(instance);
+    if (after == before) {
         // Setting properties to the values they have is not an edit.
         return {};
     }
-    pushComponentEdit(m_context, entity, *descriptor, std::move(restore), std::move(edit));
+    std::vector<OverrideChange> overrides;
+    noteChangedProperties(world, entity, descriptor->type.name(), before, after, overrides);
+    pushComponentEdit(m_context, entity, *descriptor, std::move(restore), std::move(edit), std::move(overrides));
     return {};
 }
 
@@ -746,7 +1140,9 @@ Status EditorActions::recordComponentEdit(Entity entity, std::string_view compon
     }
     CORDITE_TRY_ASSIGN(PropertyPatch restore, descriptor->type.parse(before));
     CORDITE_TRY_ASSIGN(PropertyPatch redo, descriptor->type.parse(after));
-    pushComponentEdit(m_context, entity, *descriptor, std::move(restore), std::move(redo));
+    std::vector<OverrideChange> overrides;
+    noteChangedProperties(world, entity, descriptor->type.name(), before, after, overrides);
+    pushComponentEdit(m_context, entity, *descriptor, std::move(restore), std::move(redo), std::move(overrides));
     return {};
 }
 
@@ -760,6 +1156,7 @@ Status EditorActions::recordComponentEdits(std::span<const Entity> entities, std
     World& world = m_context.world();
     std::vector<EntityPatches> changed;
     Entity last;
+    std::vector<OverrideChange> overrides;
     for (size_t index = 0; index < entities.size(); ++index) {
         const Entity entity = entities[index];
         CORDITE_TRY(requireValid(m_context, entity));
@@ -773,15 +1170,16 @@ Status EditorActions::recordComponentEdits(std::span<const Entity> entities, std
         }
         CORDITE_TRY_ASSIGN(PropertyPatch restore, descriptor->type.parse(before[index]));
         CORDITE_TRY_ASSIGN(PropertyPatch redo, descriptor->type.parse(after));
+        noteChangedProperties(world, entity, descriptor->type.name(), before[index], after, overrides);
         changed.push_back({world.id(entity), std::move(restore), std::move(redo)});
         last = entity;
     }
     if (changed.size() == 1) {
         // Named by the entity, as an edit of one is.
         pushComponentEdit(m_context, last, *descriptor, std::move(changed.front().before),
-                          std::move(changed.front().after));
+                          std::move(changed.front().after), std::move(overrides));
     } else if (!changed.empty()) {
-        pushComponentEdits(m_context, *descriptor, std::move(changed));
+        pushComponentEdits(m_context, *descriptor, std::move(changed), std::move(overrides));
     }
     return {};
 }

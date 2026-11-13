@@ -21,7 +21,7 @@ tests are in `tests/unit/<module>/`, GPU tests in `tests/render/`.
 |------|---------:|--------:|--------:|-------:|--------:|
 | Core and math | 6 | 1 | 0 | 0 | 0 |
 | Platform and input | 3 | 4 | 1 | 0 | 0 |
-| World, scenes, prefabs | 4 | 0 | 1 | 0 | 0 |
+| World, scenes, prefabs | 5 | 0 | 1 | 0 | 0 |
 | Assets | 7 | 2 | 3 | 0 | 0 |
 | Animation | 4 | 0 | 1 | 0 | 0 |
 | Physics | 8 | 1 | 1 | 0 | 0 |
@@ -70,9 +70,10 @@ in October have fixes and regression tests, and those tests pass (see
 |---------|--------|--------|-------|-------|
 | EnTT world, ids, names, ordered hierarchy, enable state | Verified | `world/World.h:59-208` | `WorldTests` "a hierarchy deeper than any call stack is handled" | No tags or layers |
 | Component registry | Verified | `world/ComponentRegistry.h:69-113` | `ComponentRegistryTests` | Registered by hand |
-| Scene files (strict JSON, duplicate with id remapping) | Verified | `world/SceneSerializer.cpp` | `SceneSerializerTests` "an invalid scene is rejected and leaves the world untouched" | Format version 1, no migrations |
-| Prefab placement (copies) | Verified | `world/Prefab.cpp:14-50` | world `PrefabTests` | `PrefabInstanceComponent` is a marker only |
-| Nested prefabs, variants, overrides, apply/revert | **Planned** (deliberately absent) | `docs/architecture.md` "A prefab is copied where it is placed" | "a prefab is not an instance of another..." | No link back to the prefab file |
+| Scene files (strict JSON, duplicate with id remapping) | Verified | `world/SceneSerializer.cpp` | `SceneSerializerTests` "an invalid scene is rejected and leaves the world untouched" | Format version 2; older versions are migrated (`migrateDocument`) |
+| Prefab placement, linked to the prefab (`PrefabLink`) | Verified | `world/Prefab.cpp` | world `PrefabTests` | Instances placed by scripts are linked but not followed |
+| Overrides and revert, instances brought up to date on open and refresh | Verified | `world/Prefab.cpp` `syncPrefabInstance`, `editor/PrefabLinks.cpp`, `EditorActions` | world `PrefabTests`, editor `AssetCommandsTests` "a prefab that changes changes its instances..." | Editor only; a game plays what was saved |
+| Nested prefabs, variants, apply | **Planned** (P1-12 slices 3-4; variants Phase 4) | `docs/architecture.md` "A prefab stays linked to what was placed from it" | "a prefab is not an instance of another..." | A nested instance is a copy inside its outer one |
 
 ## Assets
 
