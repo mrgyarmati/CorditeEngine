@@ -3,8 +3,9 @@
 // A prefab is a few entities that belong together, written down once and placed as often
 // as they are wanted: by `asset.instantiate` in the editor, and by a script with
 // `cordite.world.instantiate`. `prefab.create` in the editor writes such a file for an
-// entity and everything below it. The showcase scene has two of this one, and its
-// self-test places a third for a few frames.
+// entity and everything below it. The showcase scene has two of this one, and two more
+// inside a pair of them (bollard-pair.prefab.json, a prefab with prefabs inside it); its
+// self-test places another for a few frames.
 //
 // What is placed is a copy: entities with ids of their own, which the scene saves in full
 // - and linked to this file, entity by entity (PrefabLink). Changing this file changes what

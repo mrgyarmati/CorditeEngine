@@ -247,6 +247,11 @@ takes; the file is not undone. A game plays a scene as it was saved, and an inst
 is not followed. Undoing `prefab.create` takes the mark and the links off the entity; the
 file stays.
 
+A prefab may hold prefabs: a prefab placed under an entity that is made a prefab, or in an
+instance that is applied, keeps its links in the file, and is brought up to date with its
+own prefab whenever the outer one is read. A prefab that would hold itself is refused.
+`prefabs/bollard-pair.prefab.json` of the showcase is the example.
+
 The file is a small scene - the same format for its entities, one root, which comes
 first. `samples/showcase/assets/prefabs/bollard.prefab.json` is the example, with
 comments. After writing one by hand, ask `asset.get {"asset": "prefabs/x.prefab.json"}`:

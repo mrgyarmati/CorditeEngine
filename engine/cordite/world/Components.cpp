@@ -49,6 +49,11 @@ TypeInfo describePrefabInstance() {
 
 TypeInfo describePrefabLink() {
     return TypeBuilder<PrefabLinkComponent>(std::string(PrefabLinkComponent::kName))
+        .property("prefab", &PrefabLinkComponent::prefab,
+                  {.description = "The prefab of the instance this entity is part of, in whose file the source is",
+                   .semantic = PropertySemantic::AssetReference,
+                   .referenceType = "Prefab",
+                   .readOnly = true})
         .property(
             "source", &PrefabLinkComponent::source,
             {.description = "The id this entity has in the file of the prefab it was placed from", .readOnly = true})

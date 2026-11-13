@@ -11,11 +11,14 @@
 
 #include <fmt/format.h>
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <map>
 #include <set>
 #include <string>
+#include <string_view>
 #include <vector>
 
 using namespace cordite;
@@ -79,6 +82,99 @@ struct Yard {
         world.traverse(
             [&](Entity entity, uint32_t depth) { lines.push_back(std::string(depth, '.') + world.name(entity)); });
         return lines;
+    }
+};
+
+const Uuid kTrainPrefab = *Uuid::parse("eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee");
+
+/// The names under `root`, and it, in the order of the hierarchy, indented by depth.
+std::vector<std::string> outlineOf(const World& world, Entity root) {
+    std::vector<std::string> lines;
+    const auto visit = [&](const auto& self, Entity entity, size_t depth) -> void {
+        lines.push_back(std::string(depth, '.') + world.name(entity));
+        for (const Entity child : world.children(entity)) {
+            self(self, child, depth + 1);
+        }
+    };
+    visit(visit, root, 0);
+    return lines;
+}
+
+/// The entity at the path of names `path` below `root`.
+Entity descendant(const World& world, Entity root, std::string_view path) {
+    Entity entity = root;
+    size_t begin = 0;
+    while (begin <= path.size()) {
+        const size_t end = std::min(path.find('/', begin), path.size());
+        const std::string_view name = path.substr(begin, end - begin);
+        Entity found;
+        for (const Entity child : world.children(entity)) {
+            if (world.name(child) == name) {
+                found = child;
+            }
+        }
+        REQUIRE_MESSAGE(!found.isNull(), "no entity " << std::string(path));
+        entity = found;
+        begin = end + 1;
+    }
+    return entity;
+}
+
+/// A train of two carts of the yard's cart prefab - the second with its back wheel tied at 4,
+/// which it keeps of its own - made a prefab: the prefabs of the nesting tests, as files.
+struct Train {
+    Yard yard;
+    std::map<Uuid, Json> files;
+
+    Train() {
+        World& world = yard.world;
+        files[kCartPrefab] = yard.cartEntities();
+        const Entity train = world.createEntity("Train");
+        REQUIRE(
+            instantiatePrefab(world, yard.registry, files[kCartPrefab], kCartPrefab, {.parent = train, .name = "First"})
+                .has_value());
+        const Entity second = unwrap(instantiatePrefab(world, yard.registry, files[kCartPrefab], kCartPrefab,
+                                                       {.parent = train, .name = "Second"}));
+        const Entity back = descendant(world, second, "Back wheel");
+        world.tryGet<Tether>(back)->length = 4.0f;
+        world.tryGet<PrefabLinkComponent>(back)->overrides = {"Tether.length"};
+        files[kTrainPrefab] = serializePrefabEntities(world, yard.registry, train);
+        world.destroyEntity(train);
+    }
+
+    /// Reads the files above, called "cart" and "train".
+    [[nodiscard]] PrefabReader reader() {
+        return [this](const Uuid& prefab, Json& entities) -> Result<std::string> {
+            const auto file = files.find(prefab);
+            if (file == files.end()) {
+                return makeError(ErrorCode::NotFound, "there is no prefab {}", prefab.toString());
+            }
+            entities = file->second;
+            return std::string(prefab == kCartPrefab ? "cart" : "train");
+        };
+    }
+
+    [[nodiscard]] Result<Json> resolved(const Uuid& prefab) {
+        const auto file = files.find(prefab);
+        REQUIRE(file != files.end());
+        return resolvePrefabEntities(yard.registry, prefab, prefab == kCartPrefab ? "cart" : "train", file->second,
+                                     reader());
+    }
+
+    /// The cart prefab changes: its front wheel is renamed, its back wheel tied at 2.5, and it
+    /// gets a seat.
+    void changeCart() {
+        Json& cart = files[kCartPrefab];
+        for (Json& entity : cart) {
+            if (entity["name"] == "Front wheel") {
+                entity["name"] = "Leading wheel";
+            } else if (entity["name"] == "Back wheel") {
+                entity["components"]["Tether"]["length"] = 2.5;
+            }
+        }
+        cart.push_back(Json::parse(fmt::format(
+            R"({{"id": "eeeeeeee-eeee-4eee-8eee-000000000001", "name": "Seat", "enabled": true, "parent": "{}", "components": {{}}}})",
+            cart[0]["id"].get<std::string>())));
     }
 };
 
@@ -690,14 +786,17 @@ TEST_SUITE("Prefab") {
             CHECK(errorIn(prefabEntitiesWithOverrides(world, yard.registry, copy, other, {.entity = copy})).code ==
                   ErrorCode::InvalidArgument);
         }
-        SUBCASE("an instance of another prefab inside") {
+        SUBCASE("an entity of an instance of another prefab placed inside") {
             const Entity inner = world.createEntity("Inner");
             REQUIRE(world.setParent(inner, copy).has_value());
             world.add<PrefabInstanceComponent>(inner).prefab = kOtherPrefab;
-            const Error refused =
-                errorIn(prefabEntitiesWithOverrides(world, yard.registry, copy, entities, {.entity = copy}));
-            CHECK(refused.code == ErrorCode::InvalidArgument);
-            CHECK(refused.message.find("'Inner'") != std::string::npos);
+            world.add<PrefabLinkComponent>(inner) = {
+                .prefab = kOtherPrefab, .source = Uuid::generate(), .overrides = {"name"}};
+            const Json changed = serializeScene(world, yard.registry);
+            // It is the other prefab's, and applied as part of what was added to this one.
+            CHECK(errorIn(prefabEntitiesWithOverrides(world, yard.registry, copy, entities, {.entity = inner})).code ==
+                  ErrorCode::InvalidArgument);
+            CHECK(serializeScene(world, yard.registry) == changed);
             world.destroyEntity(inner);
         }
         SUBCASE("entities that are no prefab") {
@@ -705,5 +804,152 @@ TEST_SUITE("Prefab") {
                       .code == ErrorCode::ParseError);
         }
         CHECK(serializeScene(world, yard.registry) == before);
+    }
+
+    TEST_CASE("a prefab inside a prefab is held with its link, and read as its own prefab is now") {
+        Train train;
+        // The carts keep their links to the cart prefab in the train's file; the train's own
+        // root has none.
+        CHECK_FALSE(train.files[kTrainPrefab][0]["components"].contains("PrefabLink"));
+        size_t linkedToCart = 0;
+        for (const Json& entity : train.files[kTrainPrefab]) {
+            if (entity["components"].contains("PrefabLink")) {
+                CHECK(entity["components"]["PrefabLink"]["prefab"] == kCartPrefab.toString());
+                ++linkedToCart;
+            }
+        }
+        CHECK(linkedToCart == 6);
+        // Nothing has changed: it is read as it is.
+        CHECK(unwrap(train.resolved(kTrainPrefab)) == train.files[kTrainPrefab]);
+
+        // The cart changes: its front wheel is renamed, its back wheel tied at 2.5, and it has a
+        // seat. Both carts of the train take that, but for the second's own back wheel.
+        train.changeCart();
+        const Json once = unwrap(train.resolved(kTrainPrefab));
+        // The same, read twice - the seats have the same ids both times.
+        CHECK(unwrap(train.resolved(kTrainPrefab)) == once);
+        World& world = train.yard.world;
+        const Entity placed = unwrap(instantiatePrefab(world, train.yard.registry, once, kTrainPrefab));
+        CHECK(outlineOf(world, placed) == std::vector<std::string>{"Train", ".First", "..Leading wheel", "..Back wheel",
+                                                                   "..Seat", ".Second", "..Leading wheel",
+                                                                   "..Back wheel", "..Seat"});
+        CHECK(world.tryGet<Tether>(descendant(world, placed, "First/Back wheel"))->length == 2.5f);
+        CHECK(world.tryGet<Tether>(descendant(world, placed, "Second/Back wheel"))->length == 4.0f);
+        // Placed, it is one instance - of the train - and every entity of it is the train's.
+        CHECK(linkedPrefabRoots(world) == std::vector<Entity>{placed});
+        for (const std::string_view path : {"First", "First/Seat", "Second/Back wheel"}) {
+            const Entity entity = descendant(world, placed, path);
+            CHECK(world.tryGet<PrefabLinkComponent>(entity)->prefab == kTrainPrefab);
+            CHECK(prefabInstanceRootOf(world, entity) == placed);
+        }
+        CHECK(world.tryGet<PrefabInstanceComponent>(descendant(world, placed, "First"))->prefab == kCartPrefab);
+    }
+
+    TEST_CASE("an instance of a prefab that holds another takes what either is changed to, but for what it keeps") {
+        Train train;
+        World& world = train.yard.world;
+        const Entity placed =
+            unwrap(instantiatePrefab(world, train.yard.registry, unwrap(train.resolved(kTrainPrefab)), kTrainPrefab));
+        // The instance keeps a name of its own for the second cart's front wheel.
+        const Entity front = descendant(world, placed, "Second/Front wheel");
+        world.setName(front, "Lead");
+        world.tryGet<PrefabLinkComponent>(front)->overrides = {"name"};
+
+        train.changeCart();
+        const PrefabSync sync =
+            unwrap(syncPrefabInstance(world, train.yard.registry, placed, unwrap(train.resolved(kTrainPrefab))));
+        CHECK(sync.entitiesCreated == 2);
+        CHECK(outlineOf(world, placed) == std::vector<std::string>{"Train", ".First", "..Leading wheel", "..Back wheel",
+                                                                   "..Seat", ".Second", "..Lead", "..Back wheel",
+                                                                   "..Seat"});
+        CHECK(world.tryGet<Tether>(descendant(world, placed, "First/Back wheel"))->length == 2.5f);
+        CHECK(world.tryGet<Tether>(descendant(world, placed, "Second/Back wheel"))->length == 4.0f);
+        CHECK_FALSE(unwrap(syncPrefabInstance(world, train.yard.registry, placed, unwrap(train.resolved(kTrainPrefab))))
+                        .changed());
+    }
+
+    TEST_CASE("a prefab that holds itself is refused, and the message names the chain") {
+        SUBCASE("through another") {
+            Train train;
+            World& world = train.yard.world;
+            // A train is placed on the cart of the yard, and the cart prefab made of that.
+            REQUIRE(instantiatePrefab(world, train.yard.registry, train.files[kTrainPrefab], kTrainPrefab,
+                                      {.parent = train.yard.cart})
+                        .has_value());
+            train.files[kCartPrefab] = serializePrefabEntities(world, train.yard.registry, train.yard.cart);
+            const Error refused = errorIn(train.resolved(kTrainPrefab));
+            CHECK(refused.code == ErrorCode::InvalidArgument);
+            CHECK(refused.message == "'train' holds 'cart', which holds 'train': a prefab cannot hold itself");
+            CHECK(errorIn(train.resolved(kCartPrefab)).message ==
+                  "'cart' holds 'train', which holds 'cart': a prefab cannot hold itself");
+        }
+        SUBCASE("directly") {
+            Train train;
+            World& world = train.yard.world;
+            REQUIRE(instantiatePrefab(world, train.yard.registry, train.files[kCartPrefab], kCartPrefab,
+                                      {.parent = train.yard.cart})
+                        .has_value());
+            train.files[kCartPrefab] = serializePrefabEntities(world, train.yard.registry, train.yard.cart);
+            CHECK(errorIn(train.resolved(kCartPrefab)).message == "'cart' holds 'cart': a prefab cannot hold itself");
+        }
+        SUBCASE("a prefab inside that cannot be read") {
+            Train train;
+            train.files.erase(kCartPrefab);
+            CHECK(errorIn(train.resolved(kTrainPrefab)).code == ErrorCode::NotFound);
+        }
+    }
+
+    TEST_CASE("a prefab placed in an instance is applied with its link, and so is an override of what is inside") {
+        Train train;
+        World& world = train.yard.world;
+        const Json trainFile = unwrap(train.resolved(kTrainPrefab));
+        const Entity placed = unwrap(instantiatePrefab(world, train.yard.registry, trainFile, kTrainPrefab));
+        // A third cart is placed on the train, an instance of the cart prefab of its own; and
+        // the first cart's back wheel is tied at 5, which the instance keeps of its own.
+        const Entity third = unwrap(instantiatePrefab(world, train.yard.registry, train.files[kCartPrefab], kCartPrefab,
+                                                      {.parent = placed, .name = "Third"}));
+        CHECK(prefabInstanceRootOf(world, third) == third);
+        const Entity firstBack = descendant(world, placed, "First/Back wheel");
+        world.tryGet<Tether>(firstBack)->length = 5.0f;
+        world.tryGet<PrefabLinkComponent>(firstBack)->overrides = {"Tether.length"};
+
+        const Json applied =
+            unwrap(prefabEntitiesWithOverrides(world, train.yard.registry, placed, trainFile, {.entity = placed}));
+        const auto entityOf = [&applied](const Uuid& id) -> const Json& {
+            for (const Json& entity : applied) {
+                if (entity["id"].get<std::string>() == id.toString()) {
+                    return entity;
+                }
+            }
+            FAIL("no entity " << id.toString());
+            return applied.front();
+        };
+        // The third cart is in the train's file, linked to the cart prefab.
+        CHECK(entityOf(world.id(third))["components"]["PrefabLink"]["prefab"] == kCartPrefab.toString());
+        // The first cart's back wheel keeps 5 against the cart prefab, in the file.
+        const Json& back = entityOf(world.tryGet<PrefabLinkComponent>(firstBack)->source);
+        CHECK(back["components"]["Tether"]["length"] == 5.0);
+        CHECK(back["components"]["PrefabLink"]["overrides"] == Json::parse(R"(["Tether.length"])"));
+
+        markPrefabApplied(world, placed, {.entity = placed});
+        // The third cart is part of the train in the scene now, as the others are.
+        CHECK(world.tryGet<PrefabLinkComponent>(third)->prefab == kTrainPrefab);
+        CHECK(world.tryGet<PrefabLinkComponent>(third)->source == world.id(third));
+        CHECK(linkedPrefabRoots(world) == std::vector<Entity>{placed});
+        train.files[kTrainPrefab] = applied;
+        CHECK_FALSE(unwrap(syncPrefabInstance(world, train.yard.registry, placed, unwrap(train.resolved(kTrainPrefab))))
+                        .changed());
+
+        // The cart prefab changes, and reaches every cart but where the train says otherwise.
+        for (Json& entity : train.files[kCartPrefab]) {
+            if (entity["name"] == "Back wheel") {
+                entity["components"]["Tether"]["length"] = 9.0;
+            }
+        }
+        REQUIRE(
+            syncPrefabInstance(world, train.yard.registry, placed, unwrap(train.resolved(kTrainPrefab))).has_value());
+        CHECK(world.tryGet<Tether>(firstBack)->length == 5.0f);
+        CHECK(world.tryGet<Tether>(descendant(world, placed, "Second/Back wheel"))->length == 4.0f);
+        CHECK(world.tryGet<Tether>(descendant(world, placed, "Third/Back wheel"))->length == 9.0f);
     }
 }

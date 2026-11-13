@@ -55,23 +55,6 @@ using namespace cordite;
 
 namespace {
 
-/// The entities of a group, as files have them, without what tells one copy of the group
-/// from another: every id is replaced by the place of its entity in the group.
-Json withoutIdentity(Json entities) {
-    std::map<std::string, size_t> places;
-    for (size_t index = 0; index < entities.size(); ++index) {
-        places[entities[index].at("id").get<std::string>()] = index;
-    }
-    for (size_t index = 0; index < entities.size(); ++index) {
-        Json& entity = entities[index];
-        entity["id"] = index;
-        if (entity.at("parent").is_string()) {
-            entity["parent"] = places.at(entity.at("parent").get<std::string>());
-        }
-    }
-    return entities;
-}
-
 std::filesystem::path showcaseDirectory() {
     return test::sourceDirectory() / "samples" / "showcase";
 }
@@ -818,36 +801,52 @@ TEST_SUITE("Showcase") {
         CHECK(functions > 70);
     }
 
-    TEST_CASE("what the showcase has placed from a prefab is what that prefab places") {
+    TEST_CASE("what the showcase has placed from a prefab is what that prefab gives it, but for what it keeps") {
         const Showcase showcase;
-        const World& world = showcase.world;
+        AssetManager& assets = *showcase.assets;
+        const PrefabReader read = [&assets](const Uuid& prefab, Json& entities) -> Result<std::string> {
+            CORDITE_TRY_ASSIGN(const std::shared_ptr<const PrefabData> data, assets.loadPrefab(prefab));
+            entities = data->entities;
+            return prefab.toString();
+        };
+        // A world of its own, read from the scene, to be brought up to date without touching
+        // the showcase's.
+        World scratch;
+        REQUIRE(deserializeScene(scratch, serializeScene(showcase.world, showcase.components), showcase.components)
+                    .has_value());
         std::vector<std::string> placed;
-        world.traverse([&](Entity entity, uint32_t /*depth*/) {
-            const auto* mark = world.tryGet<PrefabInstanceComponent>(entity);
-            if (mark == nullptr) {
+        for (const Entity root : linkedPrefabRoots(scratch)) {
+            placed.push_back(scratch.name(root));
+            CAPTURE(scratch.name(root));
+            const Uuid prefab = scratch.tryGet<PrefabInstanceComponent>(root)->prefab;
+            Json entities;
+            const std::string name = test::unwrap(read(prefab, entities));
+            const Json current = test::unwrap(resolvePrefabEntities(showcase.components, prefab, name, entities, read));
+            // Brought up to date, nothing changes: the scene has written out in full what its
+            // prefab gives it - with the prefabs inside it up to date - entity for entity and
+            // number for number, but for what it keeps of its own.
+            CHECK_FALSE(test::unwrap(syncPrefabInstance(scratch, showcase.components, root, current)).changed());
+            // It has more than one entity, or it would not show that they stay together.
+            CHECK(scratch.children(root).size() >= 2);
+        }
+        // Placed more than once: that is what a prefab is for; and one is a prefab with
+        // prefabs inside it.
+        CHECK(placed == std::vector<std::string>{"Bollard 1", "Bollard 2", "Bollard pair"});
+        const Entity pair = scratch.findByName("Bollard pair");
+        size_t inside = 0;
+        size_t kept = 0;
+        scratch.traverse([&](Entity entity, uint32_t /*depth*/) {
+            if (prefabInstanceRootOf(scratch, entity) != pair) {
                 return;
             }
-            placed.push_back(world.name(entity));
-            CAPTURE(world.name(entity));
-            const auto prefab = showcase.assets->loadPrefab(mark->prefab);
-            REQUIRE_MESSAGE(prefab.has_value(), test::errorOf(prefab));
-
-            // Placed anew - named, put and turned as the one in the scene is - the prefab
-            // gives that very one: the scene has a copy written out, which is the prefab's
-            // still, entity for entity and number for number.
-            World scratch;
-            const Entity again =
-                test::unwrap(instantiatePrefab(scratch, showcase.components, (*prefab)->entities, mark->prefab,
-                                               {.name = world.name(entity),
-                                                .position = world.transform(entity).position,
-                                                .rotation = world.transform(entity).rotation}));
-            CHECK(withoutIdentity(serializePrefabEntities(scratch, showcase.components, again)) ==
-                  withoutIdentity(serializePrefabEntities(world, showcase.components, entity)));
-            // It has more than one entity, or it would not show that they stay together.
-            CHECK(world.children(entity).size() >= 2);
+            if (entity != pair && scratch.has<PrefabInstanceComponent>(entity)) {
+                ++inside;
+            }
+            kept += scratch.tryGet<PrefabLinkComponent>(entity)->overrides.size();
         });
-        // Placed more than once: that is what a prefab is for.
-        CHECK(placed == std::vector<std::string>{"Bollard 1", "Bollard 2"});
+        CHECK(inside == 2);
+        // And it keeps something of its own.
+        CHECK(kept == 1);
     }
 
     TEST_CASE("every component type of the engine is used in the showcase") {

@@ -33,9 +33,12 @@
         // pass and shadow map, and so are drawn with a half to an eighth of theirs. Meshes
         // of one kind at different levels are draw calls of their own. The capture draws
         // the stage again, from the wall, with its shadow maps. The mirror plate in front of
-        // the crate is a draw call in each pass that sees it.
+        // the crate is a draw call in each pass that sees it. The pair of bollards, a
+        // prefab with two bollard prefabs inside it, is two posts and one cap more - its
+        // right bollard has none - drawn with the others, in the same draw calls:
+        // 3,600 triangles more and no draw call.
         "drawCalls": 335,
-        "triangles": 32000,
+        "triangles": 36000,
         "captures": 1,
         // Passes over the whole picture: the two of the ambient occlusion, the two of what
         // the lights throw into the haze, the lighting, the two of the reflections from the
@@ -101,10 +104,10 @@
         "meshBytes": 165000,
         // What is simulated: the bodies of the scene - of which three are awake at most
         // once the rest has settled, the two triggers and the body that stands for the
-        // character; two of those that stand still are the bollards - the shapes that
-        // were made of meshes for their colliders, the joints that hold bodies together,
-        // the characters, and the joints its animators pose.
-        "bodies": 19,
+        // character; four of those that stand still are the bollards, two of them the pair -
+        // the shapes that were made of meshes for their colliders, the joints that hold
+        // bodies together, the characters, and the joints its animators pose.
+        "bodies": 21,
         "geometries": 2,
         "physicsJoints": 5,
         "characters": 1,
@@ -120,12 +123,14 @@
         // and for a moment the timer that lets the post's light go out. The memory all of Lua
         // holds: 82 kB stay - the runtime with the functions it gives scripts, and the
         // eight scripts, of which the self-test is half - and Lua lets what it holds
-        // double before it collects.
+        // double before it collects. What the self-test hands to Lua and takes back is
+        // every component of the scene, so every entity added to it adds to what is
+        // collected: the pair of bollards, seven entities, added 6 kB.
         "scripts": 8,
         "scriptInstances": 8,
         "scriptCalls": 5,
         "scriptTimers": 3,
-        "scriptBytes": 175000,
+        "scriptBytes": 190000,
         // What is heard: the voices that sound at once - the hum of the lamp and the
         // music, and for a moment now and then the tick of the clock and the call at
         // the sentry's post - and the samples of their sounds in memory, four bytes

@@ -3,6 +3,7 @@
 #include "cordite/assets/Material.h"
 #include "cordite/assets/Mesh.h"
 #include "cordite/assets/Prefab.h"
+#include "cordite/editor/PrefabLinks.h"
 #include "cordite/engine/ModelInstance.h"
 #include "cordite/math/Color.h"
 #include "cordite/renderer/CameraView.h"
@@ -126,8 +127,8 @@ Status AssetPreview::compose(AssetManager& assets, const ComponentRegistry& comp
         CORDITE_TRY_ASSIGN(const std::shared_ptr<const ModelData> model, assets.loadModel(asset.id));
         instantiateModel(m_world, *model);
     } else if (asset.type == AssetType::Prefab) {
-        CORDITE_TRY_ASSIGN(const std::shared_ptr<const PrefabData> prefab, assets.loadPrefab(asset.id));
-        CORDITE_TRY(instantiatePrefab(m_world, components, prefab->entities, asset.id));
+        CORDITE_TRY_ASSIGN(const Json entities, currentPrefabEntities(assets, components, asset.id));
+        CORDITE_TRY(instantiatePrefab(m_world, components, entities, asset.id));
     } else {
         return makeError(ErrorCode::InvalidArgument, "{} is {}, which is not drawn", asset.reference(),
                          withArticle(asset.type));

@@ -105,19 +105,85 @@ Result<std::vector<PrefabEntity>> readPrefabEntities(const ComponentRegistry& co
     return read;
 }
 
-/// The entities of the instance under `root` that are linked to its prefab, by their
-/// source: the root, and what hangs under it - but not under another instance inside it.
+/// The prefab of the instance whose root is `root`; nil for an entity that is none.
+Uuid prefabOf(const World& world, Entity root) {
+    const auto* instance = world.tryGet<PrefabInstanceComponent>(root);
+    return instance != nullptr ? instance->prefab : Uuid{};
+}
+
+/// Whether the link of `entity` is one a prefab made of what hangs under `top` holds: that of
+/// an entity of a prefab placed inside it - one whose root is `entity` or above it, below
+/// `top`. What is linked to anything else is the prefab's own entity, and has no link in it.
+bool keepsLink(const World& world, Entity top, Entity entity) {
+    const auto* link = world.tryGet<PrefabLinkComponent>(entity);
+    if (link == nullptr) {
+        return false;
+    }
+    for (Entity above = entity; !above.isNull() && above != top; above = world.parent(above)) {
+        const auto* instance = world.tryGet<PrefabInstanceComponent>(above);
+        if (instance != nullptr && instance->prefab == link->prefab) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/// Takes the links out of `entities` - serialized from what hangs under `top` - that a prefab
+/// does not hold (keepsLink).
+void dropOwnLinks(const World& world, Entity top, Json& entities) {
+    for (Json& entity : entities) {
+        const auto held = entity.find("components");
+        if (held == entity.end() || !held->is_object()) {
+            continue;
+        }
+        const std::optional<Uuid> id = Uuid::parse(jsonGetOr<std::string>(entity, "id", ""));
+        if (!id || !keepsLink(world, top, world.findById(*id))) {
+            held->erase(std::string(PrefabLinkComponent::kName));
+        }
+    }
+}
+
+/// Notes `entry` among the overrides of a link that an entity of a prefab's file has - one
+/// of a prefab placed inside it, whose value the file now holds as its own. A component added
+/// and one left out cancel each other.
+void noteInFileLink(Json& target, const std::string& entry) {
+    const auto held = target.find("components");
+    if (held == target.end() || !held->is_object() || !held->contains(PrefabLinkComponent::kName)) {
+        return;
+    }
+    Json& overrides = (*held)[std::string(PrefabLinkComponent::kName)]["overrides"];
+    if (!overrides.is_array()) {
+        overrides = Json::array();
+    }
+    if (entry.starts_with('+') || entry.starts_with('-')) {
+        const std::string opposite = (entry.starts_with('+') ? "-" : "+") + entry.substr(1);
+        const auto cancelled = std::ranges::find(overrides, Json(opposite));
+        if (cancelled != overrides.end()) {
+            overrides.erase(cancelled);
+            return;
+        }
+    }
+    if (std::ranges::find(overrides, Json(entry)) == overrides.end()) {
+        overrides.push_back(entry);
+    }
+}
+
+/// The entities of the instance under `root`, by their source: the root and whatever hangs
+/// under it that is linked to its prefab - the entities of a prefab inside it included,
+/// which are its prefab's too, and not those of an instance of another prefab placed in it.
 std::unordered_map<Uuid, Entity> linkedEntities(const World& world, Entity root) {
+    const Uuid prefab = prefabOf(world, root);
     std::unordered_map<Uuid, Entity> linked;
     std::vector<Entity> pending = {root};
     while (!pending.empty()) {
         const Entity entity = pending.back();
         pending.pop_back();
-        if (const auto* link = world.tryGet<PrefabLinkComponent>(entity)) {
-            linked.emplace(link->source, entity);
-        }
-        if (entity != root && world.has<PrefabInstanceComponent>(entity)) {
+        // An instance placed inside is no part of this one, of whichever prefab it is.
+        if (entity != root && isPrefabInstanceRoot(world, entity)) {
             continue;
+        }
+        if (const auto* link = world.tryGet<PrefabLinkComponent>(entity); link != nullptr && link->prefab == prefab) {
+            linked.emplace(link->source, entity);
         }
         for (const Entity child : world.children(entity)) {
             pending.push_back(child);
@@ -148,18 +214,29 @@ void destroyWhatThePrefabLost(World& world, const std::vector<PrefabEntity>& pre
 /// Makes the entities the prefab gained, parents before what hangs under them, linked and
 /// without components yet - so that every entity of the prefab has one in the instance that
 /// a reference can be led to. Returns the sources of those that were made.
-Result<std::unordered_set<Uuid>> createWhatThePrefabGained(World& world, const std::vector<PrefabEntity>& prefab,
+///
+/// The id of what is made follows from the root of the instance and the source, so that an
+/// instance brought up to date twice the same way - a prefab inside a prefab, which is
+/// brought up to date whenever the outer one is read - gets the same ids both times.
+Result<std::unordered_set<Uuid>> createWhatThePrefabGained(World& world, Entity root,
+                                                           const std::vector<PrefabEntity>& prefab,
                                                            std::unordered_map<Uuid, Entity>& linked, PrefabSync& sync) {
+    const Uuid prefabId = prefabOf(world, root);
+    const Uuid rootId = world.id(root);
     std::unordered_set<Uuid> made;
     for (const PrefabEntity& entity : prefab) {
         const auto parent = linked.find(entity.parent);
         if (linked.contains(entity.source) || parent == linked.end()) {
             continue;
         }
-        const Entity created = world.createEntity(entity.name);
+        // Taken when a copy of the instance was made with the ids it has - pasted into the
+        // world it was copied from: then any id will do.
+        const Result<Entity> derived =
+            world.createEntityWithId(Uuid::fromName(rootId, entity.source.toString()), entity.name);
+        const Entity created = derived ? *derived : world.createEntity(entity.name);
         world.setEnabled(created, entity.enabled);
         CORDITE_TRY(world.setParent(created, parent->second, false));
-        world.add<PrefabLinkComponent>(created).source = entity.source;
+        world.add<PrefabLinkComponent>(created) = PrefabLinkComponent{.prefab = prefabId, .source = entity.source};
         linked.emplace(entity.source, created);
         made.insert(entity.source);
         ++sync.entitiesCreated;
@@ -272,15 +349,17 @@ Result<PrefabSync> syncPrefabInstance(World& world, const ComponentRegistry& com
     }
     CORDITE_TRY_ASSIGN(const std::vector<PrefabEntity> prefab, readPrefabEntities(components, entities));
     PrefabSync sync;
-    // An instance placed before prefabs were linked is a copy, linked to nothing.
+    // An instance placed before prefabs were linked is a copy, linked to nothing; one inside
+    // an instance of another prefab is part of that, and comes up to date with it.
     const auto* rootLink = world.tryGet<PrefabLinkComponent>(root);
-    if (rootLink == nullptr || rootLink->source != prefab.front().source) {
+    if (rootLink == nullptr || rootLink->prefab != prefabOf(world, root) || rootLink->source != prefab.front().source) {
         return sync;
     }
 
     std::unordered_map<Uuid, Entity> linked = linkedEntities(world, root);
     destroyWhatThePrefabLost(world, prefab, linked, sync);
-    CORDITE_TRY_ASSIGN(const std::unordered_set<Uuid> made, createWhatThePrefabGained(world, prefab, linked, sync));
+    CORDITE_TRY_ASSIGN(const std::unordered_set<Uuid> made,
+                       createWhatThePrefabGained(world, root, prefab, linked, sync));
 
     InstanceUpdate update{.world = world, .components = components, .sync = sync};
     for (const auto& [source, entity] : linked) {
@@ -309,36 +388,9 @@ struct ApplyScope {
     std::vector<Entity> added;
 };
 
-/// The root of the instance that `entity` is in: the nearest above it, or it, with a
-/// PrefabInstance. Null for none.
-Entity instanceRootOf(const World& world, Entity entity) {
-    while (!entity.isNull() && !world.has<PrefabInstanceComponent>(entity)) {
-        entity = world.parent(entity);
-    }
-    return entity;
-}
-
-/// Fails for a group added to an instance that holds an instance of another prefab.
-Status checkNoInstanceIn(const World& world, Entity group) {
-    std::vector<Entity> pending = {group};
-    while (!pending.empty()) {
-        const Entity entity = pending.back();
-        pending.pop_back();
-        if (world.has<PrefabInstanceComponent>(entity)) {
-            return makeError(ErrorCode::InvalidArgument,
-                             "'{}' is an instance of a prefab, and a prefab inside a prefab cannot be applied yet",
-                             world.name(entity));
-        }
-        for (const Entity child : world.children(entity)) {
-            pending.push_back(child);
-        }
-    }
-    return {};
-}
-
 Result<ApplyScope> scopeOf(const World& world, Entity root, const PrefabApply& apply) {
     const auto* link = world.tryGet<PrefabLinkComponent>(apply.entity);
-    if (link == nullptr || instanceRootOf(world, apply.entity) != root) {
+    if (link == nullptr || prefabInstanceRootOf(world, apply.entity) != root) {
         return makeError(ErrorCode::InvalidArgument, "'{}' is no linked entity of the instance '{}'",
                          world.isValid(apply.entity) ? world.name(apply.entity) : std::string("an entity"),
                          world.name(root));
@@ -361,15 +413,12 @@ Result<ApplyScope> scopeOf(const World& world, Entity root, const PrefabApply& a
         const Entity entity = pending.back();
         pending.pop_back();
         const auto* held = world.tryGet<PrefabLinkComponent>(entity);
-        if (held == nullptr) {
-            CORDITE_TRY(checkNoInstanceIn(world, entity));
+        if (held == nullptr || held->prefab != link->prefab ||
+            (entity != root && isPrefabInstanceRoot(world, entity))) {
+            // Added - an entity of its own, or an instance of a prefab placed in it, which the
+            // prefab then holds with its link.
             scope.added.push_back(entity);
             continue;
-        }
-        if (entity != root && world.has<PrefabInstanceComponent>(entity)) {
-            return makeError(ErrorCode::InvalidArgument,
-                             "'{}' is an instance of a prefab, and a prefab inside a prefab cannot be applied yet",
-                             world.name(entity));
         }
         scope.entries.emplace_back(entity, held->overrides);
         for (const Entity child : world.children(entity)) {
@@ -454,7 +503,7 @@ Result<Json> prefabEntitiesWithOverrides(const World& world, const ComponentRegi
     }
     CORDITE_TRY_ASSIGN(const std::vector<PrefabEntity> prefab, readPrefabEntities(components, entities));
     const auto* rootLink = world.tryGet<PrefabLinkComponent>(root);
-    if (rootLink == nullptr || rootLink->source != prefab.front().source) {
+    if (rootLink == nullptr || rootLink->prefab != prefabOf(world, root) || rootLink->source != prefab.front().source) {
         return makeError(ErrorCode::InvalidArgument,
                          "'{}' is no linked instance of this prefab: it was placed from what the prefab was before "
                          "it was made anew, or before prefabs were linked",
@@ -480,12 +529,16 @@ Result<Json> prefabEntitiesWithOverrides(const World& world, const ComponentRegi
         }
         for (const std::string& entry : entries) {
             CORDITE_TRY(applyEntry(world, components, entity, entity == root, entry, sources, result[place->second]));
+            // What the prefab holds of a prefab inside it is that one's own now.
+            noteInFileLink(result[place->second], entry);
         }
     }
     for (const Entity group : scope.added) {
         const std::array<Entity, 1> roots = {group};
         Json added = serializeEntities(world, roots, components);
         added.front()["parent"] = sources.at(world.id(world.parent(group))).toString();
+        // A prefab placed in the instance stays linked to its own in the file.
+        dropOwnLinks(world, world.parent(group), added);
         for (Json& entity : added) {
             // The value of an item of a JSON object that is not const can be changed through a
             // const view of the item.
@@ -516,18 +569,23 @@ void markPrefabApplied(World& world, Entity root, const PrefabApply& apply) {
         link->overrides.clear();
         return;
     }
-    std::vector<Entity> pending = {root};
+    const Uuid prefab = link->prefab;
+    // Each entity with whether it is of what was added - where everything is in the prefab
+    // with the id it has, and this prefab's now, a prefab placed in it included.
+    std::vector<std::pair<Entity, bool>> pending = {{root, false}};
     while (!pending.empty()) {
-        const Entity entity = pending.back();
+        const auto [entity, inAdded] = pending.back();
         pending.pop_back();
-        if (auto* held = world.tryGet<PrefabLinkComponent>(entity)) {
-            held->overrides.clear();
+        auto* held = world.tryGet<PrefabLinkComponent>(entity);
+        const bool added = inAdded || held == nullptr || held->prefab != prefab ||
+                           (entity != root && isPrefabInstanceRoot(world, entity));
+        if (added) {
+            world.add<PrefabLinkComponent>(entity) = PrefabLinkComponent{.prefab = prefab, .source = world.id(entity)};
         } else {
-            // Added, and now in the prefab with the id it has.
-            world.add<PrefabLinkComponent>(entity).source = world.id(entity);
+            held->overrides.clear();
         }
         for (const Entity child : world.children(entity)) {
-            pending.push_back(child);
+            pending.emplace_back(child, added);
         }
     }
 }
@@ -572,10 +630,73 @@ Result<Entity> instantiatePrefab(World& world, const ComponentRegistry& componen
     // creates them in the order of the list.
     for (size_t index = 0; index < created.size() && index < entities.size(); ++index) {
         if (const std::optional<Uuid> source = Uuid::parse(jsonGetOr<std::string>(entities[index], "id", ""))) {
-            world.add<PrefabLinkComponent>(created[index]) = PrefabLinkComponent{.source = *source};
+            world.add<PrefabLinkComponent>(created[index]) = PrefabLinkComponent{.prefab = prefab, .source = *source};
         }
     }
     return root;
+}
+
+namespace {
+
+/// A prefab on the way from the one that is resolved to one inside it.
+struct Holder {
+    Uuid prefab;
+    std::string name;
+};
+
+/// "'a' holds 'b', which holds 'a'": the chain of prefabs, closed by `again`.
+std::string describeChain(const std::vector<Holder>& chain, const Holder& again) {
+    std::string text = fmt::format("'{}'", chain.front().name);
+    for (size_t index = 1; index < chain.size(); ++index) {
+        text += fmt::format(" holds '{}', which", chain[index].name);
+    }
+    text += fmt::format(" holds '{}'", again.name);
+    return text;
+}
+
+Result<Json> resolve(const ComponentRegistry& components, const Json& entities, const PrefabReader& read,
+                     std::vector<Holder>& chain) {
+    World scratch;
+    CORDITE_TRY_ASSIGN(const std::vector<Entity> created,
+                       instantiateEntities(scratch, entities, components, {.requireSingleRoot = true}));
+    const std::vector<Entity> inside = linkedPrefabRoots(scratch);
+    if (inside.empty()) {
+        return entities;
+    }
+    for (const Entity instance : inside) {
+        // One brought up to date before may have taken this one away.
+        if (!scratch.isValid(instance)) {
+            continue;
+        }
+        const Uuid prefab = scratch.tryGet<PrefabInstanceComponent>(instance)->prefab;
+        if (const auto again = std::ranges::find(chain, prefab, &Holder::prefab); again != chain.end()) {
+            return makeError(ErrorCode::InvalidArgument, "{}: a prefab cannot hold itself",
+                             describeChain(chain, *again));
+        }
+        if (chain.size() >= kMaxPrefabNesting) {
+            return makeError(ErrorCode::InvalidArgument, "'{}' holds prefabs inside prefabs more than {} deep",
+                             chain.front().name, kMaxPrefabNesting);
+        }
+        Json held;
+        CORDITE_TRY_ASSIGN(std::string name, read(prefab, held));
+        chain.push_back({.prefab = prefab, .name = std::move(name)});
+        Result<Json> resolved = resolve(components, held, read, chain);
+        chain.pop_back();
+        if (!resolved) {
+            return tl::unexpected(std::move(resolved).error());
+        }
+        CORDITE_TRY(syncPrefabInstance(scratch, components, instance, *resolved));
+    }
+    const std::array<Entity, 1> roots = {created.front()};
+    return serializeEntities(scratch, roots, components);
+}
+
+} // namespace
+
+Result<Json> resolvePrefabEntities(const ComponentRegistry& components, const Uuid& prefab, std::string_view name,
+                                   const Json& entities, const PrefabReader& read) {
+    std::vector<Holder> chain = {{.prefab = prefab, .name = std::string(name)}};
+    return resolve(components, entities, read, chain);
 }
 
 Json serializePrefabEntities(const World& world, const ComponentRegistry& components, Entity root) {
@@ -586,19 +707,48 @@ Json serializePrefabEntities(const World& world, const ComponentRegistry& compon
     const std::array<Entity, 1> roots = {root};
     Json entities = serializeEntities(world, roots, components);
     // An entity that is valid is written, and the root comes first. In the prefab it
-    // hangs under nothing, and is no instance; and no entity of a prefab is a copy of
-    // another's, whatever it was where it was made.
+    // hangs under nothing, and is no instance; and the prefab's own entities are copies of
+    // nothing, whatever they were where it was made - but those of a prefab placed inside
+    // it keep their links to that one.
     Json& first = entities.front();
     first["parent"] = nullptr;
     if (const auto held = first.find("components"); held != first.end() && held->is_object()) {
         held->erase(std::string(PrefabInstanceComponent::kName));
     }
-    for (Json& entity : entities) {
-        if (const auto held = entity.find("components"); held != entity.end() && held->is_object()) {
-            held->erase(std::string(PrefabLinkComponent::kName));
+    dropOwnLinks(world, root, entities);
+    return entities;
+}
+
+Entity prefabInstanceRootOf(const World& world, Entity entity) {
+    const auto* link = world.tryGet<PrefabLinkComponent>(entity);
+    if (link == nullptr) {
+        return {};
+    }
+    // The nearest root of an instance is the one it is in, if any: an instance placed inside
+    // another is no part of that one.
+    for (Entity above = entity; !above.isNull(); above = world.parent(above)) {
+        if (isPrefabInstanceRoot(world, above)) {
+            return world.tryGet<PrefabInstanceComponent>(above)->prefab == link->prefab ? above : Entity{};
         }
     }
-    return entities;
+    return {};
+}
+
+bool isPrefabInstanceRoot(const World& world, Entity entity) {
+    const auto* instance = world.tryGet<PrefabInstanceComponent>(entity);
+    const auto* link = world.tryGet<PrefabLinkComponent>(entity);
+    return instance != nullptr && link != nullptr && link->prefab == instance->prefab;
+}
+
+std::vector<Entity> linkedPrefabRoots(const World& world, std::optional<Uuid> prefab) {
+    std::vector<Entity> roots;
+    world.traverse([&](Entity entity, uint32_t /*depth*/) {
+        if (isPrefabInstanceRoot(world, entity) &&
+            (!prefab || world.tryGet<PrefabInstanceComponent>(entity)->prefab == *prefab)) {
+            roots.push_back(entity);
+        }
+    });
+    return roots;
 }
 
 } // namespace cordite

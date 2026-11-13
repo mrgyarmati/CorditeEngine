@@ -642,7 +642,7 @@ TEST_SUITE("EditorViewports") {
         CHECK(glm::length(world.transform(crate).position) < 0.02f);
 
         // A prefab, where the crate is in the way: on top of the crate, as drawn.
-        browseFor("prefabs", "bollard", "prefabs/bollard.prefab.json");
+        browseFor("prefabs", "bollard.prefab", "prefabs/bollard.prefab.json");
         dragPointer(*editor, tile, middle);
         REQUIRE(world.roots().size() == 2);
         const Entity bollard = world.roots().back();

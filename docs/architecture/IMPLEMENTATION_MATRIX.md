@@ -21,7 +21,7 @@ tests are in `tests/unit/<module>/`, GPU tests in `tests/render/`.
 |------|---------:|--------:|--------:|-------:|--------:|
 | Core and math | 6 | 1 | 0 | 0 | 0 |
 | Platform and input | 3 | 4 | 1 | 0 | 0 |
-| World, scenes, prefabs | 6 | 0 | 1 | 0 | 0 |
+| World, scenes, prefabs | 7 | 0 | 1 | 0 | 0 |
 | Assets | 7 | 2 | 3 | 0 | 0 |
 | Animation | 4 | 0 | 1 | 0 | 0 |
 | Physics | 8 | 1 | 1 | 0 | 0 |
@@ -73,8 +73,9 @@ in October have fixes and regression tests, and those tests pass (see
 | Scene files (strict JSON, duplicate with id remapping) | Verified | `world/SceneSerializer.cpp` | `SceneSerializerTests` "an invalid scene is rejected and leaves the world untouched" | Format version 2; older versions are migrated (`migrateDocument`) |
 | Prefab placement, linked to the prefab (`PrefabLink`) | Verified | `world/Prefab.cpp` | world `PrefabTests` | Instances placed by scripts are linked but not followed |
 | Overrides and revert, instances brought up to date on open and refresh | Verified | `world/Prefab.cpp` `syncPrefabInstance`, `editor/PrefabLinks.cpp`, `EditorActions` | world `PrefabTests`, editor `AssetCommandsTests` "a prefab that changes changes its instances..." | Editor only; a game plays what was saved |
-| Apply to the prefab (one override, an entity, the whole instance with what was added) | Verified | `world/Prefab.cpp` `prefabEntitiesWithOverrides`, `EditorActions::applyPrefabOverrides` | world `PrefabTests`, editor `AssetCommandsTests` "prefab.apply writes..." | Refused for an instance holding another prefab; deleting an entity of the prefab is no override yet |
-| Nested prefabs, variants | **Planned** (P1-12 slice 4; variants Phase 4) | `docs/architecture.md` "A prefab stays linked to what was placed from it" | "a prefab is not an instance of another..." | A nested instance is a copy inside its outer one |
+| Apply to the prefab (one override, an entity, the whole instance with what was added) | Verified | `world/Prefab.cpp` `prefabEntitiesWithOverrides`, `EditorActions::applyPrefabOverrides` | world `PrefabTests`, editor `AssetCommandsTests` "prefab.apply writes..." | Deleting an entity of the prefab is no override yet |
+| Prefabs inside prefabs, linked to theirs; a prefab that holds itself refused | Verified | `world/Prefab.cpp` `resolvePrefabEntities`, `editor/PrefabLinks.cpp` | world `PrefabTests` "a prefab inside a prefab...", editor `AssetCommandsTests`, `samples` (bollard pair) | Inner prefabs are resolved whenever the outer one is read |
+| Prefab variants | **Planned** (Phase 4) | `docs/architecture.md` "A prefab stays linked to what was placed from it" | - | - |
 
 ## Assets
 

@@ -1287,7 +1287,7 @@
             "components": {
                 "Transform": { "position": [-0.2, 0.0, 3.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [1.0, 1.0, 1.0] },
                 "PrefabInstance": { "prefab": "6c041688-c090-8241-b6d2-251f33c18abd" },
-                "PrefabLink": { "source": "30000000-0000-4000-8000-000000000001", "overrides": [] },
+                "PrefabLink": { "prefab": "6c041688-c090-8241-b6d2-251f33c18abd", "source": "30000000-0000-4000-8000-000000000001", "overrides": [] },
                 "Collider": {
                     "shape": "box",
                     "size": [0.24, 0.9, 0.24],
@@ -1308,7 +1308,7 @@
             "parent": "10000000-0000-4000-8000-00000000003d",
             "components": {
                 "Transform": { "position": [0.0, 0.45, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [0.2, 0.9, 0.2] },
-                "PrefabLink": { "source": "30000000-0000-4000-8000-000000000002", "overrides": [] },
+                "PrefabLink": { "prefab": "6c041688-c090-8241-b6d2-251f33c18abd", "source": "30000000-0000-4000-8000-000000000002", "overrides": [] },
                 "MeshRenderer": {
                     "mesh": "2c51a473-c570-8ef1-a45b-3b3ba054e8e5",
                     "materials": ["8733a23e-9efb-81d0-8529-eb712ff4332a"]
@@ -1322,7 +1322,7 @@
             "parent": "10000000-0000-4000-8000-00000000003d",
             "components": {
                 "Transform": { "position": [0.0, 0.9, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [0.26, 0.26, 0.26] },
-                "PrefabLink": { "source": "30000000-0000-4000-8000-000000000003", "overrides": [] },
+                "PrefabLink": { "prefab": "6c041688-c090-8241-b6d2-251f33c18abd", "source": "30000000-0000-4000-8000-000000000003", "overrides": [] },
                 "MeshRenderer": {
                     "mesh": "aa35bb57-6b9a-8ecb-9eda-83a2a1be3014",
                     "materials": ["c40ceb3a-92fb-8ca6-8c0c-a72bda94bf24"]
@@ -1343,7 +1343,7 @@
                     "scale": [1.0, 1.0, 1.0]
                 },
                 "PrefabInstance": { "prefab": "6c041688-c090-8241-b6d2-251f33c18abd" },
-                "PrefabLink": { "source": "30000000-0000-4000-8000-000000000001", "overrides": [] },
+                "PrefabLink": { "prefab": "6c041688-c090-8241-b6d2-251f33c18abd", "source": "30000000-0000-4000-8000-000000000001", "overrides": [] },
                 "Collider": {
                     "shape": "box",
                     "size": [0.24, 0.9, 0.24],
@@ -1364,7 +1364,7 @@
             "parent": "10000000-0000-4000-8000-000000000040",
             "components": {
                 "Transform": { "position": [0.0, 0.45, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [0.2, 0.9, 0.2] },
-                "PrefabLink": { "source": "30000000-0000-4000-8000-000000000002", "overrides": [] },
+                "PrefabLink": { "prefab": "6c041688-c090-8241-b6d2-251f33c18abd", "source": "30000000-0000-4000-8000-000000000002", "overrides": [] },
                 "MeshRenderer": {
                     "mesh": "2c51a473-c570-8ef1-a45b-3b3ba054e8e5",
                     "materials": ["8733a23e-9efb-81d0-8529-eb712ff4332a"]
@@ -1378,7 +1378,129 @@
             "parent": "10000000-0000-4000-8000-000000000040",
             "components": {
                 "Transform": { "position": [0.0, 0.9, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [0.26, 0.26, 0.26] },
-                "PrefabLink": { "source": "30000000-0000-4000-8000-000000000003", "overrides": [] },
+                "PrefabLink": { "prefab": "6c041688-c090-8241-b6d2-251f33c18abd", "source": "30000000-0000-4000-8000-000000000003", "overrides": [] },
+                "MeshRenderer": {
+                    "mesh": "aa35bb57-6b9a-8ecb-9eda-83a2a1be3014",
+                    "materials": ["c40ceb3a-92fb-8ca6-8c0c-a72bda94bf24"]
+                }
+            }
+        },
+        {
+            // A pair of bollards (prefabs/bollard-pair.prefab.json): a prefab with two bollard
+            // prefabs inside it, placed as one. Every entity of it is linked to the pair -
+            // the bollards inside too, whose roots still say they are bollards
+            // (PrefabInstance): what the pair holds of the bollard prefab, the pair's file
+            // keeps up to date, and this instance takes it from the pair. The right one has
+            // no cap, as the pair says; the left one is grippier than the pair says, which
+            // this scene keeps of its own (its link lists "Collider.friction").
+            "id": "10000000-0000-4000-8000-00000000004f",
+            "name": "Bollard pair",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-000000000001",
+            "components": {
+                "Transform": { "position": [2.6, 0.0, 3.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [1.0, 1.0, 1.0] },
+                "PrefabInstance": { "prefab": "65568d7a-d32a-8150-a346-e36019e01ed7" },
+                "PrefabLink": { "prefab": "65568d7a-d32a-8150-a346-e36019e01ed7", "source": "31000000-0000-4000-8000-000000000001", "overrides": [] }
+            }
+        },
+        {
+            "id": "10000000-0000-4000-8000-000000000050",
+            "name": "Left",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-00000000004f",
+            "components": {
+                "Transform": { "position": [-0.4, 0.0, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [1.0, 1.0, 1.0] },
+                "PrefabInstance": { "prefab": "6c041688-c090-8241-b6d2-251f33c18abd" },
+                "PrefabLink": {
+                    "prefab": "65568d7a-d32a-8150-a346-e36019e01ed7",
+                    "source": "31000000-0000-4000-8000-000000000002",
+                    "overrides": ["Collider.friction"]
+                },
+                "Collider": {
+                    "shape": "box",
+                    "size": [0.24, 0.9, 0.24],
+                    "radius": 0.5,
+                    "height": 2.0,
+                    "mesh": null,
+                    "trigger": false,
+                    "center": [0.0, 0.45, 0.0],
+                    "friction": 0.8,
+                    "restitution": 0.0
+                }
+            }
+        },
+        {
+            "id": "10000000-0000-4000-8000-000000000051",
+            "name": "Post",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-000000000050",
+            "components": {
+                "Transform": { "position": [0.0, 0.45, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [0.2, 0.9, 0.2] },
+                "PrefabLink": { "prefab": "65568d7a-d32a-8150-a346-e36019e01ed7", "source": "31000000-0000-4000-8000-000000000003", "overrides": [] },
+                "MeshRenderer": {
+                    "mesh": "2c51a473-c570-8ef1-a45b-3b3ba054e8e5",
+                    "materials": ["8733a23e-9efb-81d0-8529-eb712ff4332a"]
+                }
+            }
+        },
+        {
+            "id": "10000000-0000-4000-8000-000000000052",
+            "name": "Cap",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-000000000050",
+            "components": {
+                "Transform": { "position": [0.0, 0.9, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [0.26, 0.26, 0.26] },
+                "PrefabLink": { "prefab": "65568d7a-d32a-8150-a346-e36019e01ed7", "source": "31000000-0000-4000-8000-000000000004", "overrides": [] },
+                "MeshRenderer": {
+                    "mesh": "aa35bb57-6b9a-8ecb-9eda-83a2a1be3014",
+                    "materials": ["c40ceb3a-92fb-8ca6-8c0c-a72bda94bf24"]
+                }
+            }
+        },
+        {
+            "id": "10000000-0000-4000-8000-000000000053",
+            "name": "Right",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-00000000004f",
+            "components": {
+                "Transform": { "position": [0.4, 0.0, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [1.0, 1.0, 1.0] },
+                "PrefabInstance": { "prefab": "6c041688-c090-8241-b6d2-251f33c18abd" },
+                "PrefabLink": { "prefab": "65568d7a-d32a-8150-a346-e36019e01ed7", "source": "31000000-0000-4000-8000-000000000005", "overrides": [] },
+                "Collider": {
+                    "shape": "box",
+                    "size": [0.24, 0.9, 0.24],
+                    "radius": 0.5,
+                    "height": 2.0,
+                    "mesh": null,
+                    "trigger": false,
+                    "center": [0.0, 0.45, 0.0],
+                    "friction": 0.5,
+                    "restitution": 0.0
+                }
+            }
+        },
+        {
+            "id": "10000000-0000-4000-8000-000000000054",
+            "name": "Post",
+            "enabled": true,
+            "parent": "10000000-0000-4000-8000-000000000053",
+            "components": {
+                "Transform": { "position": [0.0, 0.45, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [0.2, 0.9, 0.2] },
+                "PrefabLink": { "prefab": "65568d7a-d32a-8150-a346-e36019e01ed7", "source": "31000000-0000-4000-8000-000000000006", "overrides": [] },
+                "MeshRenderer": {
+                    "mesh": "2c51a473-c570-8ef1-a45b-3b3ba054e8e5",
+                    "materials": ["8733a23e-9efb-81d0-8529-eb712ff4332a"]
+                }
+            }
+        },
+        {
+            "id": "10000000-0000-4000-8000-000000000055",
+            "name": "Cap",
+            "enabled": false,
+            "parent": "10000000-0000-4000-8000-000000000053",
+            "components": {
+                "Transform": { "position": [0.0, 0.9, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": [0.26, 0.26, 0.26] },
+                "PrefabLink": { "prefab": "65568d7a-d32a-8150-a346-e36019e01ed7", "source": "31000000-0000-4000-8000-000000000007", "overrides": [] },
                 "MeshRenderer": {
                     "mesh": "aa35bb57-6b9a-8ecb-9eda-83a2a1be3014",
                     "materials": ["c40ceb3a-92fb-8ca6-8c0c-a72bda94bf24"]

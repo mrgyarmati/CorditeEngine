@@ -30,8 +30,11 @@
 #include "cordite/world/World.h"
 
 #include <cstddef>
+#include <functional>
 #include <optional>
 #include <string>
+#include <string_view>
+#include <vector>
 
 namespace cordite {
 
@@ -124,6 +127,44 @@ struct PrefabApply {
 /// entities added to the instance are linked to themselves in the prefab, which has their
 /// ids. The arguments are those prefabEntitiesWithOverrides() succeeded with.
 void markPrefabApplied(World& world, Entity root, const PrefabApply& apply);
+
+/// Whether `entity` is the root of a linked instance of its own: it has a PrefabInstance and a
+/// PrefabLink to the same prefab. An instance placed inside another is one, and no part of the
+/// one around it - even when both are of the same prefab.
+[[nodiscard]] bool isPrefabInstanceRoot(const World& world, Entity entity);
+
+/// The roots of the linked prefab instances of `world` - entities with a PrefabInstance and a
+/// PrefabLink to the same prefab - in the order of the hierarchy; those of `prefab` alone,
+/// when one is given. A prefab placed inside an instance of another, as part of that one's
+/// prefab, is linked to that prefab, and is no root of its own.
+[[nodiscard]] std::vector<Entity> linkedPrefabRoots(const World& world, std::optional<Uuid> prefab = std::nullopt);
+
+/// The root of the instance a linked entity is part of: the nearest entity at it or above
+/// it that is the root of an instance of the prefab its link names. Null for an entity that
+/// is no part of one.
+[[nodiscard]] Entity prefabInstanceRootOf(const World& world, Entity entity);
+
+/// Reads the entities of a prefab, as its file holds them, into `entities`, and returns what
+/// to call it in a message - its path among the assets. Fails as reading it does.
+using PrefabReader = std::function<Result<std::string>(const Uuid& prefab, Json& entities)>;
+
+/// How deep prefabs may be placed inside each other.
+inline constexpr size_t kMaxPrefabNesting = 32;
+
+/// The entities of the prefab `prefab`, called `name` - `entities`, as its file holds them -
+/// with every prefab placed inside it brought up to date with what that one is now
+/// (syncPrefabInstance), but for what the file overrides of it: what placing the prefab, or
+/// bringing an instance of it up to date, works from. Those inside are read with `read`, and
+/// what is inside them in turn first. A file whose prefabs hold nothing of another is
+/// returned as it is. What is made of a prefab inside gets an id that follows from where it
+/// is, the same every time.
+///
+/// Fails with InvalidArgument for a prefab that holds itself, directly or through others -
+/// the message names the chain - and for prefabs placed inside each other more than
+/// kMaxPrefabNesting deep; as `read` fails; and as syncPrefabInstance() does for entities
+/// that are wrong.
+[[nodiscard]] Result<Json> resolvePrefabEntities(const ComponentRegistry& components, const Uuid& prefab,
+                                                 std::string_view name, const Json& entities, const PrefabReader& read);
 
 /// What a prefab made of `root` and everything below it holds as its entities: the root
 /// first, hanging under nothing, and without the PrefabInstance it has when it was

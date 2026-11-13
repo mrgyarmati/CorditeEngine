@@ -132,7 +132,8 @@ set it like any other property:
   root it returns, which a `PrefabInstance` component marks, each linked to the prefab
   by a `PrefabLink` - when the prefab changes, `asset.refresh` brings them up to date but
   for what they keep of their own (its `overrides`); `prefab.revert` takes that back, and
-  `prefab.apply` writes it into the prefab, which every instance then takes.
+  `prefab.apply` writes it into the prefab, which every instance then takes. A prefab may
+  hold prefabs, which stay linked to theirs; one that would hold itself is refused.
   `prefab.create` makes a prefab of an entity and everything below it: `{"entity":
   "Yard/Cart", "path": "prefabs/cart.prefab.json"}`. It writes a file, which undo does
   not take back (skill: `work-with-assets`).

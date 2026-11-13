@@ -286,6 +286,7 @@ Which entity of a prefab this one is a copy of, and what of it keeps values of i
 
 | Property | Kind | Default | Values | Meaning |
 |---|---|---|---|---|
+| `prefab` | asset (Prefab) | `null` |  | *Read only.* The prefab of the instance this entity is part of, in whose file the source is |
 | `source` | uuid | `null` |  | *Read only.* The id this entity has in the file of the prefab it was placed from |
 | `overrides` | list | `[]` |  | *Read only.* What of this entity keeps values of its own when the prefab changes: "Light.intensity", "+Light" (added here), "-Light" (removed here), "name", "enabled" |
 
