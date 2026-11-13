@@ -129,10 +129,12 @@ set it like any other property:
   `time` to the moment of the clip to look at - the editor shows a pose, it does not
   play (skill: `work-with-assets`).
 - `asset.instantiate` places a prefab the same way: copies of its entities, under the
-  root it returns, which a `PrefabInstance` component marks. `prefab.create` makes a
-  prefab of an entity and everything below it: `{"entity": "Yard/Cart", "path":
-  "prefabs/cart.prefab.json"}`. It writes a file, which undo does not take back
-  (skill: `work-with-assets`).
+  root it returns, which a `PrefabInstance` component marks, each linked to the prefab
+  by a `PrefabLink` - when the prefab changes, `asset.refresh` brings them up to date but
+  for what they keep of their own (its `overrides`), and `prefab.revert` takes that back.
+  `prefab.create` makes a prefab of an entity and everything below it: `{"entity":
+  "Yard/Cart", "path": "prefabs/cart.prefab.json"}`. It writes a file, which undo does
+  not take back (skill: `work-with-assets`).
 - `asset.instantiate` places a mesh as one entity whose `MeshRenderer` draws it -
   `"builtin#mesh/cube"`, or a mesh of a model, which keeps the model's materials. Give
   it `"position": [x, y, z]` to put the root there, relative to `parent` (in the world

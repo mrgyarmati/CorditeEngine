@@ -6,8 +6,10 @@
 // entity and everything below it. The showcase scene has two of this one, and its
 // self-test places a third for a few frames.
 //
-// What is placed is a copy: entities with ids of their own, which the scene saves like
-// any others. Changing this file changes what is placed from then on, not what was.
+// What is placed is a copy: entities with ids of their own, which the scene saves in full
+// - and linked to this file, entity by entity (PrefabLink). Changing this file changes what
+// is placed from then on, and the editor gives what was placed what it is now, but for
+// what an instance keeps values of its own for.
 {
     "format": "cordite.prefab",
     "version": 1,

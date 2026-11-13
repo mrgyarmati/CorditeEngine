@@ -3,12 +3,12 @@
 #include "cordite/core/FileSystem.h"
 #include "cordite/core/Log.h"
 #include "cordite/core/StringUtils.h"
+#include "cordite/editor/PrefabLinks.h"
 #include "cordite/world/EntityPath.h"
 #include "cordite/world/SceneSerializer.h"
 
 #include <algorithm>
 #include <cstdint>
-#include <limits>
 #include <ranges>
 #include <utility>
 
@@ -137,8 +137,7 @@ Status EditorContext::restoreScene(const Json& scene, std::filesystem::path path
     CORDITE_TRY(deserializeScene(m_world, scene, m_components));
     m_scenePath = std::move(path);
     resetDocumentState();
-    // No state of a history: its states are counted up from nothing, one an edit.
-    m_savedStateId = std::numeric_limits<uint64_t>::max();
+    m_savedStateId = kNotSaved;
     return {};
 }
 
@@ -187,6 +186,13 @@ Status EditorContext::openScene(const std::filesystem::path& path) {
     CORDITE_TRY(loadScene(path, m_world, m_components));
     m_scenePath = path;
     resetDocumentState();
+    // What its prefabs were changed to since the scene was saved is in it now - changes that
+    // are not saved yet.
+    if (const std::vector<Entity> updated = syncPrefabInstances(m_world, m_components, m_assets); !updated.empty()) {
+        CORDITE_LOG_INFO("Editor", "{} prefab instance(s) of the scene were brought up to date with their prefabs",
+                         updated.size());
+        m_savedStateId = kNotSaved;
+    }
     return {};
 }
 

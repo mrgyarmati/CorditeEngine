@@ -132,9 +132,11 @@ public:
     /// as an instance of the new prefab. Returns the id of the prefab. An empty path is
     /// defaultPrefabPath() of the entity's name.
     ///
-    /// Only the mark is an edit of the scene, and only that is undone: the file stays.
-    /// A prefab that is written over keeps its id, and what was placed from it before
-    /// stays as it is.
+    /// The entity becomes the prefab's first instance: a PrefabInstance marks it, and a
+    /// PrefabLink links it and every entity below it to itself in the file. That is an edit
+    /// of the scene, and what is undone: the file stays. A prefab that is written over
+    /// keeps its id, and the linked instances placed from it before take what it is now
+    /// (updatePrefabInstances), in a step of their own.
     ///
     /// Fails with InvalidState while the scene is played and in an editor without an
     /// asset directory; with InvalidArgument for a path that leaves that directory or
@@ -143,6 +145,24 @@ public:
     /// file and AssetManager::refresh() do. Nothing has been written before any of the
     /// first four.
     [[nodiscard]] Result<Uuid> createPrefab(Entity entity, std::string_view assetPath = {}, bool overwrite = false);
+
+    /// Brings the linked prefab instances of the scene - those of `prefab` alone, when one
+    /// is given - up to date with their prefabs (syncPrefabInstances): what is done when the
+    /// assets were read again. One step of the history for all of them, none when nothing
+    /// changed. Returns how many instances changed. A prefab that cannot be loaded is said
+    /// in the log, and its instances are left as they are. Fails with InvalidState while
+    /// the scene is played: the game is not the document.
+    [[nodiscard]] Result<size_t> updatePrefabInstances(std::optional<Uuid> prefab = std::nullopt);
+
+    /// Takes away what a linked copy of a prefab's entity keeps of its own, and gives it
+    /// what its prefab has: the override `entry` alone - "Light.intensity", "+Light",
+    /// "-Light", "name", "enabled" - or, when `entry` is empty, every override of the entity,
+    /// and of every entity of the instance when it is the root. One step of the history.
+    /// The Transform of the root is its own all the same. Fails with InvalidArgument for an
+    /// entity that is no linked copy and for an `entry` it does not override, with
+    /// InvalidState while the scene is played, and as loading the prefab fails; nothing has
+    /// changed then.
+    [[nodiscard]] Status revertPrefabOverrides(Entity entity, std::string_view entry = {});
 
     /// Fails with InvalidArgument for an empty name or one containing '/', which
     /// separates the names in entity paths.

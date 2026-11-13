@@ -63,6 +63,8 @@ cordite_add_module(editor
         PlayMode.h
         PosedMesh.cpp
         PosedMesh.h
+        PrefabLinks.cpp
+        PrefabLinks.h
         PropertyEditor.cpp
         PropertyEditor.h
         ReferenceDocs.cpp

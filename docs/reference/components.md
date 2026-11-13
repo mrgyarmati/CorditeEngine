@@ -274,11 +274,20 @@ How the picture is finished - exposure, bloom, tone mapping, grading - everywher
 
 ## PrefabInstance
 
-Says which prefab the entity was placed from. It is an ordinary entity all the same: changing the prefab later does not change it.
+Says which prefab the entity, and what hangs under it, was placed from: the root of an instance, whose entities take what the prefab is changed to (PrefabLink).
 
 | Property | Kind | Default | Values | Meaning |
 |---|---|---|---|---|
 | `prefab` | asset (Prefab) | `null` |  | The prefab this entity, and what hangs under it, was placed from |
+
+## PrefabLink
+
+Which entity of a prefab this one is a copy of, and what of it keeps values of its own when the prefab changes. Kept by the editor; read-only.
+
+| Property | Kind | Default | Values | Meaning |
+|---|---|---|---|---|
+| `source` | uuid | `null` |  | *Read only.* The id this entity has in the file of the prefab it was placed from |
+| `overrides` | list | `[]` |  | *Read only.* What of this entity keeps values of its own when the prefab changes: "Light.intensity", "+Light" (added here), "-Light" (removed here), "name", "enabled" |
 
 ## RigidBody
 

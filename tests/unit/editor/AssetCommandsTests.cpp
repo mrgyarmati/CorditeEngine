@@ -26,6 +26,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <vector>
 
 using namespace cordite;
@@ -744,11 +745,20 @@ TEST_SUITE("AssetCommands") {
         CHECK(fixture.outline() == std::vector<std::string>{"cart", ".Body", "..Wheel", "..Mirror"});
         CHECK(fixture.run("scene.validate")["valid"] == true);
 
+        // Every entity of it is linked to itself in the file, which has the ids it has.
+        for (const std::string_view path : {"cart", "cart/Body", "cart/Body/Wheel", "cart/Body/Mirror"}) {
+            const Entity linked = unwrap(fixture.context->resolveEntity(path));
+            REQUIRE(world.has<PrefabLinkComponent>(linked));
+            CHECK(world.tryGet<PrefabLinkComponent>(linked)->source == world.id(linked));
+            CHECK(world.tryGet<PrefabLinkComponent>(linked)->overrides.empty());
+        }
+
         // That mark is the edit, and what undoing takes back; the file stays an asset.
-        CHECK(fixture.context->history().undoLabel() == "Add PrefabInstance to 'cart'");
+        CHECK(fixture.context->history().undoLabel() == "Make 'cart' an instance of its prefab");
         fixture.run("editor.undo");
         CHECK(fixture.context->history().stateId() == placed);
         CHECK_FALSE(world.has<PrefabInstanceComponent>(cart));
+        CHECK_FALSE(world.has<PrefabLinkComponent>(cart));
         CHECK(fileExists(fixture.root / "prefabs" / "cart.prefab.json"));
         CHECK(made["id"] == fixture.id("prefabs/cart.prefab.json"));
     }
@@ -845,13 +855,20 @@ TEST_SUITE("AssetCommands") {
         CHECK(replaced["path"] == "prefabs/front-wheel.prefab.json");
         CHECK(fixture.run("asset.get", R"({"asset": "prefabs/front-wheel.prefab.json"})")["content"]["entities"] ==
               json(R"(["Front wheel", "Axle"])"));
-        // The entity was marked already, and names the same prefab: there was nothing to edit.
-        CHECK(fixture.context->history().undoLabel() == "Place 'Spare'");
-        // What was placed before is a copy, and stays what it was.
+        // What was placed from it before is linked, and takes the new name of its hub - a step
+        // of its own.
+        CHECK(fixture.context->history().undoLabel() == "Bring 1 prefab instance(s) up to date");
+        CHECK(fixture.outline() == std::vector<std::string>{"Front wheel", ".Axle", "Spare", ".Axle"});
+        fixture.run("editor.undo");
         CHECK(fixture.outline() == std::vector<std::string>{"Front wheel", ".Axle", "Spare", ".Hub"});
+        // The hub's new name was its own, an override; written into the prefab, it is the
+        // prefab's, and the step before took the override away.
+        CHECK(fixture.context->history().undoLabel() == "Make 'Front wheel' an instance of its prefab");
+        CHECK(fixture.world.tryGet<PrefabLinkComponent>(fixture.world.findByName("Axle"))->overrides.empty());
+        fixture.run("editor.redo");
         // What is placed from now on is the new one.
         fixture.run("asset.instantiate", R"({"asset": "prefabs/front-wheel.prefab.json", "name": "New"})");
-        CHECK(fixture.outline() == std::vector<std::string>{"Front wheel", ".Axle", "Spare", ".Hub", "New", ".Axle"});
+        CHECK(fixture.outline() == std::vector<std::string>{"Front wheel", ".Axle", "Spare", ".Axle", "New", ".Axle"});
         CHECK(marked != serializeScene(fixture.world, fixture.components));
         CHECK(history != fixture.context->history().stateId());
     }
@@ -875,12 +892,226 @@ TEST_SUITE("AssetCommands") {
         const Json document = unwrap(readJsonFile(fixture.root / "prefabs" / "deep" / "lantern.prefab.json"));
         CHECK_FALSE(document["entities"][0]["components"].contains("PrefabInstance"));
 
-        CHECK(fixture.context->history().undoLabel() == "Edit PrefabInstance of 'Lantern'");
+        CHECK(fixture.context->history().undoLabel() == "Make 'Lantern' an instance of its prefab");
         fixture.run("editor.undo");
         CHECK(first["id"] == world.tryGet<PrefabInstanceComponent>(lantern)->prefab.toString());
         fixture.run("editor.redo");
         CHECK(second["id"] == world.tryGet<PrefabInstanceComponent>(lantern)->prefab.toString());
         CHECK(placed["id"] == world.id(lantern).toString());
+    }
+
+    TEST_CASE("what is changed of a linked copy is kept as its own, in the step of the change") {
+        AssetFixture fixture;
+        fixture.run("asset.instantiate", R"({"asset": "models/cart.gltf"})");
+        fixture.run("prefab.create", R"({"entity": "cart", "path": "prefabs/cart.prefab.json"})");
+        fixture.run("asset.instantiate", R"({"asset": "prefabs/cart.prefab.json", "name": "Second"})");
+        const auto overrides = [&](std::string_view path) {
+            const Entity entity = unwrap(fixture.context->resolveEntity(path));
+            REQUIRE(fixture.world.has<PrefabLinkComponent>(entity));
+            return fixture.world.tryGet<PrefabLinkComponent>(entity)->overrides;
+        };
+        using Entries = std::vector<std::string>;
+        CHECK(overrides("Second/Body/Mirror").empty());
+
+        // A property, with the change, and taken back with it.
+        fixture.run(
+            "component.set",
+            R"({"entity": "Second/Body/Mirror", "component": "Camera", "properties": {"verticalFovDegrees": 40}})");
+        CHECK(overrides("Second/Body/Mirror") == Entries{"Camera.verticalFovDegrees"});
+        fixture.run("editor.undo");
+        CHECK(overrides("Second/Body/Mirror").empty());
+        fixture.run("editor.redo");
+        CHECK(overrides("Second/Body/Mirror") == Entries{"Camera.verticalFovDegrees"});
+        // Changed again, it is listed once.
+        fixture.run(
+            "component.set",
+            R"({"entity": "Second/Body/Mirror", "component": "Camera", "properties": {"verticalFovDegrees": 50}})");
+        CHECK(overrides("Second/Body/Mirror") == Entries{"Camera.verticalFovDegrees"});
+
+        // The place of the root, and its name, are its own anyway; those of a copy inside are not.
+        fixture.run("component.set",
+                    R"({"entity": "Second", "component": "Transform", "properties": {"position": [3, 0, 0]}})");
+        fixture.run("entity.rename", R"({"entity": "Second", "name": "Spare"})");
+        CHECK(overrides("Spare").empty());
+        fixture.run("component.set",
+                    R"({"entity": "Spare/Body", "component": "Transform", "properties": {"position": [0, 2, 0]}})");
+        fixture.run("entity.rename", R"({"entity": "Spare/Body", "name": "Chassis"})");
+        fixture.run("entity.setEnabled", R"({"entity": "Spare/Chassis/Wheel", "enabled": false})");
+        CHECK(overrides("Spare/Chassis") == Entries{"Transform.position", "name"});
+        CHECK(overrides("Spare/Chassis/Wheel") == Entries{"enabled"});
+
+        // A component added is kept, and removed again it is nothing of its own any more; one
+        // the prefab has, removed, is kept left out, and added again it is the prefab's.
+        fixture.run("component.add", R"({"entity": "Spare/Chassis/Wheel", "component": "Light"})");
+        CHECK(overrides("Spare/Chassis/Wheel") == Entries{"enabled", "+Light"});
+        fixture.run("component.remove", R"({"entity": "Spare/Chassis/Wheel", "component": "Light"})");
+        CHECK(overrides("Spare/Chassis/Wheel") == Entries{"enabled"});
+        fixture.run("component.remove", R"({"entity": "Spare/Chassis/Mirror", "component": "Camera"})");
+        CHECK(overrides("Spare/Chassis/Mirror") == Entries{"Camera.verticalFovDegrees", "-Camera"});
+        fixture.run("editor.undo");
+        CHECK(overrides("Spare/Chassis/Mirror") == Entries{"Camera.verticalFovDegrees"});
+        fixture.run("editor.redo");
+        fixture.run("component.add", R"({"entity": "Spare/Chassis/Mirror", "component": "Camera"})");
+        CHECK(overrides("Spare/Chassis/Mirror") == Entries{"Camera.verticalFovDegrees"});
+
+        // The mark of the instance is no part of what a copy keeps of its own.
+        fixture.run("component.remove", R"({"entity": "Spare", "component": "PrefabInstance"})");
+        CHECK(overrides("Spare").empty());
+        fixture.run("editor.undo");
+
+        // What the prefab was made of is linked as well, and the same holds for it.
+        fixture.run("entity.rename", R"({"entity": "cart/Body/Wheel", "name": "Tyre"})");
+        CHECK(overrides("cart/Body/Tyre") == Entries{"name"});
+        // An entity that is no copy has nothing to keep.
+        fixture.run("entity.create", R"({"name": "Loose"})");
+        fixture.run("entity.rename", R"({"entity": "Loose", "name": "Free"})");
+        CHECK_FALSE(fixture.world.has<PrefabLinkComponent>(fixture.world.findByName("Free")));
+    }
+
+    TEST_CASE("a prefab that changes changes its instances when the assets are read again, but for what they keep") {
+        AssetFixture fixture;
+        fixture.run("asset.instantiate", R"({"asset": "models/cart.gltf"})");
+        fixture.run("prefab.create", R"({"entity": "cart", "path": "prefabs/cart.prefab.json"})");
+        fixture.run("asset.instantiate", R"({"asset": "prefabs/cart.prefab.json", "name": "Second"})");
+        fixture.run(
+            "component.set",
+            R"({"entity": "Second/Body/Mirror", "component": "Camera", "properties": {"verticalFovDegrees": 40}})");
+        const Json before = serializeScene(fixture.world, fixture.components);
+        const uint64_t edited = fixture.context->history().stateId();
+
+        // Nothing changed: nothing to bring up to date, and no step.
+        CHECK(fixture.run("asset.refresh")["prefabInstancesUpdated"] == 0);
+        CHECK(fixture.context->history().stateId() == edited);
+
+        // The prefab is changed by another program: its wheel renamed, its mirror wider.
+        const std::filesystem::path file = fixture.root / "prefabs" / "cart.prefab.json";
+        Json document = unwrap(readJsonFile(file));
+        for (Json& entity : document["entities"]) {
+            if (entity["name"].get<std::string>() == "Wheel") {
+                entity["name"] = "Tyre";
+            } else if (entity["name"].get<std::string>() == "Mirror") {
+                entity["components"]["Camera"]["verticalFovDegrees"] = 70;
+            }
+        }
+        REQUIRE(writeJsonFile(file, document).has_value());
+
+        CHECK(fixture.run("asset.refresh")["prefabInstancesUpdated"] == 2);
+        CHECK(fixture.outline() ==
+              std::vector<std::string>{"cart", ".Body", "..Tyre", "..Mirror", "Second", ".Body", "..Tyre", "..Mirror"});
+        const auto fov = [&](std::string_view path) {
+            const Entity mirror = unwrap(fixture.context->resolveEntity(path));
+            return fixture.world.tryGet<CameraComponent>(mirror)->verticalFovDegrees;
+        };
+        CHECK(fov("cart/Body/Mirror") == 70.0f);
+        // What the copy keeps of its own stays.
+        CHECK(fov("Second/Body/Mirror") == 40.0f);
+
+        // One step for all of them, which undo takes back whole.
+        CHECK(fixture.context->history().undoLabel() == "Bring 2 prefab instance(s) up to date");
+        fixture.run("editor.undo");
+        CHECK(serializeScene(fixture.world, fixture.components) == before);
+        fixture.run("editor.redo");
+        CHECK(fov("cart/Body/Mirror") == 70.0f);
+        CHECK(fixture.outline().back() == "..Mirror");
+
+        // While the scene is played, the game is not brought up to date: it is no document.
+        REQUIRE(fixture.context->beginPlay().has_value());
+        document["entities"][0]["name"] = "Wagon";
+        REQUIRE(writeJsonFile(file, document).has_value());
+        CHECK(fixture.run("asset.refresh")["prefabInstancesUpdated"] == 0);
+        REQUIRE(fixture.context->endPlay().has_value());
+    }
+
+    TEST_CASE("prefab.revert gives a linked copy back what its prefab has, one override or all") {
+        AssetFixture fixture;
+        fixture.run("asset.instantiate", R"({"asset": "models/cart.gltf"})");
+        fixture.run("prefab.create", R"({"entity": "cart", "path": "prefabs/cart.prefab.json"})");
+        fixture.run("asset.instantiate", R"({"asset": "prefabs/cart.prefab.json", "name": "Second"})");
+        fixture.run(
+            "component.set",
+            R"({"entity": "Second/Body/Mirror", "component": "Camera", "properties": {"verticalFovDegrees": 40, "nearPlane": 0.5}})");
+        fixture.run("entity.rename", R"({"entity": "Second/Body/Wheel", "name": "Tyre"})");
+        fixture.run("component.add", R"({"entity": "Second/Body", "component": "Light"})");
+        const Json edited = serializeScene(fixture.world, fixture.components);
+        const auto mirror = [&] {
+            return fixture.world.tryGet<CameraComponent>(unwrap(fixture.context->resolveEntity("Second/Body/Mirror")));
+        };
+
+        // One override.
+        const Json reverted = fixture.run(
+            "prefab.revert", R"({"entity": "Second/Body/Mirror", "override": "Camera.verticalFovDegrees"})");
+        CHECK(reverted["path"] == "Second/Body/Mirror");
+        CHECK(reverted["overrides"] == json(R"(["Camera.nearPlane"])"));
+        // What the prefab has: what the entity it was made of still has.
+        CHECK(mirror()->verticalFovDegrees ==
+              fixture.world.tryGet<CameraComponent>(unwrap(fixture.context->resolveEntity("cart/Body/Mirror")))
+                  ->verticalFovDegrees);
+        CHECK(mirror()->nearPlane == 0.5f);
+        CHECK(fixture.context->history().undoLabel() == "Revert Camera.verticalFovDegrees of 'Mirror' to its prefab");
+        fixture.run("editor.undo");
+        CHECK(serializeScene(fixture.world, fixture.components) == edited);
+        fixture.run("editor.redo");
+
+        // All of them, for the whole instance, from its root - but its place, which is its own.
+        fixture.run("component.set",
+                    R"({"entity": "Second", "component": "Transform", "properties": {"position": [3, 0, 0]}})");
+        fixture.run("prefab.revert", R"({"entity": "Second"})");
+        CHECK(fixture.outline() == std::vector<std::string>{"cart", ".Body", "..Wheel", "..Mirror", "Second", ".Body",
+                                                            "..Wheel", "..Mirror"});
+        CHECK(mirror()->nearPlane == 0.1f);
+        CHECK_FALSE(fixture.world.has<LightComponent>(unwrap(fixture.context->resolveEntity("Second/Body"))));
+        CHECK(fixture.world.transform(fixture.world.findByName("Second")).position == Vec3(3.0f, 0.0f, 0.0f));
+        for (const std::string_view path : {"Second", "Second/Body", "Second/Body/Wheel", "Second/Body/Mirror"}) {
+            CHECK(fixture.world.tryGet<PrefabLinkComponent>(unwrap(fixture.context->resolveEntity(path)))
+                      ->overrides.empty());
+        }
+
+        // What cannot be reverted changes nothing.
+        const Json now = serializeScene(fixture.world, fixture.components);
+        const uint64_t state = fixture.context->history().stateId();
+        CHECK(fixture.fail("prefab.revert", R"({"entity": "Second/Body", "override": "name"})").code ==
+              ErrorCode::InvalidArgument);
+        fixture.run("entity.create", R"({"name": "Loose"})");
+        CHECK(fixture.fail("prefab.revert", R"({"entity": "Loose"})").code == ErrorCode::InvalidArgument);
+        fixture.run("editor.undo");
+        CHECK(fixture.fail("prefab.revert", R"({"entity": "Nowhere"})").code == ErrorCode::NotFound);
+        // A prefab that is gone.
+        fixture.run("entity.rename", R"({"entity": "Second/Body", "name": "Chassis"})");
+        const Json renamed = serializeScene(fixture.world, fixture.components);
+        std::error_code removed;
+        REQUIRE(std::filesystem::remove(fixture.root / "prefabs" / "cart.prefab.json", removed));
+        fixture.run("asset.refresh");
+        CHECK_FALSE(fixture.fail("prefab.revert", R"({"entity": "Second/Chassis"})").message.empty());
+        CHECK(serializeScene(fixture.world, fixture.components) == renamed);
+        fixture.run("editor.undo");
+        CHECK(serializeScene(fixture.world, fixture.components) == now);
+        CHECK(fixture.context->history().stateId() == state);
+    }
+
+    TEST_CASE("a scene that is opened takes what its prefabs were changed to, as changes that are not saved") {
+        AssetFixture fixture;
+        fixture.run("asset.instantiate", R"({"asset": "models/cart.gltf"})");
+        fixture.run("prefab.create", R"({"entity": "cart", "path": "prefabs/cart.prefab.json"})");
+        const std::filesystem::path scene = fixture.root / "scenes" / "carts.scene.json";
+        fixture.run("scene.save", Json{{"path", pathToUtf8(scene)}}.dump());
+
+        const std::filesystem::path file = fixture.root / "prefabs" / "cart.prefab.json";
+        Json document = unwrap(readJsonFile(file));
+        document["entities"][1]["name"] = "Chassis";
+        REQUIRE(writeJsonFile(file, document).has_value());
+        fixture.run("asset.refresh");
+        fixture.run("scene.new");
+
+        // Without the prefab it is opened as it was; with it, as the prefab is now.
+        fixture.run("scene.open", Json{{"path", pathToUtf8(scene)}}.dump());
+        CHECK(fixture.outline() == std::vector<std::string>{"cart", ".Chassis", "..Wheel", "..Mirror"});
+        CHECK(fixture.run("editor.state")["scene"]["unsavedChanges"] == true);
+        CHECK_FALSE(fixture.context->history().canUndo());
+
+        // Saved, and opened again, there is nothing to change.
+        fixture.run("scene.save");
+        fixture.run("scene.open", Json{{"path", pathToUtf8(scene)}}.dump());
+        CHECK(fixture.run("editor.state")["scene"]["unsavedChanges"] == false);
     }
 
     TEST_CASE("prefab.create refuses what it cannot make a prefab of, and writes nothing") {

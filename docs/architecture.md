@@ -482,8 +482,8 @@ identical value, and quaternions that are already unit length are not renormaliz
 ### A prefab is copied where it is placed
 
 **Superseded on 12 November 2026** by [A prefab stays linked to what was placed from it](#a-prefab-stays-linked-to-what-was-placed-from-it),
-which is being built (backlog P1-12). Until its second slice lands, this is what the
-engine does.
+which is being built (backlog P1-12); its second slice, on 13 November 2026, linked what is
+placed. What follows is what the engine did until then.
 
 A prefab is a file with a few entities in it: one root and what hangs under it, written
 exactly as a scene writes entities. Placing it creates copies of them with ids of their
@@ -558,6 +558,21 @@ value of a prefab that has changed since, and only the first is to be kept.
 
 Variants - a prefab that is another prefab with overrides - come with Phase 4, on the same
 links and overrides.
+
+**How it is built** (slice 2, 13 November 2026). The link is a component, `PrefabLink`, on
+every entity of an instance: the id of the entity of the prefab it is a copy of, and its
+overrides - `Light.intensity`, `+Light` and `-Light` for a component added or left out, `name`
+and `enabled`. A component, because that is what a scene already saves, the editor already
+shows and undo already restores. `syncPrefabInstance` (`world/Prefab.h`) brings one instance
+up to date with a prefab's entities, in the world module beside `instantiatePrefab`: it reads
+and checks all of them before it changes anything, and an instance whose root is linked to
+another entity than the prefab's root is left alone - the prefab was made anew of something
+else, and what was placed of the old one is a copy. Where it runs is the editor's to say
+(`editor/PrefabLinks.h`): when a scene is opened, as changes that are not saved, and when
+the assets are read again, as one step of the history - so that what a changed prefab did to
+a scene can be undone, and a game, which never runs it, plays what was saved. Overrides are
+noted by `EditorActions` in the same step as the edit that makes them; an edit that sets a
+value back is still an override, until it is reverted.
 
 ### The asset browser is a list that is worked out, and a window that draws it
 

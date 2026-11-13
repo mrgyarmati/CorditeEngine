@@ -28,9 +28,21 @@ Each time, the entities are copied, with ids of their own; whatever in the group
 another entity of the group - a joint, a script property - refers to its copy. The top entity
 of the copy gets a **PrefabInstance** component that says which prefab it came from.
 
-## Copies, not links
+## Linked to their prefab
 
-A placed prefab is an ordinary group of entities from then on: change it as you like, and it
-is saved with its scene. A prefab that is changed later does **not** change the copies that
-were placed before - place them again to get the new version. (Linked prefabs, whose changes
-reach every copy, are planned.)
+Every entity of a placed prefab gets a **PrefabLink** component that says which entity of the
+prefab it is a copy of. When you change the prefab - make it again from an entity with
+**overwrite**, or edit its file - every scene you open, and the open scene as soon as the
+editor notices, takes the change: values, components, and entities the prefab gained or lost.
+
+What you change in a placed prefab is kept as its own. The editor notes it in the
+PrefabLink's **overrides** - a property (`Light.intensity`), a component you added (`+Light`)
+or removed (`-Light`), a new `name`, `enabled` - and the prefab does not change it any more.
+Where the top entity stands, and its name, are always its own, and so is an entity you add to
+a placed prefab. To give an entity back what the prefab has, run `prefab.revert` - for one
+override, or for all of them; on the top entity it reverts the whole group. All of this is
+undoable.
+
+A scene still saves every entity in full. It opens even when a prefab is missing - the editor
+says so in the console - and a game plays it as it was saved: save the scene after a prefab
+changed. What a script places while the game runs is not followed.

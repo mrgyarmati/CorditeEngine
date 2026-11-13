@@ -600,13 +600,21 @@ Status registerAssetCommands(CommandRegistry& commands, EditorContext& context) 
     CORDITE_TRY(commands.add({
         .name = "asset.refresh",
         .description = "Reads the asset directory again and reloads everything, after files were added, changed "
-                       "or removed. Returns how many assets there are and what is wrong, if anything.",
+                       "or removed, and brings the scene's linked prefab instances up to date with their "
+                       "prefabs - one step of the history, while the scene is not played. Returns how many "
+                       "assets there are, how many instances changed and what is wrong, if anything.",
         .parameters = {},
         .handler = [&context](const Json& /*parameters*/) -> Result<Json> {
             CORDITE_TRY(context.assets().refresh());
+            size_t updated = 0;
+            if (!context.isPlaying()) {
+                EditorActions actions(context);
+                CORDITE_TRY_ASSIGN(updated, actions.updatePrefabInstances());
+            }
             const AssetDatabase& database = context.assets().database();
             Json result = Json::object();
             result["assetCount"] = database.assets().size();
+            result["prefabInstancesUpdated"] = updated;
             result["problems"] = describeProblems(database);
             return result;
         },
@@ -666,11 +674,12 @@ Status registerAssetCommands(CommandRegistry& commands, EditorContext& context) 
     CORDITE_TRY(commands.add({
         .name = "prefab.create",
         .description = "Makes a prefab of an entity and everything below it: writes them into a file among the "
-                       "assets, reads the assets again, and marks the entity as an instance of the new prefab "
-                       "with a PrefabInstance component. Returns the prefab. asset.instantiate places it, and "
-                       "so does a script, with cordite.world.instantiate. What was placed is a copy: changing "
-                       "the prefab later does not change it. Undoing takes the mark off the entity; the file "
-                       "stays.",
+                       "assets, reads the assets again, and makes the entity an instance of the new prefab: a "
+                       "PrefabInstance component marks it, and a PrefabLink links it and every entity below it "
+                       "to itself in the file. Returns the prefab. asset.instantiate places it, and so does a "
+                       "script, with cordite.world.instantiate. What the editor places stays linked: when the "
+                       "prefab changes, its instances take the change, but for what they keep of their own. "
+                       "Undoing takes the mark and the links off; the file stays.",
         .parameters = {{"entity", Type::String,
                         "The entity to make the prefab of: its id, its path of names from a root, or its name if "
                         "that is unique."},
@@ -696,6 +705,38 @@ Status registerAssetCommands(CommandRegistry& commands, EditorContext& context) 
             }
             Json result = describeAsset(*asset);
             result["entityCount"] = prefab->entities.size();
+            return result;
+        },
+    }));
+
+    CORDITE_TRY(commands.add({
+        .name = "prefab.revert",
+        .description = "Gives a linked copy of a prefab's entity back what its prefab has, where it kept "
+                       "something of its own: one override, or all of them - of every entity of the instance, "
+                       "for its root. The overrides of an entity are the overrides of its PrefabLink component. "
+                       "The Transform of the root of an instance stays its own. Undoable. Returns the entity.",
+        .parameters = {{"entity", Type::String,
+                        "A linked copy - an entity with a PrefabLink: its id, its path of names from a root, or "
+                        "its name if that is unique."},
+                       {"override", Type::String,
+                        "The one override to take back, as its PrefabLink lists it: \"Light.intensity\", "
+                        "\"+Light\" (a component it added), \"-Light\" (one it left out), \"name\" or "
+                        "\"enabled\". Without one, every override is taken back.",
+                        false}},
+        .handler = [&context](const Json& parameters) -> Result<Json> {
+            CORDITE_TRY_ASSIGN(const Entity entity, context.resolveEntity(parameters.at("entity").get<std::string>()));
+            const auto entry = jsonGetOr<std::string>(parameters, "override", "");
+            // Found again by its id: what its prefab no longer has is taken away.
+            const std::string id = context.world().id(entity).toString();
+            EditorActions actions(context);
+            CORDITE_TRY(actions.revertPrefabOverrides(entity, entry));
+            CORDITE_TRY_ASSIGN(const Entity reverted, context.resolveEntity(id));
+            Json result = Json::object();
+            result["id"] = context.world().id(reverted).toString();
+            result["path"] = context.entityPath(reverted);
+            if (const auto* link = context.world().tryGet<PrefabLinkComponent>(reverted)) {
+                result["overrides"] = link->overrides;
+            }
             return result;
         },
     }));

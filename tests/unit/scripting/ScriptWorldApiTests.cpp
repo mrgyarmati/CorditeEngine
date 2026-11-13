@@ -120,7 +120,7 @@ TEST_SUITE("ScriptWorldApi") {
         // Every kind of component there is, by the name it is asked for with: here, those
         // of the world and the one of the scripts, in the order they were registered.
         CHECK(stage.line("print(table.concat(cordite.world.componentTypes(), ' '))") ==
-              "Transform Camera PrefabInstance Script");
+              "Transform Camera PrefabInstance PrefabLink Script");
     }
 
     TEST_CASE("a script makes entities, and they are there at once") {

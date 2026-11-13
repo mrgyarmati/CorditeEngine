@@ -131,7 +131,7 @@ by accident.
 | `math` | `core`    | glm aliases, `Transform`, bounds, rays, frustum, projections, color, curves, random, spherical harmonics, directions in images of everything around, reflection of math types |
 | `platform` | `core`, `math` | Windows (GLFW), keyboard / mouse / gamepad input, and the controls a game has by name: `InputMap`, `InputActions` |
 | `assets` | `core`, `math` | Assets as data: images and mipmaps, meshes - rigid and skinned - and what prepares them, their levels of detail among it, skeletons, animation clips, materials, the text of scripts, the samples of sounds, prefabs as their files have them, render targets, sequences, glTF import and export, the asset database (ids, `.meta` files) and the asset manager (loading by id) |
-| `world` | `core`, `math` | Entities, components and their hierarchy (EnTT), the paths of names that lead to them, the component registry, scene files, prefabs: placing one in a world and making one of what is there |
+| `world` | `core`, `math` | Entities, components and their hierarchy (EnTT), the paths of names that lead to them, the component registry, scene files, prefabs: placing one in a world, making one of what is there and keeping what was placed up to date with it |
 | `animation` | `core`, `math`, `assets`, `world` | Poses of skeletons and what makes them: sampling clips, blending, the matrices a mesh is skinned with and the bounds of a posed mesh; the `Animator` component; `AnimationSystem`, which plays the animators of a world; the shake of a camera: the `CameraShake` component, how it moves the view (`cameraShakeOffset`) and `shakeCameras`, which lets time pass for it; sequences played: the `SequencePlayer` component and `SequenceSystem`, which puts what their tracks say into the world |
 | `physics` | `core`, `math`, `assets`, `world` | `PhysicsWorld`: rigid bodies, their shapes - boxes, balls, capsules, the hulls around sets of points and surfaces of triangles - joints between them, the characters that walk among them, stepping, contact events and queries, over Jolt Physics; the `Collider`, `RigidBody`, `Joint` and `CharacterController` components; `PhysicsSystem`, which keeps the entities of a world and the bodies, joints and characters of a simulation in step and makes shapes of mesh assets |
 | `audio` | `core`, `math`, `assets`, `world` | What is heard: the `AudioSource` and `AudioListener` components, and `AudioSystem`, which plays the sources of a world from where they are - voices, five buses with volumes of their own, sound without an entity - over miniaudio, onto a device or into memory |
@@ -892,19 +892,31 @@ Step-by-step guide for adding a component: [add-component](.claude/skills/add-co
   Floats written to a file go through `jsonFromFloat`; nothing is "improved" on load.
 - **Scene loading is strict.** An unknown component, property or member is an error
   that names the entity, not something to skip.
-- **A prefab is entities in a file, and placing it copies them.** A `.prefab.json`
-  holds a group of entities with one root, written as a scene writes them. The assets
-  know it as what its file says (`assets/Prefab.h`); the world places it
-  (`world/Prefab.h`: `instantiatePrefab`, and `serializePrefabEntities` for making
+- **A prefab is entities in a file, and what is placed of it stays linked to it**
+  ([why](docs/architecture.md#a-prefab-stays-linked-to-what-was-placed-from-it)). A
+  `.prefab.json` holds a group of entities with one root, written as a scene writes
+  them. The assets know it as what its file says (`assets/Prefab.h`); the world places
+  it (`world/Prefab.h`: `instantiatePrefab`, and `serializePrefabEntities` for making
   one) - there and not in `engine`, because scripts place prefabs too and the
   scripting module is below it. The copies get ids of their own, what refers to an
-  entity of the group refers to its copy, and the root gets a `PrefabInstance` that
-  names the prefab. That component is a mark and nothing more: what was placed is
-  ordinary entities, saved in full with their scene, and a prefab that is changed
-  later does not change them. Nothing may read the mark to decide what an entity
-  does. Keeping instances up to date with their prefab - overrides, prefabs inside
-  prefabs that stay tied - would be a design of its own, not an addition to this one
-  ([why](docs/architecture.md#a-prefab-is-copied-where-it-is-placed)).
+  entity of the group refers to its copy, the root gets a `PrefabInstance` that names
+  the prefab, and every copy a `PrefabLink`: the id of the entity of the file it is a
+  copy of, and its `overrides` - what it keeps of its own, said and never worked out by
+  comparing values. A scene still saves every entity in full, opens without its prefabs,
+  and a game plays it as written. `syncPrefabInstance` brings one instance up to date
+  with its prefab's entities - values, components and entities that the prefab gained or
+  lost, a reference to an entity of the prefab led to its copy as placing does
+  (`remapEntityReferences`) - but for its overrides, the Transform and name of its root,
+  and the entities it has that the prefab never had; it checks everything before it
+  changes anything, and
+  does nothing for an instance whose links lead to other entities. The editor calls it
+  (`editor/PrefabLinks.h`) when a scene is opened, as changes that are not saved, and
+  when the assets are read again, as a step of the history (`updatePrefabInstances`).
+  `EditorActions` notes an override in the step of every edit of a linked copy, and
+  `revertPrefabOverrides` (`prefab.revert`) takes them back. Nothing may read the marks
+  to decide what an entity does. Scenes of version 1 are read through `migrateDocument`
+  (`core/Document.h`), their instances linked to nothing. Applying an instance to its
+  prefab and prefabs inside prefabs come next (P1-12).
 - **The showcase uses everything.** The scene of `samples/showcase` must contain every
   component type and every named option that a scene can hold - not those of
   `transient` properties, which only a running game has - and use every asset and
