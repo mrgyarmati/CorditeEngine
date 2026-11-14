@@ -6,7 +6,9 @@
 # commas). See lavapipe.txt for the same of Mesa's Vulkan on the CPU.
 #
 # These are the fourteen the Phase 0 audit measured (docs/architecture/BASELINE.md, note 2),
-# and none is understood yet. Measured on an AMD Radeon RX 9070 XT, 12 November 2026.
+# and none is understood yet. Measured on an AMD Radeon RX 9070 XT, 12 November 2026. The
+# picture of the inspector with a prefab instance was added on 14 November: it differs as
+# the other pictures of the editor do, in the viewport.
 
 # Reference pictures.
 *the editor showing the showcase scene matches the reference image*
@@ -17,6 +19,7 @@
 *the editor playing the showcase matches the reference image*
 *the editor in the light theme matches the reference image*
 *the showcase as a game shows it matches the reference image*
+*the editor showing what an instance of a prefab keeps of its own*
 
 # Fog: thousands of pixels off by more than 2.5 of 255 from what the fog's arithmetic says.
 *a fog leaves numbers in every pixel*

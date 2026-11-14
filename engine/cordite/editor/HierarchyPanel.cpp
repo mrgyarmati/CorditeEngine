@@ -4,7 +4,10 @@
 #include "cordite/editor/EditorActions.h"
 #include "cordite/editor/EditorFeedback.h"
 #include "cordite/editor/EditorIcons.h"
+#include "cordite/editor/PrefabLinks.h"
 #include "cordite/editor/PropertyEditor.h"
+#include "cordite/ui/UiSystem.h"
+#include "cordite/ui/UiTheme.h"
 #include "cordite/ui/UiWidgets.h"
 
 #include <imgui.h>
@@ -12,6 +15,7 @@
 #include <algorithm>
 #include <cstring>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -39,6 +43,44 @@ Uuid acceptPlaceableDrop(const AssetDatabase& database) {
     }
     const Uuid id = asset->id;
     return ImGui::AcceptDragDropPayload(PropertyEditor::kAssetPayload) != nullptr ? id : Uuid();
+}
+
+/// Draws the row of an entity - its icon and its name - and returns whether it is open. An
+/// entity that is switched off, itself or through an ancestor, is shown dimmed; one of an
+/// instance of a prefab in the color of prefabs, marked when it keeps something of its own
+/// or was added to the instance (prefabMarker), with what it is to the prefab in its tooltip.
+bool drawRow(const EditorContext& context, Entity entity, ImGuiTreeNodeFlags flags) {
+    const World& world = context.world();
+    const bool dimmed = !world.isEnabledInHierarchy(entity);
+    const PrefabView prefab = prefabViewOf(world, entity);
+    const bool linked = prefab.role == PrefabView::Role::Root || prefab.role == PrefabView::Role::Part;
+    if (dimmed) {
+        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+    } else if (linked) {
+        ImGui::PushStyleColor(ImGuiCol_Text, UiSystem::palette().prefab);
+    }
+    const std::string_view marker = prefabMarker(prefab);
+    const bool open = ImGui::TreeNodeEx("##entity", flags, "%s  %s%s%.*s", entityIcon(world, entity).text(),
+                                        world.name(entity).c_str(), marker.empty() ? "" : "  ",
+                                        static_cast<int>(marker.size()), marker.data());
+    if (dimmed || linked) {
+        ImGui::PopStyleColor();
+    }
+    if (prefab.role == PrefabView::Role::None || !ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal)) {
+        return open;
+    }
+    const AssetInfo* asset = context.assets().database().find(prefab.prefab);
+    const std::string name = asset != nullptr ? asset->reference() : prefab.prefab.toString();
+    if (prefab.role == PrefabView::Role::Added) {
+        ImGui::SetTooltip("Added to '%s', an instance of %s: the prefab does not have it.",
+                          world.name(prefab.root).c_str(), name.c_str());
+    } else if (prefab.overrides.empty()) {
+        ImGui::SetTooltip("Of an instance of %s.", name.c_str());
+    } else {
+        ImGui::SetTooltip("Of an instance of %s; it keeps %zu value(s) of its own.", name.c_str(),
+                          prefab.overrides.size());
+    }
+    return open;
 }
 
 } // namespace
@@ -110,16 +152,7 @@ void HierarchyPanel::drawEntity(EditorContext& context, Entity entity) {
     }
 
     ImGui::PushID(static_cast<int>(entt::to_integral(entity.handle)));
-    // An entity that is switched off, itself or through an ancestor, is shown dimmed.
-    const bool dimmed = !world.isEnabledInHierarchy(entity);
-    if (dimmed) {
-        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-    }
-    const bool open =
-        ImGui::TreeNodeEx("##entity", flags, "%s  %s", entityIcon(world, entity).text(), world.name(entity).c_str());
-    if (dimmed) {
-        ImGui::PopStyleColor();
-    }
+    const bool open = drawRow(context, entity, flags);
 
     if (ImGui::IsItemClicked(ImGuiMouseButton_Left) && !ImGui::IsItemToggledOpen()) {
         if (ImGui::GetIO().KeyCtrl) {

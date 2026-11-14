@@ -197,7 +197,7 @@ entry is checked alone.
 **Done 12 November.** See [CORDITE_AUDIT.md, smallest doc updates](CORDITE_AUDIT.md#smallest-doc-updates).
 Includes four stale header comments in the editor.
 
-### P1-12 Prefab instances that keep their link - P0
+### P1-12 Prefab instances that keep their link - P0 - done 14 November
 
 Decided 12 November: prefabs follow the plan. Phase 1 delivers the prefab workflow of
 plan section 9, item 4: nested instances, overrides, apply and revert, and showing what
@@ -228,6 +228,13 @@ is overridden. Variants come in Phase 4, where the plan lists them.
   keeps the links of the prefabs inside it, and `resolvePrefabEntities` brings those up to
   date whenever it is read, refusing a prefab that holds itself with the chain named. The
   showcase has a pair of bollards with an override at both levels.
+  **Slice 5 done 14 November, and with it the ticket:** the hierarchy draws instances in
+  the theme's prefab color and marks what keeps something of its own ("*") and what was
+  added ("+"); the inspector says what an entity is to a prefab, marks the values it keeps,
+  and offers revert and apply - for the entity, the instance, or one value - as command
+  lines run between frames. What the panels show is `prefabViewOf`, tested without a
+  window. Left for a ticket of its own: an entity of the prefab deleted from an instance
+  is no override, and comes back.
   1. **ADR and migration.** Replace "a prefab is copied where it is placed" with
      linked instances. Overrides are stored as property patches (the existing
      `PropertyPatch` fits), and added or removed children are recorded. Add

@@ -333,7 +333,7 @@ void addOverride(std::vector<std::string>& overrides, std::string entry) {
 /// the root of an instance is always its own, and not noted.
 void noteChangedProperties(World& world, Entity entity, const std::string& component, const Json& before,
                            const Json& after, std::vector<OverrideChange>& changes) {
-    if (component == "Transform" && world.has<PrefabInstanceComponent>(entity)) {
+    if (component == "Transform" && isPrefabInstanceRoot(world, entity)) {
         return;
     }
     noteOverrides(
@@ -999,7 +999,7 @@ Status EditorActions::renameEntity(Entity entity, std::string_view name) {
     };
     // The name of the root of an instance is its own anyway; that of a copy inside is kept.
     std::vector<OverrideChange> overrides;
-    if (!world.has<PrefabInstanceComponent>(entity)) {
+    if (!isPrefabInstanceRoot(world, entity)) {
         noteOverrides(
             world, entity, [](std::vector<std::string>& entries) { addOverride(entries, "name"); }, overrides);
     }

@@ -36,6 +36,7 @@ const UiPalette kDark{
     .selectionAlpha = 0.32f,
     .warning = rgb(0xE6C07A),
     .error = rgb(0xF2777A),
+    .prefab = rgb(0x8CC0FF),
 };
 
 const UiPalette kLight{
@@ -54,6 +55,7 @@ const UiPalette kLight{
     .selectionAlpha = 0.22f,
     .warning = rgb(0x8A5A00),
     .error = rgb(0xB42318),
+    .prefab = rgb(0x1A4E92),
 };
 
 /// The sizes of both themes at 100%: room around things, rounded a little.

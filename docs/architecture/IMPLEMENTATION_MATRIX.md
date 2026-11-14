@@ -31,7 +31,7 @@ tests are in `tests/unit/<module>/`, GPU tests in `tests/render/`.
 | Renderer | 20 | 0 | 1 | 0 | 0 |
 | Editor UI (ImGui) | 6 | 2 | 2 | 0 | 0 |
 | Runtime (game) UI | 0 | 0 | 1 | 0 | 0 |
-| Editor | 12 | 3 | 6 | 0 | 0 |
+| Editor | 13 | 3 | 6 | 0 | 0 |
 | Automation | 3 | 2 | 2 | 0 | 0 |
 | Runtime, export, player | 5 | 1 | 0 | 0 | 1 |
 
@@ -225,6 +225,7 @@ only the ImGui renderer draws in 2D.
 | Viewports (up to four, editor or game camera, debug views) | Verified | `EditorApp.cpp:751-1180` | `EditorViewportTests` | |
 | Hierarchy (tree, reparent, Ctrl multi-select, context menu) | Verified | `HierarchyPanel.cpp` | `EditorAppTests` | No Shift range select or search |
 | Inspector (reflection-driven, one undo step per edit) | Verified | `InspectorPanel.cpp` | `PropertyEditorTests` | |
+| Prefab instances shown: hierarchy marks, inspector section, revert and apply per value | Verified | `PrefabLinks.cpp` `prefabViewOf`, `InspectorPanel.cpp`, `HierarchyPanel.cpp` | editor `AssetCommandsTests` "what an entity is to a prefab...", render `editor-prefab-1280x720` | |
 | Inspector search, multi-edit, reset to default | **Planned** | `InspectorPanel.cpp:63-68` | - | Multi-select shows a count only |
 | Asset browser (tree, grid/list, filters, previews, sound preview, uses / used by) | Verified | `AssetBrowserPanel.*` | `EditorAppTests` | |
 | Asset import, rename, move | Verified | `AssetImport.cpp`, `AssetMove.cpp` | `AssetCommandsTests` | Not undoable; no progress |

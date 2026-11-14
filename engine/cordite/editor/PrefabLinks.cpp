@@ -6,10 +6,79 @@
 #include "cordite/core/Log.h"
 #include "cordite/world/Components.h"
 
+#include <fmt/format.h>
+
+#include <algorithm>
 #include <memory>
 #include <string>
 
 namespace cordite {
+
+bool PrefabView::keeps(std::string_view entry) const {
+    return std::ranges::find(overrides, entry) != overrides.end();
+}
+
+bool PrefabView::keepsProperty(std::string_view component, std::string_view property) const {
+    return addedComponent(component) || keeps(fmt::format("{}.{}", component, property));
+}
+
+bool PrefabView::addedComponent(std::string_view component) const {
+    return keeps(fmt::format("+{}", component));
+}
+
+std::vector<std::string> PrefabView::leftOut() const {
+    std::vector<std::string> components;
+    for (const std::string& entry : overrides) {
+        if (entry.starts_with('-')) {
+            components.push_back(entry.substr(1));
+        }
+    }
+    return components;
+}
+
+std::string_view prefabMarker(const PrefabView& view) {
+    if (view.role == PrefabView::Role::Added) {
+        return "+";
+    }
+    return view.overrides.empty() ? std::string_view() : std::string_view("*");
+}
+
+PrefabView prefabViewOf(const World& world, Entity entity) {
+    PrefabView view;
+    if (!world.isValid(entity)) {
+        return view;
+    }
+    const Entity root = prefabInstanceRootOf(world, entity);
+    if (!root.isNull()) {
+        view.role = root == entity ? PrefabView::Role::Root : PrefabView::Role::Part;
+        view.root = root;
+        view.prefab = world.tryGet<PrefabInstanceComponent>(root)->prefab;
+        view.overrides = world.tryGet<PrefabLinkComponent>(entity)->overrides;
+        if (const auto* inner = world.tryGet<PrefabInstanceComponent>(entity); inner != nullptr && entity != root) {
+            view.innerPrefab = inner->prefab;
+        }
+        return view;
+    }
+    // Added: no part of an instance, below something that is.
+    for (Entity above = world.parent(entity); !above.isNull(); above = world.parent(above)) {
+        if (const Entity instance = prefabInstanceRootOf(world, above); !instance.isNull()) {
+            view.role = PrefabView::Role::Added;
+            view.root = instance;
+            view.prefab = world.tryGet<PrefabInstanceComponent>(instance)->prefab;
+            return view;
+        }
+    }
+    return view;
+}
+
+std::string prefabCommandLine(std::string_view command, const World& world, Entity entity, std::string_view entry) {
+    Json parameters = Json::object();
+    parameters["entity"] = world.id(entity).toString();
+    if (!entry.empty()) {
+        parameters["override"] = std::string(entry);
+    }
+    return fmt::format("{} {}", command, parameters.dump());
+}
 
 PrefabReader prefabReaderOf(AssetManager& assets) {
     return [&assets](const Uuid& prefab, Json& entities) -> Result<std::string> {

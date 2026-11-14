@@ -10,6 +10,7 @@
 #include "cordite/editor/EditorActions.h"
 #include "cordite/editor/EditorCommands.h"
 #include "cordite/editor/PosedMesh.h"
+#include "cordite/editor/PrefabLinks.h"
 #include "cordite/engine/EngineComponents.h"
 #include "cordite/engine/SceneAssets.h"
 #include "cordite/renderer/RenderComponents.h"
@@ -1173,6 +1174,90 @@ TEST_SUITE("AssetCommands") {
         // The cart's file is as it was: what is inside it is read as its own prefab is now.
         CHECK(unwrap(readJsonFile(fixture.root / "prefabs" / "cart.prefab.json")) == document);
         CHECK(fixture.run("asset.refresh")["prefabInstancesUpdated"] == 0);
+    }
+
+    TEST_CASE("what an entity is to a prefab is what the hierarchy and the inspector show") {
+        AssetFixture fixture;
+        const World& world = fixture.world;
+        fixture.run("entity.create", R"({"name": "Wheel", "components": {"Camera": {}}})");
+        fixture.run("prefab.create", R"({"entity": "Wheel", "path": "prefabs/wheel.prefab.json"})");
+        fixture.run("entity.create", R"({"name": "Cart"})");
+        fixture.run("entity.create", R"({"name": "Axle", "parent": "Cart"})");
+        fixture.run("asset.instantiate",
+                    R"({"asset": "prefabs/wheel.prefab.json", "parent": "Cart", "name": "Front"})");
+        fixture.run("prefab.create", R"({"entity": "Cart", "path": "prefabs/cart.prefab.json"})");
+        fixture.run("asset.instantiate", R"({"asset": "prefabs/cart.prefab.json", "name": "Second"})");
+        fixture.run("entity.create", R"({"name": "Lamp", "parent": "Second"})");
+        fixture.run("component.set",
+                    R"({"entity": "Second/Front", "component": "Camera", "properties": {"verticalFovDegrees": 40}})");
+        fixture.run("component.add", R"({"entity": "Second/Axle", "component": "Light"})");
+        const auto viewOf = [&](std::string_view path) {
+            return prefabViewOf(world, unwrap(fixture.context->resolveEntity(path)));
+        };
+        const Uuid cart = *Uuid::parse(fixture.id("prefabs/cart.prefab.json"));
+        const Uuid wheel = *Uuid::parse(fixture.id("prefabs/wheel.prefab.json"));
+        const Entity second = world.findByName("Second");
+
+        // The root of an instance, and what is part of it - a prefab inside its prefab among it.
+        const PrefabView root = viewOf("Second");
+        CHECK(root.role == PrefabView::Role::Root);
+        CHECK(root.root == second);
+        CHECK(root.prefab == cart);
+        CHECK(prefabMarker(root).empty());
+        const PrefabView front = viewOf("Second/Front");
+        CHECK(front.role == PrefabView::Role::Part);
+        CHECK(front.root == second);
+        CHECK(front.prefab == cart);
+        CHECK(front.innerPrefab == wheel);
+        CHECK(front.keepsProperty("Camera", "verticalFovDegrees"));
+        CHECK_FALSE(front.keepsProperty("Camera", "nearPlane"));
+        CHECK(prefabMarker(front) == "*");
+        CHECK(front.leftOut().empty());
+        // Its place and its name are its own when changed: it is the root of the wheel inside
+        // the cart, not of the instance, whose root alone has those of its own anyway.
+        fixture.run("component.set",
+                    R"({"entity": "Second/Front", "component": "Transform", "properties": {"position": [0, 1, 0]}})");
+        fixture.run("entity.rename", R"({"entity": "Second/Front", "name": "Spare"})");
+        CHECK(viewOf("Second/Spare").overrides ==
+              std::vector<std::string>{"Camera.verticalFovDegrees", "Transform.position", "name"});
+        fixture.run("editor.undo");
+        fixture.run("editor.undo");
+        CHECK(viewOf("Second/Front").overrides == std::vector<std::string>{"Camera.verticalFovDegrees"});
+        fixture.run("component.remove", R"({"entity": "Second/Front", "component": "Camera"})");
+        CHECK(viewOf("Second/Front").leftOut() == std::vector<std::string>{"Camera"});
+        fixture.run("editor.undo");
+        // A component that was added is its own whole.
+        const PrefabView axle = viewOf("Second/Axle");
+        CHECK(axle.role == PrefabView::Role::Part);
+        CHECK(axle.innerPrefab.isNil());
+        CHECK(axle.addedComponent("Light"));
+        CHECK(axle.keepsProperty("Light", "intensity"));
+        CHECK_FALSE(axle.addedComponent("Transform"));
+        // What was added to the instance, and what is in no instance.
+        const PrefabView lamp = viewOf("Second/Lamp");
+        CHECK(lamp.role == PrefabView::Role::Added);
+        CHECK(lamp.root == second);
+        CHECK(lamp.prefab == cart);
+        CHECK(prefabMarker(lamp) == "+");
+        fixture.run("entity.create", R"({"name": "Loose"})");
+        CHECK(viewOf("Loose").role == PrefabView::Role::None);
+        CHECK(prefabViewOf(world, Entity{}).role == PrefabView::Role::None);
+
+        // The lines the panels hand on run as they are.
+        const auto runLine = [&](const std::string& line) {
+            const size_t blank = line.find(' ');
+            REQUIRE(blank != std::string::npos);
+            return fixture.run(line.substr(0, blank), line.substr(blank + 1));
+        };
+        const Entity frontEntity = unwrap(fixture.context->resolveEntity("Second/Front"));
+        const std::string revert = prefabCommandLine("prefab.revert", world, frontEntity, "Camera.verticalFovDegrees");
+        CHECK(revert == fmt::format(R"(prefab.revert {{"entity":"{}","override":"Camera.verticalFovDegrees"}})",
+                                    world.id(frontEntity).toString()));
+        runLine(revert);
+        CHECK(viewOf("Second/Front").overrides.empty());
+        runLine(prefabCommandLine("prefab.apply", world, second));
+        CHECK(viewOf("Second/Lamp").role == PrefabView::Role::Part);
+        CHECK(viewOf("Second/Axle").overrides.empty());
     }
 
     TEST_CASE("a prefab is not made to hold itself, and nothing is written") {

@@ -932,7 +932,17 @@ Step-by-step guide for adding a component: [add-component](.claude/skills/add-co
   same entities. The editor reads through `currentPrefabEntities` (`editor/PrefabLinks.h`),
   scripts through the same function in `cordite.world.instantiate`. An entity of the prefab
   that is deleted from an instance is no override yet: it comes back when the instance is
-  next brought up to date.
+  next brought up to date. **What the panels show of it is worked out without them**
+  (`prefabViewOf`, `PrefabView`): whether an entity is the root of an instance, part of
+  one - the root of a prefab inside it among those - or added to one, and what it keeps of
+  its own. The hierarchy draws the rows of instances in the color of prefabs
+  (`UiPalette::prefab`), "*" after what keeps something of its own and "+" after what was
+  added; the inspector says what the entity is above its components, marks the names of
+  what it keeps in that color, and offers revert and apply - for the entity, the whole
+  instance from its root, or one value from the menu of its name - as command lines
+  (`prefabCommandLine`) that the editor runs between frames, since applying reads the
+  assets again. The `PrefabLink` component has no section of its own there: what it says
+  is shown in words, and it is the editor's to change.
 - **The showcase uses everything.** The scene of `samples/showcase` must contain every
   component type and every named option that a scene can hold - not those of
   `transient` properties, which only a running game has - and use every asset and
@@ -1995,8 +2005,9 @@ panels, EditorApp    the interface, built on the three layers above
   Lucide merged into both, and a flat theme, dark or light. The fonts are compiled into
   the module (`cordite_embed_file`), so nothing is looked for on the disk. A color is
   the theme's, never a number in a panel: `UiSystem::palette()` has those ImGui has no
-  name for - warnings, errors - and what is drawn over the picture of a scene is in the
-  overlay colors, the same in every theme (`overlayText`, `UiWidgets.h`). `UiThemeTests`
+  name for - warnings, errors, what is of a prefab - and what is drawn over the picture
+  of a scene is in the overlay colors, the same in every theme (`overlayText`,
+  `UiWidgets.h`). `UiThemeTests`
   holds every color to the contrast it needs against what it is drawn on, and the
   theme names every color ImGui has: one that a new version of ImGui adds is an
   assertion until it is given a value. An icon is a code point of the pinned Lucide,
@@ -2061,8 +2072,8 @@ with CTest under the module name. See the skills
   unless it is `d3d12` or `warp`. Every device and engine of the tests is made with it, but
   those of the tests that are about one API - Vulkan's adapter, the defaults, a window -
   which say which. On Windows `render_d3d12` runs the suite on Direct3D 12 (labels `gpu`
-  and `d3d12`: `verify` runs it in its default configuration only), without the 14 cases
-  that do not pass there so far - eight reference pictures, three of fog, the exact light of
+  and `d3d12`: `verify` runs it in its default configuration only), without the 15 cases
+  that do not pass there so far - nine reference pictures, three of fog, the exact light of
   open ground, the console of the editor, a readback of a mip level - which
   `tests/render/expected-failures/d3d12.txt` lists, and which each must still fail alone.
 - **What a device is known to fail is a list, checked both ways**

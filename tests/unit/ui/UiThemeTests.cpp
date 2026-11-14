@@ -107,7 +107,11 @@ TEST_SUITE("UiTheme") {
                 CHECK(contrastRatio(palette.textDisabled, surface) >= kSecondaryText);
                 CHECK(contrastRatio(palette.warning, surface) >= kSecondaryText);
                 CHECK(contrastRatio(palette.error, surface) >= kSecondaryText);
+                CHECK(contrastRatio(palette.prefab, surface) >= kSecondaryText);
             }
+            // What is part of a prefab is read on a selected row of the hierarchy as well.
+            const ImVec4 selected = blendColors(palette.accent, palette.selectionAlpha, palette.panel);
+            CHECK(contrastRatio(palette.prefab, selected) >= kSecondaryText);
         }
     }
 

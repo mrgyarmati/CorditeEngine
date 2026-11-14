@@ -3,6 +3,10 @@
 #include "cordite/core/StringUtils.h"
 #include "cordite/editor/EditorActions.h"
 #include "cordite/editor/EditorFeedback.h"
+#include "cordite/editor/EditorIcons.h"
+#include "cordite/editor/PrefabLinks.h"
+#include "cordite/ui/UiSystem.h"
+#include "cordite/ui/UiTheme.h"
 #include "cordite/ui/UiWidgets.h"
 
 #include <imgui.h>
@@ -10,6 +14,7 @@
 
 #include <algorithm>
 #include <limits>
+#include <span>
 #include <string>
 #include <utility>
 #include <vector>
@@ -31,14 +36,100 @@ float labelColumnWidth(const TypeInfo& type) {
     return std::min(padded, ImGui::GetContentRegionAvail().x * kMaxLabelColumnShare);
 }
 
+/// Whether a component has a section of its own in the inspector. The link of an entity of an
+/// instance of a prefab has none: what it says is shown above the components, in words, and
+/// it is the editor's to change - added or taken away by hand it would cut an entity off its
+/// prefab, or tie it to one by mistake.
+bool isShown(const ComponentDescriptor& descriptor) {
+    return descriptor.type.name() != PrefabLinkComponent::kName;
+}
+
 /// How an asset is shown in a field: its name, and where it is found.
 std::string assetLabel(const AssetInfo& asset) {
     return fmt::format("{}  ({})", asset.name, asset.reference());
 }
 
+/// What the entity is to a prefab, with what can be done about what it keeps of its own.
+void drawPrefab(EditorContext& context, Entity entity, const PrefabView& view,
+                std::vector<std::string>& submittedLines) {
+    if (view.role == PrefabView::Role::None || !context.world().isValid(entity)) {
+        return;
+    }
+    const World& world = context.world();
+    const UiPalette& palette = UiSystem::palette();
+    const auto prefabName = [&context](const Uuid& prefab) {
+        const AssetInfo* asset = context.assets().database().find(prefab);
+        return asset != nullptr ? asset->reference() : prefab.toString();
+    };
+    const std::string prefab = prefabName(view.prefab);
+    // Wrapped: the path of a prefab is longer than a narrow panel.
+    ImGui::PushStyleColor(ImGuiCol_Text, palette.prefab);
+    switch (view.role) {
+        case PrefabView::Role::Root:
+            ImGui::TextWrapped("%s  Instance of %s", icons::kPrefab.text(), prefab.c_str());
+            break;
+        case PrefabView::Role::Part:
+            ImGui::TextWrapped("%s  Part of '%s', an instance of %s", icons::kPrefab.text(),
+                               world.name(view.root).c_str(), prefab.c_str());
+            break;
+        case PrefabView::Role::Added:
+            ImGui::TextWrapped("%s  Added to '%s', an instance of %s", icons::kPrefab.text(),
+                               world.name(view.root).c_str(), prefab.c_str());
+            break;
+        case PrefabView::Role::None:
+            break;
+    }
+    ImGui::PopStyleColor();
+    if (!view.innerPrefab.isNil()) {
+        ImGui::PushStyleColor(ImGuiCol_Text, palette.textDisabled);
+        ImGui::TextWrapped("It is %s, inside that prefab.", prefabName(view.innerPrefab).c_str());
+        ImGui::PopStyleColor();
+    }
+    if (view.role == PrefabView::Role::Added) {
+        ImGui::TextWrapped("The prefab does not have it: apply '%s' to put it there.", world.name(view.root).c_str());
+    }
+    if (view.role != PrefabView::Role::Added) {
+        if (view.overrides.empty()) {
+            ImGui::TextDisabled("It keeps nothing of its own.");
+        } else {
+            std::string kept;
+            for (const std::string& entry : view.overrides) {
+                kept += kept.empty() ? entry : ", " + entry;
+            }
+            ImGui::TextWrapped("It keeps of its own: %s", kept.c_str());
+        }
+        // From the root, the whole instance; from an entity of it, what that one keeps.
+        const bool whole = view.role == PrefabView::Role::Root;
+        ImGui::BeginDisabled(!whole && view.overrides.empty());
+        if (ImGui::Button(whole ? "Revert instance" : "Revert")) {
+            submittedLines.push_back(prefabCommandLine("prefab.revert", world, entity));
+        }
+        ImGui::SetItemTooltip("%s", whole ? "Gives every entity of the instance back what its prefab has."
+                                          : "Gives the entity back what its prefab has.");
+        ImGui::SameLine();
+        if (ImGui::Button(whole ? "Apply instance" : "Apply")) {
+            submittedLines.push_back(prefabCommandLine("prefab.apply", world, entity));
+        }
+        ImGui::SetItemTooltip("%s", whole ? "Writes what the instance keeps of its own, and what was added to it, "
+                                            "into its prefab, which every instance then takes."
+                                          : "Writes what the entity keeps of its own into its prefab, which every "
+                                            "instance then takes.");
+        ImGui::EndDisabled();
+    }
+    if (view.role != PrefabView::Role::Root) {
+        if (view.role != PrefabView::Role::Added) {
+            ImGui::SameLine();
+        }
+        if (ImGui::Button("Select root")) {
+            context.setSelection(std::span(&view.root, 1));
+        }
+    }
+    ImGui::Separator();
+}
+
 } // namespace
 
-void InspectorPanel::draw(EditorContext& context) {
+void InspectorPanel::draw(EditorContext& context, std::vector<std::string>& submittedLines) {
     static const std::string kName = windowName(icons::kInspector, "Inspector");
     if (ImGui::Begin(kName.c_str())) {
         m_properties.setEntityNameLookup([&context](const Uuid& id) {
@@ -69,10 +160,13 @@ void InspectorPanel::draw(EditorContext& context) {
         } else {
             const Entity entity = selection.front();
             drawEntityHeader(context, entity);
+            const PrefabView view = prefabViewOf(context.world(), entity);
+            drawPrefab(context, entity, view, submittedLines);
             for (const ComponentDescriptor* descriptor : context.components().components()) {
                 // The entity may be gone if one of the controls above deleted it.
-                if (context.world().isValid(entity) && descriptor->has(context.world().registry(), entity.handle)) {
-                    drawComponent(context, entity, *descriptor);
+                if (isShown(*descriptor) && context.world().isValid(entity) &&
+                    descriptor->has(context.world().registry(), entity.handle)) {
+                    drawComponent(context, entity, *descriptor, view, submittedLines);
                 }
             }
             if (context.world().isValid(entity)) {
@@ -119,15 +213,27 @@ void InspectorPanel::drawEntityHeader(EditorContext& context, Entity entity) {
     ImGui::Separator();
 }
 
-void InspectorPanel::drawComponent(EditorContext& context, Entity entity, const ComponentDescriptor& descriptor) {
+void InspectorPanel::drawComponent(EditorContext& context, Entity entity, const ComponentDescriptor& descriptor,
+                                   const PrefabView& view, std::vector<std::string>& submittedLines) {
     ImGui::PushID(descriptor.type.name().c_str());
+    const std::string& name = descriptor.type.name();
+    const UiPalette& palette = UiSystem::palette();
 
-    // Components every entity must have get no close button.
+    // Components every entity must have get no close button. One that was added to an
+    // instance of a prefab, which its prefab does not have, is in the color of prefabs.
     bool keep = true;
-    const bool open = sectionHeader(descriptor.type.name().c_str(), descriptor.traits.optional ? &keep : nullptr,
-                                    ImGuiTreeNodeFlags_DefaultOpen);
-    if (!descriptor.traits.description.empty()) {
-        ImGui::SetItemTooltip("%s", descriptor.traits.description.c_str());
+    const bool added = view.addedComponent(name);
+    if (added) {
+        ImGui::PushStyleColor(ImGuiCol_Text, palette.prefab);
+    }
+    const bool open =
+        sectionHeader(name.c_str(), descriptor.traits.optional ? &keep : nullptr, ImGuiTreeNodeFlags_DefaultOpen);
+    if (added) {
+        ImGui::PopStyleColor();
+    }
+    if (!descriptor.traits.description.empty() || added) {
+        ImGui::SetItemTooltip("%s%s", descriptor.traits.description.c_str(),
+                              added ? "\nAdded to this entity: its prefab does not have it." : "");
     }
 
     if (!keep) {
@@ -141,7 +247,27 @@ void InspectorPanel::drawComponent(EditorContext& context, Entity entity, const 
         void* instance = descriptor.get(context.world().registry(), entity.handle);
         for (const PropertyInfo& property : descriptor.type.properties()) {
             Json value = property.get(instance);
-            if (m_properties.draw(property, value)) {
+            // What an instance of a prefab keeps of its own is marked, with what can be done
+            // about it in the menu of its name.
+            PropertyEditor::LabelStyle label;
+            if (view.keepsProperty(name, property.name())) {
+                // Shared by the copies of the menu, which are made as it is handed on.
+                const auto entry = std::make_shared<const std::string>(
+                    added ? fmt::format("+{}", name) : fmt::format("{}.{}", name, property.name()));
+                label.color = palette.prefab;
+                label.note = added ? "Its own: the component was added to this entity."
+                                   : "Its own: the prefab's value does not reach it.";
+                const World& world = context.world();
+                label.menu = [&submittedLines, &world, entity, entry] {
+                    if (ImGui::MenuItem("Revert to the prefab")) {
+                        submittedLines.push_back(prefabCommandLine("prefab.revert", world, entity, *entry));
+                    }
+                    if (ImGui::MenuItem("Apply to the prefab")) {
+                        submittedLines.push_back(prefabCommandLine("prefab.apply", world, entity, *entry));
+                    }
+                };
+            }
+            if (m_properties.draw(property, value, label)) {
                 applyPropertyChange(context, entity, descriptor, instance, property, value);
             }
         }
@@ -161,7 +287,8 @@ void InspectorPanel::drawAddComponent(EditorContext& context, Entity entity) {
 
     bool anyAvailable = false;
     for (const ComponentDescriptor* descriptor : context.components().components()) {
-        if (!descriptor->traits.optional || descriptor->has(context.world().registry(), entity.handle)) {
+        if (!descriptor->traits.optional || !isShown(*descriptor) ||
+            descriptor->has(context.world().registry(), entity.handle)) {
             continue;
         }
         anyAvailable = true;

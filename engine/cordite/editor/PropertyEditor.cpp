@@ -130,14 +130,32 @@ std::string tooltipText(const PropertyInfo& property) {
     return text;
 }
 
-void drawLabel(const PropertyInfo& property) {
-    ImGui::AlignTextToFramePadding();
-    ImGui::TextUnformatted(property.name().c_str());
+/// The tooltip of the name and the menu of a right click on it, for the item just drawn: the
+/// name of a value, or the heading of an object or a list.
+void decorateLabel(const PropertyInfo& property, const PropertyEditor::LabelStyle& label) {
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayShort)) {
-        if (const std::string tooltip = tooltipText(property); !tooltip.empty()) {
+        std::string tooltip = tooltipText(property);
+        if (!label.note.empty()) {
+            tooltip += tooltip.empty() ? label.note : "\n" + label.note;
+        }
+        if (!tooltip.empty()) {
             ImGui::SetTooltip("%s", tooltip.c_str());
         }
     }
+    if (label.menu && ImGui::BeginPopupContextItem("label_menu")) {
+        label.menu();
+        ImGui::EndPopup();
+    }
+}
+
+void drawLabel(const PropertyInfo& property, const PropertyEditor::LabelStyle& label) {
+    ImGui::AlignTextToFramePadding();
+    if (label.color) {
+        ImGui::TextColored(*label.color, "%s", property.name().c_str());
+    } else {
+        ImGui::TextUnformatted(property.name().c_str());
+    }
+    decorateLabel(property, label);
 }
 
 bool drawNumber(const PropertyInfo& property, Json& value, bool isInteger) {
@@ -299,19 +317,19 @@ bool drawEnum(const PropertyInfo& property, Json& value) {
 
 } // namespace
 
-bool PropertyEditor::draw(const PropertyInfo& property, Json& value) {
+bool PropertyEditor::draw(const PropertyInfo& property, Json& value, const LabelStyle& label) {
     ImGui::PushID(property.name().c_str());
     ImGui::BeginDisabled(property.attributes().readOnly);
 
     bool changed = false;
     if (property.type() == PropertyType::Object) {
-        changed = drawObject(property, value);
+        changed = drawObject(property, value, label);
     } else if (property.type() == PropertyType::List) {
-        changed = drawList(property, value);
+        changed = drawList(property, value, label);
     } else {
         ImGui::TableNextRow();
         ImGui::TableNextColumn();
-        drawLabel(property);
+        drawLabel(property, label);
         ImGui::TableNextColumn();
         ImGui::SetNextItemWidth(-std::numeric_limits<float>::min());
         changed = drawValue(property.type(), property, value);
@@ -533,11 +551,18 @@ bool PropertyEditor::drawAssetReference(const PropertyInfo& property, const std:
     return changed;
 }
 
-bool PropertyEditor::drawObject(const PropertyInfo& property, Json& value) {
+bool PropertyEditor::drawObject(const PropertyInfo& property, Json& value, const LabelStyle& label) {
     ImGui::TableNextRow();
     ImGui::TableNextColumn();
+    if (label.color) {
+        ImGui::PushStyleColor(ImGuiCol_Text, *label.color);
+    }
     const bool open =
         ImGui::TreeNodeEx("##object", ImGuiTreeNodeFlags_DefaultOpen | kHeaderFlags, "%s", property.name().c_str());
+    if (label.color) {
+        ImGui::PopStyleColor();
+    }
+    decorateLabel(property, label);
     ImGui::TableNextColumn();
     if (!open) {
         return false;
@@ -556,11 +581,18 @@ bool PropertyEditor::drawObject(const PropertyInfo& property, Json& value) {
     return changed;
 }
 
-bool PropertyEditor::drawList(const PropertyInfo& property, Json& value) {
+bool PropertyEditor::drawList(const PropertyInfo& property, Json& value, const LabelStyle& label) {
     ImGui::TableNextRow();
     ImGui::TableNextColumn();
     const size_t count = value.is_array() ? value.size() : 0;
+    if (label.color) {
+        ImGui::PushStyleColor(ImGuiCol_Text, *label.color);
+    }
     const bool open = ImGui::TreeNodeEx("##list", kHeaderFlags, "%s (%zu)", property.name().c_str(), count);
+    if (label.color) {
+        ImGui::PopStyleColor();
+    }
+    decorateLabel(property, label);
     ImGui::TableNextColumn();
     if (!open) {
         return false;
