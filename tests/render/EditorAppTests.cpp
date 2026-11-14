@@ -127,6 +127,22 @@ TEST_SUITE("EditorApp") {
         checkNoValidationIssues(editor->engine().graphics());
     }
 
+    TEST_CASE("the editor showing what an instance of a prefab keeps of its own matches the reference image") {
+        EditorAppDesc desc = headlessDesc();
+        desc.project = showcaseProject();
+        const std::unique_ptr<EditorApp> editor = createEditorForPicture(desc);
+        // The left bollard of the pair: part of an instance of the pair, and a bollard inside
+        // that prefab. The inspector says so, lists what it keeps of its own - its friction,
+        // and its place, which is moved here and whose name is then in the color of prefabs -
+        // and offers to revert or apply it. Its link to the prefab has no section of its own.
+        run(*editor, "selection.set", R"({"entities": ["Stage/Bollard pair/Left"]})");
+        run(*editor, "component.set",
+            R"({"entity": "Stage/Bollard pair/Left", "component": "Transform", "properties": {"position": [-0.5, 0, 0]}})");
+        REQUIRE(editor->runFrames(4).has_value());
+        checkAgainstReference(unwrap(editor->engine().captureFrame()), "editor-prefab-1280x720");
+        checkNoValidationIssues(editor->engine().graphics());
+    }
+
     TEST_CASE("the editor showing the assets of the showcase matches the reference image") {
         EditorAppDesc desc = headlessDesc();
         desc.project = showcaseProject();

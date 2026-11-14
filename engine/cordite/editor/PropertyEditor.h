@@ -64,10 +64,23 @@ public:
         m_assetChoices = std::move(choices);
     }
 
+    /// How the name of a property is shown, beyond the name: for a value that is marked, such
+    /// as one that an instance of a prefab keeps of its own.
+    struct LabelStyle {
+        /// The color of the name; none for the text of the theme.
+        std::optional<ImVec4> color;
+        /// Said in the tooltip of the name, after what the property is.
+        std::string note;
+        /// What a right click on the name offers: draws the items of a popup menu. None for
+        /// no menu.
+        std::function<void()> menu;
+    };
+
     /// Draws a label and a widget for `property` on the current line of a two-column
     /// table and returns true when the user changed `value` this frame. `value` must be
-    /// what PropertyInfo::get returns for the property.
-    bool draw(const PropertyInfo& property, Json& value);
+    /// what PropertyInfo::get returns for the property. `label` is how its name is shown;
+    /// the members of an object are shown plainly.
+    bool draw(const PropertyInfo& property, Json& value, const LabelStyle& label = {});
 
     /// The name of the drag-and-drop payload that carries an entity: a Uuid. The
     /// hierarchy panel is its source; entity reference fields accept it.
@@ -85,8 +98,8 @@ private:
     bool drawReference(const PropertyInfo& property, Json& value);
     bool drawEntityReference(const std::optional<Uuid>& id, Json& value);
     bool drawAssetReference(const PropertyInfo& property, const std::optional<Uuid>& id, Json& value);
-    bool drawObject(const PropertyInfo& property, Json& value);
-    bool drawList(const PropertyInfo& property, Json& value);
+    bool drawObject(const PropertyInfo& property, Json& value, const LabelStyle& label);
+    bool drawList(const PropertyInfo& property, Json& value, const LabelStyle& label);
 
     /// The Euler angles last shown for a rotation, with the quaternion they stand for.
     struct RotationState {

@@ -59,6 +59,18 @@ through others, is refused, and the message names the files in the chain.
 `samples/showcase/assets/prefabs/bollard-pair.prefab.json` is a pair of bollards: two
 instances of the bollard prefab, the right one without its cap.
 
+## What you see
+
+In the **Hierarchy**, the entities of a placed prefab are drawn in blue. A `*` after a name
+means the entity keeps something of its own; a `+` means it was added to the placed copy and
+the prefab does not have it.
+
+Select one, and the **Inspector** says above its components what it is: the top entity of a
+placed prefab, part of one - and which prefab inside it, if any - or added to one. It lists
+what the entity keeps of its own and offers **Revert** and **Apply** for it, or for the whole
+placed copy on its top entity. The name of every value the entity keeps is blue; right-click
+it to revert or apply that value alone.
+
 One thing is not there yet: an entity of the prefab that you delete from a placed copy comes
 back the next time the copy is brought up to date. Switch it off instead.
 

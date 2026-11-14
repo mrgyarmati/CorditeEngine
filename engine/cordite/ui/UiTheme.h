@@ -73,6 +73,10 @@ struct UiPalette {
     /// The colors of a warning and of an error, as text on a panel.
     ImVec4 warning;
     ImVec4 error;
+    /// What is part of an instance of a prefab, as text on a panel and on a selected row:
+    /// the rows of the hierarchy that are, and the values of the inspector that an instance
+    /// keeps of its own.
+    ImVec4 prefab;
 };
 
 [[nodiscard]] const UiPalette& paletteOf(UiTheme theme);

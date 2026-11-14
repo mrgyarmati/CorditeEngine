@@ -1813,7 +1813,7 @@ void EditorApp::drawInterface() {
     }
     handleFrameShortcut();
     m_hierarchy.draw(*m_context);
-    m_inspector.draw(*m_context);
+    m_inspector.draw(*m_context, m_submittedLines);
     m_console.draw(m_submittedLines);
     // In a layout that was remembered before there was an Assets panel it has no place
     // of its own: there it goes where the console is, the first time it is seen.

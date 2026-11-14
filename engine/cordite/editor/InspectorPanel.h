@@ -9,7 +9,8 @@
 ///
 /// @code
 /// InspectorPanel inspector;
-/// inspector.draw(context);        // once per frame, between the interface's begin and end
+/// std::vector<std::string> submitted;
+/// inspector.draw(context, submitted);   // once per frame, between the interface's begin and end
 /// @endcode
 ///
 /// While a control is being dragged or typed into, the change is applied to the component
@@ -19,10 +20,12 @@
 #include "cordite/core/Json.h"
 #include "cordite/core/Uuid.h"
 #include "cordite/editor/EditorContext.h"
+#include "cordite/editor/PrefabLinks.h"
 #include "cordite/editor/PropertyEditor.h"
 
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace cordite {
 
@@ -32,12 +35,15 @@ public:
     /// tab shows (windowName() in UiWidgets.h).
     static constexpr const char* kWindowId = "###Inspector";
 
-    /// Draws the panel as its own window.
-    void draw(EditorContext& context);
+    /// Draws the panel as its own window. What is to be run between frames - the revert and
+    /// the apply of what an instance of a prefab keeps of its own (prefabCommandLine) - is
+    /// added to `submittedLines`; running it is up to the caller.
+    void draw(EditorContext& context, std::vector<std::string>& submittedLines);
 
 private:
     void drawEntityHeader(EditorContext& context, Entity entity);
-    void drawComponent(EditorContext& context, Entity entity, const ComponentDescriptor& descriptor);
+    void drawComponent(EditorContext& context, Entity entity, const ComponentDescriptor& descriptor,
+                       const PrefabView& view, std::vector<std::string>& submittedLines);
     void drawAddComponent(EditorContext& context, Entity entity);
 
     /// Applies a property the user just changed and remembers what the component looked
