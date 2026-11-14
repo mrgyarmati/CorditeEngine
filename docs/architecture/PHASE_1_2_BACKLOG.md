@@ -233,8 +233,8 @@ is overridden. Variants come in Phase 4, where the plan lists them.
   added ("+"); the inspector says what an entity is to a prefab, marks the values it keeps,
   and offers revert and apply - for the entity, the instance, or one value - as command
   lines run between frames. What the panels show is `prefabViewOf`, tested without a
-  window. Left for a ticket of its own: an entity of the prefab deleted from an instance
-  is no override, and comes back.
+  window. Left for a ticket of its own, P1-14: an entity of the prefab deleted from an
+  instance is no override, and comes back.
   1. **ADR and migration.** Replace "a prefab is copied where it is placed" with
      linked instances. Overrides are stored as property patches (the existing
      `PropertyPatch` fits), and added or removed children are recorded. Add
@@ -289,6 +289,25 @@ commit and reached its GPU suites.
   lavapipe does differently.
 - **Tests:** the cases themselves; `render_expected_failure_<n>` fails for a case that
   starts passing.
+
+### P1-14 An entity of a prefab deleted from an instance stays deleted - P1 - done 14 November
+
+Left over from P1-12: an entity of the prefab that was deleted from an instance was no
+override, and the next update of the instance made it again.
+
+- **Modules / files:** `world/Components.h` (`kDeletedEntityOverride`), `world/Prefab.cpp`,
+  `editor/EditorActions.cpp` (`deleteEntities`), `editor/PrefabLinks.*`
+  (`PrefabView::deletedEntities`, `describeOverrides`).
+- **Work:** the root of the instance lists the source of what was deleted
+  ("-entity:<source>"), noted in the step of the deletion; an update does not make it, nor
+  what hangs under it; revert makes it again where the prefab has it among its siblings;
+  apply takes it out of the prefab's file, or, when it is part of a prefab inside, lists it
+  as deleted on that one's root in the file. Undo of a step that changed one entity's
+  overrides more than once puts back what they were before all of it.
+- **Acceptance:** a deleted entity stays deleted through `asset.refresh`; revert and apply
+  work on it; inside a prefab inside, it stays deleted when the outer prefab is read.
+- **Tests:** world `PrefabTests` (sync, apply, the prefab inside), editor
+  `AssetCommandsTests` (delete, two in one step, refresh, revert, apply).
 
 ## Phase 2 - Runtime UI foundation
 

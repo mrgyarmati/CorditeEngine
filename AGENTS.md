@@ -931,8 +931,13 @@ Step-by-step guide for adding a component: [add-component](.claude/skills/add-co
   that follows from where it is (`Uuid::fromName`), so that reading a file twice gives the
   same entities. The editor reads through `currentPrefabEntities` (`editor/PrefabLinks.h`),
   scripts through the same function in `cordite.world.instantiate`. An entity of the prefab
-  that is deleted from an instance is no override yet: it comes back when the instance is
-  next brought up to date. **What the panels show of it is worked out without them**
+  that is deleted from an instance stays deleted: the root of the instance lists it by its
+  source (`kDeletedEntityOverride`, "-entity:..."), noted by `deleteEntities` in the step of
+  the deletion, and bringing the instance up to date does not make it again - an entity
+  that is made goes where the prefab has it among its siblings. Applied, it leaves the
+  prefab's file with what hangs under it; one that is part of a prefab inside is listed as
+  deleted on that one's root in the file instead, or reading the file would make it again.
+  **What the panels show of it is worked out without them**
   (`prefabViewOf`, `PrefabView`): whether an entity is the root of an instance, part of
   one - the root of a prefab inside it among those - or added to one, and what it keeps of
   its own. The hierarchy draws the rows of instances in the color of prefabs

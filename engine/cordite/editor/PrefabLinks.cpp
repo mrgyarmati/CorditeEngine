@@ -29,11 +29,30 @@ bool PrefabView::addedComponent(std::string_view component) const {
 std::vector<std::string> PrefabView::leftOut() const {
     std::vector<std::string> components;
     for (const std::string& entry : overrides) {
-        if (entry.starts_with('-')) {
+        if (entry.starts_with('-') && !entry.starts_with(kDeletedEntityOverride)) {
             components.push_back(entry.substr(1));
         }
     }
     return components;
+}
+
+size_t PrefabView::deletedEntities() const {
+    return static_cast<size_t>(std::ranges::count_if(
+        overrides, [](const std::string& entry) { return entry.starts_with(kDeletedEntityOverride); }));
+}
+
+std::string PrefabView::describeOverrides() const {
+    std::string text;
+    for (const std::string& entry : overrides) {
+        if (!entry.starts_with(kDeletedEntityOverride)) {
+            text += text.empty() ? entry : ", " + entry;
+        }
+    }
+    if (const size_t deleted = deletedEntities(); deleted > 0) {
+        const std::string count = fmt::format("{} deleted {}", deleted, deleted == 1 ? "entity" : "entities");
+        text += text.empty() ? count : ", " + count;
+    }
+    return text;
 }
 
 std::string_view prefabMarker(const PrefabView& view) {

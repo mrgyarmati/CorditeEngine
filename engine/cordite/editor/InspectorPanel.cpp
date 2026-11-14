@@ -92,11 +92,7 @@ void drawPrefab(EditorContext& context, Entity entity, const PrefabView& view,
         if (view.overrides.empty()) {
             ImGui::TextDisabled("It keeps nothing of its own.");
         } else {
-            std::string kept;
-            for (const std::string& entry : view.overrides) {
-                kept += kept.empty() ? entry : ", " + entry;
-            }
-            ImGui::TextWrapped("It keeps of its own: %s", kept.c_str());
+            ImGui::TextWrapped("It keeps of its own: %s", view.describeOverrides().c_str());
         }
         // From the root, the whole instance; from an entity of it, what that one keeps.
         const bool whole = view.role == PrefabView::Role::Root;

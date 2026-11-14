@@ -106,8 +106,15 @@ struct PrefabLinkComponent {
     /// got them: "Light.intensity" for a property; "+Light" for a component the prefab's
     /// entity does not have, "-Light" for one it has that this entity does not; "name" and
     /// "enabled". The Transform of the instance's root is always its own, and not listed.
+    /// The root of an instance also lists the entities of its prefab that were deleted from
+    /// it, by their source: "-entity:30000000-0000-4000-8000-000000000002"
+    /// (kDeletedEntityOverride) - an instance brought up to date does not make them again.
     std::vector<std::string> overrides;
 };
+
+/// What begins the override of an entity of a prefab deleted from an instance, which the
+/// root of the instance lists, followed by the entity's source.
+inline constexpr std::string_view kDeletedEntityOverride = "-entity:";
 
 /// Registers the components declared in this file. Other modules that add components
 /// provide a function like this one, and the engine calls them all at start-up. Fails

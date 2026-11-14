@@ -60,7 +60,8 @@ TypeInfo describePrefabLink() {
         .property("overrides", &PrefabLinkComponent::overrides,
                   {.description = "What of this entity keeps values of its own when the prefab changes: "
                                   "\"Light.intensity\", \"+Light\" (added here), \"-Light\" (removed here), "
-                                  "\"name\", \"enabled\"",
+                                  "\"name\", \"enabled\"; and on the root of an instance, \"-entity:\" and the "
+                                  "source of an entity of the prefab deleted from it",
                    .readOnly = true})
         .build();
 }

@@ -552,8 +552,10 @@ TEST_SUITE("Prefab") {
         for (const Entity child : world.children(copy)) {
             below.push_back(world.name(child));
         }
-        CHECK(below == std::vector<std::string>{"Front wheel", "Lantern", "Seat"});
-        const Entity made = world.children(copy).back();
+        // The seat goes where the prefab has it, after the front wheel; what was added stays
+        // after what the prefab has before it.
+        CHECK(below == std::vector<std::string>{"Front wheel", "Seat", "Lantern"});
+        const Entity made = descendant(world, copy, "Seat");
         CHECK(world.tryGet<PrefabLinkComponent>(made)->source == seat);
         REQUIRE(world.children(made).size() == 1);
         CHECK(world.tryGet<PrefabLinkComponent>(world.children(made).front())->source == cushion);
@@ -951,5 +953,103 @@ TEST_SUITE("Prefab") {
         CHECK(world.tryGet<Tether>(firstBack)->length == 5.0f);
         CHECK(world.tryGet<Tether>(descendant(world, placed, "Second/Back wheel"))->length == 4.0f);
         CHECK(world.tryGet<Tether>(descendant(world, placed, "Third/Back wheel"))->length == 9.0f);
+    }
+
+    TEST_CASE("an entity of the prefab deleted from an instance stays deleted, until that is taken back") {
+        Yard yard;
+        World& world = yard.world;
+        const Json entities = yard.cartEntities();
+        const Entity copy = unwrap(instantiatePrefab(world, yard.registry, entities, kCartPrefab));
+        const Entity back = descendant(world, copy, "Back wheel");
+        const std::string entry =
+            fmt::format("{}{}", kDeletedEntityOverride, world.tryGet<PrefabLinkComponent>(back)->source.toString());
+
+        // Deleted without its root knowing it, it is made again.
+        world.destroyEntity(back);
+        PrefabSync sync = unwrap(syncPrefabInstance(world, yard.registry, copy, entities));
+        CHECK(sync.entitiesCreated == 1);
+        CHECK(outlineOf(world, copy) == std::vector<std::string>{"Cart", ".Front wheel", ".Back wheel"});
+
+        // The root keeps it: it is not.
+        world.destroyEntity(descendant(world, copy, "Back wheel"));
+        world.tryGet<PrefabLinkComponent>(copy)->overrides = {entry};
+        sync = unwrap(syncPrefabInstance(world, yard.registry, copy, entities));
+        CHECK_FALSE(sync.changed());
+        CHECK(outlineOf(world, copy) == std::vector<std::string>{"Cart", ".Front wheel"});
+
+        // Taken back, it is again.
+        world.tryGet<PrefabLinkComponent>(copy)->overrides.clear();
+        sync = unwrap(syncPrefabInstance(world, yard.registry, copy, entities));
+        CHECK(sync.entitiesCreated == 1);
+        CHECK(outlineOf(world, copy) == std::vector<std::string>{"Cart", ".Front wheel", ".Back wheel"});
+    }
+
+    TEST_CASE("an entity deleted from an instance is applied by taking it out of the prefab") {
+        Yard yard;
+        World& world = yard.world;
+        const Json entities = yard.cartEntities();
+        const Entity copy = unwrap(instantiatePrefab(world, yard.registry, entities, kCartPrefab));
+        const Entity back = descendant(world, copy, "Back wheel");
+        const Uuid source = world.tryGet<PrefabLinkComponent>(back)->source;
+        world.destroyEntity(back);
+        const std::string entry = fmt::format("{}{}", kDeletedEntityOverride, source.toString());
+        world.tryGet<PrefabLinkComponent>(copy)->overrides = {entry};
+
+        const PrefabApply apply{.entity = copy, .entry = entry};
+        const Json applied = unwrap(prefabEntitiesWithOverrides(world, yard.registry, copy, entities, apply));
+        CHECK(applied.size() == entities.size() - 1);
+        for (const Json& entity : applied) {
+            CHECK(entity["id"] != source.toString());
+        }
+        markPrefabApplied(world, copy, apply);
+        CHECK(world.tryGet<PrefabLinkComponent>(copy)->overrides.empty());
+        CHECK_FALSE(unwrap(syncPrefabInstance(world, yard.registry, copy, applied)).changed());
+    }
+
+    TEST_CASE("an entity of a prefab inside deleted from an instance stays deleted when the outer prefab is read") {
+        Train train;
+        World& world = train.yard.world;
+        const Json trainFile = unwrap(train.resolved(kTrainPrefab));
+        const Entity placed = unwrap(instantiatePrefab(world, train.yard.registry, trainFile, kTrainPrefab));
+        // The first cart loses its front wheel - and what hangs under it, would it have anything.
+        const Entity front = descendant(world, placed, "First/Front wheel");
+        const std::string entry =
+            fmt::format("{}{}", kDeletedEntityOverride, world.tryGet<PrefabLinkComponent>(front)->source.toString());
+        world.destroyEntity(front);
+        world.tryGet<PrefabLinkComponent>(placed)->overrides = {entry};
+
+        const Json applied =
+            unwrap(prefabEntitiesWithOverrides(world, train.yard.registry, placed, trainFile, {.entity = placed}));
+        CHECK(applied.size() == trainFile.size() - 1);
+        // The first cart in the train's file keeps that its front wheel was deleted, against
+        // the cart prefab - by the wheel's id in that one.
+        const std::string cartFront = world.id(train.yard.front).toString();
+        size_t kept = 0;
+        for (const Json& entity : applied) {
+            if (entity["name"] == "First") {
+                CHECK(entity["components"]["PrefabLink"]["overrides"] ==
+                      Json::array({fmt::format("{}{}", kDeletedEntityOverride, cartFront)}));
+                ++kept;
+            }
+        }
+        CHECK(kept == 1);
+        markPrefabApplied(world, placed, {.entity = placed});
+
+        // Read again - the cart prefab brought up to date in it - the wheel is not back, in the
+        // file or in the instance; the second cart still has its own.
+        train.files[kTrainPrefab] = applied;
+        const Json again = unwrap(train.resolved(kTrainPrefab));
+        CHECK(again.size() == applied.size());
+        // Nothing is made or taken away. The back wheel of the first cart is tied to the wheel
+        // that is gone, which no copy stands for any more: the one value that changes, from one
+        // reference to nothing to another.
+        const PrefabSync sync = unwrap(syncPrefabInstance(world, train.yard.registry, placed, again));
+        CHECK(sync.entitiesCreated == 0);
+        CHECK(sync.entitiesDestroyed == 0);
+        CHECK(sync.componentsAdded == 0);
+        CHECK(sync.componentsRemoved == 0);
+        CHECK(sync.valuesChanged == 1);
+        CHECK(outlineOf(world, placed) ==
+              std::vector<std::string>{"Train", ".First", "..Back wheel", ".Second", "..Front wheel", "..Back wheel"});
     }
 }
