@@ -19,6 +19,7 @@
 *the editor playing the showcase matches the reference image*
 *the editor in the light theme matches the reference image*
 *the showcase as a game shows it matches the reference image*
+*the editor showing what an instance of a prefab keeps of its own*
 *the pattern matches its reference image*
 *the built-in shapes under the default lighting match the reference image*
 
