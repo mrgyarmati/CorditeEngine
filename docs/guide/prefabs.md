@@ -71,8 +71,9 @@ what the entity keeps of its own and offers **Revert** and **Apply** for it, or 
 placed copy on its top entity. The name of every value the entity keeps is blue; right-click
 it to revert or apply that value alone.
 
-One thing is not there yet: an entity of the prefab that you delete from a placed copy comes
-back the next time the copy is brought up to date. Switch it off instead.
+An entity of the prefab that you delete from a placed copy stays deleted: the top entity of the
+copy keeps that, and lists it as a deleted entity. Revert it to have the entity back where the
+prefab has it, or apply it to take the entity out of the prefab.
 
 A scene still saves every entity in full. It opens even when a prefab is missing - the editor
 says so in the console - and a game plays it as it was saved: save the scene after a prefab

@@ -69,6 +69,13 @@ struct PrefabView {
     [[nodiscard]] bool addedComponent(std::string_view component) const;
     /// The components the prefab's entity has that the entity leaves out ("-Light").
     [[nodiscard]] std::vector<std::string> leftOut() const;
+    /// How many entities of its prefab were deleted from the instance: what the root of one
+    /// keeps of its own (kDeletedEntityOverride).
+    [[nodiscard]] size_t deletedEntities() const;
+    /// What the entity keeps of its own, for a person to read: the overrides as they are
+    /// listed, but the entities deleted from the instance counted instead of named by id -
+    /// "Light.intensity, name, 2 deleted entities". Empty for nothing.
+    [[nodiscard]] std::string describeOverrides() const;
 };
 
 /// What the hierarchy writes after the name of an entity of an instance: "+" for one added

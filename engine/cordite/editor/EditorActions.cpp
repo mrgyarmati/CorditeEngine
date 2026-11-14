@@ -368,7 +368,9 @@ UndoEntry withOverrideChanges(EditorContext& context, UndoEntry entry, std::vect
     const auto shared = std::make_shared<const std::vector<OverrideChange>>(std::move(changes));
     entry.undo = [target, shared, undo = std::move(entry.undo)]() -> Status {
         CORDITE_TRY(undo());
-        for (const OverrideChange& change : *shared) {
+        // The last first: one entity's overrides may have changed more than once, and the
+        // first change knows what they were before all of them.
+        for (const OverrideChange& change : std::views::reverse(*shared)) {
             CORDITE_TRY(setOverrides(*target, change.id, change.before));
         }
         return {};
@@ -512,17 +514,33 @@ Status EditorActions::deleteEntities(std::span<const Entity> entities) {
     Json snapshot = serializeEntities(world, roots, m_context.components());
     std::vector<Placement> placements = placementsOf(world, roots);
     std::vector<Uuid> ids = idsOf(world, roots);
+    // An entity of an instance of a prefab that is deleted stays deleted: the root of the
+    // instance keeps that, or bringing it up to date would make the entity again.
+    std::vector<OverrideChange> overrides;
+    for (const Entity deleted : roots) {
+        const Entity instance = prefabInstanceRootOf(world, deleted);
+        if (instance.isNull() || instance == deleted) {
+            continue;
+        }
+        const std::string entry =
+            fmt::format("{}{}", kDeletedEntityOverride, world.tryGet<PrefabLinkComponent>(deleted)->source.toString());
+        noteOverrides(
+            world, instance, [&entry](std::vector<std::string>& entries) { addOverride(entries, entry); }, overrides);
+    }
     for (const Entity root : roots) {
         world.destroyEntity(root);
     }
 
     EditorContext* context = &m_context;
-    m_context.history().push({
-        .label = std::move(label),
-        .undo = [context, snapshot = std::move(snapshot),
-                 placements = std::move(placements)] { return restoreEntities(*context, snapshot, placements); },
-        .redo = [context, ids = std::move(ids)] { return destroyEntities(*context, ids); },
-    });
+    m_context.history().push(withOverrideChanges(
+        m_context,
+        {
+            .label = std::move(label),
+            .undo = [context, snapshot = std::move(snapshot),
+                     placements = std::move(placements)] { return restoreEntities(*context, snapshot, placements); },
+            .redo = [context, ids = std::move(ids)] { return destroyEntities(*context, ids); },
+        },
+        std::move(overrides)));
     return {};
 }
 

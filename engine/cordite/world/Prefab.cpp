@@ -168,6 +168,68 @@ void noteInFileLink(Json& target, const std::string& entry) {
     }
 }
 
+/// The value of a member of an entity's component in a prefab's file, as text; empty when
+/// there is none.
+std::string fileMember(const Json& entity, std::string_view component, std::string_view member) {
+    const auto held = entity.find("components");
+    if (held == entity.end() || !held->is_object()) {
+        return {};
+    }
+    const auto found = held->find(component);
+    if (found == held->end() || !found->is_object()) {
+        return {};
+    }
+    return jsonGetOr<std::string>(*found, member, "");
+}
+
+/// Takes the entity of `source` out of a prefab's `entities`, with what hangs under it. When
+/// it is part of a prefab placed inside - its file keeps its link to that one - the root of
+/// that prefab in the file keeps that it was deleted, or reading the file would bring it back
+/// from there. Nothing for a source the file does not have.
+void removeFromPrefab(Json& entities, const Uuid& source) {
+    std::unordered_map<std::string, size_t> places;
+    for (size_t index = 0; index < entities.size(); ++index) {
+        places.emplace(jsonGetOr<std::string>(entities[index], "id", ""), index);
+    }
+    const auto found = places.find(source.toString());
+    if (found == places.end()) {
+        return;
+    }
+    const Json& entity = entities[found->second];
+    const std::string inner = fileMember(entity, PrefabLinkComponent::kName, "prefab");
+    const bool nestedRoot = !inner.empty() && fileMember(entity, PrefabInstanceComponent::kName, "prefab") == inner;
+    if (!inner.empty() && !nestedRoot) {
+        const std::string deletedEntry =
+            std::string(kDeletedEntityOverride) + fileMember(entity, PrefabLinkComponent::kName, "source");
+        // The nearest above it that is the root of the prefab its link names.
+        for (auto above = jsonGetOr<std::string>(entity, "parent", ""); !above.empty();) {
+            const auto parent = places.find(above);
+            if (parent == places.end()) {
+                break;
+            }
+            Json& holder = entities[parent->second];
+            if (fileMember(holder, PrefabInstanceComponent::kName, "prefab") == inner &&
+                fileMember(holder, PrefabLinkComponent::kName, "prefab") == inner) {
+                noteInFileLink(holder, deletedEntry);
+                break;
+            }
+            above = jsonGetOr<std::string>(holder, "parent", "");
+        }
+    }
+    // What hangs under it follows it in the file: a parent comes before its children.
+    std::unordered_set<std::string> removed = {source.toString()};
+    Json kept = Json::array();
+    for (Json& candidate : entities) {
+        const auto parent = jsonGetOr<std::string>(candidate, "parent", "");
+        if (removed.contains(jsonGetOr<std::string>(candidate, "id", "")) || removed.contains(parent)) {
+            removed.insert(jsonGetOr<std::string>(candidate, "id", ""));
+            continue;
+        }
+        kept.push_back(std::move(candidate));
+    }
+    entities = std::move(kept);
+}
+
 /// The entities of the instance under `root`, by their source: the root and whatever hangs
 /// under it that is linked to its prefab - the entities of a prefab inside it included,
 /// which are its prefab's too, and not those of an instance of another prefab placed in it.
@@ -211,9 +273,27 @@ void destroyWhatThePrefabLost(World& world, const std::vector<PrefabEntity>& pre
     std::erase_if(linked, [&world](const auto& entry) { return !world.isValid(entry.second); });
 }
 
+/// The sources of the entities of its prefab that were deleted from the instance whose root
+/// is `root`, as its link lists them (kDeletedEntityOverride).
+std::unordered_set<Uuid> deletedSources(const World& world, Entity root) {
+    std::unordered_set<Uuid> deleted;
+    if (const auto* link = world.tryGet<PrefabLinkComponent>(root)) {
+        for (const std::string& entry : link->overrides) {
+            if (!entry.starts_with(kDeletedEntityOverride)) {
+                continue;
+            }
+            if (const std::optional<Uuid> source = Uuid::parse(entry.substr(kDeletedEntityOverride.size()))) {
+                deleted.insert(*source);
+            }
+        }
+    }
+    return deleted;
+}
+
 /// Makes the entities the prefab gained, parents before what hangs under them, linked and
 /// without components yet - so that every entity of the prefab has one in the instance that
-/// a reference can be led to. Returns the sources of those that were made.
+/// a reference can be led to. Returns the sources of those that were made. What was deleted
+/// from the instance is not made again, nor what hangs under it.
 ///
 /// The id of what is made follows from the root of the instance and the source, so that an
 /// instance brought up to date twice the same way - a prefab inside a prefab, which is
@@ -223,10 +303,12 @@ Result<std::unordered_set<Uuid>> createWhatThePrefabGained(World& world, Entity 
                                                            std::unordered_map<Uuid, Entity>& linked, PrefabSync& sync) {
     const Uuid prefabId = prefabOf(world, root);
     const Uuid rootId = world.id(root);
+    const std::unordered_set<Uuid> deleted = deletedSources(world, root);
     std::unordered_set<Uuid> made;
-    for (const PrefabEntity& entity : prefab) {
+    for (size_t index = 0; index < prefab.size(); ++index) {
+        const PrefabEntity& entity = prefab[index];
         const auto parent = linked.find(entity.parent);
-        if (linked.contains(entity.source) || parent == linked.end()) {
+        if (linked.contains(entity.source) || parent == linked.end() || deleted.contains(entity.source)) {
             continue;
         }
         // Taken when a copy of the instance was made with the ids it has - pasted into the
@@ -236,6 +318,19 @@ Result<std::unordered_set<Uuid>> createWhatThePrefabGained(World& world, Entity 
         const Entity created = derived ? *derived : world.createEntity(entity.name);
         world.setEnabled(created, entity.enabled);
         CORDITE_TRY(world.setParent(created, parent->second, false));
+        // Where the prefab has it among its siblings: right after the last of those before it
+        // that the instance has, or first.
+        size_t place = 0;
+        for (size_t before = index; before-- > 0;) {
+            if (prefab[before].parent != entity.parent) {
+                continue;
+            }
+            if (const auto sibling = linked.find(prefab[before].source); sibling != linked.end()) {
+                place = world.siblingIndex(sibling->second) + 1;
+                break;
+            }
+        }
+        world.setSiblingIndex(created, place);
         world.add<PrefabLinkComponent>(created) = PrefabLinkComponent{.prefab = prefabId, .source = entity.source};
         linked.emplace(entity.source, created);
         made.insert(entity.source);
@@ -521,6 +616,8 @@ Result<Json> prefabEntitiesWithOverrides(const World& world, const ComponentRegi
     }
 
     Json result = entities;
+    // The entities of the prefab deleted from the instance, taken out of it last.
+    std::vector<Uuid> deleted;
     for (const auto& [entity, entries] : scope.entries) {
         const auto place = places.find(world.tryGet<PrefabLinkComponent>(entity)->source);
         if (place == places.end()) {
@@ -528,6 +625,12 @@ Result<Json> prefabEntitiesWithOverrides(const World& world, const ComponentRegi
             continue;
         }
         for (const std::string& entry : entries) {
+            if (entry.starts_with(kDeletedEntityOverride)) {
+                if (const std::optional<Uuid> source = Uuid::parse(entry.substr(kDeletedEntityOverride.size()))) {
+                    deleted.push_back(*source);
+                }
+                continue;
+            }
             CORDITE_TRY(applyEntry(world, components, entity, entity == root, entry, sources, result[place->second]));
             // What the prefab holds of a prefab inside it is that one's own now.
             noteInFileLink(result[place->second], entry);
@@ -549,6 +652,9 @@ Result<Json> prefabEntitiesWithOverrides(const World& world, const ComponentRegi
             }
             result.push_back(std::move(entity));
         }
+    }
+    for (const Uuid& source : deleted) {
+        removeFromPrefab(result, source);
     }
     // What is written must be a prefab, as bringing an instance up to date reads one.
     CORDITE_TRY(readPrefabEntities(components, result));

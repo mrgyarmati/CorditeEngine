@@ -580,9 +580,16 @@ the file becomes - the values of the overrides, references led back from the cop
 prefab's entities, and, for the whole instance, the entities added to it with the ids they
 have, which `markPrefabApplied` then links them to. The editor writes the file, reads the
 assets again and brings every instance of the prefab up to date, and records what changed in
-the scene as one step: the file, as with `prefab.create`, is no part of the document. An
-entity of the prefab that is deleted from an instance is not an override yet - the next
-update brings it back.
+the scene as one step: the file, as with `prefab.create`, is no part of the document.
+
+An entity of the prefab that is deleted from an instance stays deleted (P1-14). The deleted
+entity has nothing left to keep that on, so the root of its instance does, by the entity's
+source - which is also all that bringing the instance up to date needs to know not to make
+it again, nor what hung under it. An entity that is made again, when that is reverted, goes
+where the prefab has it among its siblings, not after them. Applied, the entity leaves the
+prefab's file; one that is part of a prefab inside it is listed as deleted on that prefab's
+root in the file instead, against that prefab - taken out of the file alone, it would be
+made again whenever the file is read.
 
 Nesting (slice 4) needed one more thing a link says: which prefab its source is in
 (`PrefabLink::prefab`). With the source alone, the entities of a prefab placed inside an

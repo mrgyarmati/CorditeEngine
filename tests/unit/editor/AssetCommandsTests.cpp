@@ -1260,6 +1260,51 @@ TEST_SUITE("AssetCommands") {
         CHECK(viewOf("Second/Axle").overrides.empty());
     }
 
+    TEST_CASE("an entity of a prefab deleted from an instance stays deleted, and is reverted or applied") {
+        AssetFixture fixture;
+        fixture.run("asset.instantiate", R"({"asset": "models/cart.gltf"})");
+        fixture.run("prefab.create", R"({"entity": "cart", "path": "prefabs/cart.prefab.json"})");
+        fixture.run("asset.instantiate", R"({"asset": "prefabs/cart.prefab.json", "name": "Second"})");
+        const auto rootView = [&] { return prefabViewOf(fixture.world, fixture.world.findByName("Second")); };
+        const std::vector<std::string> placed = fixture.outline();
+
+        // Deleted: the root keeps it, in the step of the deletion, and reading the assets again
+        // does not make it again.
+        fixture.run("entity.delete", R"({"entities": ["Second/Body/Wheel"]})");
+        CHECK(rootView().deletedEntities() == 1);
+        CHECK(rootView().describeOverrides() == "1 deleted entity");
+        CHECK(rootView().leftOut().empty());
+        CHECK(fixture.run("asset.refresh")["prefabInstancesUpdated"] == 0);
+        CHECK(fixture.outline() ==
+              std::vector<std::string>{"cart", ".Body", "..Wheel", "..Mirror", "Second", ".Body", "..Mirror"});
+        fixture.run("editor.undo");
+        CHECK(fixture.outline() == placed);
+        CHECK(rootView().overrides.empty());
+
+        // Two in one step, and undone whole.
+        fixture.run("entity.delete", R"({"entities": ["Second/Body/Wheel", "Second/Body/Mirror"]})");
+        CHECK(rootView().deletedEntities() == 2);
+        CHECK(rootView().describeOverrides() == "2 deleted entities");
+        fixture.run("editor.undo");
+        CHECK(fixture.outline() == placed);
+        CHECK(rootView().overrides.empty());
+
+        // Reverted, it is back.
+        fixture.run("entity.delete", R"({"entities": ["Second/Body/Wheel"]})");
+        const std::string entry = rootView().overrides.front();
+        fixture.run("prefab.revert", fmt::format(R"({{"entity": "Second", "override": "{}"}})", entry));
+        CHECK(fixture.outline() == placed);
+        CHECK(rootView().overrides.empty());
+
+        // Applied, the prefab has it no more, and neither has the other instance.
+        fixture.run("entity.delete", R"({"entities": ["Second/Body/Mirror"]})");
+        fixture.run("prefab.apply", R"({"entity": "Second"})");
+        CHECK(fixture.outline() == std::vector<std::string>{"cart", ".Body", "..Wheel", "Second", ".Body", "..Wheel"});
+        CHECK(fixture.run("asset.get", R"({"asset": "prefabs/cart.prefab.json"})")["content"]["entities"] ==
+              json(R"(["cart", "Body", "Wheel"])"));
+        CHECK(rootView().overrides.empty());
+    }
+
     TEST_CASE("a prefab is not made to hold itself, and nothing is written") {
         AssetFixture fixture;
         fixture.run("entity.create", R"({"name": "Box"})");
